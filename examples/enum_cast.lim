@@ -5,4 +5,4 @@
 
 (#fn main () #u64
   (#let selected Color Color.Green)
-  (#return (#u64::add-wrap (#call discriminant (: value selected)) 41)))
+  (#return (#u64::add-wrap (#call discriminant ((value selected))) 41)))

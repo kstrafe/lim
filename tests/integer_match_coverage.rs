@@ -3,7 +3,7 @@ mod support;
 use std::{process::Command, time::Duration};
 
 fn source(ty: &str, arms: &str) -> String {
-    format!("(#fn classify (: value #{ty}) #u64 (#return (#match value {arms})))")
+    format!("(#fn classify ((value #{ty})) #u64 (#return (#match value {arms})))")
 }
 
 fn check(source: &str) -> Result<(), String> {
@@ -137,7 +137,7 @@ fn exhaustive_matches_dispatch_all_u8_values_and_full_width_boundaries() {
     program.push_str("(#fn main () #u64");
     for value in 0..=255 {
         program.push_str(&format!(
-            "(#assert (#u64::eq (#call classify (: value {value}u8)) {}u64))",
+            "(#assert (#u64::eq (#call classify ((value {value}u8))) {}u64))",
             usize::from(value >= 128)
         ));
     }
@@ -153,7 +153,7 @@ fn exhaustive_matches_dispatch_all_u8_values_and_full_width_boundaries() {
             "170141183460469231731687303715884105727",
         ),
     ] {
-        let program = format!("{} (#fn main () #u64 (#assert (#u64::eq (#call classify (: value {minimum}{ty})) 42u64)) (#return (#call classify (: value {maximum}{ty}))))", source(ty, &format!("(#case (#range {minimum}{ty} {maximum}{ty}) 42u64)")));
+        let program = format!("{} (#fn main () #u64 (#assert (#u64::eq (#call classify ((value {minimum}{ty}))) 42u64)) (#return (#call classify ((value {maximum}{ty})))))", source(ty, &format!("(#case (#range {minimum}{ty} {maximum}{ty}) 42u64)")));
         run(&program);
     }
     run("(#fn main () #u64 (#return (#match true (#case true (#when false) 0u64) (#case true 42u64) (#case false 1u64))))");

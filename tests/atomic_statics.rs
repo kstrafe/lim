@@ -4,11 +4,11 @@ use std::{process::Command, time::Duration};
 
 const SOURCE: &str = r#"
 (#type Counter (#atomic #u32))
-(#struct Nested () (: padding #u64 : counters (#array Counter 2)))
-(#enum State () (: State.Empty : State.Active (#atomic #u16)))
+(#struct Nested () ((padding #u64) (counters (#array Counter 2))))
+(#enum State () ((State.Empty) (State.Active (#atomic #u16))))
 (#static total (#atomic #u64) (#atomic-init #u64 0u64))
-(#static counts Nested (#struct-literal Nested (: padding 99u64
-  : counters (#array-of (#array Counter 2) (#atomic-init #u32 3u32) (#atomic-init #u32 5u32)))))
+(#static counts Nested (#struct-literal Nested ((padding 99u64)
+  (counters (#array-of (#array Counter 2) (#atomic-init #u32 3u32) (#atomic-init #u32 5u32))))))
 (#static current State (State.Active (#atomic-init #u16 7u16)))
 (#static small (#atomic #i8) (#atomic-init #i8 -1i8))
 (#static readOnly #u64 17u64)
@@ -67,7 +67,7 @@ fn constant_atomic_statics_and_nested_fields_use_writable_native_storage() {
 #[test]
 fn atomic_static_initializer_still_rejects_runtime_calls() {
     let source = "(#fn calculate () #u64 (#return 1u64))
-      (#static total (#atomic #u64) (#atomic-init #u64 (#call calculate (:))))
+      (#static total (#atomic #u64) (#atomic-init #u64 (#call calculate ())))
       (#fn main () #u64 (#return 42u64))";
     let scratch = support::Scratch::new("atomic-static-nonconstant");
     let error = lim::compile_source_to_assembly(
@@ -80,5 +80,5 @@ fn atomic_static_initializer_still_rejects_runtime_calls() {
     .expect_err("static initialization must be constant");
     assert_eq!(error.code, lim::DiagnosticCode::Codegen, "{error:?}");
     let span = error.span.unwrap();
-    assert_eq!(&source[span.start..span.end], "(#call calculate (:))");
+    assert_eq!(&source[span.start..span.end], "(#call calculate ())");
 }

@@ -87,7 +87,7 @@ fn duplicate_nested_invocations_keep_both_wrapper_origins() {
 
 #[test]
 fn builtin_output_and_its_wrappers_have_checked_origins() {
-    let source = "(#gn wrap () `((#generate #optional (: type #u64 : name Maybe))))
+    let source = "(#gn wrap () `((#generate #optional ((type #u64) (name Maybe)))))
       (#generate wrap)
       (#require-generated Maybe #optional (Maybe.Some Maybe.None Maybe::construct))
       (#require-generated Maybe wrap (Maybe.Some Maybe.None))

@@ -9,14 +9,14 @@
 (#fn Resource::destroy ((counter (#ref Counter)) (value Resource)) ()
   (#let (Resource owned) Resource value)
   (#let cell (#ref CellU64) (#borrow (#get counter total)))
-  (#call CellU64::set (: cell (#clone cell) : value (#u64::add-wrap (#call CellU64::get (: cell cell)) 1u64)))
+  (#call CellU64::set ((cell (#clone cell)) (value (#u64::add-wrap (#call CellU64::get ((cell cell))) 1u64))))
   (#forget owned)
   (#return ()))
 
 (#fn Bundle::destroy ((counter (#ref Counter)) (value Bundle)) ()
   (#let (Bundle left right) Bundle value)
-  (#call Resource::destroy (: counter (#clone counter) : value left))
-  (#call Resource::destroy (: counter (#clone counter) : value right))
+  (#call Resource::destroy ((counter (#clone counter)) (value left)))
+  (#call Resource::destroy ((counter (#clone counter)) (value right)))
   (#return ()))
 
 (#fn make-bundle () Bundle
@@ -30,12 +30,12 @@
 
 (#fn main () #u64
   (#let-mut counter Counter (#struct-literal Counter ((total
-    (#call CellU64::create (: value 0u64))))))
-  (#let bundle Bundle (#call make-bundle (:)))
-  (#let moved Bundle (#call pass-through (: value bundle)))
-  (#call Bundle::destroy (: counter (#borrow counter) : value moved))
+    (#call CellU64::create ((value 0u64)))))))
+  (#let bundle Bundle (#call make-bundle ()))
+  (#let moved Bundle (#call pass-through ((value bundle))))
+  (#call Bundle::destroy ((counter (#borrow counter)) (value moved)))
   (#let counter-ref (#ref Counter) (#borrow counter))
-  (#let destroyed #u64 (#call CellU64::get (: cell (#borrow (#get counter-ref total)))))
+  (#let destroyed #u64 (#call CellU64::get ((cell (#borrow (#get counter-ref total))))))
   (#drop counter-ref)
   (#forget counter)
   (#return destroyed))

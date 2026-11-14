@@ -4,4 +4,4 @@
   (#return value))
 
 (#fn main () #u64
-  (#return (#deref (#call identity (: value (#borrow answer))))))
+  (#return (#deref (#call identity ((value (#borrow answer)))))))

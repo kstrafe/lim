@@ -5,7 +5,7 @@
 (#fn main () #u64
   (#let-mut object Object
     (#struct-literal Object
-      (: marker 7u64 : position (#struct-literal Position (: x 1u64 : y 2u64)))))
+      ((marker 7u64) (position (#struct-literal Position ((x 1u64) (y 2u64)))))))
   (#let y (#ref-mut #u64) (#borrow-mut (#get (#get object position) y)))
   (#deref-set y 42u64)
   (#let result #u64 (#deref y))

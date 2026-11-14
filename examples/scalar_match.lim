@@ -24,6 +24,6 @@
   #u64
   (
     #return
-    (#call classify (: value 1))
+    (#call classify ((value 1)))
   )
 )

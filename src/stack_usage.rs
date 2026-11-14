@@ -702,7 +702,7 @@ mod tests {
             include_str!("../examples/large_aggregate_parameters.lim"),
             include_str!("../examples/aggregate_loop_conditional.lim"),
             include_str!("../examples/nested_loop_break_scope.lim"),
-            "(#fn leaf () #u64 (#return 7u64)) (#fn main () #u64 (#return (#if true (#call leaf (:)) 2u64)) (#return 3u64))",
+            "(#fn leaf () #u64 (#return 7u64)) (#fn main () #u64 (#return (#if true (#call leaf ()) 2u64)) (#return 3u64))",
         ] {
             let program = crate::parse_program(source).unwrap();
             let assembly = crate::generate_assembly(&program).unwrap();

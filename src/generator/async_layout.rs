@@ -141,7 +141,7 @@ mod tests {
         let child = Type::Named("Child::Task".into());
         assert!(!planning.linear_types().contains_reference(&child));
         planning
-            .install_generated_layouts("(#struct Child::Task (#linear) (: view (#ref #u64))) ")
+            .install_generated_layouts("(#struct Child::Task (#linear) ((view (#ref #u64)))) ")
             .unwrap();
         assert_eq!(planning.declarations.aggregate_id(&tick), Some(id));
         assert_eq!(planning.program.items.len(), count);

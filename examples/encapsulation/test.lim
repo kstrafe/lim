@@ -5,7 +5,7 @@
 
 
 (#fn main () #u64
-  (#let counter Counter (#struct-literal Counter (: value 42u64)))
+  (#let counter Counter (#struct-literal Counter ((value 42u64))))
   (#let answer #u64 (#get counter value))
-  (#call counter-destroy (: counter counter))
+  (#call counter-destroy ((counter counter)))
   (#return answer))

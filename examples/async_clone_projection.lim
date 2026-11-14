@@ -1,14 +1,14 @@
 // Clone a reference-bearing field of a computed owning temporary, then suspend.
 // The cloned Holder retains the caller's loan after its Envelope is consumed.
-(#struct Holder (#linear) (: reference (#ref #u64)))
+(#struct Holder (#linear) ((reference (#ref #u64))))
 
-(#struct Envelope () (: item Holder))
-(#fn make-envelope (: reference (#ref #u64)) Envelope
-  (#return (#struct-literal Envelope (: item (#struct-literal Holder (: reference reference))))))
+(#struct Envelope () ((item Holder)))
+(#fn make-envelope ((reference (#ref #u64))) Envelope
+  (#return (#struct-literal Envelope ((item (#struct-literal Holder ((reference reference))))))))
 (#enum Step (#linear) (Step.Start Step.Resume))
 
 (#enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ())))
-(#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return
     (#match task
       (#case Step.Start
@@ -17,23 +17,23 @@
         (StepPoll.Ready ())))))
 (#generate
   #async-fn
-  (: protocol WorkAwait : waker #u64 : function
-  (#fn work (: owner (#ref #u64)) #u64
+  ((protocol WorkAwait) (waker #u64) (function
+  (#fn work ((owner (#ref #u64))) #u64
     (#let holder Holder
-      (#clone (#get (#call make-envelope (: reference owner)) item)))
+      (#clone (#get (#call make-envelope ((reference owner))) item)))
     (#let ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
     (#let result #u64 (#deref (#get holder reference)))
     (#forget holder)
-    (#return result))))
+    (#return result)))))
 (#fn main () #u64
   (#let owner #u64 42u64)
   (#let waker #u64 0u64)
   (#let
     first
     Work::Poll
-    (#call Work::poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+    (#call Work::poll ((task (#call work ((owner (#borrow owner))))) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
-  (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+  (#let second Work::Poll (#call Work::poll ((task pending) (waker (#borrow waker)))))
   (#return
     (#match second
       (#case (Work::Poll.Ready result)

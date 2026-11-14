@@ -30,13 +30,13 @@ fn enum_match_destinations_preserve_checked_nested_expressions() {
           (#fn make ((choose {ty})) E
             (#return (#match (#clone choose)
               (#case {yes} (E.Value (#match (#u64::eq 1u64 1u64)
-                (#case true (#call answer (: value 42u64))) (#case false 0u64))))
+                (#case true (#call answer ((value 42u64)))) (#case false 0u64))))
               (#case {no} (E.Value 0u64)))))
           (#fn main () #u64
             (#let subject {ty} {subject})
             (#let-mut value E (E.Value 0u64))
             (#set value (#match (#clone subject)
-              (#case {yes} (#call make (: choose (#clone subject))))
+              (#case {yes} (#call make ((choose (#clone subject)))))
               (#case {no} (E.Value 0u64))))
             (#return (#get-payload value E.Value 0)))"
         );

@@ -78,7 +78,7 @@ fn computed_receiver_is_evaluated_once() {
         (#let-mut counter #u64 0u64)
         (#let value Choice (Choice.Yes 42u64))
         (#let result #bool (#variant-is
-          (#call counted (: counter (#borrow-mut counter) : value (#borrow value))) Choice.Yes))
+          (#call counted ((counter (#borrow-mut counter)) (value (#borrow value)))) Choice.Yes))
         (#return (#if (#bool::and result (#u64::eq counter 1u64)) 42u64 0u64)))";
     check(source).unwrap();
     assert_eq!(run(source).code(), Some(42));
@@ -91,7 +91,7 @@ fn builtin_sigils_do_not_reserve_the_unprefixed_function_name() {
       (#fn main () #u64
         (#let value Choice Choice.Ready)
         (#assert (#variant-is (#borrow value) Choice.Ready))
-        (#return (#call variant-is (: number 42u64))))";
+        (#return (#call variant-is ((number 42u64)))))";
     check(source).unwrap();
     assert_eq!(run(source).code(), Some(42));
 }
@@ -145,7 +145,7 @@ fn exclusive_handles_in_fields_and_computed_blocks_remain_usable() {
       (#type Alias Choice)
       (#fn main () #u64
         (#let-mut value Choice (Choice.Number 42u64))
-        (#let holder Holder (#struct-literal Holder (: view (#borrow-mut value))))
+        (#let holder Holder (#struct-literal Holder ((view (#borrow-mut value)))))
         (#assert (#variant-is (#get holder view) Choice.Number))
         (#assert (#variant-is (#get holder view) Choice.Number))
         (#forget holder)

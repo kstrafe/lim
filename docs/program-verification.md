@@ -52,7 +52,7 @@ and promise another through `#ensures`, audited in instrumented execution.
 This is contract-directed code, not a separate proof kernel or tactic engine.
 
 Scalar comparisons can use ordinary named calls, for example
-`(#call #usize::lt (: left index : right 4usize))`. The compiler generates the
+`(#call #usize::lt ((left index) (right 4usize)))`. The compiler generates the
 typed intrinsic signature and lowers it to the same operation and fact identity
 as `(#usize::lt index 4usize)`. This spelling change introduces no new inference.
 

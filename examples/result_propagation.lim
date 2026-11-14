@@ -1,15 +1,15 @@
-(#generate #result (: ok #u64 : error #u32 : name Input))
-(#generate #result (: ok #bool : error #u32 : name Output))
+(#generate #result ((ok #u64) (error #u32) (name Input)))
+(#generate #result ((ok #bool) (error #u32) (name Output)))
 
-(#fn convert (: value Input) Output
+(#fn convert ((value Input)) Output
   (#let-else (Input.Ok number) Input
     value
     (#else (Input.Err error)
       (#return (#call Output::err (($ error))))))
-  (#return (#call Output::ok (: value (#u64::eq number 42u64)))))
+  (#return (#call Output::ok ((value (#u64::eq number 42u64))))))
 
 (#fn main () #u64
-  (#let result Output (#call convert (: value (#call Input::err (: error 42u32)))))
+  (#let result Output (#call convert ((value (#call Input::err ((error 42u32)))))))
   (#return
     (#match result
       (#case (Output.Ok yes)

@@ -7,4 +7,4 @@
   (#return total))
 
 (#fn main () #u64
-  (#return (#call sum (: n 10))))
+  (#return (#call sum ((n 10)))))

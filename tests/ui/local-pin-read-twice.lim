@@ -1,7 +1,7 @@
-(#struct Resource (#linear) (: number #u64))
+(#struct Resource (#linear) ((number #u64)))
 
 (#fn main () ()
-  (#let-mut owner Resource (#struct-literal Resource (: number 1u64)))
+  (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
   (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
   (#let first Resource (#unsafe (#pin-read target)))
   (#forget first)

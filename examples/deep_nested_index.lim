@@ -7,9 +7,9 @@
   (#return (#unsafe values)))
 
 (#fn main () #u64
-  (#let local-values (#array (#array #u64 7) 2) (#call make (:)))
+  (#let local-values (#array (#array #u64 7) 2) (#call make ()))
   (#let local-item (#array #u64 7) (#index local-values 1u64))
-  (#let returned-item (#array #u64 7) (#index (#call make (:)) 1u64))
+  (#let returned-item (#array #u64 7) (#index (#call make ()) 1u64))
   (#let static-item (#array #u64 7) (#index (#unsafe values) 1u64))
   (#return (#u64::add-wrap
     (#index local-item 6u64)

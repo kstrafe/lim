@@ -256,7 +256,7 @@ fn aggregate_call_abi<'a>(
 fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
     let program = crate::parse_program(
         "(#fn actual () #u64 (#return 42u64))
-         (#fn main () #u64 (#return (#call actual (:))))",
+         (#fn main () #u64 (#return (#call actual ())))",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
@@ -305,7 +305,7 @@ fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
          (#fn actual () Large
            (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64)))))
          (#fn main () #u64
-           (#let value Large (#call actual (:)))
+           (#let value Large (#call actual ()))
            (#return (#get value c)))",
     )
     .unwrap();
@@ -5793,7 +5793,7 @@ fn validate_checked_call_result(
 fn checked_scalar_arguments_require_retained_types() {
     let program = crate::parse_program(
         "(#fn take ((value #u64)) #u64 (#return value))
-         (#fn main () #u64 (#return (#call take (: value 42u64))))",
+         (#fn main () #u64 (#return (#call take ((value 42u64)))))",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
@@ -5967,7 +5967,7 @@ fn checked_calls_require_retained_function_identity() {
     assert_eq!(checked_call_identity(Some(&node), false).unwrap(), None);
     let program = crate::parse_program(
         "(#fn value () #u64 (#return 42u64))
-         (#fn main () #u64 (#return (#call value (:))))",
+         (#fn main () #u64 (#return (#call value ())))",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();

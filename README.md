@@ -10,7 +10,7 @@ static ELF writer; supported programs can be tested with `qemu-aarch64` in the
 Nix shell. See [AArch64 coverage and testing](docs/aarch64-testing.md).
 
 Lim uses concrete generated code instead of user-facing generic types. A
-generator invocation such as `(#generate #optional (: type #u64 : name MaybeU64))` emits a concrete type
+generator invocation such as `(#generate #optional ((type #u64) (name MaybeU64)))` emits a concrete type
 and its functions. Generators are pure, interpreted at compile time, and use
 the restricted `#gn-*` operation set.
 
@@ -32,7 +32,7 @@ in [the semantic contracts](docs/semantic-contracts.md).
 Predicate contracts, constrained types and their current limits are described in
 [the program verification checklist](docs/program-verification.md).
 Scalar intrinsics accept ordinary named calls such as
-`(#call #usize::lt (: left index : right bound))`. Generated fixed-array APIs
+`(#call #usize::lt ((left index) (right bound)))`. Generated fixed-array APIs
 expose explicit bounds contracts; see [generated_array.lim](examples/generated_array.lim)
 and the [array API reference](docs/language.md#fixed-array-apis).
 The [surface notation](docs/language.md#surface-notation) adds named records,

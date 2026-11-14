@@ -56,8 +56,8 @@ fn aliases_and_references_resolve_field_identity_to_its_owner() {
         (#let item LeftAlias (#struct-literal Left ((value 42u64))))
         (#let right Right (#struct-literal Right ((value 1u64))))
         (#return (#u64::add-wrap
-          (#call read (: item (#borrow item)))
-          (#call read-right (: item (#borrow right))))))";
+          (#call read ((item (#borrow item))))
+          (#call read-right ((item (#borrow right)))))))";
     let dump = checked_dump(source);
     assert!(
         dump.contains("Declaration(Field(FieldId { owner: AggregateId(0), index: 0 }))"),
@@ -222,10 +222,10 @@ fn scoped_statement_destinations_do_not_alias_same_spelled_initializer_patterns(
           (#let second #u64 (#block (#let-mut value (#tuple #u64 #u64)
             (#tuple (#tuple #u64 #u64) 20u64 9u64)) (#set-field value 0 21u64) (#get value 0)))
           (#return (#u64::add-wrap first second)))",
-        "(#struct Pair () (: first #u64 : second #u64))
+        "(#struct Pair () ((first #u64) (second #u64)))
           (#fn main () #u64
             (#let first #u64 (#block (#let-mut value Pair
-              (#struct-literal Pair (: first 20u64 : second 9u64)))
+              (#struct-literal Pair ((first 20u64) (second 9u64))))
               (#set-field value first 21u64) (#get value first)))
             (#let second #u64 (#block (#let-mut value #u128 20u128) (#set value 21u128) (#as value #u64)))
             (#return (#u64::add-wrap first second)))",
@@ -266,7 +266,7 @@ fn imported_static_access_retains_its_imported_source_location() {
     let scratch = support::Scratch::new("imported-static-unsafe");
     let module = "(#static tOTAL #u64 40u64)\n(#fn read () #u64 (#return tOTAL))";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let root = "(#alias read = ./module.lim::read)\n(#fn main () #u64 (#return (#call read (:))))";
+    let root = "(#alias read = ./module.lim::read)\n(#fn main () #u64 (#return (#call read ())))";
     let error = lim::compile_source_to_assembly(
         root,
         &scratch.path().join("main.lim"),
@@ -297,7 +297,7 @@ fn generated_static_access_still_requires_unsafe() {
     let source =
         "(#gn make (name) `((#static tOTAL #u64 1u64) (#fn ,name () #u64 (#return tOTAL))))\n\
       (#generate make read)\n\
-      (#fn main () #u64 (#return (#call read (:))))";
+      (#fn main () #u64 (#return (#call read ())))";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("generated-static.lim"),
@@ -332,7 +332,7 @@ fn imported_declaration_nodes_retain_source_spans_and_deterministic_ids() {
       (#fn imported () #u64\n\
         (#return (#u64::add-wrap (#get (#struct-literal Record ((value 40u64))) value) (#unsafe bASE))))";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let root = "(#alias imported = ./module.lim::imported)\n(#fn main () #u64 (#return (#call imported (:))))";
+    let root = "(#alias imported = ./module.lim::imported)\n(#fn main () #u64 (#return (#call imported ())))";
     let path = scratch.path().join("main.lim");
     let parse_dump = || {
         let program = lim::parse_program_from_path(root, &path).expect("parse imported source");

@@ -41,7 +41,7 @@ impl Recipe {
 
     fn call_address(&self, name: &str, owner: &str, address: &str) -> String {
         format!(
-            "(#call {name} (: {} {owner} : {} {address}))",
+            "(#call {name} (({} {owner}) ({} {address})))",
             self.owner, self.address
         )
     }
@@ -199,7 +199,7 @@ impl Recipes {
                             projected = next;
                         }
                         recipes.declarations.push(format!(
-                            "(#fn {name} (: {}) {} {} (#return {projected}))",
+                            "(#fn {name} (({})) {} {} (#return {projected}))",
                             signature.join(" : "),
                             crate::type_source(&reference(target_type(
                                 &place,
@@ -312,8 +312,8 @@ impl Recipes {
                     let stride = fresh("array-anchor-stride");
                     let delta = fresh("array-anchor-delta");
                     let prefix = format!(
-                        "(#let {base} #usize (#call {prototype} (: {owner} {owner} : {sample} 0usize)))
-                         (#let {next} #usize (#call {prototype} (: {owner} {owner} : {sample} 1usize)))
+                        "(#let {base} #usize (#call {prototype} (({owner} {owner}) ({sample} 0usize))))
+                         (#let {next} #usize (#call {prototype} (({owner} {owner}) ({sample} 1usize))))
                          (#let {descending} #bool (#usize::lt {next} {base}))
                          (#let {stride} #usize (#if {descending} (#usize::sub-wrap {base} {next}) (#usize::sub-wrap {next} {base})))
                          (#let {delta} #usize (#if {descending} (#usize::sub-wrap {base} {address}) (#usize::sub-wrap {address} {base})))");
@@ -326,12 +326,12 @@ impl Recipes {
                     (prefix, index_value, probe_value)
                 };
                 recipes.declarations.push(format!(
-                    "(#fn {prototype} (: {owner} {input} : {sample} #usize) #usize
+                    "(#fn {prototype} (({owner} {input}) ({sample} #usize)) #usize
                       {}\n(#return (#ptr-address (#ref-ptr {prototype_reference}))))
-                    (#fn {index} (: {owner} {input} : {address} #usize) #usize
+                    (#fn {index} (({owner} {input}) ({address} #usize)) #usize
                       {prefix}
                       (#return {index_value}))
-                    (#fn {probe} (: {owner} {input} : {address} #usize) #bool
+                    (#fn {probe} (({owner} {input}) ({address} #usize)) #bool
                       {prefix}
                       (#return {probe_value}))",
                     prototype_steps.join("\n")
@@ -371,7 +371,7 @@ impl Recipes {
                 .map(|(position, name)| format!("{name} {}", indices[position])),
         );
         Some(format!(
-            "(#call {} (: {}))",
+            "(#call {} (({})))",
             projection.name,
             arguments.join(" : ")
         ))

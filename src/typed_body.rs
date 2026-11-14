@@ -304,7 +304,7 @@ mod tests {
     fn colliding_calls_keep_declaration_identity_and_reject_builtin_head_drift() {
         let source = "(#fn u64-add-wrap ((left #u64) (right #u64)) #u64 (#return left))
           (#fn main () #u64 (#return (#u64::add-wrap
-            (#call u64-add-wrap (: right 99u64 : left 42u64)) 0u64)))";
+            (#call u64-add-wrap ((right 99u64) (left 42u64))) 0u64)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
@@ -369,7 +369,7 @@ mod tests {
     fn nodes_keep_contextual_types_numeric_modes_and_reordered_call_spans() {
         let source =
             "(#fn add ((left #u32) (right #u32)) #u32 (#return (#u32::add-saturate left right)))
-          (#fn main () #u32 (#let x #u32 40) (#return (#call add (: right 2 : left x))))";
+          (#fn main () #u32 (#let x #u32 40) (#return (#call add ((right 2) (left x)))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -427,7 +427,7 @@ mod tests {
     fn generated_function_body_nodes_retain_generated_source_spans() {
         let source = "(#gn make (name) `((#fn ,name () #u64 (#return 5u64))))
           (#generate make generated)
-          (#fn main () #u64 (#return (#call generated (:))))";
+          (#fn main () #u64 (#return (#call generated ())))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["generated"];
@@ -467,7 +467,7 @@ mod tests {
     fn call_argument_order_is_separate_from_parameter_order() {
         let source = "(#fn combine ((first #u64) (second #u64) (third #u64)) #u64 (#return first))
           (#fn main () #u64
-            (#return (#call combine (: third 3u64 : first 1u64 : second 2u64))))";
+            (#return (#call combine ((third 3u64) (first 1u64) (second 2u64)))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -500,7 +500,7 @@ mod tests {
     fn call_without_arguments_has_empty_written_order() {
         let program = crate::parse_program(
             "(#fn value () #u64 (#return 42u64))
-             (#fn main () #u64 (#return (#call value (:))))",
+             (#fn main () #u64 (#return (#call value ())))",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -542,7 +542,7 @@ mod tests {
         let source = "(#fn increment ((value #u32)) #u32 (#return (#u32::add-wrap value 1u32)))\n\
           (#fn main () #u32\n\
             (#let value #u32 40)\n\
-            (#return (#call increment (: value (#u32::add-wrap value 2)))))";
+            (#return (#call increment ((value (#u32::add-wrap value 2))))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let function = program

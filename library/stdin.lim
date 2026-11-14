@@ -32,7 +32,7 @@
   (#let-mut result StdReadResult StdReadResult.StdEndOfInput)
   (#let-mut finished #bool false)
   (#while (#bool::eq finished false)
-    (#let first-result StdReadCharResult (#call std-read-one-char (:)))
+    (#let first-result StdReadCharResult (#call std-read-one-char ()))
     (#match first-result
       (#case StdReadCharResult.StdReadCharEof
         (#block
@@ -60,7 +60,7 @@
               (#bool::or (#bool::and (#u8::ge first 128u8) (#u8::lt first 194u8))
                 (#u8::gt first 244u8)))
             (#while (#bool::and (#usize::lt got width) (#bool::eq bad false))
-              (#let continuation-result StdReadCharResult (#call std-read-one-char (:)))
+              (#let continuation-result StdReadCharResult (#call std-read-one-char ()))
               (#match continuation-result
                 (#case (StdReadCharResult.StdReadChar continuation)
                   (#if (#bool::or (#u8::lt continuation 128u8) (#u8::gt continuation 191u8))
@@ -97,7 +97,7 @@
                     (#set finished true)
                     ())
                   (#match (#call String::push-char
-                    (: string string : value (#as code #char)))
+                    ((string string) (value (#as code #char))))
                     (#case StringStatus.StringOk (#block (#set appended (#usize::add-wrap appended width)) ()))
                     (#case (StringStatus.StringErr error)
                       (#block

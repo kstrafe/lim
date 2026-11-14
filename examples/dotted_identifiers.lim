@@ -2,4 +2,4 @@
   (#return 41u64))
 
 (#fn main () #u64
-  (#return (#u64::add-wrap (#call Math::add-one (:)) 1u64)))
+  (#return (#u64::add-wrap (#call Math::add-one ()) 1u64)))

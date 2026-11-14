@@ -9,21 +9,21 @@ fn source(functions: usize) -> String {
     let mut source = String::from(
         "(#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
       (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
-      (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
           (#case (Child.Resume value) (ChildPoll.Ready value)))))\n",
     );
     for index in 0..128 {
         source.push_str(&format!(
-            "(#struct Record{index} () (: x #u64 : y #u64 : z #u64))\n"
+            "(#struct Record{index} () ((x #u64) (y #u64) (z #u64)))\n"
         ));
     }
     for index in 0..functions {
         source.push_str(&format!(
-            "(#generate #async-fn (: protocol Work{index}Await : waker #u64
-          : function (#fn work{index} (: seed #u64) #u64
-            (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed))))))\n"
+            "(#generate #async-fn ((protocol Work{index}Await) (waker #u64)
+          (function (#fn work{index} ((seed #u64)) #u64
+            (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed)))))))\n"
         ));
     }
     source.push_str("(#fn main () #u64 (#return 42u64))");

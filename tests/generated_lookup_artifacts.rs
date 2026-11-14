@@ -21,8 +21,8 @@ fn compile(source: &str, entry: &Path, config: &lim::CompileConfig) {
 fn async_lookup_reuses_the_native_compilations_exact_generated_file() {
     let scratch = support::Scratch::new("lookup-native-async");
     let entry = scratch.path().join("main.lim");
-    let source = "(#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-      : function (#fn work (: amount #u64) #u64 (#return amount))))
+    let source = "(#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+      (function (#fn work ((amount #u64)) #u64 (#return amount)))))
       (#fn main () #u64 (#return 0u64))";
     fs::write(&entry, source).unwrap();
     let config = lim::CompileConfig::default();
@@ -76,7 +76,7 @@ fn external_import_lookup_uses_the_prefixed_artifact_from_native_compilation() {
     let scratch = support::Scratch::new("lookup-native-external");
     let entry = scratch.path().join("main.lim");
     let module = scratch.path().join("module.lim");
-    let imported = "(#generate #optional (: type #u64 : name Value))\n";
+    let imported = "(#generate #optional ((type #u64) (name Value)))\n";
     fs::write(&module, imported).unwrap();
     let source = "(#alias Ext@Value = ./module.lim::Value)\n(#fn main () #u64 (#return 0u64))";
     fs::write(&entry, source).unwrap();

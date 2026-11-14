@@ -55,7 +55,7 @@ fn explicitly_proven_index_executes_and_omits_bounds_traps() {
       (#fn main () #u64
         (#let values (#array #u64 4) (#array (#array #u64 4) 1u64 42u64 3u64 4u64))
         (#let index #usize 1usize) (#assume (#usize::lt index 4usize))
-        (#return (#call read (: values (#borrow values) : index index))))"#;
+        (#return (#call read ((values (#borrow values)) (index index)))))"#;
     let proven = assembly(source);
     let checked = assembly(&source.replace("#index-proven", "#index"));
     assert!(proven.matches("brk").count() < checked.matches("brk").count());
@@ -104,8 +104,8 @@ fn scalar_register_stack_boundaries_and_nested_calls_execute() {
       (f #u64) (g #u64) (h #u64) (i #u64) (j #u64)) #u64
       (#return (#u64::add-wrap (#u64::add-wrap a i) j)))
       (#fn add ((left #u64) (right #u64)) #u64 (#return (#u64::add-wrap left right)))
-      (#fn main () #u64 (#return (#call sum (: j (#call add (: left 10u64 : right 12u64))
-        : i 19u64 : a 1u64 : b 2u64 : c 3u64 : d 4u64 : e 5u64 : f 6u64 : g 7u64 : h 8u64))))",
+      (#fn main () #u64 (#return (#call sum ((j (#call add ((left 10u64) (right 12u64))))
+        (i 19u64) (a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 7u64) (h 8u64)))))",
         42,
     );
 }
@@ -119,7 +119,7 @@ fn aggregates_functions_mutation_and_pattern_bindings_execute() {
          (items (#array-of (#array #u64 6) 1u64 2u64 3u64 4u64 5u64 6u64))))))
       (#fn pass ((value Value)) Value (#return value))
       (#fn main () #u64
-        (#let-mut value Value (#call pass (: value (#call make (: n 40u64)))))
+        (#let-mut value Value (#call pass ((value (#call make ((n 40u64)))))))
         (#let (#tuple left right) (#tuple #u64 #u64) (#get value pair))
         (#set-field value tag (#u64::add-wrap left right))
         (#assert (#u64::eq (#index (#get value items) 5usize) 6u64))
@@ -143,14 +143,14 @@ fn references_exclusive_moves_and_aggregate_reference_returns_execute() {
         "(#struct Views () ((value (#ref #u64))))
       (#fn lend ((owner (#ref #u64))) Views (#return (#struct-literal Views ((value owner)))))
       (#fn main () #u64 (#let owner #u64 42u64)
-        (#let views Views (#call lend (: owner (#borrow owner))))
+        (#let views Views (#call lend ((owner (#borrow owner)))))
         (#return (#deref (#get views value))))",
         42,
     );
     returns("(#struct Pair () ((left #u64) (right #u64)))
       (#fn replace ((target (#ref-mut Pair)) (value Pair)) () (#deref-set target value) (#return ()))
       (#fn main () #u64 (#let-mut owner Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
-        (#call replace (: target (#borrow-mut owner) : value (#struct-literal Pair ((left 40u64) (right 2u64)))))
+        (#call replace ((target (#borrow-mut owner)) (value (#struct-literal Pair ((left 40u64) (right 2u64))))))
         (#return (#u64::add-wrap (#get owner left) (#get owner right))))",42);
 }
 
@@ -163,7 +163,7 @@ fn enum_match_let_else_guards_and_loop_values_execute() {
           (#case (Maybe.Some _) 0u64) (#case Maybe.None 0u64))))
       (#fn main () #u64
         (#let-else (Maybe.Some n) Maybe (Maybe.Some 42u64) (#return 0u64))
-        (#return (#call choose (: value (Maybe.Some n)))))",
+        (#return (#call choose ((value (Maybe.Some n))))))",
         42,
     );
     returns(

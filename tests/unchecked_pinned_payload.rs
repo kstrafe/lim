@@ -3,10 +3,10 @@ mod support;
 use lim::{CompileConfig, DiagnosticCode, TargetDescription};
 
 const SOURCE: &str = "
-(#struct Pair () (: left #u64 : right #u64))
+(#struct Pair () ((left #u64) (right #u64)))
 (#enum Slot () ((Slot.Empty) (Slot.Full Pair)))
 (#fn main () #u64
-  (#let-mut slot Slot (Slot.Full (#struct-literal Pair (: left 39u64 : right 2u64))))
+  (#let-mut slot Slot (Slot.Full (#struct-literal Pair ((left 39u64) (right 2u64)))))
   (#let pinned (#pin-ref-mut Slot) (#pin-borrow-mut slot))
   (#let payload (#pin-ref-mut Pair)
     (#unsafe (#pin-get-payload-unchecked-mut pinned Slot.Full)))
@@ -61,11 +61,11 @@ fn run_without_tag_guard(source: &str) {
 fn unchecked_projection_preserves_heap_layout_without_a_tag_guard() {
     let source = SOURCE
         .replace(
-            "(#let-mut slot Slot (Slot.Full (#struct-literal Pair (: left 39u64 : right 2u64))))",
+            "(#let-mut slot Slot (Slot.Full (#struct-literal Pair ((left 39u64) (right 2u64)))))",
             "(#let pointer (#ptr-mut Slot) (#unsafe (#linux-syscall (#ptr-mut Slot) 9usize
             (0usize (#size-of Slot) 3usize 34usize -1i64 0usize))))
          (#let-mut slot (#pin-own Slot) (#unsafe (#pin-own-of pointer
-            (Slot.Full (#struct-literal Pair (: left 39u64 : right 2u64))))))",
+            (Slot.Full (#struct-literal Pair ((left 39u64) (right 2u64)))))))",
         )
         .replace("(#pin-borrow-mut slot)", "(#pin-own-borrow-mut slot)")
         .replace(
@@ -131,10 +131,10 @@ fn unchecked_projection_still_checks_payload_types_and_lifetimes() {
         assert!(diagnostic.message.contains(message), "{diagnostic:?}");
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
     }
-    let source = "(#struct Pair () (: left #u64 : right #u64))
+    let source = "(#struct Pair () ((left #u64) (right #u64)))
       (#enum Slot () ((Slot.Empty) (Slot.Full Pair)))
       (#fn bad () (#pin-ref Pair)
-        (#let-mut slot Slot (Slot.Full (#struct-literal Pair (: left 1u64 : right 2u64))))
+        (#let-mut slot Slot (Slot.Full (#struct-literal Pair ((left 1u64) (right 2u64)))))
         (#let pinned (#pin-ref Slot) (#pin-borrow slot))
         (#return (#unsafe (#pin-get-payload-unchecked pinned Slot.Full))))";
     let diagnostic = compile(source).unwrap_err();

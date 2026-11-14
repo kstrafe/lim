@@ -12,7 +12,7 @@
          (,mode ,(#gn-get options payload)))
        ,(#gn-variant (#gn-get options name) "None")))
     (#fn ,(#gn-symbol-append (#gn-get options name) "project")
-      (: source (,mode ,(#gn-get options enum)))
+      ((source (,mode ,(#gn-get options enum))))
       ,(#gn-get options name)
       (#return (#match source
         (,case (,(#gn-get options variant) ,projected)

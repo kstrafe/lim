@@ -523,7 +523,7 @@ impl Builder<'_> {
         let next = self.fresh("next");
         let value = self.fresh("value");
         let call_head = if unsafe_call { "#unsafe-call" } else { "#call" };
-        let call = format!("({call_head} {poll_name} (: task task : waker waker))");
+        let call = format!("({call_head} {poll_name} ((task task) (waker waker)))");
         let call = if unsafe_call {
             format!("(#unsafe {call})")
         } else {
@@ -1229,8 +1229,8 @@ mod tests {
         let (base, _, lowered) = prepare(
             &context,
             "(#fn work () #u64 (#return (#call combine
-               (: second (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 2u64))
-                : first (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))))))",
+               ((second (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 2u64)))
+                (first (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))))))",
         );
         let program = lowered.program(&base).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1416,8 +1416,8 @@ mod tests {
     fn compiled_async_retains_original_tree_without_emitting_analysis_helpers() {
         let source = format!(
             "{CONTEXT}
-          (#generate #async-fn (: protocol work-await : waker #u64 : function (#fn work () #u64
-              (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))))))"
+          (#generate #async-fn ((protocol work-await) (waker #u64) (function (#fn work () #u64
+              (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))))))"
         );
         let program = crate::parse_program(&source).unwrap();
         let witnesses = program
@@ -1548,8 +1548,8 @@ mod tests {
             "(#fn work () #u64
               (#let owner #u64 40u64)
               (#return (#call combine
-                (: value (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))
-                 : held (#call make-held (: view (#borrow owner)))))))",
+                ((value (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
+                 (held (#call make-held ((view (#borrow owner)))))))))",
         );
         let program = lowered.program(&base).unwrap();
         let mut checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1661,7 +1661,7 @@ mod tests {
                 "(#let-mut frame",
                 "(#let external-storage #u64 40u64)\n  (#let-mut frame",
             )
-            .replace(": seed 40u64", ": seed (#borrow external-storage)");
+            .replace("(seed 40u64)", "(seed (#borrow external-storage))");
         crate::CheckedProgram::validate(&parse(&external).unwrap()).unwrap();
         // On the graph route a value parameter occupies stationary frame
         // storage too; borrowing it is legal, unlike a block-local escape.

@@ -68,7 +68,7 @@ fn pending_cannot_export_a_handle_to_consumed_storage() {
     // Restoring the same stationary referent before returning permits the
     // handle to escape. This must not ban all reference-bearing results.
     let restored = source.replace("(#return (PendingResult.Pending item))",
-        "(#unsafe (#pin-write item (#struct-literal Token (: value 2u64)))) (#return (PendingResult.Pending item))");
+        "(#unsafe (#pin-write item (#struct-literal Token ((value 2u64))))) (#return (PendingResult.Pending item))");
     compile(&restored, "pinned-restored-handle-pending").unwrap();
 }
 
@@ -79,16 +79,16 @@ fn retained_pinned_field_restores_across_calls_without_relocation() {
     for (name, replacement, offending) in [
         (
             "reborrow-empty-pinned-field",
-            "(#call restore-item (: item (#pin-borrow-mut (#get owner item))))",
+            "(#call restore-item ((item (#pin-borrow-mut (#get owner item)))))",
             "(#pin-borrow-mut (#get owner item))",
         ),
         (
             "read-unrestored-pinned-owner",
             "()",
-            "(#call inspect (: target whole))",
+            "(#call inspect ((target whole)))",
         ),
     ] {
-        let mut invalid = source.replace("(#call restore-item (: item item))", replacement);
+        let mut invalid = source.replace("(#call restore-item ((item item)))", replacement);
         if name == "reborrow-empty-pinned-field" {
             // End the first call-duration field borrow before trying the new
             // one, so this tests initialization rather than overlapping loans.
@@ -98,8 +98,8 @@ fn retained_pinned_field_restores_across_calls_without_relocation() {
                     "",
                 )
                 .replace(
-                    "(#call consume-item (: item item))",
-                    "(#call consume-item (: item (#pin-borrow-mut (#get owner item))))",
+                    "(#call consume-item ((item item)))",
+                    "(#call consume-item ((item (#pin-borrow-mut (#get owner item)))))",
                 )
                 .replace("(#forget item)", "");
         }
@@ -121,8 +121,8 @@ fn retained_pinned_field_restores_across_calls_without_relocation() {
             "{diagnostic:?}"
         );
     }
-    let invalid = source.replace("(#call consume-item (: item item))",
-        "(#let excluded (#pin-ref-mut #u64) (#pin-borrow-mut (#get owner kept))) (#forget excluded) (#call consume-item (: item item))");
+    let invalid = source.replace("(#call consume-item ((item item)))",
+        "(#let excluded (#pin-ref-mut #u64) (#pin-borrow-mut (#get owner kept))) (#forget excluded) (#call consume-item ((item item)))");
     let diagnostic = compile(&invalid, "mutate-pinned-shared-sibling").unwrap_err();
     assert_eq!(diagnostic.code, DiagnosticCode::Borrow, "{diagnostic:?}");
     let span = diagnostic.span.unwrap();
@@ -237,11 +237,11 @@ fn rejects_adversarial_borrow_violations_at_the_conflicting_operation() {
         },
         Violation {
             name: "two-overlapping-call-arguments",
-            source: "(#fn inspect (: left (#ref-mut #u64) : right (#ref #u64)) ()
+            source: "(#fn inspect ((left (#ref-mut #u64)) (right (#ref #u64))) ()
                 (#forget left) (#drop right) (#return ()))
               (#fn main () ()
                 (#let-mut owner #u64 1u64)
-                (#call inspect (: left (#borrow-mut owner) : right (#borrow owner)))
+                (#call inspect ((left (#borrow-mut owner)) (right (#borrow owner))))
                 (#return ()))",
             conflict: "(#borrow owner)",
             conflict_occurrence: 0,
@@ -249,9 +249,9 @@ fn rejects_adversarial_borrow_violations_at_the_conflicting_operation() {
         },
         Violation {
             name: "parent-access-during-child-reborrow",
-            source: "(#struct Pair () (: left #u64 : right #u64))
+            source: "(#struct Pair () ((left #u64) (right #u64)))
               (#fn main () #u64
-                (#let-mut pair Pair (#struct-literal Pair (: left 1u64 : right 2u64)))
+                (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
                 (#let parent (#ref-mut Pair) (#borrow-mut pair))
                 (#let child (#ref-mut #u64) (#borrow-mut (#get parent left)))
                 (#let bad #u64 (#get parent left))
@@ -287,14 +287,14 @@ fn rejects_adversarial_borrow_violations_at_the_conflicting_operation() {
         },
         Violation {
             name: "aggregate-reference-escape",
-            source: "(#struct Holder () (: view (#ref #u64)))
+            source: "(#struct Holder () ((view (#ref #u64))))
               (#fn bad () Holder
                 (#let local #u64 7u64)
-                (#return (#struct-literal Holder (: view (#borrow local)))))
+                (#return (#struct-literal Holder ((view (#borrow local))))))
               (#fn main () #u64
                 (#let holder Holder (#call bad ()))
                 (#return (#deref (#get holder view))))",
-            conflict: "(#return (#struct-literal Holder (: view (#borrow local))))",
+            conflict: "(#return (#struct-literal Holder ((view (#borrow local)))))",
             conflict_occurrence: 0,
             origin: Some(("(#borrow local)", 0)),
         },
@@ -307,12 +307,12 @@ fn rejects_adversarial_borrow_violations_at_the_conflicting_operation() {
         },
         Violation {
             name: "owner-move-while-borrowed",
-            source: "(#struct Token (#linear) (: value #u64))
-              (#fn consume (: token Token) () (#forget token) (#return ()))
+            source: "(#struct Token (#linear) ((value #u64)))
+              (#fn consume ((token Token)) () (#forget token) (#return ()))
               (#fn main () ()
-                (#let token Token (#struct-literal Token (: value 1u64)))
+                (#let token Token (#struct-literal Token ((value 1u64))))
                 (#let view (#ref Token) (#borrow token))
-                (#call consume (: token token))
+                (#call consume ((token token)))
                 (#drop view) (#return ()))",
             conflict: "token",
             conflict_occurrence: 5,
@@ -346,9 +346,9 @@ fn accepts_adversarial_non_aliasing_controls() {
         ),
         (
             "disjoint-fields",
-            "(#struct Pair () (: left #u64 : right #u64))
+            "(#struct Pair () ((left #u64) (right #u64)))
              (#fn main () #u64
-               (#let-mut pair Pair (#struct-literal Pair (: left 1u64 : right 2u64)))
+               (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
                (#let left (#ref-mut #u64) (#borrow-mut (#get pair left)))
                (#let right (#ref-mut #u64) (#borrow-mut (#get pair right)))
                (#deref-set left 40u64) (#deref-set right 2u64)

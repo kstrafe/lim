@@ -1,22 +1,22 @@
 // A restored aggregate must preserve the address of its borrowed sibling.
-(#struct Token (#linear) (: value #u64))
+(#struct Token (#linear) ((value #u64)))
 
-(#struct Owner () (: kept #u64 : item Token))
-(#fn inspect (: owner (#ref Owner)) #u64
+(#struct Owner () ((kept #u64) (item Token)))
+(#fn inspect ((owner (#ref Owner))) #u64
   (#return (#u64::add-wrap (#get owner kept) (#get (#get owner item) value))))
 (#fn main () #u64
   (#let-mut owner Owner
     (#struct-literal Owner
-      (: kept 40u64 : item (#struct-literal Token (: value 1u64)))))
+      ((kept 40u64) (item (#struct-literal Token ((value 1u64)))))))
   (#let kept (#ref #u64) (#borrow (#get owner kept)))
   (#let moved Token (#get owner item))
   (#forget moved)
-  (#set-field owner item (#struct-literal Token (: value 2u64)))
+  (#set-field owner item (#struct-literal Token ((value 2u64))))
   (#let whole (#ref Owner) (#borrow owner))
   (#let selected (#ref #u64) (#borrow (#get whole kept)))
   (#let equal #bool
     (#usize::eq (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
-  (#let answer #u64 (#call inspect (: owner whole)))
+  (#let answer #u64 (#call inspect ((owner whole))))
   (#forget selected)
   (#forget whole)
   (#forget kept)

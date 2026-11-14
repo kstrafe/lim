@@ -26,13 +26,13 @@ fn run(source: &str) {
 #[test]
 fn scrutinee_effects_and_payload_are_not_repeated() {
     run("(#enum Choice () ((Choice.Chosen #u64) Choice.Empty))
-      (#fn take (: counter (#ref-mut #u64)) Choice
+      (#fn take ((counter (#ref-mut #u64))) Choice
         (#let before #u64 (#deref counter))
         (#deref-set counter (#u64::add-wrap before 1u64))
         (#return (#if (#u64::eq before 0u64) (Choice.Chosen 40u64) Choice.Empty)))
       (#fn main () #u64
         (#let-mut count #u64 0u64) (#let-mut total #u64 0u64)
-        (#while-let (Choice.Chosen value) (#call take (: counter (#borrow-mut count)))
+        (#while-let (Choice.Chosen value) (#call take ((counter (#borrow-mut count))))
           (#assert (#u64::eq value 40u64)) (#set total value))
         (#assert (#u64::eq count 2u64))
         (#return (#u64::add-wrap total count)))");

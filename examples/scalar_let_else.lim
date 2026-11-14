@@ -4,4 +4,4 @@
   (#return 42u64))
 
 (#fn main () #u64
-  (#return (#call classify (: value 11u64))))
+  (#return (#call classify ((value 11u64)))))

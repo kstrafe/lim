@@ -15,7 +15,7 @@
     #return
     (
       #as
-      (#call make (:))
+      (#call make ())
       #u64
     )
   )

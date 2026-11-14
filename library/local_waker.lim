@@ -33,7 +33,7 @@
           (#fn ,(#gn-call local-waker-fourth names) ((waker (#ref ,(#gn-first names)))) ()
             (#call
               ,(#gn-first callbacks)
-              (: executor (#get waker executor) : metadata (#borrow (#get waker metadata))))
+              ((executor (#get waker executor)) (metadata (#borrow (#get waker metadata)))))
             (#return ()))
           (#fn ,(#gn-call local-waker-fifth names) ((waker (#ref ,(#gn-first names)))) ,(#gn-first names)
             (#return
@@ -43,18 +43,18 @@
                   (metadata
                     (#call
                       ,(#gn-call local-waker-second callbacks)
-                      (: metadata (#borrow (#get waker metadata)))))
+                      ((metadata (#borrow (#get waker metadata))))))
                   (local-marker (#ptr-null (#ptr #u8)))))))
           (#fn ,(#gn-call local-waker-sixth names) ((waker ,(#gn-first names))) ()
             (#let (,(#gn-first names) executor metadata local-marker) ,(#gn-first names) waker)
             (#forget local-marker)
             (#call
               ,(#gn-call local-waker-third callbacks)
-              (: executor executor : metadata metadata))
+              ((executor executor) (metadata metadata)))
             (#return ()))
           (#fn ,(#gn-call local-waker-third names) ((waker ,(#gn-first names))) ()
-            (#call ,(#gn-call local-waker-fourth names) (: waker (#borrow waker)))
-            (#call ,(#gn-call local-waker-sixth names) (: waker waker))
+            (#call ,(#gn-call local-waker-fourth names) ((waker (#borrow waker))))
+            (#call ,(#gn-call local-waker-sixth names) ((waker waker)))
             (#return ())))
         (#gn-error "#generate #local-waker callbacks must be (notify clone-metadata destroy-metadata)"))
       (#gn-error "#generate #local-waker types must be (Executor Metadata)"))

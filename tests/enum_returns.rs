@@ -11,7 +11,7 @@ fn fieldless_variant_returns_from_a_payload_enum() {
         "(#enum Answer () ((Answer.Value #u64) Answer.Empty))
       (#fn empty () Answer (#return Answer.Empty))
       (#fn main () #u64
-        (#return (#match (#call empty (:))
+        (#return (#match (#call empty ())
           (#case Answer.Empty 42u64) (#case (Answer.Value value) value))))",
     )
     .unwrap();

@@ -79,7 +79,7 @@ fn imported_consumer_requirement_keeps_its_source_span_and_rendered_hunk() {
 #[test]
 fn duplicate_inner_builtin_output_retains_each_wrapper_origin_cold_and_warm() {
     let scratch = support::Scratch::new("provenance-import-wrappers");
-    let source = "(#gn make (name) `((#generate #optional (: type #u64 : name ,name))))
+    let source = "(#gn make (name) `((#generate #optional ((type #u64) (name ,name)))))
       (#gn wrappera () `((#generate make NameMaybe)))
       (#gn wrapperb () `((#generate make NameMaybe)))
       (#generate wrappera) (#generate wrapperb)

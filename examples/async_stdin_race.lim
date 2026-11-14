@@ -17,26 +17,26 @@
   (#let-mut byte #u8 0u8)
   (#let-mut stolen #u8 0u8)
   (#assert (#i64::ge
-    (#call async-byte-read1-enable-nonblocking (: fd 0i64)) 0i64))
+    (#call async-byte-read1-enable-nonblocking ((fd 0i64))) 0i64))
   (#let created AsyncByteReadCreate1
     (#call async-byte-read1-create
-      (: fd 0i64 : destination (#borrow-mut byte))))
+      ((fd 0i64) (destination (#borrow-mut byte)))))
   (#let-else (AsyncByteReadCreate1.AsyncByteReadCreated1 initial-task) AsyncByteReadCreate1 created
     (#unreachable))
   (#let-mut task AsyncByteRead1 initial-task)
   (#let first AsyncByteReadPoll1
-    (#call async-byte-read1-poll (: task (#borrow-mut task))))
+    (#call async-byte-read1-poll ((task (#borrow-mut task)))))
   (#let first-wait AsyncByteReadWait1
-    (#call async-byte-read1-wait (: task (#borrow task))))
+    (#call async-byte-read1-wait ((task (#borrow task)))))
   (#let stolen-count #i64
-    (#call linux-read-byte-from (: fd 0i64 : destination (#borrow-mut stolen))))
+    (#call linux-read-byte-from ((fd 0i64) (destination (#borrow-mut stolen)))))
   (#let raced AsyncByteReadPoll1
-    (#call async-byte-read1-poll (: task (#borrow-mut task))))
+    (#call async-byte-read1-poll ((task (#borrow-mut task)))))
   (#let second-wait AsyncByteReadWait1
-    (#call async-byte-read1-wait (: task (#borrow task))))
+    (#call async-byte-read1-wait ((task (#borrow task)))))
   (#let second AsyncByteReadPoll1
-    (#call async-byte-read1-poll (: task (#borrow-mut task))))
-  (#let destroyed #i64 (#call async-byte-read1-destroy (: task task)))
+    (#call async-byte-read1-poll ((task (#borrow-mut task)))))
+  (#let destroyed #i64 (#call async-byte-read1-destroy ((task task))))
   (#let read-second #bool (#match second
     (#case (AsyncByteReadPoll1.AsyncByteReadReady1 value) (#bool::and (#u8::eq value 66u8)
                                                  (#u8::eq byte 66u8)))

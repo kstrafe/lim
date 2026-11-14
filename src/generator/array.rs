@@ -4,7 +4,7 @@ use crate::*;
 fn arguments(items: &[Expr]) -> Result<(Type, usize, String), String> {
     if items.len() != 5 {
         return Err(
-            "#generate #array requires (: element Type : length N : name ArrayType)".into(),
+            "#generate #array requires ((element Type) (length N) (name ArrayType))".into(),
         );
     }
     let element = parse_type(items.get(2))?;
@@ -31,14 +31,14 @@ pub(crate) fn type_alias(items: &[Expr]) -> Result<Item, String> {
 pub(crate) fn source(items: &[Expr], copy_types: &HashSet<String>) -> Result<String, String> {
     let (element, length, name) = arguments(items)?;
     let element_source = type_source(&element);
-    let bound = format!("(#call #usize::lt (: left index : right {length}usize))");
+    let bound = format!("(#call #usize::lt ((left index) (right {length}usize)))");
     let mut source = format!(
         r#"
 (#type {name} (#array {element_source} {length}))
 (#fn {name}::in-bounds ((index #usize)) #bool
   (#return {bound}))
 (#fn {name}::prove-in-bounds ((index #usize)) ()
-  (#requires (#call {name}::in-bounds (: index index)))
+  (#requires (#call {name}::in-bounds ((index index))))
   (#ensures {bound})
   (#return ()))
 (#fn {name}::borrow ((values (#ref {name})) (index #usize)) (#ref {element_source})

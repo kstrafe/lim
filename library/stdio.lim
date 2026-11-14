@@ -17,7 +17,7 @@
   (
     #unsafe-fn
     std-write-all
-    (: pointer (#ptr-mut #u8) : length #usize)
+    ((pointer (#ptr-mut #u8)) (length #usize))
     #i64
     (
       #let-mut
@@ -138,7 +138,7 @@
   (
     #fn
     std-print
-    (: text (#ref String))
+    ((text (#ref String)))
     #i64
     // String::data-pointer is unsafe: text's shared borrow keeps both the
     // owner and its allocation live and immutable until the write completes.
@@ -149,12 +149,12 @@
         (
           #unsafe-call
           std-write-all
-          (: pointer (#unsafe-call String::data-pointer (: string text))
-       : length (#call String::len (: string text)))        )      )    )  )
+          ((pointer (#unsafe-call String::data-pointer ((string text))))
+       (length (#call String::len ((string text)))))        )      )    )  )
   (
     #fn
     std-println
-    (: text (#ref String))
+    ((text (#ref String)))
     #i64
     (
       #let
@@ -163,7 +163,7 @@
       (
         #call
         std-print
-        (: text text)      )    )
+        ((text text))      )    )
     (
       #let-mut
       newline
@@ -184,14 +184,14 @@
           (
             #unsafe-call
             std-write-all
-            (: pointer (#addr-of-mut newline) : length 1usize)          )        )
+            ((pointer (#addr-of-mut newline)) (length 1usize))          )        )
         result      )    )  )
   (
     #cfg-else
     (
       #fn
       std-print
-      (: text (#ref String))
+      ((text (#ref String)))
       #i64
       (
         #return
@@ -200,7 +200,7 @@
     (
       #fn
       std-println
-      (: text (#ref String))
+      ((text (#ref String)))
       #i64
       (
         #return

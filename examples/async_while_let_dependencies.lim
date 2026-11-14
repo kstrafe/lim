@@ -23,7 +23,7 @@
     (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
     (#case (Step.Resume value) (StepPoll.StepReady value)))))
 
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work ((#mut choice Choice)) #u64
     (#let-mut total #u64 0u64)
     (#while-let (Choice.Chosen value)
@@ -36,12 +36,12 @@
       (#let second #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start first)))
       (#set total (#u64::add-wrap total second))
       (#set choice Choice.Empty))
-    (#return total))))
+    (#return total)))))
 
 (#fn run ((choice Choice) (waker (#ref #u64))) #u64
-  (#let-mut task Work::Task (#call work (: choice choice)))
+  (#let-mut task Work::Task (#call work ((choice choice))))
   (#for-range (attempt #u64) 0u64 8u64
-    (#let polled Work::Poll (#call Work::poll (: task task : waker waker)))
+    (#let polled Work::Poll (#call Work::poll ((task task) (waker waker))))
     (#match polled
       (#case (Work::Poll.Pending next) (#block (#set task next) ()))
       (#case (Work::Poll.Ready result) (#block (#return result)))))
@@ -50,7 +50,7 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let chosen #u64 (#call run (: choice (Choice.Chosen 37u64) : waker (#borrow waker))))
-  (#let empty #u64 (#call run (: choice Choice.Empty : waker (#borrow waker))))
+  (#let chosen #u64 (#call run ((choice (Choice.Chosen 37u64)) (waker (#borrow waker)))))
+  (#let empty #u64 (#call run ((choice Choice.Empty) (waker (#borrow waker)))))
   // Chosen: 37 plus two factory constructions; Empty: one construction.
   (#return (#u64::add-wrap chosen empty)))

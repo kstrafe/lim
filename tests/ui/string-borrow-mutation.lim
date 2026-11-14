@@ -8,9 +8,9 @@
 (#fn main () #u64
   (#let-mut text String (#call new-string ()))
   (#let bytes StringBytes
-    (#call string-bytes (: string (#borrow text))))
-  (#call string-clear (: string (#borrow-mut text)))
-  (#let value #usize (#call bytes-len (: bytes bytes)))
+    (#call string-bytes ((string (#borrow text)))))
+  (#call string-clear ((string (#borrow-mut text))))
+  (#let value #usize (#call bytes-len ((bytes bytes))))
   (#drop bytes)
-  (#call string-free (: string text))
+  (#call string-free ((string text)))
   (#return (#as value #u64)))

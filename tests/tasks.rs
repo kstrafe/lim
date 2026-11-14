@@ -64,8 +64,8 @@ fn generated_tasks_preserve_borrow_linearity_exhaustiveness_and_send_checks() {
             "(#generate lim-gen-task (Held Poll Poll.Pending Poll.Ready) #u64 ((Held.Holding #u64)))
           (#fn poll ((task Held)) Poll (#forget task) (#return (Poll.Ready 1u64)))
           (#fn main () #u64 (#let task Held (Held.Holding 1u64))
-            (#let first Poll (#call poll (: task task)))
-            (#let second Poll (#call poll (: task task)))
+            (#let first Poll (#call poll ((task task))))
+            (#let second Poll (#call poll ((task task))))
             (#forget first) (#forget second) (#return 0u64))",
             "more than once",
         ),
@@ -154,10 +154,10 @@ fn wake_executor_runs_every_supported_fixed_capacity() {
             .collect::<Vec<_>>()
             .join(" ");
         let mut call_args = (0..capacity)
-            .map(|slot| format!(": input{slot} Task.Waiting"))
+            .map(|slot| format!("(input{slot} Task.Waiting)"))
             .collect::<Vec<_>>();
-        call_args.extend((0..capacity).map(|slot| format!(": wake{slot} waker-ref")));
-        call_args.push(": context 0u32".to_owned());
+        call_args.extend((0..capacity).map(|slot| format!("(wake{slot} waker-ref)")));
+        call_args.push("(context 0u32)".to_owned());
         let mut total = "(#get results result0)".to_owned();
         for slot in 1..capacity {
             total = format!("(#u64::add-wrap {total} (#get results result{slot}))");
@@ -255,13 +255,13 @@ fn wake_executor_polls_only_selected_slots_across_ready_masks() {
           (#struct-literal WaitContext ((waits 0u32))))
         (#let wait-context-ref (#ref-mut WaitContext) (#borrow-mut wait-context))
         (#let outcome Outcome (#call run
-          (: first-task (Task.Run (#tuple 2u64 0u64))
-           : second-task (Task.Run (#tuple 2u64 0u64))
-           : third-task (Task.Run (#tuple 2u64 0u64))
-           : first-waker waker-ref
-           : second-waker waker-ref
-           : third-waker waker-ref
-           : context wait-context-ref)))
+          ((first-task (Task.Run (#tuple 2u64 0u64)))
+           (second-task (Task.Run (#tuple 2u64 0u64)))
+           (third-task (Task.Run (#tuple 2u64 0u64)))
+           (first-waker waker-ref)
+           (second-waker waker-ref)
+           (third-waker waker-ref)
+           (context wait-context-ref))))
         (#drop wait-context-ref)
         (#assert (#u32::eq (#get wait-context waits) 2u32))
         (#forget wait-context)
@@ -324,10 +324,10 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
               (#case (StopTask.Waiting (#tuple amount held-waker timer))
                 (#block
                   (#forget amount)
-                  (#let closed #i64 (#call timer-reactor1-cancel (: timer timer)))
+                  (#let closed #i64 (#call timer-reactor1-cancel ((timer timer))))
                   (#assert (#i64::eq closed 0i64))
                   (#forget closed)
-                  (#call destroy-waker (: waker held-waker))
+                  (#call destroy-waker ((waker held-waker)))
                   ()))
               ))
           (#case (StopPoll.StopReady value)
@@ -345,10 +345,10 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
          (pending-state-two pending-task-two pending-waker-two pending-two 2u32)))
       (#fn main () #u64
         (#let timer-created TimerCreate1
-          (#call timer-reactor1-create (: nanoseconds 900000000u64)))
+          (#call timer-reactor1-create ((nanoseconds 900000000u64))))
         (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
         (#let timer-created-two TimerCreate1
-          (#call timer-reactor1-create (: nanoseconds 800000000u64)))
+          (#call timer-reactor1-create ((nanoseconds 800000000u64))))
         (#let-else (TimerCreate1.TimerCreated1 timer-two) TimerCreate1 timer-created-two (#unreachable))
         (#let waker Waker (#struct-literal Waker ((marker 0u64))))
         (#let held-waker Waker (#struct-literal Waker ((marker 1u64))))
@@ -356,12 +356,12 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
         (#let waker-ref (#ref Waker) (#borrow waker))
         (#let outcome StopOutcome
           (#call run-stop
-            (: ready-task StopTask.ReadyNow
-             : pending-task (StopTask.Waiting (#tuple 9u64 held-waker timer))
-             : pending-task-two (StopTask.Waiting (#tuple 10u64 held-waker-two timer-two))
-             : ready-waker waker-ref : pending-waker waker-ref
-             : pending-waker-two waker-ref
-             : context 42u32)))
+            ((ready-task StopTask.ReadyNow)
+             (pending-task (StopTask.Waiting (#tuple 9u64 held-waker timer)))
+             (pending-task-two (StopTask.Waiting (#tuple 10u64 held-waker-two timer-two)))
+             (ready-waker waker-ref) (pending-waker waker-ref)
+             (pending-waker-two waker-ref)
+             (context 42u32))))
         (#forget waker)
         (#return (#match outcome
           (#case (StopOutcome.StopStopped reason)

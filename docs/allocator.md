@@ -9,15 +9,15 @@ pointers, closures, methods, or implicit allocators.
 `library/system_allocator.lim` implements a native Lim process heap on Linux
 x86-64. It uses raw `mmap`, `mremap`, and `munmap` syscalls, not libc, FFI,
 external allocator code, or thread-local runtime state.
-`system-allocate (: size #usize)`
+`system-allocate ((size #usize))`
 returns `SystemAllocated` with a raw pointer, or `SystemAllocationFailed` with
 `SystemAllocationOutOfMemory` or `SystemAllocationInvalidSize`. Zero-size
 requests and sizes above `SYSTEM-ALLOCATION-MAX` (PTRDIFF_MAX) are rejected
 before accessing the heap. Empty owners therefore keep a null pointer without
 requesting a zero-size allocation.
 
-`system-reallocate (: pointer (#ptr-mut #u8) : size #usize)` and
-`system-deallocate (: pointer (#ptr-mut #u8))` are unsafe functions. The caller
+`system-reallocate ((pointer (#ptr-mut #u8)) (size #usize))` and
+`system-deallocate ((pointer (#ptr-mut #u8)))` are unsafe functions. The caller
 must supply live storage from this allocator, ensure unique access, and stop
 using the old pointer after successful reallocation or deallocation. Failed
 reallocation leaves the original allocation valid. Reallocation never uses a
@@ -35,11 +35,11 @@ reallocation path, then releases the successful allocation:
 (#fn main () #u64
   (#let allocation SystemAllocationResult
     (#unsafe (#unsafe-call system-reallocate
-      (: pointer (#ptr-null (#ptr-mut #u8)) : size 16usize))))
+      ((pointer (#ptr-null (#ptr-mut #u8))) (size 16usize)))))
   (#return (#match allocation
     (#case (SystemAllocationResult.SystemAllocated pointer)
       (#block
-        (#unsafe (#unsafe-call system-deallocate (: pointer pointer)))
+        (#unsafe (#unsafe-call system-deallocate ((pointer pointer))))
         42u64))
     (#case (SystemAllocationResult.SystemAllocationFailed error)
       (#block (#drop error) 0u64)))))
@@ -118,8 +118,8 @@ their bundles may omit grow. The shared adapter generator accepts an explicit
 literal `:operations` list to select the operations it emits.
 
 ```lisp syntax
-(#generate #allocator-for (: allocator Root : type T : name TypedAllocator
-  : operations (allocate deallocate)))
+(#generate #allocator-for ((allocator Root) (type T) (name TypedAllocator)
+  (operations (allocate deallocate))))
 ```
 
 This emits typed allocate and deallocate adapters without referencing
@@ -137,13 +137,13 @@ alignments; unsupported alignment or invalid sizes fail explicitly.
 Pinned consumers use exactly these public options:
 
 ```lisp syntax
-(#generate #pin-box (: type T : allocator Root : name Box : destroy destroy-value))
-(#generate #pin-rc (: type T : allocator Root : name Rc : destroy destroy-value))
+(#generate #pin-box ((type T) (allocator Root) (name Box) (destroy destroy-value)))
+(#generate #pin-rc ((type T) (allocator Root) (name Rc) (destroy destroy-value)))
 ```
 
 Each generates its own typed adapter for the bundle's byte-pointer ABI.
 The safe destroy callback takes
-`(: allocator (#ref Root::State) : pin (#pin-ref-mut T))` and performs
+`((allocator (#ref Root::State)) (pin (#pin-ref-mut T)))` and performs
 explicit in-place cleanup. A callback accepting the original State alias is
 equivalent. Rc adapts pointers to its generated control block internally;
 providers never depend on that control-block type.
@@ -178,7 +178,7 @@ obey the same ownership rule.
 The concrete representation is declared first:
 
 ```lisp syntax
-(#generate #vec (: element ElementType : allocator AllocatorType : name ConcreteVecType))
+(#generate #vec ((element ElementType) (allocator AllocatorType) (name ConcreteVecType)))
 ```
 
 It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
@@ -186,14 +186,14 @@ It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
 `-capacity`. The allocator-backed API is then generated separately:
 
 ```lisp syntax
-(#generate #vec-alloc (: element ElementType : allocator Root : vector ConcreteVecType : destroy destroy-name))
+(#generate #vec-alloc ((element ElementType) (allocator Root) (vector ConcreteVecType) (destroy destroy-name)))
 ```
 
 Here `Root::State` must denote the state type passed to `#generate #vec`.
 The representation generator still accepts a state type, not a bundle root.
 The consumer converts byte pointers to element pointers internally and calls
 the root's operations directly. The explicit safe destruction function takes
-`(: allocator (#ref Root::State) : value ElementType)`. This lets destruction
+`((allocator (#ref Root::State)) (value ElementType))`. This lets destruction
 use allocator-local interior-mutable state without function pointers.
 
 The generated API includes an empty `-new`, checked geometric `-reserve`,
@@ -210,7 +210,7 @@ Sorting is generated separately and takes a comparator name as a literal
 input:
 
 ```lisp syntax
-(#generate #vec-sort (: element ElementType : vector ConcreteVecType : comparator comparator-name))
+(#generate #vec-sort ((element ElementType) (vector ConcreteVecType) (comparator comparator-name)))
 ```
 
 The comparator must have the concrete signature
@@ -232,17 +232,17 @@ Bundle operations have these concrete signatures:
    (Root::Allocation.AllocationFailed Root::Error)))
 
 (#fn Root::allocate
-  (: allocator (#ref Root::State) : layout #usize : alignment #usize)
+  ((allocator (#ref Root::State)) (layout #usize) (alignment #usize))
   Root::Allocation)
 
 (#unsafe-fn Root::grow
-  (: allocator (#ref Root::State) : pointer (#ptr-mut #u8)
-   : old-layout #usize : layout #usize : alignment #usize)
+  ((allocator (#ref Root::State)) (pointer (#ptr-mut #u8))
+   (old-layout #usize) (layout #usize) (alignment #usize))
   Root::Allocation)
 
 (#unsafe-fn Root::deallocate
-  (: allocator (#ref Root::State) : pointer (#ptr-mut #u8)
-   : layout #usize : alignment #usize)
+  ((allocator (#ref Root::State)) (pointer (#ptr-mut #u8))
+   (layout #usize) (alignment #usize))
   ())
 ```
 

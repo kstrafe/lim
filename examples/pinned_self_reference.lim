@@ -3,12 +3,12 @@
 // A later ordinary call may update disjoint storage, but not the borrowed value.
 (#struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64))))
 
-(#fn install-view (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+(#fn install-view ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
   (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
   (#pin-set-field target view view)
   (#return target))
 
-(#fn update-state (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+(#fn update-state ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
   (#pin-set-field target state 2u32)
   (#return target))
 
@@ -18,8 +18,8 @@
   (#let-mut link Link
     (#struct-literal Link ((value 42u64) (state 0u32) (view external))))
   (#let pinned (#pin-ref-mut Link)
-    (#call install-view (: target (#pin-borrow-mut link))))
-  (#let updated (#pin-ref-mut Link) (#call update-state (: target pinned)))
+    (#call install-view ((target (#pin-borrow-mut link)))))
+  (#let updated (#pin-ref-mut Link) (#call update-state ((target pinned))))
   (#let observed #u64 (#deref (#get updated view)))
   (#pin-set-field updated view external)
   (#let state #u32 (#get updated state))

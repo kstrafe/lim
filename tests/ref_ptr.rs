@@ -43,7 +43,7 @@ fn scalar_and_aggregate_roundtrips_lend_all_four_reference_kinds() {
                     ("#u8", "42u8", "(#as (#deref restored) #u64)"),
                     (
                         "Pair",
-                        "(#struct-literal Pair (: left 40u64 : right 2u64))",
+                        "(#struct-literal Pair ((left 40u64) (right 2u64)))",
                         "(#u64::add-wrap (#get restored left) (#get restored right))",
                     ),
                 ] {
@@ -51,15 +51,15 @@ fn scalar_and_aggregate_roundtrips_lend_all_four_reference_kinds() {
                     let suffix = if mutable { "-mut" } else { "" };
                     let source = format!(
                         r#"
-                      (#struct Pair () (: left #u64 : right #u64))
-                      (#fn extract (: view (#{pin}ref{suffix} {ty})) (#ptr{suffix} {ty})
+                      (#struct Pair () ((left #u64) (right #u64)))
+                      (#fn extract ((view (#{pin}ref{suffix} {ty}))) (#ptr{suffix} {ty})
                         (#return (#ref-ptr view)))
                       (#fn main () #u64
                         (#let-mut owner {ty} {init})
                         (#let view (#{pin}ref{suffix} {ty}) (#{pin}borrow{suffix} owner))
                         (#let pointer (#ptr{suffix} {ty}) (#ref-ptr view))
                         (#assert (#usize::eq (#ptr-address pointer) (#ptr-address (#ref-ptr view))))
-                        (#assert (#usize::eq (#ptr-address pointer) (#ptr-address (#call extract (: view view)))))
+                        (#assert (#usize::eq (#ptr-address pointer) (#ptr-address (#call extract ((view view))))))
                         (#let restored (#{pin}ref{suffix} {ty})
                           (#unsafe (#{pin}ptr-borrow{suffix} view pointer)))
                         (#drop view)
@@ -103,10 +103,10 @@ fn projected_exclusive_handles_are_lent_without_being_moved() {
     for pin in ["", "pin-"] {
         let source = format!(
             r#"
-          (#struct Holder () (: view (#{pin}ref-mut #u64)))
+          (#struct Holder () ((view (#{pin}ref-mut #u64))))
           (#fn main () #u64
             (#let-mut value #u64 42u64)
-            (#let holder Holder (#struct-literal Holder (: view (#{pin}borrow-mut value))))
+            (#let holder Holder (#struct-literal Holder ((view (#{pin}borrow-mut value)))))
             (#let first (#ptr-mut #u64) (#ref-ptr (#get holder view)))
             (#let second (#ptr-mut #u64) (#ref-ptr (#get holder view)))
             (#assert (#usize::eq (#ptr-address first) (#ptr-address second)))
@@ -154,7 +154,7 @@ fn extraction_is_safe_but_raw_access_and_reborrowing_are_unsafe() {
 #[test]
 fn raw_pointers_do_not_derive_thread_properties() {
     let program = lim::parse_program(
-        "(#struct Shared () (: pointer (#ptr #u64))) (#struct Exclusive () (: pointer (#ptr-mut #u64)))",
+        "(#struct Shared () ((pointer (#ptr #u64)))) (#struct Exclusive () ((pointer (#ptr-mut #u64))))",
     )
     .unwrap();
     for ty in [

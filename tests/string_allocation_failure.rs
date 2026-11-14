@@ -81,32 +81,32 @@ fn allocation_failures_are_explicit_and_empty_owners_need_no_allocation() {
             ("system-heap-allocate", "failing-allocate"),
             ("system-heap-deallocate", "unexpected-deallocate")
         ]),
-        "(#fn failing-allocate (: size #usize) (#ptr-mut #u8)
+        "(#fn failing-allocate ((size #usize)) (#ptr-mut #u8)
            (#return (#ptr-null (#ptr-mut #u8))))
-         (#unsafe-fn unexpected-deallocate (: pointer (#ptr-mut #u8)) ()
+         (#unsafe-fn unexpected-deallocate ((pointer (#ptr-mut #u8))) ()
            (#panic) (#return ()))"
     );
     execute(
         &allocator,
         r#"(#fn main () #u64
           (#let-mut empty String (#call String::new ()))
-          (#assert (#call String::is-empty (: string (#borrow empty))))
-          (#assert (#usize::eq (#call String::capacity (: string (#borrow empty))) 0usize))
-          (#assert (#match (#call String::reserve (: string (#borrow-mut empty) : additional 0usize))
+          (#assert (#call String::is-empty ((string (#borrow empty)))))
+          (#assert (#usize::eq (#call String::capacity ((string (#borrow empty)))) 0usize))
+          (#assert (#match (#call String::reserve ((string (#borrow-mut empty)) (additional 0usize)))
             (#case StringStatus.StringOk true) (#case (StringStatus.StringErr error) false)))
-          (#assert (#match (#call String::reserve (: string (#borrow-mut empty) : additional 1usize))
+          (#assert (#match (#call String::reserve ((string (#borrow-mut empty)) (additional 1usize)))
             (#case (StringStatus.StringErr StringError.StringOutOfMemory) true) (#case _ false)))
-          (#assert (#usize::eq (#call String::capacity (: string (#borrow empty))) 0usize))
-          (#call String::free (: string empty))
-          (#assert (#match (#call String::with-capacity (: capacity 1usize))
+          (#assert (#usize::eq (#call String::capacity ((string (#borrow empty)))) 0usize))
+          (#call String::free ((string empty)))
+          (#assert (#match (#call String::with-capacity ((capacity 1usize)))
             (#case (StringCreateResult.StringCreateFailed error) (#match error (#case StringError.StringOutOfMemory true) (#case _ false)))
-            (#case (StringCreateResult.StringCreated unexpected) (#block (#call String::free (: string unexpected)) false))))
+            (#case (StringCreateResult.StringCreated unexpected) (#block (#call String::free ((string unexpected))) false))))
           (#let text (#array #char 1) "a")
-          (#assert (#match (#call String::from-chars (: text (#slice-of (#borrow text))))
+          (#assert (#match (#call String::from-chars ((text (#slice-of (#borrow text)))))
             (#case (StringCreateResult.StringCreateFailed error) (#match error (#case StringError.StringOutOfMemory true) (#case _ false)))
-            (#case (StringCreateResult.StringCreated unexpected) (#block (#call String::free (: string unexpected)) false))))
-          (#assert (#match (#call String::with-capacity (: capacity 0usize))
-            (#case (StringCreateResult.StringCreated zero) (#block (#call String::free (: string zero)) true))
+            (#case (StringCreateResult.StringCreated unexpected) (#block (#call String::free ((string unexpected))) false))))
+          (#assert (#match (#call String::with-capacity ((capacity 0usize)))
+            (#case (StringCreateResult.StringCreated zero) (#block (#call String::free ((string zero))) true))
             (#case (StringCreateResult.StringCreateFailed error) false)))
           (#return 42u64))"#,
         "string-failed-malloc",
@@ -118,7 +118,7 @@ fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("system-heap-reallocate", "failing-reallocate")]),
-        "(#unsafe-fn failing-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+        "(#unsafe-fn failing-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)
            (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
@@ -126,22 +126,22 @@ fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
         r#"(#fn main () #u64
           (#let-mut text String (#call String::new ()))
           (#let prefix (#array #char 3) "abc")
-          (#assert (#match (#call String::push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow prefix))))
+          (#assert (#match (#call String::push-chars ((string (#borrow-mut text)) (text (#slice-of (#borrow prefix)))))
             (#case StringStatus.StringOk true) (#case _ false)))
-          (#let capacity #usize (#call String::capacity (: string (#borrow text))))
+          (#let capacity #usize (#call String::capacity ((string (#borrow text)))))
           (#let appended (#array #char 9) "123456789")
-          (#assert (#match (#call String::push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow appended))))
+          (#assert (#match (#call String::push-chars ((string (#borrow-mut text)) (text (#slice-of (#borrow appended)))))
             (#case (StringStatus.StringErr StringError.StringOutOfMemory) true) (#case _ false)))
-          (#assert (#match (#call String::reserve (: string (#borrow-mut text) : additional 18446744073709551615usize))
+          (#assert (#match (#call String::reserve ((string (#borrow-mut text)) (additional 18446744073709551615usize)))
             (#case (StringStatus.StringErr StringError.StringCapacityOverflow) true) (#case _ false)))
           (#let invalid (#array #u8 2) (#array-of (#array #u8 2) 192u8 175u8))
-          (#assert (#match (#call String::push-utf8 (: string (#borrow-mut text) : bytes (#slice-of (#borrow invalid))))
+          (#assert (#match (#call String::push-utf8 ((string (#borrow-mut text)) (bytes (#slice-of (#borrow invalid)))))
             (#case (StringStatus.StringErr StringError.StringInvalidUtf8) true) (#case _ false)))
-          (#assert (#usize::eq (#call String::len (: string (#borrow text))) 3usize))
-          (#assert (#usize::eq (#call String::capacity (: string (#borrow text))) capacity))
-          (#assert (#match (#call String::byte-at (: string (#borrow text) : index 2usize))
+          (#assert (#usize::eq (#call String::len ((string (#borrow text)))) 3usize))
+          (#assert (#usize::eq (#call String::capacity ((string (#borrow text)))) capacity))
+          (#assert (#match (#call String::byte-at ((string (#borrow text)) (index 2usize)))
             (#case (StringByteResult.StringByte byte) (#u8::eq byte 99u8)) (#case _ false)))
-          (#call String::free (: string text))
+          (#call String::free ((string text)))
           (#return 42u64))"#,
         "string-failed-realloc",
     );
@@ -152,7 +152,7 @@ fn failed_string_append_preserves_both_owners() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("system-heap-reallocate", "failing-reallocate")]),
-        "(#unsafe-fn failing-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+        "(#unsafe-fn failing-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)
           (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
@@ -160,21 +160,21 @@ fn failed_string_append_preserves_both_owners() {
         r#"(#fn main () #u64
       (#let prefix (#array #char 3) "abc")
       (#let suffix (#array #char 9) "123456789")
-      (#let-mut target String (#match (#call String::from-chars (: text (#slice-of (#borrow prefix))))
+      (#let-mut target String (#match (#call String::from-chars ((text (#slice-of (#borrow prefix)))))
         (#case (StringCreateResult.StringCreated created-target) created-target) (#case _ (#panic))))
-      (#let source String (#match (#call String::from-chars (: text (#slice-of (#borrow suffix))))
+      (#let source String (#match (#call String::from-chars ((text (#slice-of (#borrow suffix)))))
         (#case (StringCreateResult.StringCreated created-source) created-source) (#case _ (#panic))))
-      (#let capacity #usize (#call String::capacity (: string (#borrow target))))
-      (#assert (#match (#call String::push-string (: string (#borrow-mut target) : text (#borrow source)))
+      (#let capacity #usize (#call String::capacity ((string (#borrow target)))))
+      (#assert (#match (#call String::push-string ((string (#borrow-mut target)) (text (#borrow source))))
         (#case (StringStatus.StringErr StringError.StringOutOfMemory) true) (#case _ false)))
-      (#assert (#usize::eq (#call String::len (: string (#borrow target))) 3usize))
-      (#assert (#usize::eq (#call String::capacity (: string (#borrow target))) capacity))
-      (#assert (#usize::eq (#call String::len (: string (#borrow source))) 9usize))
-      (#assert (#match (#call String::byte-at (: string (#borrow target) : index 2usize))
+      (#assert (#usize::eq (#call String::len ((string (#borrow target)))) 3usize))
+      (#assert (#usize::eq (#call String::capacity ((string (#borrow target)))) capacity))
+      (#assert (#usize::eq (#call String::len ((string (#borrow source)))) 9usize))
+      (#assert (#match (#call String::byte-at ((string (#borrow target)) (index 2usize)))
         (#case (StringByteResult.StringByte byte) (#u8::eq byte 99u8)) (#case _ false)))
-      (#assert (#match (#call String::byte-at (: string (#borrow source) : index 8usize))
+      (#assert (#match (#call String::byte-at ((string (#borrow source)) (index 8usize)))
         (#case (StringByteResult.StringByte byte) (#u8::eq byte 57u8)) (#case _ false)))
-      (#call String::free (: string target)) (#call String::free (: string source))
+      (#call String::free ((string target))) (#call String::free ((string source)))
       (#return 42u64))"#,
         "string-failed-string-append",
     );
@@ -185,26 +185,26 @@ fn failed_deep_clone_preserves_the_original_owner() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("system-heap-allocate", "selective-allocate")]),
-        "(#fn selective-allocate (: size #usize) (#ptr-mut #u8)
+        "(#fn selective-allocate ((size #usize)) (#ptr-mut #u8)
            (#return (#if (#usize::eq size 8usize)
-             (#ptr-null (#ptr-mut #u8)) (#unsafe (#call system-heap-allocate (: size size))))))"
+             (#ptr-null (#ptr-mut #u8)) (#unsafe (#call system-heap-allocate ((size size)))))))"
     );
     execute(
         &allocator,
         r#"(#fn main () #u64
           (#let-mut text String (#call String::new ()))
-          (#assert (#match (#call String::reserve (: string (#borrow-mut text) : additional 16usize))
+          (#assert (#match (#call String::reserve ((string (#borrow-mut text)) (additional 16usize)))
             (#case StringStatus.StringOk true) (#case _ false)))
-          (#assert (#match (#call String::push-char (: string (#borrow-mut text) : value #\é))
+          (#assert (#match (#call String::push-char ((string (#borrow-mut text)) (value #\é)))
             (#case StringStatus.StringOk true) (#case _ false)))
-          (#assert (#match (#call String::try-clone (: string (#borrow text)))
+          (#assert (#match (#call String::try-clone ((string (#borrow text))))
             (#case (StringCreateResult.StringCreateFailed error) (#match error (#case StringError.StringOutOfMemory true) (#case _ false)))
-            (#case (StringCreateResult.StringCreated unexpected) (#block (#call String::free (: string unexpected)) false))))
-          (#assert (#usize::eq (#call String::len (: string (#borrow text))) 2usize))
-          (#assert (#usize::eq (#call String::capacity (: string (#borrow text))) 16usize))
-          (#assert (#match (#call String::pop-char (: string (#borrow-mut text)))
+            (#case (StringCreateResult.StringCreated unexpected) (#block (#call String::free ((string unexpected))) false))))
+          (#assert (#usize::eq (#call String::len ((string (#borrow text)))) 2usize))
+          (#assert (#usize::eq (#call String::capacity ((string (#borrow text)))) 16usize))
+          (#assert (#match (#call String::pop-char ((string (#borrow-mut text))))
             (#case (StringPopResult.StringPopped value) (#char::eq value #\é)) (#case _ false)))
-          (#call String::free (: string text))
+          (#call String::free ((string text)))
           (#return 42u64))"#,
         "string-failed-clone",
     );
@@ -218,21 +218,21 @@ fn zero_and_oversize_raw_requests_are_rejected_before_allocator_hooks() {
             ("system-heap-allocate", "unexpected-allocate"),
             ("system-heap-reallocate", "unexpected-reallocate")
         ]),
-        "(#fn unexpected-allocate (: size #usize) (#ptr-mut #u8)
+        "(#fn unexpected-allocate ((size #usize)) (#ptr-mut #u8)
            (#panic) (#return (#ptr-null (#ptr-mut #u8))))
-         (#unsafe-fn unexpected-reallocate (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+         (#unsafe-fn unexpected-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)
            (#panic) (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
         &allocator,
         r#"(#fn main () #u64
-          (#assert (#match (#call system-allocate (: size 0usize))
+          (#assert (#match (#call system-allocate ((size 0usize)))
             (#case (SystemAllocationResult.SystemAllocationFailed error) (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
             (#case (SystemAllocationResult.SystemAllocated pointer) false)))
-          (#assert (#match (#call system-allocate (: size 18446744073709551615usize))
+          (#assert (#match (#call system-allocate ((size 18446744073709551615usize)))
             (#case (SystemAllocationResult.SystemAllocationFailed error) (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
             (#case (SystemAllocationResult.SystemAllocated pointer) false)))
-          (#assert (#match (#unsafe (#unsafe-call system-reallocate (: pointer (#ptr-null (#ptr-mut #u8)) : size 0usize)))
+          (#assert (#match (#unsafe (#unsafe-call system-reallocate ((pointer (#ptr-null (#ptr-mut #u8))) (size 0usize))))
             (#case (SystemAllocationResult.SystemAllocationFailed error) (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
             (#case (SystemAllocationResult.SystemAllocated pointer) false)))
           (#return 42u64))"#,

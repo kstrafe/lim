@@ -74,21 +74,21 @@ fn generated_standalone_with_config(
 fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
     let source = "(#enum Child (#linear) ((Child.Waiting #u64)))
       (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-      (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Child.Waiting count)
           (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady count))))))
-      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-        : function (#fn work (: choose #bool) #u64
+      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+        (function (#fn work ((choose #bool)) #u64
           (#let left #u64 41u64) (#let right #u64 51u64)
           (#let view (#ref #u64) (#if choose (#borrow left) (#borrow right)))
           (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
           (#let answer #u64 (#u64::add-wrap (#deref view) extra))
-          (#drop view) (#return answer))))
+          (#drop view) (#return answer)))))
       (#fn main () #u64
-        (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work (: choose true)))
-        (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work ((choose true))))
+        (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
         (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-        (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+        (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
           (#case (Work::Poll.Ready value) value)
           (#case (Work::Poll.Pending bad) (#block (#drop bad) (#unreachable)))))
         (#forget task) (#return answer))";
@@ -136,7 +136,7 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
         })
         .unwrap_or_else(|| panic!("missing left buffer: {fields:?}"));
     let changed_left = standalone
-        .replace("(: choose true)", "(: choose false)")
+        .replace("((choose true))", "((choose false))")
         .replace(
             "(#let answer #u64 (#match",
             &format!(
@@ -151,34 +151,34 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
             ),
         )
         .replace(
-            "(: task next : waker",
-            "(: task (#pin-borrow-mut task) : waker",
+            "((task next) (waker",
+            "((task (#pin-borrow-mut task)) (waker",
         );
     check_build_and_run(&scratch, &changed_left, 52);
 }
 
 #[test]
 fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code() {
-    let source = "(#struct Outside () (: other #u64 : selected #u64))
+    let source = "(#struct Outside () ((other #u64) (selected #u64)))
       (#enum Child (#linear) ((Child.Waiting #u64)))
       (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-      (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Child.Waiting count)
           (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady count))))))
-      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-        : function (#fn work (: external (#ref-mut #u64) : choose #bool) #u64
+      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+        (function (#fn work ((external (#ref-mut #u64)) (choose #bool)) #u64
           (#let-mut owner #u64 40u64)
           (#let view (#ref-mut #u64) (#if choose (#borrow-mut owner) external))
           (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
           (#forget extra) (#deref-set view 42u64)
-          (#let answer #u64 (#deref view)) (#drop view) (#return answer))))
+          (#let answer #u64 (#deref view)) (#drop view) (#return answer)))))
       (#fn main () #u64
-        (#let-mut external Outside (#struct-literal Outside (: other 90u64 : selected 50u64)))
+        (#let-mut external Outside (#struct-literal Outside ((other 90u64) (selected 50u64))))
         (#let waker #u64 0u64)
-        (#let-mut task Work::Frame (#call work (: external (#borrow-mut (#get external selected)) : choose false)))
-        (#let first Work::Poll (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let-mut task Work::Frame (#call work ((external (#borrow-mut (#get external selected))) (choose false))))
+        (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
         (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-        (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+        (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
           (#case (Work::Poll.Ready value) value)
           (#case (Work::Poll.Pending bad) (#block (#drop bad) (#unreachable)))))
         (#forget task) (#assert (#u64::eq (#get external other) 90u64))
@@ -285,14 +285,14 @@ fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Child.Waiting amount) (ChildPoll.ChildReady amount)))))
-      (#generate #async-fn (: protocol WorkAwait : waker #u64 : function
+      (#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
         (#fn work ((seed #u64)) #u64
           (#let answer #u64 (#await ChildAwait (Child.Waiting seed)))
-          (#return (#u64::add-wrap answer 2u64)))))
+          (#return (#u64::add-wrap answer 2u64))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let result Work::Poll
-          (#call Work::poll (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
+          (#call Work::poll ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))
         (#return (#match result
           (#case (Work::Poll.Ready value) value)
           (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable))))))";

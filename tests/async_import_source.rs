@@ -14,16 +14,16 @@ fn external_graph_source_uses_prefixed_aliases_and_parameter_names() {
     fs::write(
         scratch.path().join("module.lim"),
         "(#type Amount #u64)
-      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-        : function (#fn work (: amount Amount) Amount (#return amount))))",
+      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+        (function (#fn work ((amount Amount)) Amount (#return amount)))))",
     )
     .unwrap();
     let source = "(#alias Ext@Work::Frame = ./module.lim::Work::Frame)\n(#alias Ext::work = ./module.lim::work)\n(#alias Ext@Work::poll = ./module.lim::Work::poll)\n(#alias Ext@Work::Poll = ./module.lim::Work::Poll)
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut frame Ext@Work::Frame (#call Ext::work (: amount 42u64)))
+        (#let-mut frame Ext@Work::Frame (#call Ext::work ((amount 42u64))))
         (#let result #u64 (#match (#call Ext@Work::poll
-          (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
+          ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
           (#case (Ext@Work::Poll.Ready value) value)
           (#case (Ext@Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return result))";
@@ -54,12 +54,12 @@ fn external_graph_source_uses_prefixed_aliases_and_parameter_names() {
 fn external_graph_source_preserves_the_original_borrow_violation_span() {
     let scratch = support::Scratch::new("async-external-source-invalid");
     let module = "(#type Amount #u64)
-      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-        : function (#fn work (: amount Amount) Amount
+      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+        (function (#fn work ((amount Amount)) Amount
           (#let-mut local Amount amount)
           (#let alias (#ref Amount) (#borrow local))
           (#set local 99u64)
-          (#return (#deref alias)))))";
+          (#return (#deref alias))))))";
     fs::write(scratch.path().join("module.lim"), module).unwrap();
     let source = "(#alias Amount = ./module.lim::Amount) (#fn main () #u64 (#return 0u64))";
     let error = lim::compile_source_to_assembly(

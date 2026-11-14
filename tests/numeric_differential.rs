@@ -114,7 +114,7 @@ fn seeded_integer_oracle_checks_constants_and_native_operations() {
 #[test]
 fn exceptional_values_casts_and_shift_failures_match_the_contract() {
     for ty in ["u128", "i128"] {
-        execute(&format!("(#fn shift ((count #{ty})) #{ty} (#return (#{ty}::shl 1{ty} count))) (#fn main () #u64 (#let value #{ty} (#call shift (: count 18446744073709551616{ty}))) (#return 42u64))"), Some(4));
+        execute(&format!("(#fn shift ((count #{ty})) #{ty} (#return (#{ty}::shl 1{ty} count))) (#fn main () #u64 (#let value #{ty} (#call shift ((count 18446744073709551616{ty})))) (#return 42u64))"), Some(4));
     }
     for ty in ["f32", "f64"] {
         execute(
@@ -135,13 +135,13 @@ fn exceptional_values_casts_and_shift_failures_match_the_contract() {
     for ty in [
         "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
     ] {
-        execute(&format!("(#fn div ((zero #{ty})) #{ty} (#return (#{ty}::div-wrap 1{ty} zero))) (#fn main () #u64 (#let value #{ty} (#call div (: zero 0{ty}))) (#return 42u64))"), Some(4));
+        execute(&format!("(#fn div ((zero #{ty})) #{ty} (#return (#{ty}::div-wrap 1{ty} zero))) (#fn main () #u64 (#let value #{ty} (#call div ((zero 0{ty})))) (#return 42u64))"), Some(4));
         let width = if ty.ends_with("size") {
             64
         } else {
             ty[1..].parse::<u32>().unwrap()
         };
         // i8 cannot represent 128, but every type can represent its own width.
-        execute(&format!("(#fn shift ((count #{ty})) #{ty} (#return (#{ty}::shl 1{ty} count))) (#fn main () #u64 (#let value #{ty} (#call shift (: count {width}{ty}))) (#return 42u64))"), Some(4));
+        execute(&format!("(#fn shift ((count #{ty})) #{ty} (#return (#{ty}::shl 1{ty} count))) (#fn main () #u64 (#let value #{ty} (#call shift ((count {width}{ty})))) (#return 42u64))"), Some(4));
     }
 }

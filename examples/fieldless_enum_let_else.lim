@@ -6,4 +6,4 @@
   (#return 42u64))
 
 (#fn main () #u64
-  (#return (#call classify (: value Color.Green))))
+  (#return (#call classify ((value Color.Green)))))

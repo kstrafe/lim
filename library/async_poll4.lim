@@ -36,8 +36,8 @@
     (#block
       (#let memory (#ptr-mut #u8)
         (#unsafe (#unsafe-call linux-mmap
-          (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
-           : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+          ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)
+           (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
       (#let address #i64 (#as (#ptr-address memory) #i64))
       (#if (#i64::lt address 0i64)
         (AsyncPoll4Result.AsyncPoll4Failed address)
@@ -67,7 +67,7 @@
               (#let source AsyncPollSource4
                 (#deref (#slice-idx sources slot)))
               (#if (#call wake-ready4-take
-                    (: queue (#get source queue) : token (#get source token)))
+                    ((queue (#get source queue)) (token (#get source token))))
                 (#block
                   (#set ready-mask
                     (#u32::bit-or ready-mask (#u32::shl 1u32 (#as slot #u32))))
@@ -77,7 +77,7 @@
             (#if (#u32::ne ready-mask 0u32)
               0i64
               (#unsafe (#unsafe-call linux-poll
-                (: pollfds (#clone memory) : count count : timeout-ms timeout-ms)))))
+                ((pollfds (#clone memory)) (count count) (timeout-ms timeout-ms))))))
           (#let-mut error #i64 (#if (#i64::lt count-ready 0i64) count-ready 0i64))
           (#if (#i64::ge count-ready 0i64)
             (#block
@@ -91,8 +91,8 @@
                     (#let source AsyncPollSource4
                       (#deref (#slice-idx sources slot)))
                     (#if (#call wake-ready4-notify
-                          (: queue (#get source queue)
-                           : token (#get source token)))
+                          ((queue (#get source queue))
+                           (token (#get source token))))
                       (#block
                         (#set ready-mask
                           (#u32::bit-or ready-mask
@@ -102,7 +102,7 @@
                   ()))))
             ())
           (#let unmapped #i64 (#unsafe (#unsafe-call linux-munmap
-            (: address memory : length 4096usize))))
+            ((address memory) (length 4096usize)))))
           (#if (#i64::lt error 0i64)
             (AsyncPoll4Result.AsyncPoll4Failed error)
             (#if (#i64::lt unmapped 0i64)

@@ -13,5 +13,5 @@
 (#fn main () #u64
   (#return
     (#u64::add-wrap
-      (#get (#call make-tuple (:)) 6)
-      (#get (#call make-struct (:)) g))))
+      (#get (#call make-tuple ()) 6)
+      (#get (#call make-struct ()) g))))

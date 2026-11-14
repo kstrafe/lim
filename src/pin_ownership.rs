@@ -412,15 +412,15 @@ mod tests {
 
     const HEAP: &str = "(#fn create () (#pin-own #u64)
         (#return (#unsafe (#pin-own-of (#ptr-null (#ptr-mut #u64)) 42u64))))
-      (#fn forward (: owner (#pin-own #u64)) (#pin-own #u64) (#return owner))
-      (#fn destroy (: owner (#pin-own #u64)) ()
+      (#fn forward ((owner (#pin-own #u64))) (#pin-own #u64) (#return owner))
+      (#fn destroy ((owner (#pin-own #u64))) ()
         (#let pointer (#ptr-mut #u64) (#unsafe (#pin-release owner))) (#forget pointer) (#return ()))
       (#fn main () #u64
-        (#let owner (#pin-own #u64) (#call create (:)))
+        (#let owner (#pin-own #u64) (#call create ()))
         (#let view (#pin-ref #u64) (#pin-own-borrow owner))
-        (#let moved (#pin-own #u64) (#call forward (: owner owner)))
+        (#let moved (#pin-own #u64) (#call forward ((owner owner))))
         (#let result #u64 (#deref view)) (#forget view)
-        (#call destroy (: owner moved)) (#return result))";
+        (#call destroy ((owner moved))) (#return result))";
 
     #[test]
     fn heap_owner_moves_through_calls_without_changing_allocation() {
@@ -438,13 +438,13 @@ mod tests {
 
     #[test]
     fn heap_owner_cannot_be_duplicated() {
-        assert!(check(&HEAP.replace("(: owner owner)))", "(: owner (#clone owner))))")).is_err());
+        assert!(check(&HEAP.replace("((owner owner))))", "((owner (#clone owner)))))")).is_err());
     }
 
     #[test]
     fn an_ordinary_pin_does_not_make_a_linear_owner_movable_again() {
         let source = "(#struct Frame (#linear) ((value #u64)))
-          (#fn main () () (#let-mut frame Frame (#struct-literal Frame (: value 42u64)))
+          (#fn main () () (#let-mut frame Frame (#struct-literal Frame ((value 42u64))))
           (#let pin (#pin-ref-mut Frame) (#pin-borrow-mut frame)) (#forget pin)
           (#let moved Frame frame) (#forget moved) (#return ()))";
         assert!(check(source).unwrap_err().contains("stationary"));
@@ -461,15 +461,15 @@ mod tests {
 
     #[test]
     fn independent_allocations_do_not_share_call_site_identity() {
-        let source = HEAP.replace("(#let view (#pin-ref #u64)", "(#let other (#pin-own #u64) (#call create (:))) (#call destroy (: owner other)) (#let view (#pin-ref #u64)");
+        let source = HEAP.replace("(#let view (#pin-ref #u64)", "(#let other (#pin-own #u64) (#call create ())) (#call destroy ((owner other))) (#let view (#pin-ref #u64)");
         check(&source).unwrap();
     }
 
     #[test]
     fn heap_adoption_preserves_the_initializers_external_reference() {
-        let source = "(#struct Held () (: value (#ref #u64)))
-          (#fn adopt (: pointer (#ptr-mut Held) : source (#ref #u64)) (#pin-own Held)
-          (#return (#unsafe (#pin-own-of pointer (#struct-literal Held (: value source))))))";
+        let source = "(#struct Held () ((value (#ref #u64))))
+          (#fn adopt ((pointer (#ptr-mut Held)) (source (#ref #u64))) (#pin-own Held)
+          (#return (#unsafe (#pin-own-of pointer (#struct-literal Held ((value source)))))))";
         check(source).unwrap();
     }
 
@@ -477,22 +477,22 @@ mod tests {
     fn leaking_an_owner_does_not_end_the_allocation_lifetime() {
         let source = HEAP
             .replace(
-                "(#let moved (#pin-own #u64) (#call forward (: owner owner)))",
+                "(#let moved (#pin-own #u64) (#call forward ((owner owner))))",
                 "(#forget owner)",
             )
-            .replace("(#call destroy (: owner moved))", "()");
+            .replace("(#call destroy ((owner moved)))", "()");
         check(&source).unwrap();
     }
 
     #[test]
     fn aggregate_forwarding_preserves_allocation_identity_for_release() {
         let source = HEAP.replace(
-            "(#let moved (#pin-own #u64) (#call forward (: owner owner)))",
+            "(#let moved (#pin-own #u64) (#call forward ((owner owner))))",
             "(#let wrapped (#tuple (#pin-own #u64)) (#tuple (#tuple (#pin-own #u64)) owner))
-             (#let returned (#tuple (#pin-own #u64)) (#call pass (: item wrapped)))
+             (#let returned (#tuple (#pin-own #u64)) (#call pass ((item wrapped))))
              (#let moved (#pin-own #u64) (#get returned 0))",
         );
-        let source = format!("(#fn pass (: item (#tuple (#pin-own #u64))) (#tuple (#pin-own #u64)) (#return item)) {source}");
+        let source = format!("(#fn pass ((item (#tuple (#pin-own #u64)))) (#tuple (#pin-own #u64)) (#return item)) {source}");
         check(&source).unwrap();
         assert!(check(&source.replace("(#forget view)", "()"))
             .unwrap_err()
@@ -506,7 +506,7 @@ mod tests {
           (#let view (#pin-ref #u64) (#pin-own-borrow owner))
           (#return (#tuple (#tuple (#pin-own #u64) (#pin-ref #u64)) owner view)))
           (#fn main () ()
-          (#let returned (#tuple (#pin-own #u64) (#pin-ref #u64)) (#call pair (:)))
+          (#let returned (#tuple (#pin-own #u64) (#pin-ref #u64)) (#call pair ()))
           (#let owner (#pin-own #u64) (#get returned 0))
           (#let pointer (#ptr-mut #u64) (#unsafe (#pin-release owner)))
           (#let result #u64 (#deref (#get returned 1)))
@@ -516,9 +516,9 @@ mod tests {
 
     #[test]
     fn pinning_a_linear_parameter_requires_a_pinned_input() {
-        let source = "(#struct Frame (#linear) (: value #u64))
-          (#struct Container () (: frame Frame))
-          (#fn view (: container (#ref Container)) (#pin-ref Frame)
+        let source = "(#struct Frame (#linear) ((value #u64)))
+          (#struct Container () ((frame Frame)))
+          (#fn view ((container (#ref Container))) (#pin-ref Frame)
           (#return (#pin-borrow (#get container frame))))";
         assert!(check(source).unwrap_err().contains("ordinary reference"));
         check(&source.replace("(#ref Container)", "(#pin-ref Container)")).unwrap();
@@ -526,15 +526,15 @@ mod tests {
 
     #[test]
     fn a_callee_cannot_mutably_access_an_owner_with_a_retained_pointee_view() {
-        let source = "(#struct Data () (: value #u64))
-          (#fn mutate (: #mut owner (#pin-own Data) : view (#pin-ref Data)) (#pin-own Data)
+        let source = "(#struct Data () ((value #u64)))
+          (#fn mutate ((#mut owner (#pin-own Data)) (view (#pin-ref Data))) (#pin-own Data)
           (#let exclusive (#pin-ref-mut Data) (#pin-own-borrow-mut owner))
           (#pin-set-field exclusive value 99u64)
           (#let observed #u64 (#get view value)) (#forget exclusive) (#return owner))
           (#fn main () ()
-          (#let owner (#pin-own Data) (#unsafe (#pin-own-of (#ptr-null (#ptr-mut Data)) (#struct-literal Data (: value 42u64)))))
+          (#let owner (#pin-own Data) (#unsafe (#pin-own-of (#ptr-null (#ptr-mut Data)) (#struct-literal Data ((value 42u64))))))
           (#let view (#pin-ref Data) (#pin-own-borrow owner))
-          (#let returned (#pin-own Data) (#call mutate (: owner owner : view view)))
+          (#let returned (#pin-own Data) (#call mutate ((owner owner) (view view))))
           (#forget returned) (#forget view) (#return ()))";
         let error = check(source).unwrap_err();
         assert!(
@@ -550,9 +550,9 @@ mod tests {
             "{functions}
           (#thread-task Task destroy)
           (#fn main () ()
-          (#let owner (#pin-own #u64) (#call create (:)))
+          (#let owner (#pin-own #u64) (#call create ()))
           (#let view (#pin-ref #u64) (#pin-own-borrow owner))
-          (#let spawned Task::SpawnResult (#call Task::spawn (: owner owner)))
+          (#let spawned Task::SpawnResult (#call Task::spawn ((owner owner))))
           (#unreachable) (#return ()))"
         );
         let error = check(&source).unwrap_err();
@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn an_owning_pin_cannot_be_bitwise_cloned_inside_an_aggregate() {
-        let source = HEAP.replace("(#let moved (#pin-own #u64) (#call forward (: owner owner)))", "(#let wrapped (#tuple (#pin-own #u64)) (#tuple (#tuple (#pin-own #u64)) owner)) (#let duplicate (#tuple (#pin-own #u64)) (#clone wrapped)) (#let moved (#pin-own #u64) (#get wrapped 0)) (#forget duplicate)");
+        let source = HEAP.replace("(#let moved (#pin-own #u64) (#call forward ((owner owner))))", "(#let wrapped (#tuple (#pin-own #u64)) (#tuple (#tuple (#pin-own #u64)) owner)) (#let duplicate (#tuple (#pin-own #u64)) (#clone wrapped)) (#let moved (#pin-own #u64) (#get wrapped 0)) (#forget duplicate)");
         assert!(check(&source)
             .unwrap_err()
             .contains("owning pin cannot be cloned"));

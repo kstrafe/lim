@@ -5,6 +5,6 @@
 (#fn main () #u64
   (#return (#if-let
     (#array first second third fourth fifth sixth last)
-    (#call values (:))
+    (#call values ())
     last
     0u64)))

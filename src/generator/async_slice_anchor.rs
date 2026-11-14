@@ -274,7 +274,7 @@ impl Recipes {
                 };
                 leaf = target.clone();
                 recipes.declarations.push(format!(
-                    "(#fn {name} (: {owner} {input} : {sample} #usize) {} {} (#return {output}))",
+                    "(#fn {name} (({owner} {input}) ({sample} #usize)) {} {} (#return {output}))",
                     reference(target),
                     steps.join("\n")
                 ));
@@ -295,10 +295,10 @@ impl Recipes {
                 if exclusive { "-mut" } else { "" }
             );
             let shared = project[0].as_ref().unwrap();
-            recipes.declarations.push(format!("(#fn {prototype} (: {owner} {input} : {sample} #usize) #usize (#return (#ptr-address (#ref-ptr (#call {shared} (: {owner} {owner} : {sample} {sample}))))))"));
+            recipes.declarations.push(format!("(#fn {prototype} (({owner} {input}) ({sample} #usize)) #usize (#return (#ptr-address (#ref-ptr (#call {shared} (({owner} {owner}) ({sample} {sample})))))))"));
             // Explicit argument names are generated symbols, not positional metadata.
             let at = |coordinate: &str| {
-                format!("(#call {prototype} (: {owner} {owner} : {sample} {coordinate}))")
+                format!("(#call {prototype} (({owner} {owner}) ({sample} {coordinate})))")
             };
             let measurements = format!("(#let {base} #usize {})
               (#let {next} #usize {})
@@ -319,7 +319,7 @@ impl Recipes {
             } else {
                 format!("(#usize::eq {address} {})", at("0usize"))
             };
-            recipes.declarations.push(format!("(#fn {index} (: {owner} {input} : {address} #usize) #usize
+            recipes.declarations.push(format!("(#fn {index} (({owner} {input}) ({address} #usize)) #usize
               (#let {length} #usize {len}) (#assert (#usize::gt {length} 0usize))
               (#if (#usize::eq {length} 1usize) (#block (#assert {single_valid}) (#return 0usize)) ())
               {measurements} (#assert {valid})
@@ -342,7 +342,7 @@ impl Recipes {
                 let selected = coordinate
                     .map(|coordinate| format!("{coordinate}usize"))
                     .unwrap_or_else(|| {
-                        format!("(#call {index} (: {owner} {owner} : {address} {address}))")
+                        format!("(#call {index} (({owner} {owner}) ({address} {address})))")
                     });
                 let base = fresh("slice-nested-base");
                 let base_type = crate::type_source(&Type::Reference {
@@ -367,12 +367,12 @@ impl Recipes {
                         mutable,
                         target: Box::new(leaf.clone()),
                     });
-                    recipes.declarations.push(format!("(#fn {name} (: {owner} {input} : {address} #usize) {output} {base_binding} (#return {body}))"));
+                    recipes.declarations.push(format!("(#fn {name} (({owner} {input}) ({address} #usize)) {output} {base_binding} (#return {body}))"));
                     functions[usize::from(mutable)] = Some(name);
                 }
                 nested_project = Some(functions);
             }
-            recipes.declarations.push(format!("(#fn {probe} (: {owner} {input} : {address} #usize) #bool (#let {length} #usize {len}) (#return {probe_body}))"));
+            recipes.declarations.push(format!("(#fn {probe} (({owner} {input}) ({address} #usize)) #bool (#let {length} #usize {len}) (#return {probe_body}))"));
             recipes.entries.insert(
                 place,
                 Recipe {
@@ -394,7 +394,7 @@ impl Recipes {
         let recipe = &self.entries[place];
         if let Some(nested) = &recipe.nested {
             return format!(
-                "(#call {} (: {} {owner} : {} (#ptr-address {pointer})))",
+                "(#call {} (({} {owner}) ({} (#ptr-address {pointer}))))",
                 nested[usize::from(mutable)].as_ref().unwrap(),
                 recipe.owner,
                 recipe.address
@@ -405,12 +405,12 @@ impl Recipes {
             .map(|index| format!("{index}usize"))
             .unwrap_or_else(|| {
                 format!(
-                    "(#call {} (: {} {owner} : {} (#ptr-address {pointer})))",
+                    "(#call {} (({} {owner}) ({} (#ptr-address {pointer}))))",
                     recipe.index, recipe.owner, recipe.address
                 )
             });
         format!(
-            "(#call {} (: {} {owner} : {} {index}))",
+            "(#call {} (({} {owner}) ({} {index})))",
             recipe.project[usize::from(mutable)].as_ref().unwrap(),
             recipe.owner,
             recipe.sample
@@ -420,7 +420,7 @@ impl Recipes {
     pub fn probe(&self, place: &Place, owner: &str, pointer: &str) -> String {
         let recipe = &self.entries[place];
         format!(
-            "(#call {} (: {} {owner} : {} (#ptr-address {pointer})))",
+            "(#call {} (({} {owner}) ({} (#ptr-address {pointer}))))",
             recipe.probe, recipe.owner, recipe.address
         )
     }

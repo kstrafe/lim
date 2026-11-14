@@ -185,11 +185,11 @@ fn projection_source(value: &str) -> String {
     format!(
         "(#std)
       (#enum Task () ((Task.Work #u64) Task.Idle))
-      (#generate #enum-project (: enum Task : variant Task.Work : payload #u64 : mode #pin-ref-mut : name WorkProjection))
+      (#generate #enum-project ((enum Task) (variant Task.Work) (payload #u64) (mode #pin-ref-mut) (name WorkProjection)))
       (#fn main () #u64
         (#let-mut task Task {value})
         (#let-else (WorkProjection.Some frame)
-          (#call WorkProjection::project (: source (#pin-borrow-mut task)))
+          (#call WorkProjection::project ((source (#pin-borrow-mut task))))
           (#else (#forget task) (#return 7u64)))
         (#let answer #u64 (#unsafe (#pin-read frame)))
         (#forget frame)
@@ -213,16 +213,16 @@ fn generated_optional_projection_preserves_loans_and_can_release_mismatched_owne
             "{error}"
         );
     }
-    let mismatch = projection_source("Task.Idle").replace(": payload #u64", ": payload #u32");
+    let mismatch = projection_source("Task.Idle").replace("(payload #u64)", "(payload #u32)");
     assert!(check(&mismatch).is_err());
-    let unknown = projection_source("Task.Idle").replace(": payload #u64", ": typo #u64");
+    let unknown = projection_source("Task.Idle").replace("(payload #u64)", "(typo #u64)");
     assert!(check(&unknown)
         .unwrap_err()
         .contains("missing key 'payload'"));
     let extra =
-        projection_source("Task.Idle").replace(": payload #u64", ": payload #u64 : typo #u64");
+        projection_source("Task.Idle").replace("(payload #u64)", "(payload #u64 : typo #u64)");
     assert!(check(&extra).unwrap_err().contains("requires exactly"));
-    let duplicate = projection_source("Task.Idle").replace(": payload #u64", ": enum #u64");
+    let duplicate = projection_source("Task.Idle").replace("(payload #u64)", "(enum #u64)");
     assert!(check(&duplicate)
         .unwrap_err()
         .contains("repeats key 'enum'"));
@@ -245,19 +245,19 @@ fn imported_and_generator_defined_variants_resolve_without_rhs_inference() {
         &module,
         format!(
             "{ENUM}
-      (#fn read (: value Outcome) #u64
+      (#fn read ((value Outcome)) #u64
         (#let-else (Outcome.Success number) value (#else (#return 0u64)))
         (#return number))"
         ),
     )
     .unwrap();
     let source = "(#alias Ext::read = ./module.lim::read)\n(#alias Ext@Success = ./module.lim::Outcome.Success)
-      (#fn main () #u64 (#return (#call Ext::read (: value (Ext@Success 42u64)))))";
+      (#fn main () #u64 (#return (#call Ext::read ((value (Ext@Success 42u64))))))";
     let program = lim::parse_program_from_path(&source, &scratch.path().join("main.lim")).unwrap();
     check_types(&program).unwrap();
     generate_assembly(&program).unwrap();
     check(
-        "(#generate #optional (: type #u64 : name Number))
+        "(#generate #optional ((type #u64) (name Number)))
       (#fn main () #u64
         (#let-else (Number.Some number) (Number.Some 42u64)
           (#else (#return 0u64)))
@@ -270,16 +270,16 @@ fn imported_and_generator_defined_variants_resolve_without_rhs_inference() {
 fn compact_patterns_work_in_async_source_and_generated_poll_consumers() {
     let source = format!(
         "{ENUM}
-      (#generate #async-fn-pinned (: protocol Work::Await : waker #u64
-        : function (#fn work () #u64
+      (#generate #async-fn-pinned ((protocol Work::Await) (waker #u64)
+        (function (#fn work () #u64
           (#let-else (Outcome.Success answer) (Outcome.Success 42u64)
             (#else (#return 0u64)))
-          (#return answer))))
+          (#return answer)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task Work::Frame (#call work (:)))
+        (#let-mut task Work::Frame (#call work ()))
         (#let-else (Work::Poll.Ready answer)
-          (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+          (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
           (#else (#forget task) (#return 0u64)))
         (#forget task)
         (#return answer))"

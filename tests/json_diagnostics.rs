@@ -90,7 +90,7 @@ fn errors_are_json_from_frontend_through_linker() {
             "type",
         ),
         (
-            "(#fn small ((value #u64)) #bool (#return (#u64::lt value 100u64))) (#fn consume ((value #u64)) () (#requires (#call small (: value value))) (#return ())) (#fn main () #u64 (#call consume (: value 200u64)) (#return 42u64))",
+            "(#fn small ((value #u64)) #bool (#return (#u64::lt value 100u64))) (#fn consume ((value #u64)) () (#requires (#call small ((value value)))) (#return ())) (#fn main () #u64 (#call consume ((value 200u64))) (#return 42u64))",
             "contract",
         ),
         ("(#fn main () #u64 (#return 42u64))", "link"),

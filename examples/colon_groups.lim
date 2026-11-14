@@ -1,5 +1,5 @@
 // Each ':' starts a pair and ends the preceding pair at this list depth.
-(#fn sum (: left #u32 : right #u32) #u32
+(#fn sum ((left #u32) (right #u32)) #u32
   (#return (#u32::add-wrap left right)))
 
 (#fn main () #u64

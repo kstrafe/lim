@@ -11,4 +11,4 @@
   (#return result))
 (#fn main () #u64
   (#let-mut owner #u64 40u64)
-  (#return (#call increment (: view (#call package (: value (#borrow-mut owner)))))))
+  (#return (#call increment ((view (#call package ((value (#borrow-mut owner)))))))))

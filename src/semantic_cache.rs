@@ -596,7 +596,7 @@ mod tests {
 
     #[test]
     fn unproved_word_entry_obligations_survive_summary_serialization() {
-        let d = declarations("(#fn identity (: value (#ref #u64)) (#ref #u64) (#return value))");
+        let d = declarations("(#fn identity ((value (#ref #u64))) (#ref #u64) (#return value))");
         let mut facts = d.flows["identity"].parameter_summary(&d.bodies["identity"], false);
         // A cache hit must retain the distinction between a possible loan
         // lifetime and a definitely initialized concealed word-cell value.
@@ -646,25 +646,25 @@ mod tests {
     #[test]
     fn inferred_summaries_round_trip_in_both_transfer_modes() {
         let mut d = declarations(
-            "(#struct Holder () (: value (#ref #u64)))
+            "(#struct Holder () ((value (#ref #u64))))
           (#enum Choice () ((Choice.Found Holder) Choice.Missing))
-          (#fn choose (: owner (#ref #u64) : flag #bool) Choice
-            (#return (#if flag (Choice.Found (#struct-literal Holder (: value owner))) Choice.Missing)))
-          (#fn set (: slot (#ref-mut (#ref #u64)) : value (#ref #u64)) ()
+          (#fn choose ((owner (#ref #u64)) (flag #bool)) Choice
+            (#return (#if flag (Choice.Found (#struct-literal Holder ((value owner)))) Choice.Missing)))
+          (#fn set ((slot (#ref-mut (#ref #u64))) (value (#ref #u64))) ()
             (#deref-set slot value) (#return ()))
-          (#fn project (: slot (#ref-mut (#ref-mut #u64))) (#ref-mut #u64)
+          (#fn project ((slot (#ref-mut (#ref-mut #u64)))) (#ref-mut #u64)
             (#return (#borrow-mut (#deref (#deref slot)))))
-          (#struct Counter () (: pc #u64))
-          (#fn make () Counter (#return (#struct-literal Counter (: pc 0u64))))
-          (#fn bounded (: flag #bool) Counter
+          (#struct Counter () ((pc #u64)))
+          (#fn make () Counter (#return (#struct-literal Counter ((pc 0u64)))))
+          (#fn bounded ((flag #bool)) Counter
             (#if flag
-              (#block (#return (#struct-literal Counter (: pc 0u64))) (#unreachable))
-              (#block (#return (#struct-literal Counter (: pc 1u64))) (#unreachable)))
+              (#block (#return (#struct-literal Counter ((pc 0u64)))) (#unreachable))
+              (#block (#return (#struct-literal Counter ((pc 1u64)))) (#unreachable)))
             (#return (#unreachable)))
-          (#fn unknown (: flag #bool : pc #u64) Counter
+          (#fn unknown ((flag #bool) (pc #u64)) Counter
             (#if flag
-              (#block (#return (#struct-literal Counter (: pc 0u64))) (#unreachable))
-              (#block (#return (#struct-literal Counter (: pc pc))) (#unreachable)))
+              (#block (#return (#struct-literal Counter ((pc 0u64)))) (#unreachable))
+              (#block (#return (#struct-literal Counter ((pc pc)))) (#unreachable)))
             (#return (#unreachable)))
           (#fn main () #u64 (#return 42u64))",
         );
@@ -704,12 +704,12 @@ mod tests {
 
     #[test]
     fn declaration_ids_are_remapped_by_name_not_arena_index() {
-        let source = "(#static shared #u64 0u64) (#struct Holder () (: value (#ref #u64)))
+        let source = "(#static shared #u64 0u64) (#struct Holder () ((value (#ref #u64))))
           (#enum Choice () ((Choice.Found Holder) Choice.Missing)) (#fn main () #u64 (#return 0u64))";
         let before = declarations(source);
         let after = declarations(&format!(
             "(#static aAA #u64 1u64)
-          (#struct AAAHolder () (: value #u64)) (#enum AAAChoice () ((AAAChoice.AAAFound #u64))) {source}"
+          (#struct AAAHolder () ((value #u64))) (#enum AAAChoice () ((AAAChoice.AAAFound #u64))) {source}"
         ));
         let field = before
             .field_id(&Type::Named("Holder".into()), "value")

@@ -2,6 +2,6 @@
   (#return (#get value 1)))
 
 (#fn main () #u64
-  (#return (#call consume (: value (#if true
+  (#return (#call consume ((value (#if true
       (#tuple (#tuple #u64 #u64) 10 20)
-      (#tuple (#tuple #u64 #u64) 30 12))))))
+      (#tuple (#tuple #u64 #u64) 30 12)))))))

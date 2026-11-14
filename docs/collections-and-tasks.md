@@ -328,14 +328,14 @@ rerunning generation. If all current sites are already recorded, neither the
 source file nor its cache metadata is rewritten; earlier records are retained.
 
 ```lisp syntax
-(#generate #async-fn (: protocol WorkAwait : waker LocalWaker : function (#fn work ((offset #u64)) #u64
+(#generate #async-fn ((protocol WorkAwait) (waker LocalWaker) (function (#fn work ((offset #u64)) #u64
     (#let child Step (Waiting 1u64))
     (#let value #u64
       (#await Step StepPoll.StepPending StepPoll.StepReady step-poll child))
-    (#return (#u64::add-wrap value offset)))))
+    (#return (#u64::add-wrap value offset))))))
 ```
 
-`(#call work (: offset 1u64))` creates a `Work` frame. It does not
+`(#call work ((offset 1u64)))` creates a `Work` frame. It does not
 execute the body. With `#generate #async-fn`, `Work::poll` takes `(task Work)` and
 `(waker (#ref LocalWaker))`, consumes the old frame, and returns `WorkPending`
 with a new frame or `WorkReady` with the result. With `#generate #async-fn-pinned`,
@@ -354,9 +354,9 @@ repeating the result type. Declare a bundle for a handwritten task, or let
 `#generate #async-fn` export it:
 
 ```lisp
-(#generate #async-fn (: protocol WorkAwait : waker LocalWaker
-  : function (#fn work (: offset #u64) #u64
-    (#return (#await StepAwait (Waiting offset))))))
+(#generate #async-fn ((protocol WorkAwait) (waker LocalWaker)
+  (function (#fn work ((offset #u64)) #u64
+    (#return (#await StepAwait (Waiting offset)))))))
 // Inside another generated async function:
 (#let value #u64 (#await WorkAwait (#call work (($ offset)))))
 ```
@@ -468,12 +468,12 @@ to concrete handlers, not private program-counter states:
 
 ```lisp
 (#generate #async-fn-pinned
-  (: protocol WorkAwait
-   : waker LocalWaker
-   : cancel (cancel-work ((owner destroy-owner) (await-0 cancel-child)))
-   : function
-   (#fn work (: owner Owner) #u64
-     ...)))
+  ((protocol WorkAwait)
+   (waker LocalWaker)
+   (cancel (cancel-work ((owner destroy-owner) (await-0 cancel-child))))
+   (function
+   (#fn work ((owner Owner)) #u64
+     ...))))
 ```
 
 Every exposed owning slot requires a handler. Missing, duplicate, unknown,
@@ -534,7 +534,7 @@ executor shutdown remain open. Externally interrupting a blocking run also
 remains open.
 
 `(#generate #threaded-executor run Result jobs Worker)` expands an executor plus
-`(#generate #thread-spawn (: task Worker : worker run))`. Each job names both its result
+`(#generate #thread-spawn ((task Worker) (worker run)))`. Each job names both its result
 field/state binding and a distinct worker-input parameter, for example
 `(number NumberTask NumberPoll NumberPending NumberReady number-poll #u64 number-input)`.
 The spawn call uses that worker-input name as its named argument; the result

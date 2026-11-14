@@ -11,19 +11,19 @@
           (ConditionPoll.ConditionReady true)
           (ConditionPoll.ConditionReady false)))))))
 
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work () #u64
     (#let-mut iteration #u64 0u64)
     (#while (#await ConditionTask ConditionPoll.ConditionPending ConditionPoll.ConditionReady
               condition-poll (ConditionTask.Waiting iteration))
       (#set iteration (#u64::add-wrap iteration 1u64)))
-    (#return iteration))))
+    (#return iteration)))))
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let first Work::Poll
-    (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+    (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
-  (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+  (#let second Work::Poll (#call Work::poll ((task pending) (waker (#borrow waker)))))
   (#let result #u64 (#match second
     (#case (Work::Poll.Ready value) value)
     (#case (Work::Poll.Pending pending-again)

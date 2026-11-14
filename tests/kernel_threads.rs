@@ -64,7 +64,7 @@ fn joined(task: &str, arguments: &str) -> String {
     format!(
         "(#match (#call {task}::spawn ( {arguments}))
       (#case ({task}::SpawnResult.Ok handle)
-        (#match (#call {task}::join (: task handle))
+        (#match (#call {task}::join ((task handle)))
           (#case ({task}::JoinResult.Ok result) result)
           (#case ({task}::JoinResult.Error (#tuple retry error)) (#panic))))
       (#case ({task}::SpawnResult.Error error) (#panic)))"
@@ -107,16 +107,16 @@ fn thread_argument_result_layouts_and_nested_workers_run() {
     let declarations = format!(
         "{declarations}
       (#fn middle () #u64 (#drop {}) (#return 42u64))
-      (#generate #thread-spawn (: task MiddleTask : worker middle))
+      (#generate #thread-spawn ((task MiddleTask) (worker middle)))
       (#fn wide ((value #u128)) #u128 (#return (#u128::add-wrap value 3u128)))
-      (#generate #thread-spawn (: task WideTask : worker wide))
+      (#generate #thread-spawn ((task WideTask) (worker wide)))
       (#fn narrow-float ((value #f32)) #f32 (#return (#f32::mul value 2.0f32)))
-      (#generate #thread-spawn (: task NarrowFloatTask : worker narrow-float))
+      (#generate #thread-spawn ((task NarrowFloatTask) (worker narrow-float)))
       (#fn many-floats ((a #f64) (b #f64) (c #f64) (d #f64) (e #f64) (f #f64) (g #f64) (h #f64) (i #f64)) #f64
         (#return (#f64::add a i)))
-      (#generate #thread-spawn (: task ManyFloatsTask : worker many-floats))
+      (#generate #thread-spawn ((task ManyFloatsTask) (worker many-floats)))
       (#fn units ((before ()) (value #u64) (after ())) #u64 (#return value))
-      (#generate #thread-spawn (: task UnitsTask : worker units))",
+      (#generate #thread-spawn ((task UnitsTask) (worker units)))",
         joined("NoopTask", "")
     );
     let cases = [
@@ -153,9 +153,9 @@ fn thread_argument_result_layouts_and_nested_workers_run() {
 fn foreign_worker_calls_are_rejected_transitively() {
     let scratch = support::Scratch::new("kernel-thread-ffi");
     let source = "(#extern-fn #abi-c abs ((value #i32)) #i32)
-      (#fn helper () #i32 (#return (#unsafe (#unsafe-call abs (: value -42i32)))))
-      (#fn work () #i32 (#return (#call helper (:))))
-      (#generate #thread-spawn (: task Work : worker work))";
+      (#fn helper () #i32 (#return (#unsafe (#unsafe-call abs ((value -42i32))))))
+      (#fn work () #i32 (#return (#call helper ())))
+      (#generate #thread-spawn ((task Work) (worker work)))";
     let error = assembly(source, &scratch.path().join("input.lim"), scratch.path()).unwrap_err();
     assert!(
         error.message.contains("external/indirect callee 'abs'"),
@@ -171,8 +171,8 @@ fn large_worker_frames_size_the_mapping_from_the_call_graph() {
         "(#fn large-frame ((value #u64)) #u64
       (#let values (#array #u64 16384) (#array-repeat value))
       (#let result #u64 (#index values 16383usize)) (#forget values) (#return result))
-      (#fn work ((value #u64)) #u64 (#return (#call large-frame (: value value))))
-      (#generate #thread-spawn (: task Work : worker work))
+      (#fn work ((value #u64)) #u64 (#return (#call large-frame ((value value)))))
+      (#generate #thread-spawn ((task Work) (worker work)))
       (#fn main () #u64 (#return {}))",
         joined("Work", "(value 42u64)")
     );
@@ -201,7 +201,7 @@ fn argument_and_result_packets_can_span_multiple_pages() {
     );
     let source = format!(
         "(#fn identity ((value (#array #u64 1024))) (#array #u64 1024) (#return value))
-      (#generate #thread-spawn (: task ArrayTask : worker identity))
+      (#generate #thread-spawn ((task ArrayTask) (worker identity)))
       (#fn main () #u64
         (#let-mut values (#array #u64 1024) (#array-repeat 42u64))
         (#set-index values 511usize 37u64)
@@ -260,9 +260,9 @@ fn trace_kernel_thread_lifecycle_and_inject_spawn_failures() {
         ("clone", "creation", 1),
     ] {
         let source = format!(
-            "(#fn work () #u64 (#return 42u64)) (#generate #thread-spawn (: task Work : worker work))
+            "(#fn work () #u64 (#return 42u64)) (#generate #thread-spawn ((task Work) (worker work)))
           (#fn main () #u64
-            (#return (#match (#call Work::spawn (:))
+            (#return (#match (#call Work::spawn ())
               (#case (Work::SpawnResult.Ok task) (#panic))
               (#case (Work::spawn-error error)
                 (#match error (#case Work-spawn-{expected}-error 42u64) (#case _ (#panic)))))))"
@@ -302,11 +302,11 @@ fn trace_kernel_thread_lifecycle_and_inject_spawn_failures() {
 #[ignore = "Linux ptrace audit: injects futex errors and delays child exit"]
 fn join_retries_transient_errors_and_retains_the_handle_on_other_errors() {
     let scratch = support::Scratch::new("kernel-thread-join-errors");
-    let source = "(#fn work () #u64 (#return 42u64)) (#generate #thread-spawn (: task Work : worker work))
+    let source = "(#fn work () #u64 (#return 42u64)) (#generate #thread-spawn ((task Work) (worker work)))
       (#fn main () #u64
-        (#return (#match (#call Work::spawn (:))
+        (#return (#match (#call Work::spawn ())
           (#case (Work::SpawnResult.Ok task)
-            (#match (#call Work::join (: task task))
+            (#match (#call Work::join ((task task)))
               (#case (Work::JoinResult.Ok value) value)
               (#case (Work::JoinResult.Error (#tuple retry error))
                 (#block
@@ -314,7 +314,7 @@ fn join_retries_transient_errors_and_retains_the_handle_on_other_errors() {
                   (#let letter #u8 82u8)
                   (#assert (#i64::eq (#unsafe (#asm #i64
                     ((rax 1usize) (rdi 1usize) (rsi (#addr-of letter)) (rdx 1usize)) \"syscall\")) 1i64))
-                  (#match (#call Work::join (: task retry))
+                  (#match (#call Work::join ((task retry)))
                     (#case (Work::JoinResult.Ok value) value)
                     (#case (Work::JoinResult.Error (#tuple still-owned code)) (#panic)))))))
           (#case (Work::spawn-error error) (#panic)))))";
@@ -351,7 +351,7 @@ fn writing_the_stack_guard_traps() {
     let scratch = support::Scratch::new("kernel-thread-guard");
     let source = format!("(#fn work () #u64
       (#drop (#unsafe (#asm #u64 () \"mov rax, rsp\\nand rax, -4096\\nsub rax, 65536\\nmov bYTE PTR [rax], 1\")))
-      (#return 42u64)) (#generate #thread-spawn (: task Work : worker work))
+      (#return 42u64)) (#generate #thread-spawn ((task Work) (worker work)))
       (#fn main () #u64 (#return {}))", joined("Work", ""));
     let (binary, asm) = build(&source, &scratch.path().join("input.lim"), scratch.path());
     assert!(asm.contains(".set .Llim_thread_stack_Work, 65536\n"));

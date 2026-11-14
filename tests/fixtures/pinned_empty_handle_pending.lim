@@ -1,9 +1,9 @@
 // Ordinary PendingResult.Pending results cannot export a reference to consumed storage.
 // This is a negative architecture control, not generated async output.
-(#struct Token (#linear) (: value #u64))
+(#struct Token (#linear) ((value #u64)))
 
 (#enum PendingResult () ((PendingResult.Pending (#pin-ref-mut Token))))
-(#fn suspend (: item (#pin-ref-mut Token)) PendingResult
+(#fn suspend ((item (#pin-ref-mut Token))) PendingResult
   (#let old Token (#unsafe (#pin-read item)))
   (#forget old)
   (#return (PendingResult.Pending item)))

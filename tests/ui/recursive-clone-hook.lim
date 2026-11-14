@@ -2,6 +2,6 @@
 (#fn Value::clone ((value Value)) Value
   (#return (#clone value)))
 (#fn main () #u64
-  (#let value Value (#struct-literal Value (: number 42u64)))
+  (#let value Value (#struct-literal Value ((number 42u64))))
   (#let copied Value (#clone value))
   (#return (#get copied number)))

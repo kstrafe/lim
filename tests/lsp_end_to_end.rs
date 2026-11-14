@@ -367,7 +367,7 @@ fn library_exports_and_agglutinated_identifiers_have_definition_roles() {
 #[test]
 fn exported_enum_variants_navigate_from_literals_and_borrowed_patterns() {
     let fixture = Fixture::new("library-public-enum");
-    let library_text = "(#export Status)\n(#enum Status () (: Status.Open #u64 : Status.Closed))\n";
+    let library_text = "(#export Status)\n(#enum Status () ((Status.Open #u64) (Status.Closed)))\n";
     let library = fixture.write("status/lib.lim", library_text);
     let main_text = "(#alias Status = ./status/lib.lim::Status)\n(#fn main () #u64\n  (#let status Status (#enum-literal Status.Open 42u64))\n  (#let view (#ref Status) (#borrow status))\n  (#return (#match view\n    (#case-ref (Status.Open payload) (#deref payload))\n    (#case-ref Status.Closed 0u64))))\n";
     let main = fixture.write("main.lim", main_text);
@@ -393,13 +393,13 @@ fn exported_enum_variants_navigate_from_literals_and_borrowed_patterns() {
 #[test]
 fn file_aliases_and_direct_calls_navigate_to_the_original_declaration() {
     let fixture = Fixture::new("file-alias-navigation");
-    let implementation_text = "(#fn read (: value #u64) #u64 (#return value))\n";
+    let implementation_text = "(#fn read ((value #u64)) #u64 (#return value))\n";
     let implementation = fixture.write("library/implementation.lim", implementation_text);
     fixture.write(
         "library/lib.lim",
         "(#export read)\n(#alias read = ./implementation.lim::read)\n",
     );
-    let main_text = "(#alias load = ./library/lib.lim::read)\n(#fn main () #u64 (#return (#u64::add-wrap (#call load (: value 20u64)) (#call ./library/lib.lim::read (: value 22u64)))))\n";
+    let main_text = "(#alias load = ./library/lib.lim::read)\n(#fn main () #u64 (#return (#u64::add-wrap (#call load ((value 20u64))) (#call ./library/lib.lim::read ((value 22u64))))))\n";
     let main = fixture.write("main.lim", main_text);
     fixture.context(&main, "first");
     let mut client = Client::start(&fixture.0);
@@ -407,8 +407,8 @@ fn file_aliases_and_direct_calls_navigate_to_the_original_declaration() {
     for needle in [
         "load =",
         "./library/lib.lim::read)",
-        "load (:",
-        "./library/lib.lim::read (:",
+        "load ((",
+        "./library/lib.lim::read ((",
     ] {
         assert_location(
             &client.definition(&main, main_text, needle),
@@ -566,11 +566,11 @@ fn qualified_names_navigate_from_generator_arguments_and_definition_templates() 
 #[test]
 fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
     let fixture = Fixture::new("navigation");
-    let leaf_text = "(#type Number #u64)\r\n(#fn glyph () #char (#return #\\😀)) (#fn leaf-value ((value Number)) Number (#return value))\r\n(#struct Holder () ((field Number)))\r\n(#fn inspect-holder (: holder (#ref Holder)) () (#return ()))\r\n";
+    let leaf_text = "(#type Number #u64)\r\n(#fn glyph () #char (#return #\\😀)) (#fn leaf-value ((value Number)) Number (#return value))\r\n(#struct Holder () ((field Number)))\r\n(#fn inspect-holder ((holder (#ref Holder))) () (#return ()))\r\n";
     let leaf = fixture.write("modules α/leaf #%.lim", leaf_text);
-    let bridge_text = "(#alias Number = \"./leaf #%.lim::Number\")\r\n(#alias leaf-value = \"./leaf #%.lim::leaf-value\")\r\n(#cfg-if (#cfg-is #flavor first)\r\n (#fn proxy ((value Number)) Number (#return (#call leaf-value (: value value))))\r\n (#cfg-else (#fn proxy ((value Number)) Number (#return value))))\r\n";
+    let bridge_text = "(#alias Number = \"./leaf #%.lim::Number\")\r\n(#alias leaf-value = \"./leaf #%.lim::leaf-value\")\r\n(#cfg-if (#cfg-is #flavor first)\r\n (#fn proxy ((value Number)) Number (#return (#call leaf-value ((value value)))))\r\n (#cfg-else (#fn proxy ((value Number)) Number (#return value))))\r\n";
     let bridge = fixture.write("modules α/bridge.lim", bridge_text);
-    let root_text = "(#alias Number = \"./modules α/bridge.lim::Number\")\r\n(#alias proxy = \"./modules α/bridge.lim::proxy\")\r\n(#fn glyph-root () #char (#return #\\😀)) (#fn main () Number (#return (#call proxy (: value 42u64))))\r\n";
+    let root_text = "(#alias Number = \"./modules α/bridge.lim::Number\")\r\n(#alias proxy = \"./modules α/bridge.lim::proxy\")\r\n(#fn glyph-root () #char (#return #\\😀)) (#fn main () Number (#return (#call proxy ((value 42u64)))))\r\n";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -668,12 +668,12 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
 #[test]
 fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
     let fixture = Fixture::new("member-roles");
-    let definitions = "(#struct Left () (: value #u64))\n(#struct Right () (: value #u64))\n(#fn read (: item (#ref Left)) #u64 (#return (#get item value)))";
+    let definitions = "(#struct Left () ((value #u64)))\n(#struct Right () ((value #u64)))\n(#fn read ((item (#ref Left))) #u64 (#return (#get item value)))";
     let module = fixture.write("types.lim", definitions);
     let source = "(#alias Left = ./types.lim::Left)\n(#alias Right = ./types.lim::Right)\n(#alias read = ./types.lim::read)\n(#fn main () #u64
-      (#let left Left (#struct-literal Left (: value 40u64)))
-      (#let right Right (#struct-literal Right (: value 2u64)))
-      (#let result #u64 (#u64::add-wrap (#call read (: item (#borrow left))) (#get right value)))
+      (#let left Left (#struct-literal Left ((value 40u64))))
+      (#let right Right (#struct-literal Right ((value 2u64))))
+      (#let result #u64 (#u64::add-wrap (#call read ((item (#borrow left)))) (#get right value)))
       (#forget left) (#forget right) (#return result))";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
@@ -685,22 +685,22 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
             &module,
             definitions,
             "value)))",
-            "#struct Left () (: value",
+            "#struct Left () ((value",
             "value",
         ),
         (
             &root,
             source,
             "value 2u64",
-            "#struct Right () (: value",
+            "#struct Right () ((value",
             "value",
         ),
-        (&root, source, "item (#borrow", "#fn read (: item", "item"),
+        (&root, source, "item (#borrow", "#fn read ((item", "item"),
         (
             &root,
             source,
             "value)))",
-            "#struct Right () (: value",
+            "#struct Right () ((value",
             "value",
         ),
     ] {
@@ -718,7 +718,7 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
         &client.definition(&root, source, "value 2u64"),
         &module,
         &updated,
-        "#struct Right () (: value",
+        "#struct Right () ((value",
         "value",
     );
     client.shutdown();
@@ -727,11 +727,11 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
 #[test]
 fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
     let fixture = Fixture::new("generated-source-roles");
-    let source = "(#gn emit () `((#struct Box () (: value #u64))
-      (#fn forward (: value #u64) #u64 (#return value))))\n(#generate emit)
+    let source = "(#gn emit () `((#struct Box () ((value #u64)))
+      (#fn forward ((value #u64)) #u64 (#return value))))\n(#generate emit)
       (#fn main () #u64
-        (#let object Box (#struct-literal Box (: value 42u64)))
-        (#let result #u64 (#call forward (: value (#get object value))))
+        (#let object Box (#struct-literal Box ((value 42u64))))
+        (#let result #u64 (#call forward ((value (#get object value)))))
         (#forget object) (#return result))";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
@@ -821,9 +821,9 @@ fn bundled_standard_library_types_and_view_locals_have_real_targets() {
 #[test]
 fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
     let fixture = Fixture::new("type-roles");
-    let module_text = "(#type Number #u64)\n(#extern-fn #abi-c foreign ((value Number)) Number)\n(#unsafe-fn guarded ((value Number)) Number (#return value))\n(#struct Holder () ((field (#ref Number))))\n(#enum Choice () ((Choice.Data (#tuple Number Number)) Choice.Empty))\n(#struct CRecord (#repr-c) ((c-field Number)))\n(#const lIMIT Number 99u64)\n(#static cOUNT Number 42u64)\n(#fn inspect (: holder (#ref Holder) : choice (#ref Choice) : record (#ref CRecord)) () (#return ()))\n";
+    let module_text = "(#type Number #u64)\n(#extern-fn #abi-c foreign ((value Number)) Number)\n(#unsafe-fn guarded ((value Number)) Number (#return value))\n(#struct Holder () ((field (#ref Number))))\n(#enum Choice () ((Choice.Data (#tuple Number Number)) Choice.Empty))\n(#struct CRecord (#repr-c) ((c-field Number)))\n(#const lIMIT Number 99u64)\n(#static cOUNT Number 42u64)\n(#fn inspect ((holder (#ref Holder)) (choice (#ref Choice)) (record (#ref CRecord))) () (#return ()))\n";
     let module = fixture.write("functions.lim", module_text);
-    let root_text = "(#alias Number = ./functions.lim::Number)\n(#alias foreign = ./functions.lim::foreign)\n(#alias guarded = ./functions.lim::guarded)\n(#fn main () Number\n (#let-mut input Number 42u64)\n (#return (#unsafe (#unsafe-call foreign (: value (#unsafe-call guarded (: value input)))))))\n";
+    let root_text = "(#alias Number = ./functions.lim::Number)\n(#alias foreign = ./functions.lim::foreign)\n(#alias guarded = ./functions.lim::guarded)\n(#fn main () Number\n (#let-mut input Number 42u64)\n (#return (#unsafe (#unsafe-call foreign ((value (#unsafe-call guarded ((value input)))))))))\n";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -1117,7 +1117,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     let fixture = Fixture::new("generated");
     let imported = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n";
     let types = fixture.write("types.lim", imported);
-    let root_text = "(#alias emit = ./types.lim::emit)\n(#generate emit Number)\n(#generate #optional (: type Number : name Maybe))\n(#fn main () Number (#return 42u64))\n(#fn wrap () Maybe (#return (#call Maybe::construct (: value 42u64))))";
+    let root_text = "(#alias emit = ./types.lim::emit)\n(#generate emit Number)\n(#generate #optional ((type Number) (name Maybe)))\n(#fn main () Number (#return 42u64))\n(#fn wrap () Maybe (#return (#call Maybe::construct ((value 42u64)))))";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -1207,7 +1207,7 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
     ] {
         let fixture = Fixture::new("enum-project");
         let text = format!(
-            "(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n          (#struct Row () (: value #u64))\n          (#enum Task () ((Task.Work Row) Task.Idle))\n          (#generate lim-gen-enum-project (: enum Task : variant Task.Work : payload Row : mode #{mode} : name View))\n          (#fn main () #u64\n            (#let-mut task Task (#enum-literal Task.Work (#struct-literal Row (: value 42u64))))\n            (#let-else (View.Some frame)\n              (#call View::project (: source (#{borrow} task)))\n              (#else (#forget task) (#return 0u64)))\n            (#let answer #u64 (#get frame value))\n            (#forget frame) (#forget task) (#return answer))"
+            "(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n          (#struct Row () ((value #u64)))\n          (#enum Task () ((Task.Work Row) Task.Idle))\n          (#generate lim-gen-enum-project ((enum Task) (variant Task.Work) (payload Row) (mode #{mode}) (name View)))\n          (#fn main () #u64\n            (#let-mut task Task (#enum-literal Task.Work (#struct-literal Row ((value 42u64)))))\n            (#let-else (View.Some frame)\n              (#call View::project ((source (#{borrow} task))))\n              (#else (#forget task) (#return 0u64)))\n            (#let answer #u64 (#get frame value))\n            (#forget frame) (#forget task) (#return answer))"
         );
         let root = fixture.write("main.lim", &text);
         fixture.context(&root, "first");
@@ -1244,7 +1244,7 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
             &client.definition(&root, &text, "value))"),
             &root,
             &text,
-            "(: value #u64)",
+            "((value #u64))",
             "value",
         );
     }

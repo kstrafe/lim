@@ -8,10 +8,10 @@ fn check(source: &str) -> Result<(), String> {
 #[test]
 fn names_identify_types_functions_and_variants() {
     let source = "(#enum Work::Poll () ((Work::Poll.Ready #u64) Work::Poll.Pending))
-      (#fn Work::poll (: value #u64) Work::Poll
+      (#fn Work::poll ((value #u64)) Work::Poll
         (#return (#enum-literal Work::Poll.Ready (#u64::add-wrap value 2u64))))
       (#fn main () #u64
-        (#return (#match (#call Work::poll (: value 40u64))
+        (#return (#match (#call Work::poll ((value 40u64)))
           (#case (Work::Poll.Ready result) result)
           (#case Work::Poll.Pending 0u64))))";
     let program = parse_program(source).unwrap();
@@ -25,15 +25,15 @@ fn invalid_declaration_spellings_are_rejected() {
         "(#struct thing () ())", "(#type thing #u64)",
         "(#enum thing () (thing.Ready))", "(#distributed-enum thing ())",
         "(#struct Work::frame () ())", "(#struct Work.Frame () ())",
-        "(#generate #optional (: type #u64 : name thing))",
+        "(#generate #optional ((type #u64) (name thing)))",
         "(#fn Main () () (#return ()))", "(#fn work::poll () () (#return ()))",
-        "(#fn main (: Value #u64) #u64 (#return Value))",
+        "(#fn main ((Value #u64)) #u64 (#return Value))",
         "(#fn main () #u64 (#let Value #u64 42u64) (#return Value))",
-        "(#struct Thing () (: Field #u64))",
+        "(#struct Thing () ((Field #u64)))",
         "(#enum State () (Ready))", "(#enum State () (State.ready))",
         "(#enum State () (Other.Ready))", "(#enum State () (State::Ready))",
         "(#enum State () ((State.Ready #u64)))
-          (#fn main (: state State) #u64 (#return (#match state (#case (State.Ready Value) Value))))",
+          (#fn main ((state State)) #u64 (#return (#match state (#case (State.Ready Value) Value))))",
     ] {
         let error = parse_program(source).unwrap_err();
         assert!(error.contains("identifier '"), "{source}: {error}");
@@ -102,10 +102,10 @@ fn generators_construct_variants_without_overloading_symbol_append() {
     check(
         "(#gn make (name)
       `((#enum ,name () ((,(#gn-variant name \"Ready\") #u64)))
-        (#fn ,(#gn-symbol-append name \"create\") (: value #u64) ,name
+        (#fn ,(#gn-symbol-append name \"create\") ((value #u64)) ,name
           (#return (#enum-literal ,(#gn-variant name \"Ready\") value)))))
       (#generate make State)
-      (#fn main () #u64 (#return (#match (#call State::create (: value 42u64))
+      (#fn main () #u64 (#return (#match (#call State::create ((value 42u64)))
         (#case (State.Ready value) value))))",
     )
     .unwrap();
@@ -115,7 +115,7 @@ fn generators_construct_variants_without_overloading_symbol_append() {
 #[test]
 fn compiler_issued_private_type_symbols_remain_hygienic() {
     check(
-        "(#gn-fn private-type (name) `((#struct ,name () (: value #u64))))
+        "(#gn-fn private-type (name) `((#struct ,name () ((value #u64)))))
       (#gn make () (#gn-call private-type (#gn-gensym \"Private\")))
       (#generate make)
       (#fn main () #u64 (#return 42u64))",
@@ -129,7 +129,7 @@ fn naming_diagnostics_underline_the_identifier() {
     for (source, offending) in [
         ("(#struct wrong () ())", "wrong"),
         ("(#enum State () (Other.Ready))", "Other.Ready"),
-        ("(#fn main (: Wrong #u64) #u64 (#return Wrong))", "Wrong"),
+        ("(#fn main ((Wrong #u64)) #u64 (#return Wrong))", "Wrong"),
         (
             "(#fn main () #u64 (#return (#u64.+.wrap 1u64 2u64)))",
             "#u64.+.wrap",

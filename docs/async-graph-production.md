@@ -87,7 +87,7 @@ and return `()`, except for stationary dependent children described below.
 Every exposed owning slot requires a handler; duplicate,
 missing, unknown, unsafe, or incorrectly typed handlers are rejected. The
 dispatcher has the ordinary signature
-`(#fn work-cancel (: task Work::Frame::Cleanup) () ...)`. Call it on the result of
+`(#fn work-cancel ((task Work::Frame::Cleanup)) () ...)`. Call it on the result of
 `Work::poll::cleanup`. Only Full cells invoke handlers. Repeated pinned cleanup
 returns empty cells and does not repeat destruction. Movable cleanup consumes
 the frame, so reusing that frame is rejected.
@@ -136,8 +136,8 @@ parameters after Ready or public cleanup:
 ```
 
 This emits ordinary `AmountAccess::read` and `AmountAccess::replace` functions.
-Read takes `(: task (#pin-ref Work::Frame))` and returns `#u64`. Replace takes
-`(: task (#pin-ref-mut Work::Frame) : value #u64)` and returns `()`. Accessor
+Read takes `((task (#pin-ref Work::Frame)))` and returns `#u64`. Replace takes
+`((task (#pin-ref-mut Work::Frame)) (value #u64))` and returns `()`. Accessor
 names are literal inputs, so external imports prefix them exactly once. No
 access functions are emitted unless requested. Unit parameters and aliases
 are supported; duplicate requests, unknown parameters, declaration collisions,
@@ -792,7 +792,7 @@ An operation-local mutable borrow followed by a typed constant argument now
 uses the existing synchronous-window representation. Numeric constants lower
 as checked `#literal` forms, so treating only Atom literals as effect-free
 incorrectly required a retained frame reference for an ordinary call such as
-`(#call put (: target (#borrow-mut total) : value 22u64))`.
+`(#call put ((target (#borrow-mut total)) (value 22u64)))`.
 
 Only an operand-free builtin literal preserves this window. Rendering still
 rejects executable literal metadata, and intervening calls, stored handles,
@@ -1858,7 +1858,7 @@ linking are not included. This is not a claimed 370-fold compiler speedup.
 
 ## Clone fixed projections of computed owning temporaries
 
-A clone such as `(#clone (#get (#call make-envelope (: reference owner)) item))`
+A clone such as `(#clone (#get (#call make-envelope ((reference owner))) item))`
 now reads the original typed owning cell through a shared pinned projection.
 Checked field identities and tuple positions determine the helper's path and
 its exact result type. The helper performs ordinary `#clone` dispatch on the

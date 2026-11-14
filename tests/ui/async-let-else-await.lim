@@ -4,9 +4,9 @@
 
 (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
   (#return (#match task (#case (Child.Waiting value) (ChildPoll.ChildReady value)))))
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work ((input Maybe)) #u64
     (#let-else (Maybe.Some value) Maybe input
       (#return (#u64::add-wrap 1u64
         (#await #u32 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 7u64)))))
-    (#return value))))
+    (#return value)))))

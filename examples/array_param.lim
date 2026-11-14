@@ -20,7 +20,7 @@
     #let
     values
     (#array #u64 3)
-    (#call identity (: values (#array 10 20 37)))
+    (#call identity ((values (#array 10 20 37))))
   )
   (
     #return

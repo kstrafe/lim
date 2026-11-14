@@ -27,7 +27,7 @@ fn generated_local_waker_cannot_outlive_its_executor() {
     let error = compile_error(
         "(#fn escape () LocalWake
            (#let executor WakeExecutor (#struct-literal WakeExecutor ((count 0u64))))
-           (#return (#call local-wake-create (: executor (#borrow executor) : metadata 1u64))))
+           (#return (#call local-wake-create ((executor (#borrow executor)) (metadata 1u64)))))
          (#fn main () #u64 (#return 0u64))",
     );
     assert!(
@@ -40,9 +40,9 @@ fn generated_local_waker_cannot_outlive_its_executor() {
 fn generated_local_waker_is_not_send_even_for_a_sync_executor() {
     let error = compile_error(
         "(#fn worker ((waker LocalWake)) #u64
-           (#call local-wake-destroy (: waker waker))
+           (#call local-wake-destroy ((waker waker)))
            (#return 0u64))
-         (#generate #thread-spawn (: task WakeWorker : worker worker))
+         (#generate #thread-spawn ((task WakeWorker) (worker worker)))
          (#fn main () #u64 (#return 0u64))",
     );
     assert!(error.contains("does not implement Send"), "{error}");

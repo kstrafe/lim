@@ -5,15 +5,15 @@
   (#fn main () #i32
     (#let-mut byte #u8 0u8)
     (#let-mut count #i64
-      (#call linux-read-byte (: destination (#borrow-mut byte))))
+      (#call linux-read-byte ((destination (#borrow-mut byte)))))
     (#let-mut write-count #i64 1i64)
     (#while (#bool::and (#i64::eq count 1i64) (#i64::eq write-count 1i64))
       (#set write-count
-        (#call linux-write-byte (: source (#borrow byte))))
+        (#call linux-write-byte ((source (#borrow byte)))))
       (#if (#i64::eq write-count 1i64)
         (#block
           (#set count
-            (#call linux-read-byte (: destination (#borrow-mut byte))))
+            (#call linux-read-byte ((destination (#borrow-mut byte)))))
           ())
         (#block (#set count -1i64) ())))
     (#return

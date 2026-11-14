@@ -13,21 +13,21 @@
     (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
     (#case (Step.Resume value) (StepPoll.StepReady value)))))
 
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work ((values Values)) #u64
     (#let (Values (#tuple left right) bias) Values
       (#await Values InputTask InputPoll.InputPending InputPoll.InputReady input-poll (InputTask.InputStart values)))
     (#let second #u64
       (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as right #u64))))
-    (#return (#u64::add-wrap (#u64::add-wrap (#as left #u64) second) bias)))))
+    (#return (#u64::add-wrap (#u64::add-wrap (#as left #u64) second) bias))))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let-mut task Work::Task
-    (#call work (: values
-      (#struct-literal Values (: a 22u64 : z (#tuple (#tuple #u16 #u16) 9u16 11u16))))))
+    (#call work ((values
+      (#struct-literal Values ((a 22u64) (z (#tuple (#tuple #u16 #u16) 9u16 11u16))))))))
   (#for-range (attempt #u64) 0u64 4u64
-    (#let result Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+    (#let result Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
     (#match result
       (#case (Work::Poll.Pending next) (#block (#set task next) ()))
       (#case (Work::Poll.Ready value) (#block (#return value)))))

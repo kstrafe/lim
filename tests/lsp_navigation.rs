@@ -15,7 +15,7 @@ fn indented_statement_headers_keep_loop_scopes_and_call_labels() {
             #let-mut [[total|total]] #u64 0;
             #[[loop|for-range]] ([[index|index]] #u64) 1 11[[colon|:]]
               #set [[set-use|total]] [#u64 #wrap; [[total-use|total]] +
-                ([[call|identity]] (: [[label|value]] [[argument|index]]))];
+                ([[call|identity]] (([[label|value]] [[argument|index]])))];
             #return [[after-loop|total]];
         }",
         &[
@@ -71,9 +71,9 @@ fn function_records_layout_calls_and_infix_keep_exact_source_roles() {
 #[test]
 fn array_generator_inputs_are_literal_data() {
     run(
-        "(#struct Row () (: value #u64))
+        "(#struct Row () ((value #u64)))
          (#generate #[[generator|array]]
-           (: [[element-label|element]] [[element|Row]] : [[length-label|length]] [[length|4]] : [[name-label|name]] [[name|Rows]]))",
+           (([[element-label|element]] [[element|Row]]) ([[length-label|length]] [[length|4]]) ([[name-label|name]] [[name|Rows]])))",
         &[("generator", &[]), ("element-label", &[]), ("element", &[]), ("length-label", &[]), ("length", &[]), ("name-label", &[]), ("name", &[])],
     );
 }
@@ -83,7 +83,7 @@ fn callable_intrinsic_operands_navigate_but_builtin_labels_do_not() {
     run(
         "(#fn use (([[left|index]] #usize) ([[right|bound]] #usize)) #bool
           (#return (#[[call|call]] #[[intrinsic|usize::lt]]
-            (: [[label-left|left]] [[left-use|index]] : [[label-right|right]] [[right-use|bound]]))))",
+            (([[label-left|left]] [[left-use|index]]) ([[label-right|right]] [[right-use|bound]])))))",
         &[("call", &[]), ("intrinsic", &[]), ("label-left", &[]), ("label-right", &[]), ("left-use", &["left"]), ("right-use", &["right"])],
     );
 }
@@ -250,7 +250,7 @@ fn all_value_positions_use_lexical_bindings_and_not_global_spelling() {
       (#enum Choice () ((Choice.Full #u64) Choice.Empty))
       (#const [[limit|LIMIT]] #u64 42u64)
       (#static [[count|COUNT]] #u64 1u64)
-      (#fn first (: [[first-x|x]] Choice) #u64
+      (#fn first (([[first-x|x]] Choice)) #u64
         (#return (#match [[match-x|x]]
           (#case (Choice.Full [[payload|value]])
             (#let-mut [[local|answer]] #u64 [[payload-use|value]])
@@ -259,7 +259,7 @@ fn all_value_positions_use_lexical_bindings_and_not_global_spelling() {
             (#forget ref)
             (#return [[return-use|answer]]))
           (#case Choice.Empty (#unsafe [[static-use|COUNT]])))))
-      (#fn second (: [[second-x|x]] #u64) #u64 (#return [[second-use|x]]))
+      (#fn second (([[second-x|x]] #u64)) #u64 (#return [[second-use|x]]))
     "#,
         &[
             ("match-x", &["first-x"]),
@@ -279,20 +279,20 @@ fn all_value_positions_use_lexical_bindings_and_not_global_spelling() {
 fn fields_and_argument_labels_resolve_through_their_actual_owner() {
     run(
         r#"
-      (#struct [[left|Left]] () (: [[left-value|value]] #u64))
-      (#struct Right () (: [[right-value|value]] #u64))
+      (#struct [[left|Left]] () (([[left-value|value]] #u64)))
+      (#struct Right () (([[right-value|value]] #u64)))
       (#type Alias (#ref Left))
-      (#fn make (: [[param|value]] #u64) Right
-        (#return (#struct-literal Right (: [[literal-field|value]] [[param-use|value]]))))
-      (#fn other (: [[other-param|value]] #u64) #u64 (#return value))
-      (#fn main (: [[owner|object]] Alias) #u64
+      (#fn make (([[param|value]] #u64)) Right
+        (#return (#struct-literal Right (([[literal-field|value]] [[param-use|value]])))))
+      (#fn other (([[other-param|value]] #u64)) #u64 (#return value))
+      (#fn main (([[owner|object]] Alias)) #u64
         (#let [[local|value]] #u64 (#get [[receiver|object]] [[left-field|value]]))
-        (#let record Right (#call make (: [[label|value]] [[argument|value]])))
+        (#let record Right (#call make (([[label|value]] [[argument|value]]))))
         (#set-field record [[set-field|value]] 2u64)
         (#let field #u64 (#get record [[right-field|value]]))
         (#call other (($ [[pun|value]])))
-        (#call other (: [[other-label|value]] 1u64))
-        (#return (#get (#call make (: value 0u64)) [[call-field|value]])))
+        (#call other (([[other-label|value]] 1u64)))
+        (#return (#get (#call make ((value 0u64))) [[call-field|value]])))
     "#,
         &[
             ("literal-field", &["right-value"]),
@@ -314,9 +314,9 @@ fn fields_and_argument_labels_resolve_through_their_actual_owner() {
 fn pattern_forms_bind_values_in_their_own_scopes_and_navigate_variants() {
     run(
         r#"
-      (#struct Record () (: [[field|value]] #u64))
+      (#struct Record () (([[field|value]] #u64)))
       (#enum [[choice|Choice]] () (([[full|Choice.Full]] Record) [[empty|Choice.Empty]]))
-      (#fn inspect (: input Choice) #u64
+      (#fn inspect ((input Choice)) #u64
         (#let-else ([[let-variant|Choice.Full]] [[success|record]]) [[let-type|Choice]] input
           (#else [[else-variant|Choice.Empty]] (#return 0u64)))
         (#let n #u64 (#get [[success-use|record]] [[success-field|value]]))
@@ -387,18 +387,18 @@ fn destructuring_loop_and_label_scopes_do_not_leak_or_allow_forward_uses() {
 fn explicit_type_positions_and_variant_operations_navigate() {
     run(
         r#"
-      (#struct [[record|Record]] () (: [[field|value]] #u64))
+      (#struct [[record|Record]] () (([[field|value]] #u64)))
       (#type [[alias|Number]] #u64)
       (#enum Choice () (([[full|Choice.Full]] Record) Choice.Empty))
       (#fn main () #u64
-        (#let r Record (#struct-literal [[literal|Record]] (: value 42u64)))
+        (#let r Record (#struct-literal [[literal|Record]] ((value 42u64))))
         (#let size #usize (#size-of [[size|Record]]))
         (#let align #usize (#align-of [[align|Record]]))
         (#let offset #usize (#offset-of [[offset-type|Record]] [[offset-field|value]]))
         (#let n Number (#as 42u64 [[cast|Number]]))
         (#let array (#array Record 1) (#array-of (#array [[array|Record]] 1) r))
         (#let pointer (#ptr Record) (#ptr-null (#ptr [[pointer|Record]])))
-        (#let choice Choice ([[constructor|Choice.Full]] (#struct-literal Record (: value 42u64))))
+        (#let choice Choice ([[constructor|Choice.Full]] (#struct-literal Record ((value 42u64)))))
         (#assert (#variant-is choice [[is|Choice.Full]]))
         (#let extracted Record (#get-payload choice [[payload|Choice.Full]] 0))
         (#forget array) (#forget pointer) (#forget extracted)
@@ -430,7 +430,7 @@ fn generators_resolve_evaluated_bindings_but_not_literal_template_symbols() {
           (#gn-call [[call|identity]]
             `(([[literal|item]] ,[[unquoted|item]] ',[[quoted|item]])))))
       (#syntax [[bundle|Protocol]] (#u64))
-      (#fn ordinary (: [[runtime|x]] #u64) #u64 (#return x))
+      (#fn ordinary (([[runtime|x]] #u64)) #u64 (#return x))
       (#generate emit [[argument-literal|ordinary]])
     "#,
         &[
@@ -449,10 +449,10 @@ fn generators_resolve_evaluated_bindings_but_not_literal_template_symbols() {
 fn function_syntax_inside_generator_inputs_and_utf16_names_keep_local_roles() {
     run(
         r#"
-      (#generate unknown (: function
-        (#fn work (: [[param|名字]] #u64) #u64
+      (#generate unknown ((function
+        (#fn work (([[param|名字]] #u64)) #u64
           (#let [[local|résultat]] #u64 [[param-use|名字]])
-          (#return [[local-use|résultat]]))))
+          (#return [[local-use|résultat]])))))
     "#,
         &[("param-use", &["param"]), ("local-use", &["local"])],
     );
@@ -463,7 +463,7 @@ fn or_patterns_share_one_binding_but_invalid_duplicate_lets_are_ambiguous() {
     run(
         r#"
       (#enum Choice () ((Choice.A #u64) (Choice.B #u64)))
-      (#fn choose (: input Choice) #u64
+      (#fn choose ((input Choice)) #u64
         (#return (#match input
           (#case (#or (Choice.A [[a|value]]) (Choice.B [[b|value]])) [[use|value]]))))
       (#fn broken () #u64
@@ -482,9 +482,9 @@ fn syntax_bundles_and_nested_splices_have_explicit_reference_roles() {
       (#syntax [[base|Base]] (#u64))
       (#syntax [[combined|Combined]] ((#syntax-splice [[nested|Base]])))
       (#fn expanded () (#syntax-splice [[signature|Base]]) (#return 42u64))
-      (#generate unknown (: function (#fn work () #u64
+      (#generate unknown ((function (#fn work () #u64
         (#let result #u64 (#await [[protocol|Combined]] child))
-        (#return result))))
+        (#return result)))))
     "#,
         &[
             ("nested", &["base"]),
@@ -499,7 +499,7 @@ fn raw_builtin_operands_are_values_but_register_and_cfg_names_are_metadata() {
     run(
         r#"
       (#enum RegisterCollision () (RegisterCollision.Rax))
-      (#fn main (: [[param|value]] #usize) #u64
+      (#fn main (([[param|value]] #usize)) #u64
         (#let array (#array #usize 2) (#array-repeat [[repeat|value]]))
         (#let kernel #i64 (#unsafe (#linux-syscall #i64 [[number|value]]
           ([[first|value]] [[second|value]]))))
@@ -539,16 +539,16 @@ fn unrecognized_generator_lists_are_literal_data_even_when_they_contain_binding_
 #[test]
 fn inline_control_flow_receiver_types_use_checked_metadata_when_needed() {
     let input = r#"
-      (#struct Row () (: [[field|value]] #u64))
+      (#struct Row () (([[field|value]] #u64)))
       (#fn main () #u64
-        (#let one #u64 (#get (#if true (#struct-literal Row (: value 1u64))
-                                      (#struct-literal Row (: value 2u64))) [[if-field|value]]))
-        (#let two #u64 (#get (#block (#let record Row (#struct-literal Row (: value 3u64))) record) [[block-field|value]]))
+        (#let one #u64 (#get (#if true (#struct-literal Row ((value 1u64)))
+                                      (#struct-literal Row ((value 2u64)))) [[if-field|value]]))
+        (#let two #u64 (#get (#block (#let record Row (#struct-literal Row ((value 3u64)))) record) [[block-field|value]]))
         (#let three #u64 (#get (#match true
-          (#case true (#struct-literal Row (: value 4u64)))
-          (#case false (#struct-literal Row (: value 5u64)))) [[match-field|value]]))
-        (#let four #u64 (#get (#loop (#break (#struct-literal Row (: value 6u64)))) [[loop-field|value]]))
-        (#let five #u64 (#get (#label done (#loop (#break-to done (#struct-literal Row (: value 7u64))))) [[label-field|value]]))
+          (#case true (#struct-literal Row ((value 4u64))))
+          (#case false (#struct-literal Row ((value 5u64))))) [[match-field|value]]))
+        (#let four #u64 (#get (#loop (#break (#struct-literal Row ((value 6u64))))) [[loop-field|value]]))
+        (#let five #u64 (#get (#label done (#loop (#break-to done (#struct-literal Row ((value 7u64)))))) [[label-field|value]]))
         (#return one))
     "#;
     lim::check_types(&lim::parse_program(&annotated(input).0).unwrap()).unwrap();
@@ -575,9 +575,9 @@ fn borrowed_and_pinned_payload_members_keep_their_declared_type() {
     ] {
         let source = format!(
             r#"
-          (#struct Row () (: [[field|value]] #u64))
+          (#struct Row () (([[field|value]] #u64)))
           (#enum Choice () ((Choice.Full Row) Choice.Empty))
-          (#fn read (: input {kind}) #u64 (#return (#match input
+          (#fn read ((input {kind})) #u64 (#return (#match input
             ({case} (Choice.Full [[payload|row]])
               (#let answer #u64 (#get [[receiver|row]] [[member|value]]))
               (#forget row) answer)
@@ -595,13 +595,13 @@ fn borrowed_and_pinned_payload_members_keep_their_declared_type() {
 fn internal_thread_signatures_and_worker_symbols_have_declaration_roles() {
     run(
         r#"
-      (#fn [[worker|worker]] (: value #u64) #u64 (#return value))
+      (#fn [[worker|worker]] ((value #u64)) #u64 (#return value))
       (#thread-task Task [[worker-use|worker]]
-        (#thread-task-spawn [[spawn|spawn-task]] (: [[param|value]] #u64) Task)
-        (#thread-task-join join-task (: task Task) #u64))
+        (#thread-task-spawn [[spawn|spawn-task]] (([[param|value]] #u64)) Task)
+        (#thread-task-join join-task ((task Task)) #u64))
       (#fn main () #u64
-        (#let task Task (#call [[spawn-use|spawn-task]] (: [[label|value]] 42u64)))
-        (#return (#call join-task (: task task))))
+        (#let task Task (#call [[spawn-use|spawn-task]] (([[label|value]] 42u64))))
+        (#return (#call join-task ((task task)))))
     "#,
         &[
             ("worker-use", &["worker"]),
@@ -641,7 +641,7 @@ fn ordinary_operand_families_keep_value_roles_in_every_position() {
             expression.replace_range(start..start + 5, &format!("[[use-{counter}|value]]"));
             counter += 1;
         }
-        let source = format!("(#type Number #u64) (#fn main (: [[parameter|value]] #u64) () {expression} (#return ()))");
+        let source = format!("(#type Number #u64) (#fn main (([[parameter|value]] #u64)) () {expression} (#return ()))");
         let queries = (0..counter)
             .map(|index| format!("use-{index}"))
             .collect::<Vec<_>>();
@@ -658,9 +658,9 @@ fn optional_reference_projections_resolve_payload_members_and_branch_scopes() {
     for kind in ["ref", "ref-mut", "pin-ref", "pin-ref-mut"] {
         let source = format!(
             r#"
-          (#struct Row () (: [[field|value]] #u64))
+          (#struct Row () (([[field|value]] #u64)))
           (#enum [[enum|Projection]] () (([[full|Projection::Some]] (#{kind} Row)) Projection.None))
-          (#fn main (: [[input|input]] [[type|Projection]]) #u64
+          (#fn main (([[input|input]] [[type|Projection]])) #u64
             (#let-else ([[variant|Projection::Some]] [[payload|payload]]) [[operand|input]]
               (#else
                 (#forget [[success-in-failure|payload]])
@@ -691,7 +691,7 @@ fn inconsistent_or_bindings_fail_closed_in_the_arm_body() {
     run(
         r#"
       (#enum Choice () ((Choice.A #u64) (Choice.B #u64)))
-      (#fn main (: input Choice) #u64 (#return (#match input
+      (#fn main ((input Choice)) #u64 (#return (#match input
         (#case (#or (Choice.A x) (Choice.B y)) [[missing|x]]))))
     "#,
         &[("missing", &[])],
@@ -702,9 +702,9 @@ fn inconsistent_or_bindings_fail_closed_in_the_arm_body() {
 fn compact_let_else_navigates_the_initializer_and_isolates_failure_scope() {
     run(
         r#"
-      (#struct Row () (: [[field|value]] #u64))
+      (#struct Row () (([[field|value]] #u64)))
       (#enum Choice () (([[full|Choice.Full]] Row) Choice.Empty))
-      (#fn main (: [[input|input]] Choice : [[fallback|fallback]] #u64) #u64
+      (#fn main (([[input|input]] Choice) ([[fallback|fallback]] #u64)) #u64
         (#let-else ([[variant|Choice.Full]] [[payload|payload]]) [[operand|input]]
           (#else
             (#forget [[missing|payload]])
@@ -730,9 +730,9 @@ fn compact_let_else_navigates_the_initializer_and_isolates_failure_scope() {
 fn enum_literals_navigate_only_variants_and_runtime_payloads() {
     run(
         r#"
-      (#struct Row () (: [[field|value]] #u64))
+      (#struct Row () (([[field|value]] #u64)))
       (#enum Choice () (([[full|Choice.Full]] Row) [[empty|Choice.Empty]]))
-      (#fn main (: [[input|input]] Row) #u64
+      (#fn main (([[input|input]] Row)) #u64
         (#let choice Choice (#enum-literal [[variant|Choice.Full]] [[payload|input]]))
         (#let missing Choice (#enum-literal [[wrong-target|input]] input))
         (#let none Choice (#enum-literal [[fieldless|Choice.Empty]]))
@@ -756,11 +756,11 @@ fn contracts_resolve_predicates_subjects_and_no_keyword_definitions() {
     run(
         "(#fn [[predicate|valid]] ((value #u64)) #bool (#return true))
       (#fn example (([[parameter|input]] #u64)) ()
-        (#[[requires|requires]] (#call [[use-predicate|valid]] (: value [[subject|input]])))
-        (#[[ensures|ensures]] (#call valid (: value (#[[old|old]] [[old-subject|input]]))))
-        (#[[preserves|preserves]] (#call valid (: value [[preserved-subject|input]])))
-        (#[[assume|assume]] (#call valid (: value [[assumed-subject|input]])))
-        (#[[branch|if-valid]] (#call valid (: value [[validated-subject|input]])) ())
+        (#[[requires|requires]] (#call [[use-predicate|valid]] ((value [[subject|input]]))))
+        (#[[ensures|ensures]] (#call valid ((value (#[[old|old]] [[old-subject|input]])))))
+        (#[[preserves|preserves]] (#call valid ((value [[preserved-subject|input]]))))
+        (#[[assume|assume]] (#call valid ((value [[assumed-subject|input]]))))
+        (#[[branch|if-valid]] (#call valid ((value [[validated-subject|input]]))) ())
         (#return ()))",
         &[
             ("use-predicate", &["predicate"]),
@@ -782,7 +782,7 @@ fn contracts_resolve_predicates_subjects_and_no_keyword_definitions() {
 fn refinement_binder_scope_is_local_to_the_type() {
     run("(#fn [[predicate|valid]] ((value #u64)) #bool (#return true))
       (#const [[global|value]] #u64 1u64)
-      (#type Small (#[[where|where]] ([[binder|value]] #u64) (#call [[use|valid]] (: value [[bound|value]]))))
+      (#type Small (#[[where|where]] ([[binder|value]] #u64) (#call [[use|valid]] ((value [[bound|value]])))))
       (#fn example () #u64 (#return [[outside|value]]))", &[
       ("where", &[]), ("use", &["predicate"]), ("bound", &["binder"]), ("outside", &["global"]),
     ]);
@@ -793,7 +793,7 @@ fn postcondition_result_has_return_type_for_member_navigation() {
         "(#struct Packet () (([[field|count]] #u64)))
       (#fn valid ((value #u64)) #bool (#return true))
       (#fn make () Packet
-        (#ensures (#call valid (: value (#get (#[[result|result]]) [[projection|count]]))))
+        (#ensures (#call valid ((value (#get (#[[result|result]]) [[projection|count]])))))
         (#return (#struct-literal Packet ((count 1u64)))))",
         &[("result", &[]), ("projection", &["field"])],
     );

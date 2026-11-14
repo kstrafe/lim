@@ -1,15 +1,15 @@
 // Moving and restoring a holder transfers its retained exclusive field loan.
 // The parent reference remains suspended until the restored holder is consumed.
-(#struct Owner (#linear) (: number #u64))
+(#struct Owner (#linear) ((number #u64)))
 
-(#struct View (#linear) (: item (#ref-mut #u64)))
+(#struct View (#linear) ((item (#ref-mut #u64))))
 
 
 (#fn main () #u64
-  (#let-mut owner Owner (#struct-literal Owner (: number 1u64)))
+  (#let-mut owner Owner (#struct-literal Owner ((number 1u64))))
   (#let parent (#ref-mut Owner) (#borrow-mut owner))
   (#let-mut view View
-    (#struct-literal View (: item (#borrow-mut (#get parent number)))))
+    (#struct-literal View ((item (#borrow-mut (#get parent number))))))
   (#let target (#pin-ref-mut View) (#pin-borrow-mut view))
   (#let loaded View (#unsafe (#pin-read target)))
   (#unsafe (#pin-write target loaded))

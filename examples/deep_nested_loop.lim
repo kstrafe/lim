@@ -10,6 +10,6 @@
           (#array (#array #u64 7) 170u64 180u64 190u64 200u64 210u64 220u64 242u64))))))))
 
 (#fn main () #u64
-  (#let selected (#array (#array #u64 7) 2) (#call choose (: condition false)))
+  (#let selected (#array (#array #u64 7) 2) (#call choose ((condition false))))
   (#let item (#array #u64 7) (#index selected 1u64))
   (#return (#index item 6u64)))

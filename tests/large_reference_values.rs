@@ -8,17 +8,17 @@ fn large_argument_diverging_match_and_if_arms_emit_traps() {
 
     let source = r#"
       (#enum Choice () (Choice.First Choice.Second))
-      (#fn read (: values (#array #u64 10)) #u64
+      (#fn read ((values (#array #u64 10))) #u64
         (#let result #u64 (#index values 9usize))
         (#forget values) (#return result))
       (#fn main () #u64
         (#let choice Choice Choice.First)
-        (#let first #u64 (#call read (: values
+        (#let first #u64 (#call read ((values
           (#match choice
             (#case Choice.First (#array-repeat 42u64))
-            (#case Choice.Second (#unreachable))))))
-        (#let second #u64 (#call read (: values
-          (#if #true (#array-repeat 1u64) (#unreachable)))))
+            (#case Choice.Second (#unreachable)))))))
+        (#let second #u64 (#call read ((values
+          (#if #true (#array-repeat 1u64) (#unreachable))))))
         (#return (#u64::add-wrap first second)))
     "#;
     for (source, expected) in [
@@ -66,17 +66,17 @@ fn large_enum_reference_reads_writes_and_matches_use_storage() {
             ("#ref-mut", "#borrow-mut", "#deref", "#deref-set")
         };
         let source = format!(
-            "(#struct Large () (: values (#array #u64 10)))
+            "(#struct Large () ((values (#array #u64 10))))
           (#enum Container (#linear) ((Container.Empty) (Container.Full Large)))
-          (#struct Wrapper (#linear) (: item Container))
-          (#fn extract (: slot ({reference} Container)) Large
+          (#struct Wrapper (#linear) ((item Container)))
+          (#fn extract ((slot ({reference} Container))) Large
             (#let previous Container (#unsafe ({read} slot)))
             (#unsafe ({write} slot Container.Empty))
             (#return (#match previous (#case Container.Empty (#unreachable)) (#case (Container.Full value) value))))
           (#fn main () #u64
             (#let-mut owner Container (Container.Full (#struct-literal Large
-              (: values (#array-repeat 42u64)))))
-            (#let result Large (#call extract (: slot ({borrow} owner))))
+              ((values (#array-repeat 42u64))))))
+            (#let result Large (#call extract ((slot ({borrow} owner)))))
             (#assert (#u64::eq (#index (#get result values) 9usize) 42u64))
             (#forget result)
             (#let view ({reference} Container) ({borrow} owner))
@@ -84,8 +84,8 @@ fn large_enum_reference_reads_writes_and_matches_use_storage() {
             (#unsafe ({write} view Container.Empty))
             (#drop view)
             (#forget owner)
-            (#let wrapped Wrapper (#struct-literal Wrapper (: item (Container.Full
-              (#struct-literal Large (: values (#array-repeat 42u64)))))))
+            (#let wrapped Wrapper (#struct-literal Wrapper ((item (Container.Full
+              (#struct-literal Large ((values (#array-repeat 42u64)))))))))
             (#let answer #u64 (#match (#get wrapped item)
               (#case Container.Empty (#unreachable))
               (#case (Container.Full payload) (#block

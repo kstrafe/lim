@@ -235,8 +235,8 @@ mod tests {
     #[test]
     fn nested_reused_generators_include_all_child_artifacts() {
         let scratch = Scratch::new();
-        let source = "(#gn inner () `((#generate #optional (: type #u64 : name Shared))))\n\
-            (#gn outer () `((#generate inner) (#generate #optional (: type #u64 : name OuterOnly))))\n\
+        let source = "(#gn inner () `((#generate #optional ((type #u64) (name Shared)))))\n\
+            (#gn outer () `((#generate inner) (#generate #optional ((type #u64) (name OuterOnly)))))\n\
             (#gn other () `((#generate inner)))\n(#generate outer)\n(#generate other)\n(#generate other)";
         for _ in 0..2 {
             let outer = source.find("(#generate outer)").unwrap();
@@ -301,9 +301,9 @@ mod tests {
 
     #[test]
     fn details_track_builtin_origins_through_user_reuse_and_cache() {
-        let builtin = "(#generate #optional (: type #u64 : name Shared))";
+        let builtin = "(#generate #optional ((type #u64) (name Shared)))";
         // Distinct inputs stay distinct even when both use the same builtin.
-        let direct_builtin = "(#generate #optional (: type #u64 : name Direct))";
+        let direct_builtin = "(#generate #optional ((type #u64) (name Direct)))";
         for calls in [
             format!("(#generate outer)\n(#generate other)\n(#generate other)\n{direct_builtin}"),
             format!("{direct_builtin}\n(#generate outer)\n(#generate other)\n(#generate other)"),
@@ -354,8 +354,8 @@ mod tests {
     #[test]
     fn changed_input_does_not_return_old_artifacts() {
         let scratch = Scratch::new();
-        let old = "(#generate #optional (: type #u64 : name Old))";
-        let new = "(#generate #optional (: type #u64 : name New))";
+        let old = "(#generate #optional ((type #u64) (name Old)))";
+        let new = "(#generate #optional ((type #u64) (name New)))";
         let old_paths = scratch.lookup(old, 0, old.len());
         let new_paths = scratch.lookup(new, 0, new.len());
         assert_eq!(old_paths.len(), 1);
@@ -369,7 +369,7 @@ mod tests {
     fn cfg_excluded_invocations_have_no_matches() {
         let scratch = Scratch::new();
         let source =
-            "(#cfg-if (#cfg-is #platform lookup-excluded) (#generate #optional (: type #u64 : name Hidden)))";
+            "(#cfg-if (#cfg-is #platform lookup-excluded) (#generate #optional ((type #u64) (name Hidden))))";
         let position = source.find("(#generate #optional").unwrap();
         let entry = scratch.0.join("main.lim");
         let mut enabled = CompileConfig::default();

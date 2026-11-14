@@ -1,9 +1,9 @@
 #[test]
 fn properties_are_part_of_the_declaring_type() {
     let program = lim::parse_program(
-        "(#struct Handle (#linear #repr-c) (: value #u64))
+        "(#struct Handle (#linear #repr-c) ((value #u64)))
       (#enum Error (#repr-c #linear) (Error.Failed))
-      (#struct Plain () (: value #u64))
+      (#struct Plain () ((value #u64)))
       (#enum Flag () (Flag.On Flag.Off))",
     )
     .unwrap();
@@ -41,9 +41,9 @@ fn old_forms_and_invalid_properties_are_rejected() {
     for source in [
         "(#struct Token () ()) (#linear Token)",
         "(#enum State () (State.Empty)) (#linear State)",
-        "(#struct Old (: field #u64))",
+        "(#struct Old ((field #u64)))",
         "(#enum Old (Unprefixed.Empty))",
-        "(#struct Old #repr-c (: field #u64))",
+        "(#struct Old #repr-c ((field #u64)))",
         "(#struct Duplicate (#linear #linear) ())",
         "(#enum Duplicate (#repr-c #repr-c) (Duplicate.Empty))",
         "(#struct Unknown (#copy) ())",
@@ -59,10 +59,10 @@ fn old_forms_and_invalid_properties_are_rejected() {
 fn generators_emit_complete_property_bearing_declarations() {
     let program = lim::parse_program(
         "(#gn make-resource (name)
-      `((#struct ,name (#linear) (: value #u64))))
+      `((#struct ,name (#linear) ((value #u64)))))
       (#generate make-resource Resource)
       (#fn main () ()
-        (#let resource Resource (#struct-literal Resource (: value 1u64)))
+        (#let resource Resource (#struct-literal Resource ((value 1u64))))
         (#forget resource) (#return ()))",
     )
     .unwrap();

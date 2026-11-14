@@ -6,7 +6,7 @@
     (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
     (#case (Step.Resume value) (StepPoll.StepReady value)))))
 
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work () #u64
     (#let result #u64
       (#block
@@ -21,13 +21,13 @@
         total))
     // The inner scope has ended; this is an independent declaration.
     (#let index #u64 0u64)
-    (#return (#u64::add-wrap result index)))))
+    (#return (#u64::add-wrap result index))))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task Work::Task (#call work (:)))
+  (#let-mut task Work::Task (#call work ()))
   (#for-range (attempt #u64) 0u64 4u64
-    (#let outcome Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+    (#let outcome Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
     (#match outcome
       (#case (Work::Poll.Pending next) (#block (#set task next) ()))
       (#case (Work::Poll.Ready value) (#block (#return value)))))

@@ -20,8 +20,8 @@ fn inline_linearity_propagates_through_struct_enum_tuple_and_array() {
             "(#struct Resource (#linear) ((value #u64)))
              (#struct Nested () ((payload Resource)))
              (#fn main () #u64
-               (#let resource Resource (#struct-literal Resource (: value 1u64)))
-               (#let value Nested (#struct-literal Nested (: payload resource)))
+               (#let resource Resource (#struct-literal Resource ((value 1u64))))
+               (#let value Nested (#struct-literal Nested ((payload resource))))
                (#return 0u64))",
         ),
         (

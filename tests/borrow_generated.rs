@@ -34,17 +34,17 @@ fn expect_borrow(name: &str, source: &str) {
 // Construct a chain of nested wrappers around a two-field leaf. `depth` is
 // finite and explicit so every generated case is stable and reproducible.
 fn nested_prefix(depth: usize) -> (String, String, String, String) {
-    let mut declarations = String::from("(#struct Leaf () (: left #u64 : right #u64))\n");
+    let mut declarations = String::from("(#struct Leaf () ((left #u64) (right #u64)))\n");
     let mut ty = "Leaf".to_owned();
     let mut path = "owner".to_owned();
-    let mut literal = "(#struct-literal Leaf (: left 1u64 : right 2u64))".to_owned();
+    let mut literal = "(#struct-literal Leaf ((left 1u64) (right 2u64)))".to_owned();
     for level in 0..depth {
         let next = format!("Nest{level}");
         declarations.push_str(&format!(
-            "(#struct {next} () (: child {ty} : spare #u64))\n"
+            "(#struct {next} () ((child {ty}) (spare #u64)))\n"
         ));
         path = format!("(#get {path} child)");
-        literal = format!("(#struct-literal {next} (: child {literal} : spare 3u64))");
+        literal = format!("(#struct-literal {next} ((child {literal}) (spare 3u64)))");
         ty = next;
     }
     (declarations, ty, path, literal)
@@ -87,10 +87,10 @@ fn generated_helper_returned_reference_matrix() {
             let sibling = format!("(#get {leaf} {other})");
             let helper_selected = selected.replace("owner", "target");
             let helper = format!(
-                "{decls}(#fn pick (: target (#ref-mut {ty})) (#ref-mut #u64)\n  (#return (#borrow-mut {helper_selected})))\n"
+                "{decls}(#fn pick ((target (#ref-mut {ty}))) (#ref-mut #u64)\n  (#return (#borrow-mut {helper_selected})))\n"
             );
             let common = format!(
-                "{helper}(#fn main () #u64\n  (#let-mut owner {ty} {literal})\n  (#let view (#ref-mut #u64) (#call pick (: target (#borrow-mut owner))))\n"
+                "{helper}(#fn main () #u64\n  (#let-mut owner {ty} {literal})\n  (#let view (#ref-mut #u64) (#call pick ((target (#borrow-mut owner)))))\n"
             );
             let accepted = format!(
                 "{common}  (#let sibling (#ref-mut #u64) (#borrow-mut {sibling}))\n  (#deref-set sibling 7u64) (#deref-set view 8u64)\n  (#drop sibling) (#drop view) (#return 0u64))"
@@ -108,17 +108,17 @@ fn generated_helper_returned_reference_matrix() {
 fn generated_branch_selected_origin_matrix() {
     for (ordering, first, second) in [("forward", "a", "b"), ("reverse", "b", "a")] {
         let source = format!(
-            "(#fn select (: choose #bool : a (#ref #u64) : b (#ref #u64)) (#ref #u64)\n  (#return (#if choose {first} {second})))\n\
+            "(#fn select ((choose #bool) (a (#ref #u64)) (b (#ref #u64))) (#ref #u64)\n  (#return (#if choose {first} {second})))\n\
              (#fn main () #u64\n  (#let-mut a #u64 1u64) (#let-mut b #u64 2u64)\n\
-             (#let view (#ref #u64) (#call select (: choose true : a (#borrow a) : b (#borrow b))))\n\
+             (#let view (#ref #u64) (#call select ((choose true) (a (#borrow a)) (b (#borrow b)))))\n\
              (#set {first} 7u64)\n  (#drop view) (#return 0u64))"
         );
         expect_borrow(&format!("branch-{ordering}-selected-origin"), &source);
 
         let control = format!(
-            "(#fn select (: choose #bool : a (#ref #u64) : b (#ref #u64)) (#ref #u64)\n  (#return (#if choose {first} {second})))\n\
+            "(#fn select ((choose #bool) (a (#ref #u64)) (b (#ref #u64))) (#ref #u64)\n  (#return (#if choose {first} {second})))\n\
              (#fn main () #u64\n  (#let-mut a #u64 1u64) (#let-mut b #u64 2u64)\n\
-             (#let view (#ref #u64) (#call select (: choose true : a (#borrow a) : b (#borrow b))))\n\
+             (#let view (#ref #u64) (#call select ((choose true) (a (#borrow a)) (b (#borrow b)))))\n\
              (#let answer #u64 (#deref view))\n  (#drop view) (#return answer))"
         );
         expect_accept(&format!("branch-{ordering}-other-origin-control"), &control);

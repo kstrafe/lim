@@ -13,13 +13,13 @@
 (
   #struct
   String (#linear)
-  (: pointer (#ptr-mut #u8) : length #usize : capacity #usize))
+  ((pointer (#ptr-mut #u8)) (length #usize) (capacity #usize)))
 (#opaque String)
 
 (
   #struct
   StringBytes ()
-  (: owner (#ref String)))
+  ((owner (#ref String))))
 (#opaque StringBytes)
 // Raw access is an unsafe boundary: retain the owner borrow and do not move,
 // reallocate, mutate, or free its allocation while this pointer is used.
@@ -28,7 +28,7 @@
 (
   #unsafe-fn
   String::data-pointer
-  (: string (#ref String))
+  ((string (#ref String)))
   (#ptr-mut #u8)
   (
     #return
@@ -39,7 +39,7 @@
 (
   #fn
   String::push-string
-  (: string (#ref-mut String) : text (#ref String))
+  ((string (#ref-mut String)) (text (#ref String)))
   StringStatus
   (
     #let
@@ -54,7 +54,7 @@
       (
         #call
         String::reserve
-        (: string string : additional additional)      )
+        ((string string) (additional additional))      )
       (
         #case
         (StringStatus.StringErr error)
@@ -175,11 +175,11 @@
     (
       #struct-literal
       String
-      (: pointer (#ptr-null (#ptr-mut #u8)) : length 0usize : capacity 0usize)    )  ))
+      ((pointer (#ptr-null (#ptr-mut #u8))) (length 0usize) (capacity 0usize))    )  ))
 (
   #fn
   String::len
-  (: string (#ref String))
+  ((string (#ref String)))
   #usize
   (
     #return
@@ -188,7 +188,7 @@
 (
   #fn
   String::capacity
-  (: string (#ref String))
+  ((string (#ref String)))
   #usize
   (
     #return
@@ -197,7 +197,7 @@
 (
   #fn
   String::is-empty
-  (: string (#ref String))
+  ((string (#ref String)))
   #bool
   (
     #return
@@ -211,7 +211,7 @@
 (
   #fn
   String::reserve
-  (: string (#ref-mut String) : additional #usize)
+  ((string (#ref-mut String)) (additional #usize))
   StringStatus
   (
     #let
@@ -310,13 +310,13 @@
                 (
                   #call
                   system-allocate
-                  (: size chosen)                )
+                  ((size chosen))                )
                 (
                   #unsafe
                   (
                     #unsafe-call
                     system-reallocate
-                    (: pointer (#get string pointer) : size chosen)                  )                )              )            )
+                    ((pointer (#get string pointer)) (size chosen))                  )                )              )            )
             (
               #match
               allocation
@@ -366,7 +366,7 @@
 (
   #fn
   String::with-capacity
-  (: capacity #usize)
+  ((capacity #usize))
   StringCreateResult
   (
     #let-mut
@@ -385,7 +385,7 @@
       (
         #call
         String::reserve
-        (: string (#borrow-mut string) : additional capacity)      )
+        ((string (#borrow-mut string)) (additional capacity))      )
       (
         #case
         StringStatus.StringOk
@@ -399,13 +399,13 @@
           (
             #call
             String::free
-            (: string string)          )
+            ((string string))          )
           (StringCreateResult.StringCreateFailed error)        )      )    )  ))
 // Zero is not a scalar width: reject surrogates and out-of-range #char casts.
 (
   #fn
   String::scalar-width
-  (: value #char)
+  ((value #char))
   #usize
   (
     #let
@@ -474,7 +474,7 @@
 (
   #unsafe-fn
   String::write-scalar
-  (: pointer (#ptr-mut #u8) : offset #usize : value #char : width #usize)
+  ((pointer (#ptr-mut #u8)) (offset #usize) (value #char) (width #usize))
   ()
   (
     #let
@@ -637,7 +637,7 @@
 (
   #fn
   String::push-char
-  (: string (#ref-mut String) : value #char)
+  ((string (#ref-mut String)) (value #char))
   StringStatus
   (
     #let
@@ -646,7 +646,7 @@
     (
       #call
       String::scalar-width
-      (: value value)    )  )
+      ((value value))    )  )
   (
     #return
     (
@@ -662,7 +662,7 @@
         (
           #call
           String::reserve
-          (: string string : additional width)        )
+          ((string string) (additional width))        )
         (
           #case
           (StringStatus.StringErr error)
@@ -684,7 +684,7 @@
               (
                 #unsafe-call
                 String::write-scalar
-                (: pointer (#get string pointer) : offset length : value value : width width)              )            )
+                ((pointer (#get string pointer)) (offset length) (value value) (width width))              )            )
             (
               #deref-set
               (
@@ -697,7 +697,7 @@
 (
   #fn
   String::push-chars
-  (: string (#ref-mut String) : text (#slice #char))
+  ((string (#ref-mut String)) (text (#slice #char)))
   StringStatus
   (
     #let
@@ -727,7 +727,7 @@
       (
         #call
         String::scalar-width
-        (: value (#deref (#slice-idx text index)))      )    )
+        ((value (#deref (#slice-idx text index))))      )    )
     (
       #if
       (
@@ -781,7 +781,7 @@
       (
         #call
         String::reserve
-        (: string string : additional additional)      )
+        ((string string) (additional additional))      )
       (
         #case
         (StringStatus.StringErr error)
@@ -823,13 +823,13 @@
               (
                 #call
                 String::scalar-width
-                (: value value)              )            )
+                ((value value))              )            )
             (
               #unsafe
               (
                 #unsafe-call
                 String::write-scalar
-                (: pointer (#get string pointer) : offset offset : value value : width scalar-width)              )            )
+                ((pointer (#get string pointer)) (offset offset) (value value) (width scalar-width))              )            )
             (
               #set
               offset
@@ -858,7 +858,7 @@
 (
   #fn
   String::utf8-valid
-  (: bytes (#slice #u8))
+  ((bytes (#slice #u8)))
   #bool
   (
     #let
@@ -1133,7 +1133,7 @@
 (
   #fn
   String::push-utf8
-  (: string (#ref-mut String) : bytes (#slice #u8))
+  ((string (#ref-mut String)) (bytes (#slice #u8)))
   StringStatus
   (
     #return
@@ -1144,14 +1144,14 @@
         (
           #call
           String::utf8-valid
-          (: bytes bytes)        )      )
+          ((bytes bytes))        )      )
       (StringStatus.StringErr StringError.StringInvalidUtf8)
       (
         #match
         (
           #call
           String::reserve
-          (: string string : additional (#slice-len bytes))        )
+          ((string string) (additional (#slice-len bytes)))        )
         (
           #case
           (StringStatus.StringErr error)
@@ -1228,7 +1228,7 @@
 (
   #fn
   String::from-chars
-  (: text (#slice #char))
+  ((text (#slice #char)))
   StringCreateResult
   (
     #let-mut
@@ -1247,7 +1247,7 @@
       (
         #call
         String::push-chars
-        (: string (#borrow-mut string) : text text)      )
+        ((string (#borrow-mut string)) (text text))      )
       (
         #case
         StringStatus.StringOk
@@ -1261,12 +1261,12 @@
           (
             #call
             String::free
-            (: string string)          )
+            ((string string))          )
           (StringCreateResult.StringCreateFailed error)        )      )    )  ))
 (
   #fn
   String::from-utf8
-  (: bytes (#slice #u8))
+  ((bytes (#slice #u8)))
   StringCreateResult
   (
     #let-mut
@@ -1285,7 +1285,7 @@
       (
         #call
         String::push-utf8
-        (: string (#borrow-mut string) : bytes bytes)      )
+        ((string (#borrow-mut string)) (bytes bytes))      )
       (
         #case
         StringStatus.StringOk
@@ -1299,14 +1299,14 @@
           (
             #call
             String::free
-            (: string string)          )
+            ((string string))          )
           (StringCreateResult.StringCreateFailed error)        )      )    )  ))
 // Return a byte by value. Packed allocation addresses must not be converted to
 // Lim word-layout references. A StringBytes view retains the owner's borrow.
 (
   #fn
   String::byte-at
-  (: string (#ref String) : index #usize)
+  ((string (#ref String)) (index #usize))
   StringByteResult
   (
     #return
@@ -1337,40 +1337,40 @@
 (
   #fn
   String::bytes
-  (: string (#ref String))
+  ((string (#ref String)))
   StringBytes
   (
     #return
     (
       #struct-literal
       StringBytes
-      (: owner string)    )  ))
+      ((owner string))    )  ))
 (
   #fn
   StringBytes::len
-  (: bytes StringBytes)
+  ((bytes StringBytes))
   #usize
   (
     #return
     (
       #call
       String::len
-      (: string (#get bytes owner))    )  ))
+      ((string (#get bytes owner)))    )  ))
 (
   #fn
   StringBytes::byte-at
-  (: bytes StringBytes : index #usize)
+  ((bytes StringBytes) (index #usize))
   StringByteResult
   (
     #return
     (
       #call
       String::byte-at
-      (: string (#get bytes owner) : index index)    )  ))
+      ((string (#get bytes owner)) (index index))    )  ))
 (
   #fn
   String::pop-char
-  (: string (#ref-mut String))
+  ((string (#ref-mut String)))
   StringPopResult
   (
     #let
@@ -1567,7 +1567,7 @@
 (
   #fn
   String::clear
-  (: string (#ref-mut String))
+  ((string (#ref-mut String)))
   ()
   (
     #deref-set
@@ -1584,7 +1584,7 @@
 (
   #fn
   String::try-clone
-  (: string (#ref String))
+  ((string (#ref String)))
   StringCreateResult
   (
     #let
@@ -1609,7 +1609,7 @@
       (
         #call
         String::reserve
-        (: string (#borrow-mut copy) : additional length)      )
+        ((string (#borrow-mut copy)) (additional length))      )
       (
         #case
         (StringStatus.StringErr error)
@@ -1618,7 +1618,7 @@
           (
             #call
             String::free
-            (: string copy)          )
+            ((string copy))          )
           (StringCreateResult.StringCreateFailed error)        )      )
       (
         #case
@@ -1674,7 +1674,7 @@
 (
   #fn
   String::free
-  (: string String)
+  ((string String))
   ()
   (
     #if
@@ -1688,7 +1688,7 @@
       (
         #unsafe-call
         system-deallocate
-        (: pointer (#get string pointer))      )    )
+        ((pointer (#get string pointer)))      )    )
     ()  )
   (#forget string)
   (

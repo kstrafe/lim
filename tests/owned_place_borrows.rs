@@ -63,7 +63,7 @@ fn owned_nested_fields_pin_borrow_without_copying_the_owner() {
          (#struct Owner (#linear) ((padding #u64) (inner Inner)))
          (#fn main () #u64
            (#let owner Owner (#struct-literal Owner
-             (: padding 9u64 : inner (#struct-literal Inner (: padding 8u64 : value 42u64)))))
+             ((padding 9u64) (inner (#struct-literal Inner ((padding 8u64) (value 42u64)))))))
            (#let view (#pin-ref #u64) (#pin-borrow (#get (#get owner inner) value)))
            (#let result #u64 (#deref view))
            (#drop view) (#forget owner) (#return result))",
@@ -74,14 +74,14 @@ fn owned_nested_fields_pin_borrow_without_copying_the_owner() {
 #[test]
 fn returned_reborrow_survives_consuming_its_parameter_handle() {
     native(
-        "(#struct Pair () (: left #u64 : right #u64))
-         (#fn pick (: target (#ref-mut Pair)) (#ref-mut #u64)
+        "(#struct Pair () ((left #u64) (right #u64)))
+         (#fn pick ((target (#ref-mut Pair))) (#ref-mut #u64)
            (#let child (#ref-mut #u64) (#borrow-mut (#get target left)))
            (#forget target)
            (#return child))
          (#fn main () #u64
-           (#let-mut pair Pair (#struct-literal Pair (: left 1u64 : right 2u64)))
-           (#let child (#ref-mut #u64) (#call pick (: target (#borrow-mut pair))))
+           (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+           (#let child (#ref-mut #u64) (#call pick ((target (#borrow-mut pair)))))
            (#deref-set child 40u64)
            (#let result #u64 (#u64::add-wrap (#deref child) (#get pair right)))
            (#forget child) (#forget pair) (#return result))",
@@ -92,15 +92,15 @@ fn returned_reborrow_survives_consuming_its_parameter_handle() {
 #[test]
 fn returned_aggregate_reborrow_survives_consuming_its_parameter_handle() {
     native(
-        "(#struct Pair () (: left #u64 : right #u64))
-         (#struct View () (: selected (#ref-mut #u64)))
-         (#fn pick (: target (#ref-mut Pair)) View
+        "(#struct Pair () ((left #u64) (right #u64)))
+         (#struct View () ((selected (#ref-mut #u64))))
+         (#fn pick ((target (#ref-mut Pair))) View
            (#let child (#ref-mut #u64) (#borrow-mut (#get target left)))
            (#forget target)
-           (#return (#struct-literal View (: selected child))))
+           (#return (#struct-literal View ((selected child)))))
          (#fn main () #u64
-           (#let-mut pair Pair (#struct-literal Pair (: left 1u64 : right 2u64)))
-           (#let view View (#call pick (: target (#borrow-mut pair))))
+           (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+           (#let view View (#call pick ((target (#borrow-mut pair)))))
            (#set-field pair right 5u64)
            (#let child (#ref-mut #u64) (#get view selected))
            (#deref-set child 40u64)
@@ -117,7 +117,7 @@ fn disjoint_owned_fields_mutably_borrow_and_reborrow_in_place() {
          (#struct Owner () ((padding #u64) (pair Pair)))
          (#fn main () #u64
            (#let-mut owner Owner (#struct-literal Owner
-             (: padding 7u64 : pair (#struct-literal Pair (: left 1u64 : right 2u64)))))
+             ((padding 7u64) (pair (#struct-literal Pair ((left 1u64) (right 2u64)))))))
            (#let parent (#ref-mut Pair) (#borrow-mut (#get owner pair)))
            (#let child (#ref-mut #u64) (#borrow-mut (#get parent left)))
            (#deref-set child 40u64)
@@ -135,9 +135,9 @@ fn owned_tuple_array_and_mixed_projections_address_original_storage() {
         "(#struct Row () ((padding #u64) (items (#array (#tuple #u64 #u64) 2))))
          (#fn main () #u64
            (#let-mut owner Row (#struct-literal Row
-             (: padding 99u64 : items (#array (#array (#tuple #u64 #u64) 2)
+             ((padding 99u64) (items (#array (#array (#tuple #u64 #u64) 2)
                (#tuple (#tuple #u64 #u64) 1u64 2u64)
-               (#tuple (#tuple #u64 #u64) 3u64 4u64)))))
+               (#tuple (#tuple #u64 #u64) 3u64 4u64))))))
            (#let index #usize 1usize)
            (#let view (#ref-mut #u64) (#borrow-mut (#get (#index (#get owner items) index) 1)))
            (#deref-set view 42u64)
@@ -156,7 +156,7 @@ fn owned_array_projection_evaluates_dynamic_index_once() {
            (#let owner (#array #u64 3) (#array (#array #u64 3) 5u64 41u64 7u64))
            (#let-mut count #u64 0u64)
            (#let view (#pin-ref #u64)
-             (#pin-borrow (#index owner (#call next (: count (#borrow-mut count))))))
+             (#pin-borrow (#index owner (#call next ((count (#borrow-mut count)))))))
            (#return (#u64::add-wrap (#deref view) count)))",
         42,
     );
@@ -170,7 +170,7 @@ fn scoped_owned_array_borrow_evaluates_index_before_its_body() {
          (#fn main () #u64
            (#let owner (#array #u64 2) (#array (#array #u64 2) 5u64 41u64))
            (#let-mut count #u64 0u64)
-           (#return (#borrow (#index owner (#call next (: count (#borrow-mut count))))
+           (#return (#borrow (#index owner (#call next ((count (#borrow-mut count)))))
              (#u64::add-wrap 41u64 count))))",
         42,
     );
@@ -182,7 +182,7 @@ fn owned_enum_payload_and_nested_field_borrows_address_the_same_slot() {
         "(#struct Pair () ((left #u64) (right #u64)))
          (#enum Choice () (Choice.Empty (Choice.Full (#tuple #u64 Pair))))
          (#fn main () #u64
-           (#let-mut owner Choice (Choice.Full (#tuple 9u64 (#struct-literal Pair (: left 1u64 : right 2u64)))))
+           (#let-mut owner Choice (Choice.Full (#tuple 9u64 (#struct-literal Pair ((left 1u64) (right 2u64))))))
            (#let view (#ref-mut #u64) (#borrow-mut (#get (#get (#get-payload owner Choice.Full 0) 1) right)))
            (#deref-set view 42u64)
            (#let result #u64 (#deref view))
@@ -212,7 +212,7 @@ fn owned_field_borrow_keeps_reference_bearing_initializer_provenance() {
         "(#struct Holder () ((padding #u64) (view (#ref #u64))))
          (#fn main () #u64
            (#let outside #u64 42u64)
-           (#let owner Holder (#struct-literal Holder (: padding 1u64 : view (#borrow outside))))
+           (#let owner Holder (#struct-literal Holder ((padding 1u64) (view (#borrow outside)))))
            (#let view (#pin-ref (#ref #u64)) (#pin-borrow (#get owner view)))
            (#return (#deref (#deref view))))",
         42,
@@ -224,7 +224,7 @@ fn owned_projection_borrow_cannot_escape_its_local_root() {
     for (declarations, binding, place) in [
         (
             "(#struct Owner () ((value #u64)))",
-            "(#let owner Owner (#struct-literal Owner (: value 42u64)))",
+            "(#let owner Owner (#struct-literal Owner ((value 42u64))))",
             "(#get owner value)",
         ),
         (
@@ -265,7 +265,7 @@ fn owned_projection_borrow_cannot_escape_its_local_root() {
 fn owned_projection_borrow_rejects_owner_move_while_loan_is_live() {
     let source = "(#struct Owner (#linear) ((value #u64)))
         (#fn main () #u64
-          (#let owner Owner (#struct-literal Owner (: value 42u64)))
+          (#let owner Owner (#struct-literal Owner ((value 42u64))))
           (#let view (#pin-ref #u64) (#pin-borrow (#get owner value)))
           (#let moved Owner owner)
           (#let result #u64 (#deref view))
@@ -292,7 +292,7 @@ fn borrowing_an_owned_linear_projection_does_not_consume_the_owner() {
         (#struct Owner () ((item Item)))
         (#fn main () #u64
           (#let owner Owner (#struct-literal Owner
-            (: item (#struct-literal Item (: value 42u64)))))
+            ((item (#struct-literal Item ((value 42u64)))))))
           (#let view (#pin-ref Item) (#pin-borrow (#get owner item)))
           (#drop view) (#return 0u64))";
     let error = diagnostic(source);
@@ -311,14 +311,14 @@ fn copying_a_reference_field_preserves_external_but_not_stack_origin() {
         let valid = format!(
             "(#struct Holder () ((view (#ref #u64))))
              (#fn read ((outside (#ref #u64))) (#ref #u64)
-               (#let-mut owner Holder (#struct-literal Holder (: view outside)))
+               (#let-mut owner Holder (#struct-literal Holder ((view outside))))
                (#let view ({ty} (#ref #u64)) ({operator} (#get owner view)))
                (#return (#deref view)))"
         );
         check(&valid).unwrap();
         let invalid = valid
             .replace("((outside (#ref #u64)))", "((seed #u64))")
-            .replace("(: view outside)", "(: view (#borrow seed))");
+            .replace("((view outside))", "((view (#borrow seed)))");
         assert_local_return_escape(&invalid, "(#return (#deref view))", "seed");
 
         // The same load must retain an ordinary local's lifetime too, not only
@@ -336,19 +336,19 @@ fn nested_owned_reference_loads_preserve_external_but_not_stack_origin() {
         (
             "(#struct Outer () ((padding #u64) (inner Holder)))",
             "Outer",
-            "(#struct-literal Outer (: padding 7u64 : inner (#struct-literal Holder (: view outside))))",
+            "(#struct-literal Outer ((padding 7u64) (inner (#struct-literal Holder ((view outside))))))",
             "(#get (#get owner inner) view)",
         ),
         (
             "",
             "(#tuple #u64 Holder)",
-            "(#tuple (#tuple #u64 Holder) 7u64 (#struct-literal Holder (: view outside)))",
+            "(#tuple (#tuple #u64 Holder) 7u64 (#struct-literal Holder ((view outside))))",
             "(#get (#get owner 1) view)",
         ),
         (
             "",
             "(#array Holder 2)",
-            "(#array (#array Holder 2) (#struct-literal Holder (: view outside)) (#struct-literal Holder (: view outside)))",
+            "(#array (#array Holder 2) (#struct-literal Holder ((view outside))) (#struct-literal Holder ((view outside))))",
             "(#get (#index owner 1usize) view)",
         ),
     ] {
@@ -368,7 +368,7 @@ fn nested_owned_reference_loads_preserve_external_but_not_stack_origin() {
             check(&valid).unwrap();
             let invalid = valid
                 .replace("((outside (#ref #u64)))", "((seed #u64))")
-                .replace(": view outside", ": view (#borrow seed)");
+                .replace("(view outside)", "(view (#borrow seed))");
             assert_local_return_escape(&invalid, "(#return (#deref view))", "seed");
         }
     }
@@ -413,7 +413,7 @@ fn owned_projection_mutability_is_checked_at_the_root() {
         let source = format!(
             "(#struct Owner () ((value #u64)))
              (#fn main () ()
-               (#let owner Owner (#struct-literal Owner (: value 1u64)))
+               (#let owner Owner (#struct-literal Owner ((value 1u64))))
                ({operator} (#get owner value)) (#return ()))"
         );
         let error = diagnostic(&source);
@@ -425,13 +425,13 @@ fn owned_projection_mutability_is_checked_at_the_root() {
 #[test]
 fn owned_projection_rejects_computed_temporary_roots() {
     for root in [
-        "(#struct-literal Owner (: value 42u64))",
-        "(#call make (:))",
-        "(#block (#let temporary Owner (#struct-literal Owner (: value 42u64))) temporary)",
+        "(#struct-literal Owner ((value 42u64)))",
+        "(#call make ())",
+        "(#block (#let temporary Owner (#struct-literal Owner ((value 42u64)))) temporary)",
     ] {
         let source = format!(
             "(#struct Owner () ((value #u64)))
-             (#fn make () Owner (#return (#struct-literal Owner (: value 42u64))))
+             (#fn make () Owner (#return (#struct-literal Owner ((value 42u64)))))
              (#fn main () () (#borrow (#get {root} value)) (#return ()))"
         );
         let error = diagnostic(&source);
@@ -444,7 +444,7 @@ fn owned_projection_rejects_computed_temporary_roots() {
 fn owned_projection_mutable_borrow_excludes_overlapping_access() {
     let source = "(#struct Owner () ((value #u64)))
         (#fn main () #u64
-          (#let-mut owner Owner (#struct-literal Owner (: value 42u64)))
+          (#let-mut owner Owner (#struct-literal Owner ((value 42u64))))
           (#let view (#ref-mut #u64) (#borrow-mut (#get owner value)))
           (#let conflicting #u64 (#get owner value))
           (#let result #u64 (#deref view))
@@ -475,8 +475,8 @@ fn embedded_reference_crossing_requires_explicit_named_reborrow_root() {
     let source = "(#struct Inner () ((value #u64)))
         (#struct Owner () ((inner (#ref Inner))))
         (#fn main () ()
-          (#let outside Inner (#struct-literal Inner (: value 42u64)))
-          (#let-mut owner Owner (#struct-literal Owner (: inner (#borrow outside))))
+          (#let outside Inner (#struct-literal Inner ((value 42u64))))
+          (#let-mut owner Owner (#struct-literal Owner ((inner (#borrow outside)))))
           (#borrow-mut (#get (#get owner inner) value)) (#return ()))";
     let error = diagnostic(source);
     assert_eq!(error.code, DiagnosticCode::Type, "{error:?}");

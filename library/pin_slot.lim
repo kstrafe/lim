@@ -33,7 +33,7 @@
         ((slot (#pin-ref-mut ,(#gn-first names))) (value ,element))
         ,(#gn-call pin-slot-sixth names)
         (#let previous ,(#gn-first names)
-          (#unsafe (#unsafe-call ,(#gn-call pin-slot-fifth names) (: slot slot))))
+          (#unsafe (#unsafe-call ,(#gn-call pin-slot-fifth names) ((slot slot)))))
         //; take initialized the slot with Empty. Consume that linear shell
         //; explicitly before either branch writes its replacement in place.
         (#unsafe (#forget (#pin-read slot)))

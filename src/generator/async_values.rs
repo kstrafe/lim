@@ -823,7 +823,7 @@ mod tests {
     fn named_calls_use_declaration_order_despite_written_order() {
         let (_, declarations) = prepare(
             "(#fn work () #u64
-          (#return (#call combine (: second (#call await-a (:)) : first (#call first (:))))))",
+          (#return (#call combine ((second (#call await-a ())) (first (#call first ()))))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -836,8 +836,8 @@ mod tests {
         let (_, declarations) = prepare(
             "(#struct Pair () ((left #u64) (right #u64)))
           (#fn work () Pair (#return (#struct-literal Pair
-            (: right (#u64::add-wrap (#call second (:)) (#call await-a (:)))
-             : left (#call first (:))))))",
+            ((right (#u64::add-wrap (#call second ()) (#call await-a ())))
+             (left (#call first ()))))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -853,13 +853,13 @@ mod tests {
         let (_, declarations) = prepare(
             "(#struct Token (#linear) ((value #u64)))
           (#struct Holder () ((view (#ref #u64))))
-          (#fn token () Token (#return (#struct-literal Token (: value 7u64))))
-          (#fn holder ((view (#ref #u64))) Holder (#return (#struct-literal Holder (: view view))))
+          (#fn token () Token (#return (#struct-literal Token ((value 7u64)))))
+          (#fn holder ((view (#ref #u64))) Holder (#return (#struct-literal Holder ((view view)))))
           (#fn use-values ((owned Token) (borrowed Holder) (number #u64)) #u64
             (#forget owned) (#forget borrowed) (#return number))
           (#fn work ((view (#ref #u64))) #u64
-            (#return (#call use-values (: number (#call await-a (:))
-              : borrowed (#call holder (: view view)) : owned (#call token (:))))))",
+            (#return (#call use-values ((number (#call await-a ()))
+              (borrowed (#call holder ((view view)))) (owned (#call token ()))))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -879,8 +879,8 @@ mod tests {
     fn nested_await_results_reach_outer_and_later_sibling_calls() {
         let (_, declarations) = prepare(
             "(#fn work () #u64 (#return (#call combine
-          (: first (#call await-value (: value (#call await-a (:))))
-           : second (#call await-b (:))))))",
+          ((first (#call await-value ((value (#call await-a ())))))
+           (second (#call await-b ()))))))",
         );
         let body = &declarations.bodies["work"];
         let inner = call(body, "await-a");
@@ -897,8 +897,8 @@ mod tests {
         let (_, declarations) = prepare(
             "(#fn work ((choose #bool)) #u64
           (#return (#call combine
-            (: first (#if choose (#call first (:)) (#loop (#break (#call second (:)))))
-             : second (#call await-a (:))))))",
+            ((first (#if choose (#call first ()) (#loop (#break (#call second ())))))
+             (second (#call await-a ()))))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -919,9 +919,9 @@ mod tests {
           (#fn make-choice () Choice (#return (Choice.Some 4u64)))
           (#fn await-guard () #bool (#return true))
           (#fn work () #u64 (#return (#call combine
-            (: first (#call first (:)) : second (#match (#call make-choice (:))
-              (#case (Choice.Some value) (#when (#call await-guard (:))) (#call await-a (:)))
-              (#case _ (#call await-b (:))))))))",
+            ((first (#call first ())) (second (#match (#call make-choice ())
+              (#case (Choice.Some value) (#when (#call await-guard ())) (#call await-a ()))
+              (#case _ (#call await-b ()))))))))",
         );
         let body = &declarations.bodies["work"];
         let guard = call(body, "await-guard");
@@ -953,7 +953,7 @@ mod tests {
             {prefix}
             (#return (#match choice
               (#case (Choice.Owned preview) (#when {guard})
-                (#block (#forget preview) (#call await-a (:))))
+                (#block (#forget preview) (#call await-a ())))
               (#case (Choice.Owned committed) (#block (#forget committed) 0u64))
               (#case Choice.Empty 0u64))))"
         ))
@@ -965,7 +965,7 @@ mod tests {
         // them move-only; the language has no separate #copy annotation.
         for (properties, move_only) in [("()", false), ("(#linear)", true)] {
             let (program, declarations) =
-                preview_program("Token", properties, "(#call await-guard (:))", "");
+                preview_program("Token", properties, "(#call await-guard ())", "");
             let types = LinearTypes::from_program(&program);
             let body = &declarations.bodies["work"];
             let flow = &declarations.flows["work"];
@@ -1005,7 +1005,7 @@ mod tests {
                   (#fn await-guard () #bool (#return true))
                   (#fn work ((choice Choice)) #u64
                     (#return (#match choice
-                      (#case (Choice.Owned (Token preview)) (#when (#call await-guard (:)))
+                      (#case (Choice.Owned (Token preview)) (#when (#call await-guard ()))
                         (#block (#forget preview) 1u64))
                       (#case (Choice.Owned committed) (#block (#forget committed) 0u64))
                       (#case Choice.Empty 0u64))))"
@@ -1013,7 +1013,7 @@ mod tests {
                 ""
             };
             let (program, declarations) = if source.is_empty() {
-                preview_program(payload, "()", "(#call await-guard (:))", "")
+                preview_program(payload, "()", "(#call await-guard ())", "")
             } else {
                 prepare(source)
             };
@@ -1040,7 +1040,7 @@ mod tests {
         let (program, declarations) = preview_program(
             "Token",
             "()",
-            "(#call await-guard (:))",
+            "(#call await-guard ())",
             "(#forget choice) (#return 42u64)",
         );
         let types = LinearTypes::from_program(&program);
@@ -1059,7 +1059,7 @@ mod tests {
             "Token",
             "(#linear)",
             "(#match selected
-              (#case true (#when (#call await-guard (:))) true)
+              (#case true (#when (#call await-guard ())) true)
               (#case _ false))",
             "",
         );
@@ -1080,7 +1080,7 @@ mod tests {
             "(#enum Choice () ((Choice.Some #u64) Choice.None))
           (#fn await-guard () #bool (#return true))
           (#fn work ((choice Choice)) #u64 (#return (#match choice
-            (#case (Choice.Some preview) (#when (#call await-guard (:))) preview)
+            (#case (Choice.Some preview) (#when (#call await-guard ())) preview)
             (#case _ 0u64))))",
         );
         let types = LinearTypes::from_program(&program);
@@ -1100,7 +1100,7 @@ mod tests {
           (#fn work ((pair Pair) (array (#array #u64 2))) #u64
             (#let pair-view (#ref Pair) (#borrow pair))
             (#let view (#ref #u64) (#borrow (#get pair-view left)))
-            (#let result #u64 (#index array (#call await-a (:))))
+            (#let result #u64 (#index array (#call await-a ())))
             (#drop view) (#drop pair-view) (#forget pair) (#forget array) (#return result))",
         );
         let body = &declarations.bodies["work"];
@@ -1113,7 +1113,7 @@ mod tests {
         let (_, declarations) = prepare(
             "(#struct Holder () ((values (#ref (#array #u64 2)))))
           (#fn work ((holder (#ref Holder))) #u64
-            (#return (#index (#get holder values) (#call await-a (:)))))",
+            (#return (#index (#get holder values) (#call await-a ()))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -1143,8 +1143,8 @@ mod tests {
             "(#struct Holder ()
           ((links (#ref (#array (#ref (#array #u64 2)) 2)))))
           (#fn work ((holder (#ref Holder))) #u64
-            (#return (#u64::add-wrap (#call first (:))
-              (#index (#index (#get holder links) 0usize) (#call await-a (:))))))",
+            (#return (#u64::add-wrap (#call first ())
+              (#index (#index (#get holder links) 0usize) (#call await-a ())))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -1168,8 +1168,8 @@ mod tests {
             "(#struct Holder () ((values (#ref (#array #u64 2)))))
           (#fn work ((holder (#ref-mut Holder)) (replacement (#ref (#array #u64 2)))) #u64
             (#return (#index (#get holder values) (#block
-              (#deref-set holder (#struct-literal Holder (: values replacement)))
-              (#call await-a (:))))))",
+              (#deref-set holder (#struct-literal Holder ((values replacement))))
+              (#call await-a ())))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -1196,7 +1196,7 @@ mod tests {
         let (_, declarations) = prepare(
             "(#fn work () #u64
           (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 3u64 4u64))
-          (#set-index values (#call first (:)) (#call await-a (:)))
+          (#set-index values (#call first ()) (#call await-a ()))
           (#forget values) (#return 0u64))",
         );
         let body = &declarations.bodies["work"];
@@ -1212,8 +1212,8 @@ mod tests {
         let (_, declarations) = prepare(
             "(#fn await-bool () #bool (#return true))
           (#fn work ((choose #bool)) #bool
-            (#call first (:))
-            (#return (#bool::and choose (#call await-bool (:)))))",
+            (#call first ())
+            (#return (#bool::and choose (#call await-bool ()))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-bool");
@@ -1224,7 +1224,7 @@ mod tests {
     fn flow_arena_permutation_and_collapsed_spans_do_not_change_the_plan() {
         let (_, mut declarations) = prepare(
             "(#fn work () #u64
-          (#return (#call combine (: first (#call first (:)) : second (#call await-a (:))))))",
+          (#return (#call combine ((first (#call first ())) (second (#call await-a ()))))))",
         );
         let body = declarations.bodies.get_mut("work").unwrap();
         let span = body.nodes.iter().find_map(|node| node.span);
@@ -1257,14 +1257,14 @@ mod tests {
     fn unreachable_calls_are_omitted_and_duplicate_events_are_rejected() {
         let (_, declarations) = prepare(
             "(#fn work () #u64
-          (#return 42u64) (#call await-a (:)) (#return 0u64))",
+          (#return 42u64) (#call await-a ()) (#return 0u64))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
         let flow = &declarations.flows["work"];
         assert!(plan(body, flow, &[site]).unwrap().is_empty());
 
-        let (_, declarations) = prepare("(#fn work () #u64 (#return (#call await-a (:))))");
+        let (_, declarations) = prepare("(#fn work () #u64 (#return (#call await-a ())))");
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
         let mut flow = declarations.flows["work"].clone();
@@ -1285,7 +1285,7 @@ mod tests {
     fn repeated_suspending_elements_need_a_multiplicity_model() {
         let (_, declarations) = prepare(
             "(#fn work () (#array #u64 2)
-          (#return (#array-repeat (#call await-a (:)))))",
+          (#return (#array-repeat (#call await-a ()))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");

@@ -63,10 +63,10 @@ fn large_array_dereference_returns_preserve_local_static_and_pinned_layout() {
     ] {
         let source = format!(
             "(#static values {array} {values})
-          (#fn snapshot (: values ({reference} {array})) {array}
+          (#fn snapshot ((values ({reference} {array}))) {array}
             (#return (#deref values)))
           (#fn main () #u64 {declarations}
-            (#let copied {array} (#call snapshot (: values {argument})))
+            (#let copied {array} (#call snapshot ((values {argument}))))
             (#assert (#u64::eq (#index copied 0usize) 1u64))
             (#return (#index copied 7usize)))"
         );
@@ -101,7 +101,7 @@ fn local_array_borrow_to_slice_in_helper() {
 (#fn main () #u64
   (#let values (#array #u64 3)
     (#array-of (#array #u64 3) 10u64 20u64 42u64))
-  (#return (#call read-third (: values (#borrow values))))
+  (#return (#call read-third ((values (#borrow values)))))
 )
 "#,
         42,
@@ -122,7 +122,7 @@ fn static_array_borrow_to_slice_in_helper() {
 
 (#fn main () #u64
   (#return (#unsafe
-    (#call read-third (: values (#borrow values)))))
+    (#call read-third ((values (#borrow values))))))
 )
 "#,
         42,
@@ -142,7 +142,7 @@ fn range_and_index_preserve_slice_layout_across_calls() {
   (#let values (#array #u64 4)
     (#array-of (#array #u64 4) 5u64 10u64 42u64 80u64))
   (#let view (#slice #u64) (#slice-of (#borrow values)))
-  (#return (#call middle (: values view)))
+  (#return (#call middle ((values view))))
 )
 "#,
         42,
@@ -171,7 +171,7 @@ fn mutable_slice_split_and_index_preserve_layout_across_calls() {
   (#let-mut values (#array #u64 4)
     (#array-of (#array #u64 4) 1u64 2u64 3u64 4u64))
   (#let whole (#slice-mut #u64) (#slice-mut-of (#borrow-mut values)))
-  (#return (#call update-halves (: whole whole)))
+  (#return (#call update-halves ((whole whole))))
 )
 "#,
         42,

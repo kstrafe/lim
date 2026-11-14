@@ -35,8 +35,8 @@ fn one_word_aggregate_reference_writes_use_the_target_type() {
                (#deref-set target {rhs}) (#return ()))
              (#fn main () #u64
                (#let-mut owner Value (#struct-literal Value ((number 1u64))))
-               (#call write (: target (#borrow-mut owner)
-                 : replacement (#struct-literal Value ((number 42u64)))))
+               (#call write ((target (#borrow-mut owner))
+                 (replacement (#struct-literal Value ((number 42u64))))))
                (#return (#get owner number)))"
         );
         assert_eq!(run(&source).code(), Some(42), "{source}");

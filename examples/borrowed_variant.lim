@@ -1,7 +1,7 @@
 // An exact local write establishes the variant and its retained reference.
 (#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
 
-(#fn read (: source (#ref Choice)) #u64
+(#fn read ((source (#ref Choice))) #u64
   (#return
     (#match (#deref source)
       (#case (Choice.Empty) 0u64)
@@ -14,7 +14,7 @@
   (#deref-set writer (Choice.Full (#borrow value)))
   (#drop writer)
   (#let source (#ref Choice) (#borrow choice))
-  (#let result #u64 (#call read (: source source)))
+  (#let result #u64 (#call read ((source source))))
   (#drop source)
   (#forget choice)
   (#return result))

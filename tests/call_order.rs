@@ -51,7 +51,7 @@ fn integer_stack_calls_evaluate_once_in_parameter_declaration_order() {
             .rev()
             .map(|index| {
                 format!(
-            ": p{index} (#call next (: counter (#borrow-mut counter) : expected {index}u64))"
+            "(p{index} (#call next ((counter (#borrow-mut counter)) (expected {index}u64))))"
         )
             })
             .collect::<Vec<_>>()
@@ -72,7 +72,7 @@ fn integer_stack_calls_evaluate_once_in_parameter_declaration_order() {
 fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
     run(&format!(
         "{NEXT}
-      (#struct Pair () (: first #u64 : second #u64))
+      (#struct Pair () ((first #u64) (second #u64)))
       (#fn check ((wide #u128) (pair Pair) (a #u64) (b #u64) (c #u64)) #u64
         (#assert (#u128::eq wide 18446744073709551624u128))
         (#assert (#u64::eq (#get pair first) 1u64))
@@ -84,15 +84,15 @@ fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let result #u64 (#call check
-          (: c (#call next (: counter (#borrow-mut counter) : expected 5u64))
-           : pair (#struct-literal Pair
-             (: second (#call next (: counter (#borrow-mut counter) : expected 2u64))
-              : first (#call next (: counter (#borrow-mut counter) : expected 1u64))))
-           : wide (#u128::add-wrap
-             (#as (#call next (: counter (#borrow-mut counter) : expected 0u64)) #u128)
-             18446744073709551624u128)
-           : b (#call next (: counter (#borrow-mut counter) : expected 4u64))
-           : a (#call next (: counter (#borrow-mut counter) : expected 3u64)))))
+          ((c (#call next ((counter (#borrow-mut counter)) (expected 5u64))))
+           (pair (#struct-literal Pair
+             ((second (#call next ((counter (#borrow-mut counter)) (expected 2u64))))
+              (first (#call next ((counter (#borrow-mut counter)) (expected 1u64)))))))
+           (wide (#u128::add-wrap
+             (#as (#call next ((counter (#borrow-mut counter)) (expected 0u64))) #u128)
+             18446744073709551624u128))
+           (b (#call next ((counter (#borrow-mut counter)) (expected 4u64))))
+           (a (#call next ((counter (#borrow-mut counter)) (expected 3u64)))))))
         (#assert (#u64::eq counter 6u64))
         (#return result))"
     ));

@@ -18,23 +18,23 @@
     (#case (BodyTask.Start value) (BodyPoll.BodyPending (BodyTask.Resume value)))
     (#case (BodyTask.Resume value) (BodyPoll.BodyReady value)))))
 
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work () #u64
     (#let-mut counter #u64 0u64)
     (#let-mut total #u64 0u64)
-    (#while-let (Value.Some amount) (#call next-value (: counter (#borrow-mut counter)))
+    (#while-let (Value.Some amount) (#call next-value ((counter (#borrow-mut counter))))
       (#let result #u64 (#await BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll (BodyTask.Start amount)))
       (#set total (#u64::add-wrap total result)))
     (#assert (#u64::eq counter 3u64))
-    (#return total))))
+    (#return total)))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
+  (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending first-task) Work::Poll first (#unreachable))
-  (#let second Work::Poll (#call Work::poll (: task first-task : waker (#borrow waker))))
+  (#let second Work::Poll (#call Work::poll ((task first-task) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending second-task) Work::Poll second (#unreachable))
-  (#let third Work::Poll (#call Work::poll (: task second-task : waker (#borrow waker))))
+  (#let third Work::Poll (#call Work::poll ((task second-task) (waker (#borrow waker)))))
   (#return (#match third
     (#case (Work::Poll.Ready value) value)
     (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))

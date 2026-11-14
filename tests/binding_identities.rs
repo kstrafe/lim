@@ -72,19 +72,19 @@ fn unused_destructured_names_are_recorded_as_bindings() {
     assert!(
         bindings
             .iter()
-            .any(|line| line.ends_with(": unused_left U32")),
+            .any(|line| line.ends_with("(unused_left U32)")),
         "{dump}"
     );
     assert!(
         bindings
             .iter()
-            .any(|line| line.ends_with(": unused_right U64")),
+            .any(|line| line.ends_with("(unused_right U64)")),
         "{dump}"
     );
     for name in ["unused_left", "unused_right"] {
         let line = bindings
             .iter()
-            .find(|line| line.contains(&format!(": {name} ")))
+            .find(|line| line.contains(&format!("({name} ")))
             .unwrap();
         let id = line
             .strip_prefix("binding ")
@@ -115,18 +115,18 @@ fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate(
         assert!(
             bindings
                 .iter()
-                .any(|line| line.contains(&format!(": {name} "))),
+                .any(|line| line.contains(&format!("({name} "))),
             "{dump}"
         );
     }
     assert!(
-        !bindings.iter().any(|line| line.contains(": tOTAL ")),
+        !bindings.iter().any(|line| line.contains("(tOTAL ")),
         "static is not a local binding: {dump}"
     );
     assert!(
         !bindings.iter().any(|line| ["set", "block", "loop", "break"]
             .iter()
-            .any(|label| line.contains(&format!(": {label} ")))),
+            .any(|label| line.contains(&format!("({label} ")))),
         "syntax labels are not bindings: {dump}"
     );
     assert!(

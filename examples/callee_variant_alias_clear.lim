@@ -2,7 +2,7 @@
 (#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
 (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
 
-(#fn step-choice (: target (#ref-mut Choice) : value (#ref #u64) : complete #bool) Outcome
+(#fn step-choice ((target (#ref-mut Choice)) (value (#ref #u64)) (complete #bool)) Outcome
   (#return
     (#if complete
       (#block (#deref-set target (Choice.Empty)) (Outcome.Ready))
@@ -14,7 +14,7 @@
   (#let-mut holder Choice (Choice.Full (#borrow old)))
   (#let target (#ref-mut Choice) (#borrow-mut holder))
   (#let first Outcome
-    (#call step-choice (: target target : value (#borrow value) : complete false)))
+    (#call step-choice ((target target) (value (#borrow value)) (complete false))))
   (#drop target)
   (#let result #u64
     (#match first
@@ -25,7 +25,7 @@
           (#case (Choice.Full view) (#deref view))))))
   (#let next-target (#ref-mut Choice) (#borrow-mut holder))
   (#let second Outcome
-    (#call step-choice (: target next-target : value (#borrow value) : complete true)))
+    (#call step-choice ((target next-target) (value (#borrow value)) (complete true))))
   (#drop next-target)
   (#let forwarded Outcome second)
   (#let selected Outcome forwarded)

@@ -33,7 +33,7 @@
       (
         #call
         String::from-chars
-        (: text (#borrow-slice greeting))      )
+        ((text (#borrow-slice greeting)))      )
       (
         #case
         (StringCreateResult.StringCreated created-message)
@@ -53,7 +53,7 @@
       (
         #call
         String::from-chars
-        (: text (#borrow-slice suffix))      )
+        ((text (#borrow-slice suffix)))      )
       (
         #case
         (StringCreateResult.StringCreated created-tail)
@@ -71,7 +71,7 @@
       (
         #call
         String::push-string
-        (: string (#borrow-mut message) : text (#borrow tail))      )
+        ((string (#borrow-mut message)) (text (#borrow tail)))      )
       (#case StringStatus.StringOk true)
       (#case _ false)    )  )
   (
@@ -81,7 +81,7 @@
       (
         #call
         String::push-char
-        (: string (#borrow-mut message) : value #\!)      )
+        ((string (#borrow-mut message)) (value #\!))      )
       (#case StringStatus.StringOk true)
       (#case _ false)    )  )
   (
@@ -98,11 +98,11 @@
   (
     #call
     String::free
-    (: string tail)  )
+    ((string tail))  )
   (
     #call
     String::free
-    (: string message)  )
+    ((string message))  )
   (
     #return
     (#literal #u64 42)

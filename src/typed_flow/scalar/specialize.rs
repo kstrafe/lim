@@ -531,13 +531,13 @@ fn specialize_impl(
 mod tests {
     use super::*;
 
-    const PHASE_SOURCE: &str = "(#struct Holder () (: value (#ref #u64)))
-          (#struct Frame () (: pc #u64 : source (#ref #u64) : words (#array #u64 1)))
-          (#fn work (: frame (#ref-mut Frame)) #u64
+    const PHASE_SOURCE: &str = "(#struct Holder () ((value (#ref #u64))))
+          (#struct Frame () ((pc #u64) (source (#ref #u64)) (words (#array #u64 1))))
+          (#fn work ((frame (#ref-mut Frame))) #u64
             (#loop (#match (#get frame pc)
               (#case 0 (#block
                 (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
-                  (#struct-literal Holder (: value (#get frame source)))))
+                  (#struct-literal Holder ((value (#get frame source))))))
                 (#deref-set (#borrow-mut (#get frame pc)) 1u64) (#continue) (#unreachable)))
               (#case 1 (#block
                 (#let holder Holder (#unsafe (#word-take Holder (#borrow-slice-mut (#get frame words)))))
@@ -549,8 +549,8 @@ mod tests {
     #[test]
     fn projected_assignment_epochs_follow_the_physical_referent() {
         let program = crate::parse_program(
-            "(#struct Frame () (: pc #u64))
-            (#fn work (: frame (#ref-mut Frame)) ()
+            "(#struct Frame () ((pc #u64)))
+            (#fn work ((frame (#ref-mut Frame))) ()
               (#let-mut alias (#ref-mut #u64) (#borrow-mut (#get frame pc)))
               (#deref-set alias 1u64) (#return ()))",
         )
@@ -660,7 +660,7 @@ mod tests {
     #[test]
     fn overwritten_scalar_snapshots_do_not_spend_the_storage_history_budget() {
         let arguments = (0..5)
-            .map(|index| format!(" : flag{index} #bool"))
+            .map(|index| format!(" (flag{index} #bool)"))
             .collect::<String>();
         let choices = (0..5)
             .map(|index| {
@@ -673,8 +673,8 @@ mod tests {
             .collect::<String>();
         let source = PHASE_SOURCE
             .replace(
-                "(: frame (#ref-mut Frame))",
-                &format!("(: frame (#ref-mut Frame){arguments})"),
+                "((frame (#ref-mut Frame)))",
+                &format!("((frame (#ref-mut Frame){arguments}))"),
             )
             .replace(
                 "(#loop",
@@ -690,20 +690,20 @@ mod tests {
     #[test]
     fn definite_retirements_do_not_retain_dead_word_epochs() {
         let arguments = (0..5)
-            .map(|index| format!(" : flag{index} #bool"))
+            .map(|index| format!(" (flag{index} #bool)"))
             .collect::<String>();
         let choices = (0..5).map(|index| format!(
             "(#if flag{index}
               (#block
                 (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words) {}usize {}usize)
-                  (#struct-literal Holder (: value (#get frame source)))))
+                  (#struct-literal Holder ((value (#get frame source))))))
                 (#unsafe (#word-forget Holder (#borrow-slice-mut (#get frame words) {}usize {}usize))))
               (#unsafe (#word-forget Holder (#borrow-slice-mut (#get frame words) {}usize {}usize))))",
             index+1, index+2, index+1, index+2, index+1, index+2)).collect::<String>();
         let source = PHASE_SOURCE
             .replace(
-                "(: frame (#ref-mut Frame))",
-                &format!("(: frame (#ref-mut Frame){arguments})"),
+                "((frame (#ref-mut Frame)))",
+                &format!("((frame (#ref-mut Frame){arguments}))"),
             )
             .replace("(#array #u64 1)", "(#array #u64 6)")
             .replace("(#loop", &format!("{choices} (#loop"));
@@ -723,7 +723,7 @@ mod tests {
     #[test]
     fn specialization_budget_loss_never_discharges_wildcard_entry_slots() {
         let arguments = (0..5)
-            .map(|index| format!(" : flag{index} #bool"))
+            .map(|index| format!(" (flag{index} #bool)"))
             .collect::<String>();
         let choices = (0..5)
             .map(|index| {
@@ -736,8 +736,8 @@ mod tests {
             .collect::<String>();
         let source = PHASE_SOURCE
             .replace(
-                "(: frame (#ref-mut Frame))",
-                &format!("(: frame (#ref-mut Frame){arguments})"),
+                "((frame (#ref-mut Frame)))",
+                &format!("((frame (#ref-mut Frame){arguments}))"),
             )
             .replace("(#array #u64 1)", "(#array #u64 6)")
             .replace("(#loop", &format!("{choices} (#loop"));

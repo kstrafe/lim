@@ -1,12 +1,12 @@
 // Both futures have stationary storage. A branch chooses which one to poll.
 (#generate #async-fn-pinned
-  (: protocol ReadAwait : waker #u64
-   : function (#fn read-value () #u64 (#return 42u64))))
+  ((protocol ReadAwait) (waker #u64)
+   (function (#fn read-value () #u64 (#return 42u64)))))
 (#generate #async-fn-pinned
-  (: protocol WriteAwait : waker #u64
-   : function (#fn write-value () #u64 (#return 7u64))))
+  ((protocol WriteAwait) (waker #u64)
+   (function (#fn write-value () #u64 (#return 7u64)))))
 
-(#fn select (: choose-reader #bool) #u64
+(#fn select ((choose-reader #bool)) #u64
   (#let-mut reader Read-value::Frame (#call read-value ()))
   (#let-mut writer Write-value::Frame (#call write-value ()))
   (#let reader-pin (#pin-ref-mut Read-value::Frame) (#pin reader))
@@ -16,21 +16,21 @@
     (#if choose-reader
       (#block
         (#forget writer-pin)
-        (#match (#call Read-value::poll (: task reader-pin : waker (#borrow waker)))
+        (#match (#call Read-value::poll ((task reader-pin) (waker (#borrow waker))))
           (#case (Read-value::Poll.Ready read-result) read-result)
           (#case (Read-value::Poll.Pending read-pending)
             (#block (#forget read-pending) (#unreachable)))))
       (#block
         (#forget reader-pin)
-        (#match (#call Write-value::poll (: task writer-pin : waker (#borrow waker)))
+        (#match (#call Write-value::poll ((task writer-pin) (waker (#borrow waker))))
           (#case (Write-value::Poll.Ready write-result) write-result)
           (#case (Write-value::Poll.Pending write-pending)
             (#block (#forget write-pending) (#unreachable)))))))
   // Cancellation consumes each remaining state, including the unpolled future.
   (#let reader-cleanup Read-value::Frame::Cleanup
-    (#call Read-value::Poll::cleanup (: task (#pin reader))))
+    (#call Read-value::Poll::cleanup ((task (#pin reader)))))
   (#let writer-cleanup Write-value::Frame::Cleanup
-    (#call Write-value::Poll::cleanup (: task (#pin writer))))
+    (#call Write-value::Poll::cleanup ((task (#pin writer)))))
   (#forget reader-cleanup)
   (#forget writer-cleanup)
   (#forget reader)
@@ -38,5 +38,5 @@
   (#return answer))
 
 (#fn main () #u64
-  (#assert (#u64::eq (#call select (: choose-reader false)) 7u64))
-  (#return (#call select (: choose-reader true))))
+  (#assert (#u64::eq (#call select ((choose-reader false))) 7u64))
+  (#return (#call select ((choose-reader true)))))

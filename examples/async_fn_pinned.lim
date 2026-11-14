@@ -16,21 +16,21 @@
         (ChildPoll.ChildReady value))))))
 (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
 
-(#generate #async-fn-pinned ( : protocol WorkAwait : waker #u64
-  : cancel (cancel-frame ((await-0 cancel-child))) : function
+(#generate #async-fn-pinned ( (protocol WorkAwait) (waker #u64)
+  (cancel (cancel-frame ((await-0 cancel-child)))) (function
   (#fn work ((offset #u64)) #u64
     (#let value #u64
       (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
-    (#return (#u64::add-wrap value offset)))))
+    (#return (#u64::add-wrap value offset))))))
 
 (#fn main () #u64
-  (#let-mut frame Work::Frame (#call work (: offset 40u64)))
+  (#let-mut frame Work::Frame (#call work ((offset 40u64))))
   (#let waker #u64 0u64)
   (#let first Work::Poll
-    (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+    (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending pinned-frame) Work::Poll first (#unreachable))
   (#let second Work::Poll
-    (#call Work::poll (: task pinned-frame : waker (#borrow waker))))
+    (#call Work::poll ((task pinned-frame) (waker (#borrow waker)))))
   (#let result #u64
     (#match second
       (#case (Work::Poll.Ready value) value)
@@ -38,12 +38,12 @@
         (#block (#forget unexpected) (#unreachable)))))
   (#forget frame)
 
-  (#let-mut cancelled-frame Work::Frame (#call work (: offset 90u64)))
+  (#let-mut cancelled-frame Work::Frame (#call work ((offset 90u64))))
   (#let first-cancel Work::Poll
-    (#call Work::poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
+    (#call Work::poll ((task (#pin-borrow-mut cancelled-frame)) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending cancel-pin) Work::Poll first-cancel (#unreachable))
-  (#let cleanup-to-cancel Work::Frame::Cleanup (#call Work::Poll::cleanup (: task cancel-pin)))
-  (#call cancel-frame (: task cleanup-to-cancel))
+  (#let cleanup-to-cancel Work::Frame::Cleanup (#call Work::Poll::cleanup ((task cancel-pin))))
+  (#call cancel-frame ((task cleanup-to-cancel)))
   (#forget cancelled-frame)
   (#forget waker)
   (#return result))

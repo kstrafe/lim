@@ -88,7 +88,7 @@ fn run_ordinary_typed_owner(on_heap: bool, exclusive: bool) {
     }
     for invalid in [
         source.replace("(#let kept", "(#set seed 99u64)\n      (#let kept"),
-        source.replace("(#let selected", "(#unsafe (#unsafe-call restore-item (: item (#pin-borrow-mut (#get owner item)))))\n      (#let selected"),
+        source.replace("(#let selected", "(#unsafe (#unsafe-call restore-item ((item (#pin-borrow-mut (#get owner item))))))\n      (#let selected"),
     ] {
         let error = lim::compile_source_to_assembly(
             &invalid, &scratch.path().join("invalid.lim"), &lim::CompileConfig::default(),
@@ -163,7 +163,7 @@ fn run_ordinary_typed_payload(on_heap: bool) {
 fn source_checks_reject_incomplete_and_conflicting_whole_borrows() {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim");
     let missing = source.replace(
-        "(#set-field owner item (#struct-literal Token (: value 2u64)))",
+        "(#set-field owner item (#struct-literal Token ((value 2u64))))",
         "",
     );
     let exclusive = source
@@ -171,7 +171,7 @@ fn source_checks_reject_incomplete_and_conflicting_whole_borrows() {
             "whole (#ref Owner) (#borrow owner)",
             "whole (#ref-mut Owner) (#borrow-mut owner)",
         )
-        .replace("(: owner (#ref Owner))", "(: owner (#ref-mut Owner))");
+        .replace("((owner (#ref Owner)))", "((owner (#ref-mut Owner)))");
     let scratch = support::Scratch::new("async-contiguous-rejected");
     for invalid in [&missing, &exclusive] {
         for _ in 0..2 {
@@ -213,14 +213,14 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
         "{prefix}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut frame Work::Frame (#call work (:)))
+        (#let-mut frame Work::Frame (#call work ()))
         (#let first Work::Poll (#call Work::poll
-          (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+          ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
         (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
         (#let second Work::Poll (#call Work::poll
-          (: task pending : waker (#borrow waker))))
+          ((task pending) (waker (#borrow waker)))))
         (#let-else (Work::Poll.Pending next) Work::Poll second (#unreachable))
-        (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup (: task next)))
+        (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup ((task next))))
         (#let-else (Work::Frame::Cleanup::Owner-item.Full original)
           Work::Frame::Cleanup::Owner-item (#get cleanup owner-item) (#unreachable))
         (#assert (#u64::eq (#get original value) 2u64))
@@ -233,15 +233,15 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
 fn cloned_source() -> String {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim");
     let hooks = "
-      (#fn Token::clone (: original Token) Token
+      (#fn Token::clone ((original Token)) Token
         (#let value #u64 (#get original value))
         (#forget original)
-        (#return (#struct-literal Token (: value (#u64::add-wrap value 10u64)))))
-      (#fn Owner::clone (: original Owner) Owner
+        (#return (#struct-literal Token ((value (#u64::add-wrap value 10u64))))))
+      (#fn Owner::clone ((original Owner)) Owner
         (#let kept #u64 (#get original kept))
         (#let item Token (#clone (#get original item)))
         (#forget original)
-        (#return (#struct-literal Owner (: kept kept : item item))))";
+        (#return (#struct-literal Owner ((kept kept) (item item)))))";
     format!("{hooks}\n{source}").replace(
         "(#let whole (#ref Owner)",
         "(#let copied Owner (#clone owner))
@@ -284,12 +284,12 @@ fn partial_exclusive_holder_lends_its_handle_before_a_later_await() {
     let source = format!(
         "{}\n
         (#let moved Token (#get owner item)) (#forget moved)
-        (#set-field owner item (#struct-literal Token (: value 1u64)))
+        (#set-field owner item (#struct-literal Token ((value 1u64))))
         (#let answer #u64 (#call read
-          (: view (#get owner kept)
-           : amount (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))))
+          ((view (#get owner kept))
+           (amount (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start)))))
         (#forget owner) (#return answer))))
-        (#fn read (: view (#ref-mut #u64) : amount ()) #u64
+        (#fn read ((view (#ref-mut #u64)) (amount ())) #u64
           (#deref-set view (#u64::add-wrap (#deref view) 2u64))
           (#return (#deref view)))\n{}",
         &source[..begin],
@@ -324,7 +324,7 @@ fn partial_exclusive_holder_lends_its_handle_before_a_later_await() {
 #[test]
 fn incomplete_reference_owner_whole_view_fails_at_the_source_borrow() {
     let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim").replace(
-        "(#set-field owner item (#struct-literal Token (: value 2u64)))",
+        "(#set-field owner item (#struct-literal Token ((value 2u64))))",
         "",
     );
     let scratch = support::Scratch::new("async-reference-contiguous-gate");
@@ -352,10 +352,10 @@ fn incomplete_reference_owner_whole_view_fails_at_the_source_borrow() {
 #[test]
 fn heap_reference_owner_keeps_address_and_provenance_after_sibling_restoration() {
     let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim")
-        .replace("(#let-mut frame Work::Frame (#call work (: seed (#borrow seed))))",
+        .replace("(#let-mut frame Work::Frame (#call work ((seed (#borrow seed)))))",
           "(#let pointer (#ptr-mut Work::Frame) (#unsafe (#linux-syscall (#ptr-mut Work::Frame)
             9usize (0usize (#size-of Work::Frame) 3usize 34usize -1i64 0usize))))
-           (#let initial Work::Frame (#call work (: seed (#borrow seed))))
+           (#let initial Work::Frame (#call work ((seed (#borrow seed)))))
            (#let-mut frame (#pin-own Work::Frame) (#unsafe (#pin-own-of pointer initial)))")
         .replace("(#pin-borrow-mut frame)", "(#pin-own-borrow-mut frame)")
         .replace("(#forget frame)", "(#forget pending)
@@ -367,12 +367,12 @@ fn heap_reference_owner_keeps_address_and_provenance_after_sibling_restoration()
 #[test]
 fn selected_whole_owner_keeps_branch_identity_with_contiguous_storage() {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim")
-        .replace("(#fn work () #u64", "(#fn work (: flag #bool) #u64")
+        .replace("(#fn work () #u64", "(#fn work ((flag #bool)) #u64")
         .replace(
             "(#let whole (#ref Owner) (#borrow owner))",
             "
-          (#let other Owner (#struct-literal Owner (: kept 40u64
-            : item (#struct-literal Token (: value 2u64)))))
+          (#let other Owner (#struct-literal Owner ((kept 40u64)
+            (item (#struct-literal Token ((value 2u64)))))))
           (#let whole (#ref Owner) (#if flag (#borrow owner) (#borrow other)))",
         )
         .replace(
@@ -382,7 +382,7 @@ fn selected_whole_owner_keeps_branch_identity_with_contiguous_storage() {
         )
         .replace("(#forget owner)", "(#forget owner) (#forget other)");
     for flag in ["true", "false"] {
-        run(&source.replace("(#call work (:))", &format!("(#call work (: flag {flag}))")));
+        run(&source.replace("(#call work ())", &format!("(#call work ((flag {flag})))")));
     }
 }
 
@@ -390,11 +390,11 @@ fn selected_whole_owner_keeps_branch_identity_with_contiguous_storage() {
 fn heap_owned_whole_borrow_preserves_the_same_contiguous_address() {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim")
         .replace(
-            "(#let-mut frame Work::Frame (#call work (:)))",
+            "(#let-mut frame Work::Frame (#call work ()))",
             "
           (#let pointer (#ptr-mut Work::Frame) (#unsafe (#linux-syscall (#ptr-mut Work::Frame)
             9usize (0usize (#size-of Work::Frame) 3usize 34usize -1i64 0usize))))
-          (#let initial Work::Frame (#call work (:)))
+          (#let initial Work::Frame (#call work ()))
           (#let-mut frame (#pin-own Work::Frame) (#unsafe (#pin-own-of pointer initial)))",
         )
         .replace("(#pin-borrow-mut frame)", "(#pin-own-borrow-mut frame)")

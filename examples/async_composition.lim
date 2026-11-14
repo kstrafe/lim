@@ -4,31 +4,31 @@
 (#enum TickPoll () ((TickPoll.TickPending Tick) (TickPoll.TickReady #u64)))
 (#syntax TickAwait (#u64 Tick TickPoll.TickPending TickPoll.TickReady tick-poll))
 
-(#fn tick-poll (: task Tick : waker (#ref #u64)) TickPoll
+(#fn tick-poll ((task Tick) (waker (#ref #u64))) TickPoll
   (#return (#match task
     (#case (Tick.TickStart amount) (TickPoll.TickPending (Tick.TickResume amount)))
     (#case (Tick.TickResume amount) (TickPoll.TickReady amount)))))
 
 (#generate #async-fn
-  (: protocol ParentAwait : waker #u64
-   : function (#fn parent (: amount #u64) #u64
+  ((protocol ParentAwait) (waker #u64)
+   (function (#fn parent ((amount #u64)) #u64
      (#let answer #u64 (#await ChildAwait (#call child (($ amount)))))
-     (#return (#u64::add-wrap answer 2u64)))))
+     (#return (#u64::add-wrap answer 2u64))))))
 
 (#generate #async-fn
-  (: protocol ChildAwait : waker #u64
-   : function (#fn child (: amount #u64) #u64
-     (#return (#await TickAwait (Tick.TickStart amount))))))
+  ((protocol ChildAwait) (waker #u64)
+   (function (#fn child ((amount #u64)) #u64
+     (#return (#await TickAwait (Tick.TickStart amount)))))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let first Parent::Poll
     (#call Parent::poll
-      (: task (#call parent (: amount 40u64)) : waker (#borrow waker))))
+      ((task (#call parent ((amount 40u64)))) (waker (#borrow waker)))))
   (#let-else (Parent::Poll.Pending pending-task) Parent::Poll first
     (#unreachable))
   (#let second Parent::Poll
-    (#call Parent::poll (: task pending-task : waker (#borrow waker))))
+    (#call Parent::poll ((task pending-task) (waker (#borrow waker)))))
   (#return (#match second
     (#case (Parent::Poll.Ready value) value)
     (#case (Parent::Poll.Pending unexpected)

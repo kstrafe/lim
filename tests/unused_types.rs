@@ -41,7 +41,7 @@ fn unused_struct_enum_and_alias_warnings_have_exact_names_and_warning_severity()
 #[test]
 fn function_signatures_bodies_globals_and_transitive_types_count_as_use() {
     for source in [
-        "(#type Alias Container) (#struct Container () ((element Element))) (#enum Element () (Element.Empty)) (#fn consume (: value Alias) () (#forget value) (#return ()))",
+        "(#type Alias Container) (#struct Container () ((element Element))) (#enum Element () (Element.Empty)) (#fn consume ((value Alias)) () (#forget value) (#return ()))",
         "(#enum Choice () (Choice.Only)) (#fn main () #u64 (#return (#match Choice.Only (#case Choice.Only 0u64))))",
         "(#struct Local () ()) (#fn main () #u64 (#let value Local (#struct-literal Local ())) (#forget value) (#return 0u64))",
         "(#struct Local () ()) (#fn main () #u64 (#return (#block (#let value Local (#struct-literal Local ())) (#forget value) 0u64)))",

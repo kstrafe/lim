@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn streams_marker_free_named_calls_with_the_same_spans_as_parse() {
-        let source = "read (: value 42)\n#usize::lt (: left 1usize : right 4usize)\n(read (: value 1))\nread {}";
+        let source = "read ((value 42))\n#usize::lt ((left 1usize) (right 4usize))\n(read ((value 1)))\nread {}";
         let expected = crate::parse(source).unwrap();
         let mut reader = SourceForms::new(source);
         let actual = std::iter::from_fn(|| reader.next().transpose())

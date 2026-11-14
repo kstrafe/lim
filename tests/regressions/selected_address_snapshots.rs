@@ -12,21 +12,21 @@ fn run_storage(body: &str, label: &str, pinned: bool) {
         r#"
         (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
         (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-        (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+        (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
           (#return (#match task
             (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
             (#case (Child.Resume value) (ChildPoll.ChildReady value)))))
-        (#struct Owner () (: values (#array #u64 2)))
+        (#struct Owner () ((values (#array #u64 2))))
         (#type WideRow (#array #u128 2))
-        (#generate #async-fn-pinned (: protocol work-await : waker #u64
-          : function (#fn work (: seed #u64) #u64 {body})))
+        (#generate #async-fn-pinned ((protocol work-await) (waker #u64)
+          (function (#fn work ((seed #u64)) #u64 {body}))))
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task Work::Frame (#call work (: seed 42u64)))
+          (#let-mut task Work::Frame (#call work ((seed 42u64))))
           (#let first Work::Poll
-            (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
           (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-          (#let answer #u64 (#match (#call Work::poll (: task next : waker (#borrow waker)))
+          (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
             (#case (Work::Poll.Ready result) result)
             (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))
           (#forget task) (#return answer))
@@ -78,7 +78,7 @@ fn run_storage(body: &str, label: &str, pinned: bool) {
 #[test]
 fn nested_struct_array_read_survives_pending() {
     run(
-        "(#let owner Owner (#struct-literal Owner (: values (#array-of (#array #u64 2) 0u64 seed))))
+        "(#let owner Owner (#struct-literal Owner ((values (#array-of (#array #u64 2) 0u64 seed)))))
           (#let amount #u64 (#index (#get owner values) 1usize))
           (#let child #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))
           (#forget owner) (#return (#u64::add-wrap amount child))",
@@ -113,7 +113,7 @@ fn movable_static_array_store_preserves_aliased_wide_layout_across_pending() {
 #[test]
 fn movable_static_struct_array_read_uses_the_resumed_frame() {
     run_storage(
-        "(#let owner Owner (#struct-literal Owner (: values (#array-of (#array #u64 2) 0u64 seed))))
+        "(#let owner Owner (#struct-literal Owner ((values (#array-of (#array #u64 2) 0u64 seed)))))
           (#let child #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))
           (#let answer #u64 (#index (#get owner values) 1usize))
           (#forget owner) (#return (#u64::add-wrap answer child))",

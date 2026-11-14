@@ -4,7 +4,7 @@ fn expand(expression: &str) -> Result<String, lim::Diagnostic> {
     let scratch = support::Scratch::new("generator-syntax-values");
     let source = format!(
         "(#gn alias (options) `((#type ,{expression} #u64)))
-         (#generate alias (: name Word : suffix \"Alias\"))
+         (#generate alias ((name Word) (suffix \"Alias\")))
          (#fn main () #u64 (#return 42u64))"
     );
     lim::compile_source_to_assembly(
@@ -25,7 +25,7 @@ fn named_syntax_lookup_and_identifier_composition_are_literal_operations() {
         "(#gn-symbol-append (#gn-get options name) (#gn-get options suffix))",
         "(#gn-symbol-append Word Alias)",
         "(#gn-gensym \"task\")",
-        "(#gn-gensym (#gn-get (: hint \"task\") hint))",
+        "(#gn-gensym (#gn-get ((hint \"task\")) hint))",
     ] {
         expand(expression).unwrap();
     }
@@ -35,7 +35,7 @@ fn named_syntax_lookup_and_identifier_composition_are_literal_operations() {
 fn syntax_lookup_and_symbol_composition_fail_with_invocation_spans() {
     for (expression, expected) in [
         ("(#gn-get options absent)", "missing key"),
-        ("(#gn-get (: name Word : name Other) name)", "repeats key"),
+        ("(#gn-get ((name Word) (name Other)) name)", "repeats key"),
         ("(#gn-get ((name Word) (malformed)) name)", "pairs"),
         ("(#gn-get (name Word) name)", "pairs"),
         ("(#gn-get options 1)", "symbol key"),
@@ -126,7 +126,7 @@ fn joined_names_are_inspectable_and_reused_from_the_generated_cache() {
       (#gn emit (name)
         `((#fn ,(#gn-symbol-append name "read") () #u64 (#return 42u64))))
       (#generate emit Word)
-      (#fn main () #u64 (#return (#call Word::read (:))))
+      (#fn main () #u64 (#return (#call Word::read ())))
     "#;
     let compile = || {
         lim::compile_source_with_generated_sources(
@@ -196,7 +196,7 @@ fn imports_cannot_hide_or_construct_compiler_owned_identifiers() {
 #[test]
 fn ordinary_generator_symbols_still_cannot_shadow_parameters() {
     let scratch = support::Scratch::new("gensym-no-implicit-hygiene");
-    let source = "(#gn emit (name) `((#fn ,name (: task #u64) #u64
+    let source = "(#gn emit (name) `((#fn ,name ((task #u64)) #u64
         (#let task #u64 42u64) (#return task))))\n(#generate emit work)";
     let error = lim::compile_source_to_assembly(
         source,
@@ -309,12 +309,12 @@ fn external_imported_generators_keep_fresh_locals_and_explicit_prefixed_api_keys
     std::fs::write(
         scratch.path().join("module.lim"),
         "(#gn-fn emit (name temporary)
-        `((#fn ,name (: task #u64) #u64 (#let ,temporary #u64 task) (#return ,temporary))))
+        `((#fn ,name ((task #u64)) #u64 (#let ,temporary #u64 task) (#return ,temporary))))
       (#gn make (name) (#gn-call emit name (#gn-gensym \"task\"))) (#generate make first)",
     )
     .unwrap();
     let source = "(#alias lib@first = ./module.lim::first)
-      (#fn main () #u64 (#return (#call lib@first (: task 42u64))))";
+      (#fn main () #u64 (#return (#call lib@first ((task 42u64)))))";
     lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),

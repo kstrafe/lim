@@ -53,8 +53,8 @@ unsupported by the native backend and has no callable declaration.
 (#fn main () #u64
   (#let index #usize 1usize)
   (#return
-    (#if-valid (#call #usize::lt (: left index : right 4usize))
-      (#call #u64::add-wrap (: right 22u64 : left 20u64))
+    (#if-valid (#call #usize::lt ((left index) (right 4usize)))
+      (#call #u64::add-wrap ((right 22u64) (left 20u64)))
       0u64)))
 ```
 
@@ -98,9 +98,9 @@ generated arrays, contracts, infix expressions and local indentation lists.
   list values use `key:` as described below. Empty records use `{}`.
   Duplicate argument keys are checked by their consumer.
 - `function { name = value; }` and `(function { name = value; })` are ordinary
-  named calls, including generated scalar intrinsics. `function (: name value)`
-  and `(function (: name value))` are equivalent. Empty calls use `function {}`
-  or `(function (:))`. No `#call` marker is required. They use the same safe
+  named calls, including generated scalar intrinsics. `function ((name value))`
+  and `(function ((name value)))` are equivalent. Empty calls use `function {}`
+  or `(function ())`. No `#call` marker is required. They use the same safe
   call checks and parameter-order evaluation as `#call`. Unsafe calls retain
   `#unsafe-call` and an enclosing `#unsafe`.
 - In a parenthesized semicolon list, `#let x #u64 expression; #return x;`
@@ -191,8 +191,8 @@ contents:
 (#struct Arena () ((cursor CellU64)))
 (#fn advance ((cursor (#ref CellU64))) #u64
   (#let next #u64 (#u64::add-wrap
-    (#call CellU64::get (: cell (#clone cursor))) 1u64))
-  (#call CellU64::set (: cell (#clone cursor) : value next))
+    (#call CellU64::get ((cell (#clone cursor)))) 1u64))
+  (#call CellU64::set ((cell (#clone cursor)) (value next)))
   (#return next))
 ```
 
@@ -288,7 +288,7 @@ These declarations are promises by the author and override the structural
 result for that property. They must only be used when the type's invariants
 make cross-thread transfer or shared access sound. Generic-type overrides are
 currently rejected; duplicate or undeclared targets are errors. The
-`#generate #thread-spawn` with `(: task TaskType : worker worker-function)` validates a monomorphic
+`#generate #thread-spawn` with `((task TaskType) (worker worker-function))` validates a monomorphic
 worker's parameter and return types against `Send`. It generates
 `TaskType-spawn` and `TaskType-join` functions and a private native thread entry
 point; user code never passes a function pointer. Spawn arguments are copied
@@ -336,7 +336,7 @@ stdout. `tests/kernel_threads.rs` checks static ELF linkage, argument/result
 layouts, nested workers, large stack frames, and an actual guard-page fault.
 Its opt-in ptrace tests also verify kernel calls and inject spawn/join failures.
 
-For inspection, `(#generate #thread-spawn (: task TaskType : worker worker))` materializes in `.lim/` as a
+For inspection, `(#generate #thread-spawn ((task TaskType) (worker worker)))` materializes in `.lim/` as a
 `#thread-task` declaration containing explicit `#thread-task-spawn` and
 `#thread-task-join` builtin signatures, followed by `#enum` declarations for
 their results. The spawn signature exposes `TaskType-spawn`; its result enum
@@ -451,7 +451,7 @@ operations and unsafe calls still need an explicit block.
 (#fn main () #u64
   (#let value #u8 42u8)
   (#return (#as (#unsafe
-    (#unsafe-call read-byte (: pointer (#addr-of value)))) #u64)))
+    (#unsafe-call read-byte ((pointer (#addr-of value))))) #u64)))
 ```
 
 Imports and generated declarations preserve the calling requirement. Implicit
@@ -489,9 +489,9 @@ Pinning is exposed through generated opaque objects rather than a special
 binding statement. Import `library/pin.lim` and declare a concrete API:
 
 ```lisp syntax
-(#generate #pin (: type Frame : name PinnedFrame : fields (: value #u64)))
-(#generate #pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
-  : run drive-frame : destroy destroy-frame : result #u64))
+(#generate #pin ((type Frame) (name PinnedFrame) (fields ((value #u64)))))
+(#generate #pin-scope ((type Frame) (pin PinnedFrame) (name with-pinned-frame)
+  (run drive-frame) (destroy destroy-frame) (result #u64)))
 ```
 
 `#generate #pin` emits opaque `PinnedFrame` and `PinnedFrame::Shared` handles, unsafe
@@ -501,7 +501,7 @@ ordinary checking verifies them and rejects moving linear fields or replacing
 fields that do not satisfy the pinned-field restrictions. Optional `copy true`
 emits whole-value readers and a writer only after checking a structural Copy
 proof. All implementation functions are inspectable in the generated cache.
-For linear fields, `projections (: child PinnedChild)` generates
+For linear fields, `projections ((child PinnedChild))` generates
 `PinnedFrame::Project::child` and `PinnedFrame::ProjectMut::child`, returning
 the existing concrete child pin handles without moving the field. Shared
 handles also get a shared projection. Projection consumes the parent handle;
@@ -511,8 +511,8 @@ retain their source's borrow and cannot outlive it. Unsafe
 reference for trusted implementations; it does not unpin or move the referent.
 
 The same declarations also generate `PinnedFrame::BorrowMut::child`, taking
-`(: pin (#ref-mut PinnedFrame))`, and `PinnedFrame::Borrow::child`, taking
-`(: pin (#ref PinnedFrame))`. Shared wrappers have their own shared `::borrow`
+`((pin (#ref-mut PinnedFrame)))`, and `PinnedFrame::Borrow::child`, taking
+`((pin (#ref PinnedFrame)))`. Shared wrappers have their own shared `::borrow`
 function. These reborrow the child without consuming the parent handle.
 Disjoint mutable child fields can coexist, as can overlapping shared views;
 overlapping exclusive access is rejected at the offending call argument.
@@ -547,10 +547,10 @@ assignment remains forbidden. Each new loop iteration initializes fresh local
 storage; explicitly end the previous iteration's local after its views end.
 
 ```lisp run=42
-(#struct LocalJob (#linear) (: state #u64))
+(#struct LocalJob (#linear) ((state #u64)))
 
 (#fn main () #u64
-  (#let-mut job LocalJob (#struct-literal LocalJob (: state 0u64)))
+  (#let-mut job LocalJob (#struct-literal LocalJob ((state 0u64))))
   (#let view (#pin-ref-mut LocalJob) (#pin job))
   (#pin-set-field view state 42u64)
   (#let answer #u64 (#get view state))
@@ -629,7 +629,7 @@ For an owner named `PinnedFrameRc`, a private adapter converts the bundle's
 block's size and alignment to the allocator and deallocator. Both Box and Rc
 request only allocate and deallocate adapters; their bundles may omit grow.
 Destruction hooks are explicit safe functions taking
-`(: allocator (#ref Root::State) : pin (#pin-ref-mut Element))` and must
+`((allocator (#ref Root::State)) (pin (#pin-ref-mut Element)))` and must
 perform explicit in-place cleanup. `examples/pinned_box_async.lim` and
 `examples/pinned_rc_async.lim` poll generated futures through these native
 pinned references, including after moving the owning handle.
@@ -754,7 +754,7 @@ to the low-level read wrapper:
 (#alias linux-read = ../library/linux_x86_64.lim::linux-read)
 (#unsafe-fn read-buffer ((fd #i64) (destination (#ptr-mut #u8)) (count #usize)) #i64
   (#return (#unsafe
-    (#unsafe-call linux-read (: fd fd : destination destination : count count)))))
+    (#unsafe-call linux-read ((fd fd) (destination destination) (count count))))))
 ```
 
 The raw syscall operation remains available for the rest
@@ -1161,9 +1161,9 @@ Both async function generators export a bundle automatically. Supply one
 explicit protocol name instead of listing all five generated names:
 
 ```lisp syntax
-(#generate #async-fn (: protocol WorkAwait : waker LocalWaker
-  : function (#fn work (: offset #u64) #u64
-    (#return (#await StepAwait (Waiting offset))))))
+(#generate #async-fn ((protocol WorkAwait) (waker LocalWaker)
+  (function (#fn work ((offset #u64)) #u64
+    (#return (#await StepAwait (Waiting offset)))))))
 // In another async function:
 (#await WorkAwait (#call work (($ offset))))
 ```
@@ -1188,7 +1188,7 @@ This shorthand supplies types explicitly; it adds neither type inference nor
 implicit pinning, allocation or cancellation.
 
 On the graph route, pinned functions can request post-terminal access to
-reference-free Copy parameters with `: access (: amount AmountAccess)`.
+reference-free Copy parameters with `: access ((amount AmountAccess))`.
 This emits `AmountAccess::read` and `AmountAccess::replace` ordinary functions
 with pinned frame receivers; the latter also takes a named `value` argument.
 They assert completion/cancellation and cleared loans before accessing the
@@ -1221,7 +1221,7 @@ symbols, literals, or lists. A generator returns a list of top-level forms,
 which are expanded before ordinary Lim parsing and type checking.
 
 Language and standard-library generator names are reserved and start with
-`#`: for example, `(#generate #optional (: type #u64 : name MaybeU64))`, `#generate #cell`,
+`#`: for example, `(#generate #optional ((type #u64) (name MaybeU64)))`, `#generate #cell`,
 and `#generate #utf8-view`. User generators use ordinary names, such as `#generate make-record`.
 The `#generate` keyword invokes generation/import; a generator name's `#`
 identifies a reserved name, not a different execution or caching mechanism. Standard-library generators
@@ -1647,9 +1647,9 @@ returns; it does not extend the referent's lifetime. Slices remain immutable.
 
 User-defined names refer to concrete structs, enums, and aliases.  Generic
 declarations and angle-bracket applications are not part of Lim.  Generators
-create concrete specializations explicitly, such as `(#generate #vec (: element #u64 : allocator Alloc : name VecU64))`.
+create concrete specializations explicitly, such as `(#generate #vec ((element #u64) (allocator Alloc) (name VecU64)))`.
 Allocator-backed collections add their concrete operations explicitly with
-`(#generate #vec-alloc (: element #u64 : allocator Root : vector VecU64 : destroy destroy))`;
+`(#generate #vec-alloc ((element #u64) (allocator Root) (vector VecU64) (destroy destroy)))`;
 `Root::State` must denote `Alloc`, the state type passed to `#generate #vec`.
 The root provides a byte-pointer allocation enum, safe `::allocate`, and unsafe
 `::grow` / `::deallocate`; grow takes `:old-layout` and the requested `:layout`.
@@ -1660,7 +1660,7 @@ Providers promise fresh, unique, aligned, non-null successful allocations,
 preservation of the old allocation on growth failure, and matching deallocation.
 Names and type checking cannot prove these semantic promises.
 The generated API includes `VecU64::new`, `::reserve`, `::push`, `::get`,
-`::get-mut`, `::set`, `::pop`, and `::free`. `(#generate #vec-sort (: element #u64 : vector VecU64 : comparator compare-u64))`
+`::get-mut`, `::set`, `::pop`, and `::free`. `(#generate #vec-sort ((element #u64) (vector VecU64) (comparator compare-u64)))`
 adds `VecU64::sort`; its named comparator accepts two immutable element
 references and returns `#bool`. Allocation failure and capacity
 overflow are returned in generated result types. See [the allocator ABI](allocator.md)
@@ -1683,11 +1683,11 @@ This is an ordinary library, not a new builtin or an implicit allocation.
 (#fn main () #u64
   (#let text (#array #char 3) "Aé🙂")
   (#return
-    (#match (#call String::from-chars (: text (#borrow-slice text)))
+    (#match (#call String::from-chars ((text (#borrow-slice text))))
       (#case (StringCreateResult.StringCreated owned)
         (#block
-          (#let length #usize (#call String::len (: string (#borrow owned))))
-          (#call String::free (: string owned))
+          (#let length #usize (#call String::len ((string (#borrow owned)))))
+          (#call String::free ((string owned)))
           (#if (#usize::eq length 7usize) 42u64 1u64)))
       (#case (StringCreateResult.StringCreateFailed error) 2u64))))
 ```
@@ -1698,9 +1698,9 @@ This is an ordinary library, not a new builtin or an implicit allocation.
 `StringCreateFailed` contains a `StringError`. Cloning is an explicit, fallible
 deep copy, never a shallow `#clone` of the allocation handle.
 
-`String::len` and `String::capacity` take `(: string (#ref String))` and count
+`String::len` and `String::capacity` take `((string (#ref String)))` and count
 **bytes**, not characters. `String::is-empty` uses the same shared argument.
-`String::reserve` takes `(: string (#ref-mut String) : additional #usize)`;
+`String::reserve` takes `((string (#ref-mut String)) (additional #usize))`;
 additional capacity is relative to the current length. `String::push-char`,
 `String::push-chars`, and `String::push-utf8` take a mutable string and,
 respectively, `: value #char`, `: text (#slice #char)`, or `: bytes (#slice #u8)`.
@@ -1708,7 +1708,7 @@ These operations return `StringStatus`: `StringOk` or `(StringErr error)`.
 Validation, overflow, and allocation failures leave the original string
 unchanged. Errors are `StringOutOfMemory`, `StringCapacityOverflow`,
 `StringInvalidUtf8`, and `StringInvalidChar`.
-`String::push-string (: string (#ref-mut String) : text (#ref String))`
+`String::push-string ((string (#ref-mut String)) (text (#ref String)))`
 appends the borrowed source string and returns the same `StringStatus`. It
 does not consume either string; the source remains available after the call.
 
@@ -1722,32 +1722,32 @@ second owned string by shared borrow, and releases both owners:
   (#let greeting (#array #char 5) "Hello")
   (#let suffix (#array #char 9) ", world 🙂")
   (#let-mut message String
-    (#match (#call String::from-chars (: text (#borrow-slice greeting)))
+    (#match (#call String::from-chars ((text (#borrow-slice greeting))))
       (#case (StringCreateResult.StringCreated created-message) created-message)
       (#case (StringCreateResult.StringCreateFailed error) (#panic))))
   (#let tail String
-    (#match (#call String::from-chars (: text (#borrow-slice suffix)))
+    (#match (#call String::from-chars ((text (#borrow-slice suffix))))
       (#case (StringCreateResult.StringCreated created-tail) created-tail)
       (#case (StringCreateResult.StringCreateFailed error) (#panic))))
-  (#assert (#match (#call String::push-string (: string (#borrow-mut message) : text (#borrow tail)))
+  (#assert (#match (#call String::push-string ((string (#borrow-mut message)) (text (#borrow tail))))
     (#case StringStatus.StringOk true) (#case _ false)))
-  (#assert (#match (#call String::push-char (: string (#borrow-mut message) : value #\!))
+  (#assert (#match (#call String::push-char ((string (#borrow-mut message)) (value #\!)))
     (#case StringStatus.StringOk true) (#case _ false)))
   (#assert (#i64::eq (#println (#borrow message)) 0i64))
-  (#call String::free (: string tail))
-  (#call String::free (: string message))
+  (#call String::free ((string tail)))
+  (#call String::free ((string message)))
   (#return 42u64))
 ```
 
 `String::byte-at` takes a shared string and `: index #usize`. It returns
 `(StringByte byte)` with a copied `#u8`, or `StringByteOutOfBounds`.
-`String::bytes (: string (#ref String))` returns an opaque `StringBytes` view
+`String::bytes ((string (#ref String)))` returns an opaque `StringBytes` view
 that retains the owner borrow, preventing mutation, moving, or freeing its
-owner while the view is live. `StringBytes-len (: bytes view)` and
-`StringBytes-byte-at (: bytes view : index #usize)` inspect that view without
+owner while the view is live. `StringBytes-len ((bytes view))` and
+`StringBytes-byte-at ((bytes view) (index #usize))` inspect that view without
 allocating; indexing also returns a copied byte. No mutable byte access is
 exposed: safe operations preserve valid UTF-8.
-`String::data-pointer (: string (#ref String))` is an unsafe raw-I/O escape
+`String::data-pointer ((string (#ref String)))` is an unsafe raw-I/O escape
 returning `(#ptr-mut #u8)`. The pointer does not retain the owner borrow. The
 caller must keep a shared borrow alive, read only initialized bytes, and never
 write, grow, move, or free the string while using it. Safe stdout functions
@@ -1768,15 +1768,15 @@ view, choose its public name and source layout explicitly:
 
 ```lisp library
 (#std)
-(#generate #utf8-view (: name BorrowedText : owner (#slice #u8)))
+(#generate #utf8-view ((name BorrowedText) (owner (#slice #u8))))
 (#fn main () #u64
   (#let bytes (#array #u8 2) (#array-of (#array #u8 2) 195u8 169u8))
   (#let view BorrowedText
-    (#match (#call BorrowedText::from-owner (: owner (#borrow-slice bytes)))
+    (#match (#call BorrowedText::from-owner ((owner (#borrow-slice bytes))))
       (#case (BorrowedText::Result.Valid accepted) accepted)
       (#case _ (#panic))))
-  (#let-mut iterator BorrowedText::Chars (#call BorrowedText::chars (: view view)))
-  (#assert (#match (#call BorrowedText::Chars::next (: iterator (#borrow-mut iterator)))
+  (#let-mut iterator BorrowedText::Chars (#call BorrowedText::chars ((view view))))
+  (#assert (#match (#call BorrowedText::Chars::next ((iterator (#borrow-mut iterator))))
     (#case (BorrowedText::CharResult.Char value) (#char::eq value #\é))
     (#case _ false)))
   (#forget iterator)
@@ -1835,7 +1835,7 @@ lifetime, and exclusive-access proofs from its caller.
 string, empties it, and retains its capacity. Strings need not be
 NUL-terminated and may contain embedded NUL bytes.
 
-`String-free (: string owned)` consumes the owner and releases its allocation.
+`String-free ((string owned))` consumes the owner and releases its allocation.
 Every owned string must be consumed, returned, or explicitly forgotten before
 returning; references do not implicitly destroy it. See
 [the system allocator contract](allocator.md#standard-system-allocator-and-string)
@@ -1856,12 +1856,12 @@ semantics; a `#bool::and` conjunction supplies its individual facts.
   (#return (#u64::lt value 100u64)))
 
 (#fn submit ((value #u64)) ()
-  (#requires (#call below-100 (: value value)))
+  (#requires (#call below-100 ((value value))))
   (#return ()))
 
 (#fn validate-and-submit ((value #u64)) ()
-  (#if-valid (#call below-100 (: value value))
-    (#call submit (: value value)))
+  (#if-valid (#call below-100 ((value value)))
+    (#call submit ((value value))))
   (#return ()))
 ```
 
@@ -1905,7 +1905,7 @@ A constrained type has the same runtime representation as its base type:
 (#fn below-100 ((value #u64)) #bool
   (#return (#u64::lt value 100u64)))
 (#type Small
-  (#where (value #u64) (#call below-100 (: value value))))
+  (#where (value #u64) (#call below-100 ((value value)))))
 (#struct Request () ((count Small) (tag #u64)))
 
 (#fn consume-small ((value Small)) ()
@@ -1937,18 +1937,18 @@ Programmer-written helpers connect claims through their declared contracts:
 (#fn under-two ((index #usize)) #bool
   (#return (#usize::lt index 2usize)))
 (#fn widen ((index #usize)) ()
-  (#requires (#call under-two (: index index)))
+  (#requires (#call under-two ((index index))))
   (#ensures (#usize::lt index 4usize))
   (#return ()))
 (#type Index4 (#where (index #usize) (#usize::lt index 4usize)))
 (#fn read-four ((values (#ref (#array #u64 4))) (index Index4)) #u64
   (#return (#index-proven values index)))
 (#fn use ((values (#ref (#array #u64 4))) (index #usize)) #u64
-  (#return (#if-valid (#call under-two (: index index))
+  (#return (#if-valid (#call under-two ((index index)))
     (#block
-      (#call widen (: index index))
+      (#call widen ((index index)))
       (#let checked Index4 index)
-      (#call read-four (: values values : index checked)))
+      (#call read-four ((values values) (index checked))))
     0u64)))
 ```
 
@@ -1994,17 +1994,17 @@ The parameter list is a list of `(name Type)` pairs. A colon-prefixed list
 is equivalent and avoids repeating parentheses around each pair:
 
 ```lisp run=42
-(#fn add (: left #u32 : right #u32) #u32
+(#fn add ((left #u32) (right #u32)) #u32
   (#return (#u32::add-wrap left right)))
 (#fn main () #u64
-  (#return (#as (#call add (: right 2u32 : left 40u32)) #u64)))
+  (#return (#as (#call add ((right 2u32) (left 40u32))) #u64)))
 ```
 
-At one list depth, `(: left #u32 : right #u32)` expands to
+At one list depth, `((left #u32) (right #u32))` expands to
 `((left #u32) (right #u32))`. This grouped-list notation starts with a colon
 immediately after `(`; `(left : #u32)` is invalid. Nested lists have their own depth, so
 their colons do not affect the enclosing list. Empty or adjacent groups and
-a trailing colon are rejected; `(:)` is an empty list. Only a standalone `:`
+a trailing colon are rejected; `()` is an empty list. Only a standalone `:`
 token groups elements: embedded colons belong to the identifier, so
 `Pipeline::Pending`, `left:right`, and `:label` are flat names, not namespace
 lookups. This syntax works in other lists of groups too. Separately, a record
@@ -2024,7 +2024,7 @@ functions use `#unsafe-call` within `#unsafe`. Each argument label must match a
 parameter in the declaration:
 
 ```lisp syntax
-(add (: left 20u32 : right 22u32))
+(add ((left 20u32) (right 22u32)))
 add { left = 20u32; right = 22u32; }
 ```
 
@@ -2032,7 +2032,7 @@ When a variable has the same name as its parameter, `($ name)` expands to
 `(name name)`:
 
 ```lisp run=42
-(#fn add (: left #u32 : right #u32) #u32
+(#fn add ((left #u32) (right #u32)) #u32
   (#return (#u32::add-wrap left right)))
 (#fn main () #u64
   (#let left #u32 20u32)
@@ -2048,13 +2048,13 @@ and `#pin-borrow-mut`; arbitrary expressions and implicit borrowing are not
 supported. It preserves that
 identifier's source location for diagnostics, and does not change evaluation
 order or borrowing rules. The formatter preserves the shorthand spelling.
-Do not add a colon around an already grouped `($ name)` pair: `(: ($ name))`
-would introduce an extra list, just like `(: (name name))`.
+Do not add a colon around an already grouped `($ name)` pair: `((($ name)))`
+would introduce an extra list, just like `(((name name)))`.
 
 Positional call forms are rejected. Calls with no arguments use
-`function {}` or `(function (:))` for safe functions, or
+`function {}` or `(function ())` for safe functions, or
 `(#unsafe (#unsafe-call function ()))` for unsafe and external functions.
-The equivalent empty colon group `(:)` formats as `()`.
+The equivalent empty colon group `()` formats as `()`.
 Ordinary calls reject unsafe and external callees even inside `#unsafe`;
 `#unsafe-call` requires an enclosing `#unsafe` block and rejects safe callees.
 The explicit `#call` form remains accepted for existing canonical generator
@@ -2094,7 +2094,7 @@ unsafe FFI boundaries and must use `#unsafe-call` inside `#unsafe`:
 ```lisp run=42
 (#extern-fn #abi-c abs ((value #i32)) #i32)
 (#fn main () #u64
-  (#return (#as (#unsafe (#unsafe-call abs (: value -42i32))) #u64)))
+  (#return (#as (#unsafe (#unsafe-call abs ((value -42i32)))) #u64)))
 ```
 
 Binary compilation links statically without libc or pthread when the assembled
@@ -2116,7 +2116,7 @@ implicitly nor consumes the string. Output can be partial on failure, and the
 newline is skipped when writing the string bytes fails. See
 `examples/string_println.lim` for building and printing a string.
 
-`std-read-line (: string (#ref-mut String))` explicitly appends a UTF-8 line
+`std-read-line ((string (#ref-mut String)))` explicitly appends a UTF-8 line
 from stdin to an existing String. `StdLineRead usize` reports appended bytes
 (excluding the consumed LF); `StdEndOfInput` reports EOF before any new text.
 `StdReadFailed StdReadError` distinguishes `StdIoError i64` (negative errno)
@@ -2198,7 +2198,7 @@ Variants may be fieldless or carry one payload. Use a named struct when a
 variant needs multiple fields:
 
 ```lisp library
-(#struct MovePayload () (: x #i32 : y #i32))
+(#struct MovePayload () ((x #i32) (y #i32)))
 (#enum Message ()
   (Message.Quit
    (Message.Move MovePayload)
@@ -2451,7 +2451,7 @@ it must be impossible to reach the following statement on failure.
 
 `(#std)` provides `#generate #enum-project`, a generator rather than a runtime projection
 keyword. It accepts
-`(: enum Enum : variant Variant : payload Payload : mode ReferenceMode : name Name)`
+`((enum Enum) (variant Variant) (payload Payload) (mode ReferenceMode) (name Name))`
 and emits `Name::Some`/`Name::None` plus exactly one function, `Name::project`.
 The required mode is `#ref`, `#ref-mut`, `#pin-ref`, or `#pin-ref-mut`. Both the
 function's `source` parameter and its optional payload use that reference mode,
@@ -2464,11 +2464,11 @@ through ordinary `#let-else`:
 ```lisp run=42
 (#std)
 (#enum Task () ((Task.Work #u64) Task.Idle))
-(#generate #enum-project (: enum Task : variant Task.Work : payload #u64 : mode #pin-ref-mut : name WorkProjection))
+(#generate #enum-project ((enum Task) (variant Task.Work) (payload #u64) (mode #pin-ref-mut) (name WorkProjection)))
 (#fn main () #u64
   (#let-mut task Task (Task.Work 42u64))
   (#let-else (WorkProjection.Some frame)
-    (#call WorkProjection::project (: source (#pin-borrow-mut task)))
+    (#call WorkProjection::project ((source (#pin-borrow-mut task))))
     (#else
       (#forget task)
       (#return 0u64)))
@@ -2678,7 +2678,7 @@ explicitly:
   (#return value))
 
 (#fn main () #u64
-  (#return (#call increment (: value 41u64))))
+  (#return (#call increment ((value 41u64)))))
 ```
 
 Generator expressions instead run at compile time. Here a helper checks its
@@ -2714,7 +2714,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#as` | `(#as value TargetType)` | `(#let n #u64 (#as byte #u64))` (expression) | Explicit scalar/enum conversion; narrowing integers truncate, and float-to-integer conversions trap when out of range. |
 | `#asm` | `(#asm ResultType ((register value)...) "instructions")` | `(#unsafe (#asm #i64 ((rax 39usize)) "syscall"))` (expression) | Emits target assembly; unsafe, target-specific, and subject to the documented register/stack rules. |
 | `#assert` | `(#assert condition)` | `(#assert (#u64::eq count 3u64))` (statement) | Traps if the condition is false. |
-| `#assume` | `(#assume predicate)` | `(#assume (#call valid (: value value)))` (function body) | Trust predicate evidence without evaluating its operands. |
+| `#assume` | `(#assume predicate)` | `(#assume (#call valid ((value value))))` (function body) | Trust predicate evidence without evaluating its operands. |
 | `#atomic` | `(#atomic ScalarType)` | `(#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64))` (type/binding) | Declares a supported atomic scalar wrapper type. |
 | `#atomic-compare-exchange` | `(#atomic-compare-exchange reference expected desired success-order failure-order)` | `(#atomic-compare-exchange (#borrow counter) 0u64 1u64 #memory-acq-rel #memory-acquire)` (expression) | Strong compare-exchange; returns `(success, observed-value)`. |
 | `#atomic-compare-exchange-weak` | `(#atomic-compare-exchange-weak reference expected desired success-order failure-order)` | `(#atomic-compare-exchange-weak (#borrow counter) 0u64 1u64 #memory-release #memory-relaxed)` (expression) | Weak compare-exchange; may fail spuriously and returns `(success, observed-value)`. |
@@ -2733,7 +2733,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#borrow-slice-mut` | `(#borrow-slice-mut mutable-array-place)` or `(#borrow-slice-mut mutable-array-place start end)` | `(#let view (#slice-mut #u64) (#borrow-slice-mut values 1usize 3usize))` (binding) | Exclusively borrows a full array or checked half-open range. Constant disjoint ranges can coexist; dynamic bounds conservatively overlap. |
 | `#break` | `(#break)` or `(#break value)` | `(#loop (#break 42u64))` (expression in a function) | Exits the innermost loop, optionally supplying its expression value. |
 | `#break-to` | `(#break-to label)` or `(#break-to label value)` | `(#break-to outer 42u64)` (labeled loop body) | Exits a named enclosing loop, optionally with a loop value. |
-| `#call` | `(#call function (: name value : ...))` | `(#call add (: left 20u64 : right 22u64))` (expression) | Calls only a statically named safe function, even inside `#unsafe`; every argument is named and checked against its signature, with expressions evaluated in parameter declaration order. |
+| `#call` | `(#call function ((name value) (...)))` | `(#call add ((left 20u64) (right 22u64)))` (expression) | Calls only a statically named safe function, even inside `#unsafe`; every argument is named and checked against its signature, with expressions evaluated in parameter declaration order. |
 | `#call-graph` | `(#call-graph)` | `(#let trace (#slice #char) (#call-graph))` (function body) | Returns a borrowed character slice describing the actual caller chain, such as `main:8 -> work:5 -> report:2`. Each number is the executing line in that function, not its declaration or the parent's call line. Uses bounded, checked stack storage; the slice cannot escape its function. |
 | `#capability` | `(#capability name Type ((operation (Args...) Result)...))` | `(#capability ordered #u64 ((less ((#ref #u64) (#ref #u64)) #bool)))` (declaration) | Declares a generator-time signature contract that a concrete type may satisfy. |
 | `#case` | `(#case pattern body)` or `(#case pattern (#when guard) body)` | `(#case (Some x) x)` (inside `#match`) | Introduces one explicit match arm. |
@@ -2757,19 +2757,19 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
 | `#distributed-enum` | `(#distributed-enum Name (properties...))` | `(#distributed-enum Error ())` (top level) | Declares an enum whose variants are collected after generator expansion; the central declaration owns its properties. |
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly discards a value without calling user destruction code. Dropping a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. |
-| `#ensures` | `(#ensures predicate)` | `(#ensures (#call valid (: value (#result))))` (function header) | Promise evidence on normal return; instrumented builds assert it. |
+| `#ensures` | `(#ensures predicate)` | `(#ensures (#call valid ((value (#result)))))` (function header) | Promise evidence on normal return; instrumented builds assert it. |
 | `#enum` | `(#enum Name (properties...) ((Variant [discriminant] [PayloadType])...))` | `(#enum Maybe (#repr-c) ((Some #u64) None))` (top level) | Declares a concrete enum; each variant has zero or one payload, and properties may include `#linear` and `#repr-c`. Use a named struct for multiple fields. |
 | `#enum-contribute` | `(#enum-contribute EnumName (Variant [PayloadType]))` | `(#enum-contribute Error (ReadFailure #u32))` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
 | `#enum-literal` | `(#enum-literal Variant [payload])` | `(#let result Maybe (#enum-literal Some 42u64))` (function body, with `Some` declared as a `Maybe` variant carrying `#u64`) | Constructs a concrete enum value. Payload variants require exactly one correctly typed expression; fieldless variants omit it. Patterns retain `(Variant binding)` or the fieldless variant name, without this keyword. |
 | `#export` | `(#export name...)` | `(#export Counter counter-new counter-destroy)` (in `lib.lim`) | Exposes declarations outside the nearest directory library. Struct representation remains private; exporting an enum exposes all variants and requires publicly accessible payload types. Individual variant exports are rejected. |
-| `#extern-fn` | `(#extern-fn #abi-c name (: arg Type : ...) ReturnType)`; the parameter list may also use nested pairs | `(#extern-fn #abi-c c_abs (: value #i32) #i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
+| `#extern-fn` | `(#extern-fn #abi-c name ((arg Type) (...)) ReturnType)`; the parameter list may also use nested pairs | `(#extern-fn #abi-c c_abs ((value #i32)) #i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
 | `#f32` | `#f32` | `(#fn identity ((value #f32)) #f32 (#return value))` (function signature) | 32-bit IEEE 754 floating-point scalar type. |
 | `#f64` | `#f64` | `(#fn identity ((value #f64)) #f64 (#return value))` (function signature) | 64-bit IEEE 754 floating-point scalar type. |
-| `#fn` | `(#fn name (: arg Type : ...) ReturnType body...)`; the parameter list may also use nested pairs | `(#fn add (: a #u64 : b #u64) #u64 (#return (#u64::add-wrap a b)))` (top level) | Declares a monomorphic function with explicit parameter/return types and body. |
+| `#fn` | `(#fn name ((arg Type) (...)) ReturnType body...)`; the parameter list may also use nested pairs | `(#fn add ((a #u64) (b #u64)) #u64 (#return (#u64::add-wrap a b)))` (top level) | Declares a monomorphic function with explicit parameter/return types and body. |
 | `#for` | `(#for init condition step body...)` | `(#for (#let-mut i #u64 0u64) (#u64::lt i 4u64) (#set i (#u64::add-wrap i 1u64)) (#set sum (#u64::add-wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
 | `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i #u64) 0u64 4u64 (#set sum (#u64::add-wrap sum i)))` (statement) | Evaluates start, then end, once and iterates the typed, half-open range `[start, end)`. |
 | `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Discards a value without cleanup; use after explicit resource release. Forgetting a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. Lim never inserts destructors. Task handles/results cannot be forgotten. |
-| `#generate` | `(#generate generator arguments...)` | `(#generate #optional (: type #u64 : name Number))` (top level) | Expands a generator into inspectable, cached Lim declarations. Arguments are literal syntax, with named lists for builtin generators. |
+| `#generate` | `(#generate generator arguments...)` | `(#generate #optional ((type #u64) (name Number)))` (top level) | Expands a generator into inspectable, cached Lim declarations. Arguments are literal syntax, with named lists for builtin generators. |
 | `#generated-context` | `(#generated-context ((producer "name") (definition-module "path") (definition-file "path") (invocation-module "path") (invocation-file "path")))` | `(#generated-context ((producer "/lib/lib.lim::make") (definition-module "/lib/lib.lim") (definition-file "/lib/lib.lim") (invocation-module "<global>") (invocation-file "/app/main.lim")))` (compiler-generated file header) | Records definition and invocation file identities and permission boundaries for generated-file private access. Validated against the expansion/cache key; forbidden in handwritten source and generator-produced forms. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
@@ -2781,7 +2781,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#gn-fn` | `(#gn-fn name (parameter...) body)` | `(#gn-fn identity (value) value)` (top level) | Declares a reusable generator-time function with one syntax-producing body. |
 | `#gn-for-each` | `(#gn-for-each name syntax-list body)` | `(#gn-for-each field fields (#gn-list (#gn-symbol "#type") field #u64))` (generator body) | Maps one syntax-producing body over a syntax list; returns a list of results and is the bounded iteration primitive. |
 | `#gn-gensym` | `(#gn-gensym string-hint)` | `(#gn-gensym "task")` (generator expression) | Evaluates a string hint and returns a fresh syntax symbol. The hint must be one non-keyword ordinary identifier; generated names use the reserved `lim.gensym.` prefix and cannot be forged or changed by source, `#gn-symbol`, or `#gn-symbol-append`. |
-| `#gn-get` | `(#gn-get named-syntax key [fallback])` | `(#gn-get (: type #u64 : name PinnedU64) type)` (generator expression) | Returns a literal value from a list of key/value syntax pairs. Rejects malformed pairs and duplicate keys; a missing key errors unless a lazily evaluated fallback is supplied. |
+| `#gn-get` | `(#gn-get named-syntax key [fallback])` | `(#gn-get ((type #u64) (name PinnedU64)) type)` (generator expression) | Returns a literal value from a list of key/value syntax pairs. Rejects malformed pairs and duplicate keys; a missing key errors unless a lazily evaluated fallback is supplied. |
 | `#gn-if` | `(#gn-if condition then-value else-value)` | `(#gn-if (#gn-equal kind sortable) yes no)` (generator expression) | Selects a syntax value based on a generator boolean. |
 | `#gn-length` | `(#gn-length syntax-list)` | `(#gn-length fields)` (generator expression) | Returns the number of elements in a syntax list. |
 | `#gn-list` | `(#gn-list syntax...)` | `(#gn-list a b)` (generator expression) | Constructs an immutable syntax list. |
@@ -2798,7 +2798,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#i8` | `#i8` | `(#fn identity ((value #i8)) #i8 (#return value))` (function signature) | Signed 8-bit integer scalar type. |
 | `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |
 | `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
-| `#if-valid` | `(#if-valid condition success [failure])` | `(#if-valid (#call valid (: value value)) (#call submit (: value value)))` (function body) | Execute validation and grant evidence on success. |
+| `#if-valid` | `(#if-valid condition success [failure])` | `(#if-valid (#call valid ((value value))) (#call submit ((value value))))` (function body) | Execute validation and grant evidence on success. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
 | `#index-proven` | `(#index-proven array-reference usize-index)` | `(#index-proven values position)` (expression) | Requires exact `#usize::lt` evidence for the fixed-array length; omits the production bounds check and audits the access in instrumented builds. |
 | `#isize` | `#isize` | `(#fn identity ((value #isize)) #isize (#return value))` (function signature) | Signed integer scalar type with the target's native pointer width. |
@@ -2849,7 +2849,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-shared-release` | `(#pin-shared-release shared-owner)` | `(#let pointer (#ptr-mut Node) (#unsafe (#pin-shared-release shared)))` (expression) | Consumes a shared owner and returns its allocation pointer; it does not check the strong count. Unsafe: the caller must prove this is the final owner, destroy all views, run final in-place cleanup, and deallocate only afterward. |
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd #i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
-| `#preserves` | `(#preserves predicate)` | `(#preserves (#call sorted (: values values)))` (function header) | Keep supplied evidence without imposing an entry requirement. |
+| `#preserves` | `(#preserves predicate)` | `(#preserves (#call sorted ((values values))))` (function header) | Keep supplied evidence without imposing an entry requirement. |
 | `#println` | `(#println (#borrow string))` | `(#assert (#i64::eq (#println (#borrow message)) 0i64))` (expression) | Writes a borrowed `String`'s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level `(#std)`. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr #u8) (#ptr-null (#ptr #u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr #u8)))` (expression) | Converts a raw pointer to its machine address as `#usize` without dereferencing it; useful for checking syscall error-pointer results before access. |
@@ -2867,7 +2867,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#ref-ptr` | `(#ref-ptr reference)` | `(#let p (#ptr-mut Node) (#ref-ptr pinned))` (expression) | Safely extracts a thin ordinary or pinned reference's raw pointer with the same pointee and mutability. Lends the input handle without moving or duplicating it; the pointer retains no loan and does not extend the pointee lifetime or pinning guarantee. Slices are rejected. Raw memory access and pointer-to-reference borrowing still require unsafe context and valid lifetime/aliasing proofs. Raw pointers do not automatically implement Send or Sync. |
 | `#repr-c` | Property in `(#struct Name (#repr-c) fields)` or `(#enum Name (#repr-c) variants)` | `(#struct Header (#repr-c) ((tag #u8) (length #u32)))` (top level) | Requests C layout metadata for layout queries; does not make arbitrary Lim values FFI-safe. |
 | `#require-generated` | `(#require-generated Name GeneratorName (CompanionName...))`; companions may be omitted | `(#require-generated Work::Frame #async-fn-pinned (Work::Poll Work::poll))` (top level) | Requires one actual invocation of the named generator to have produced all listed identifiers; checked after expansion with compiler-recorded ancestry. |
-| `#requires` | `(#requires predicate)` | `(#requires (#call valid (: value value)))` (function header) | Require caller evidence and grant it inside the function. |
+| `#requires` | `(#requires predicate)` | `(#requires (#call valid ((value value))))` (function header) | Require caller evidence and grant it inside the function. |
 | `#result` | `(#result)` | `(#result)` (postcondition operand) | Name the normally returned value. |
 | `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
 | `#returns` | `#returns = Type;` | `(#returns ())` (function section) | Required explicit return type; unit is `()`. |
@@ -2909,7 +2909,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#u8` | `#u8` | `(#fn identity ((value #u8)) #u8 (#return value))` (function signature) | Unsigned 8-bit integer scalar type. |
 | `#unreachable` | `(#unreachable)` | `(#case impossible (#unreachable))` (expression) | Marks a path that must never execute; execution traps. |
 | `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, raw syscalls, and `#unsafe-call`; does not permit unsafe callees through `#call`. |
-| `#unsafe-call` | `(#unsafe-call function (: name value : ...))` | `(#unsafe (#unsafe-call read-byte (: pointer p)))` (expression) | Calls only a statically named unsafe or external function and requires an enclosing `#unsafe` block. Uses the same named arguments, parameter declaration evaluation order, signature checks, and ownership rules as `#call`; rejects safe callees. |
+| `#unsafe-call` | `(#unsafe-call function ((name value) (...)))` | `(#unsafe (#unsafe-call read-byte ((pointer p))))` (expression) | Calls only a statically named unsafe or external function and requires an enclosing `#unsafe` block. Uses the same named arguments, parameter declaration evaluation order, signature checks, and ownership rules as `#call`; rejects safe callees. |
 | `#unsafe-fn` | `(#unsafe-fn name ((arg Type)...) ReturnType body...)` | `(#unsafe-fn read-byte ((p (#ptr #u8))) #u8 (#return (#unsafe (#ptr-read p))))` (top level) | Declares caller safety obligations: calls use `#unsafe-call` inside `#unsafe`, and raw operations in the body still need explicit unsafe blocks. |
 | `#unsafe-impl` | `(#unsafe-impl property Type)` | `(#unsafe-impl #send NativeHandle)` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
 | `#unstable` | `(#unstable path.lim::declaration)` | `(#alias inspect = (#unstable ./library/private.lim::inspect))` (alias target) | Explicitly bypasses entry-point/export restrictions for the selected declaration. Does not grant struct field access or waive ordinary safety checking. |
@@ -2917,7 +2917,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#value` | `#value = expression;` | `#static answer { #type = #u64; #value = 42; }` (declaration section) | Required initializer in a static or constant record. |
 | `#variant-is` | `(#variant-is enum-reference Variant)` | `(#let is-some #bool (#variant-is value Some))` (expression) | Tests an enum reference's active variant without consuming the reference or enum; accepts ordinary or pinned shared/exclusive references. It does not statically refine later payload projections, which retain their runtime active-variant check. |
 | `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64::gt x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
-| `#where` | `(#where (value Type) predicate ...)` | `(#where (value #u64) (#call valid (: value value)))` (type expression) | Attach conjunctive fixed predicate requirements to a base type. |
+| `#where` | `(#where (value Type) predicate ...)` | `(#where (value #u64) (#call valid ((value value))))` (type expression) | Attach conjunctive fixed predicate requirements to a base type. |
 | `#while` | `(#while condition body...)` | `(#while (#u64::lt i 4u64) (#set i (#u64::add-wrap i 1u64)))` (statement) | Repeats while its boolean condition is true. |
 | `#while-let` | `(#while-let pattern value body...)` | `(#while-let (Some x) next (#set total x))` (statement) | Evaluates the value once per iteration, matches that same value, and runs the body while the pattern succeeds. A mismatch exits without running the body. Inside async functions, the scrutinee may remain synchronous while the body suspends. |
 | `#word-forget` | `(#word-forget LayoutType mutable-word-slice)` | `(#unsafe (#word-forget Pair words))` (statement) | Explicitly retires reference provenance in the flat words occupied by `LayoutType` without loading a typed value or reading, zeroing, or freeing its backing bytes. The numeric buffer stays initialized; a typed write is needed before recovering forgotten reference slots. Requires unsafe, sufficient capacity, and unique mutable access. The caller must have destroyed or deliberately forgotten any owned contents; separate escaped and neighboring loans remain checked. |
@@ -3066,8 +3066,8 @@ a `#call` with an awaited argument. For example:
 ```lisp syntax
 (#for () (#u64::lt index 2u64)
   (#call advance
-    (: next (#await #u64 StepTask StepPoll.StepPending StepPoll.StepReady step-poll step-task)
-     : counter (#borrow-mut index)))
+    ((next (#await #u64 StepTask StepPoll.StepPending StepPoll.StepReady step-poll step-task))
+     (counter (#borrow-mut index))))
   ())
 ```
 
@@ -3285,13 +3285,13 @@ order, but every required key must appear exactly once. User-defined `#gn`
 generators retain their own positional literal interface. For example:
 
 ```lisp library
-(#generate #optional (: type #u64 : name Maybe?))
-(#generate #result (: ok #u64 : error #u32 : name Result))
+(#generate #optional ((type #u64) (name Maybe?)))
+(#generate #result ((ok #u64) (error #u32) (name Result)))
 ```
 
 ### Fixed-array APIs
 
-`(#generate #array (: element T : length N : name Name))` emits an alias for
+`(#generate #array ((element T) (length N) (name Name)))` emits an alias for
 `(#array T N)` and ordinary functions. `N` must be an unsuffixed nonnegative
 integer literal that fits `#usize`. The generated functions use the existing
 named-call syntax:
@@ -3305,15 +3305,15 @@ named-call syntax:
 | `Name::borrow-mut` | `values: (#ref-mut Name)`, `index: #usize` | `(#ref-mut T)` | Requires `#usize::lt index N`. |
 
 ```lisp run=42
-(#generate #array (: element #u64 : length 4 : name Array4))
+(#generate #array ((element #u64) (length 4) (name Array4)))
 (#fn main () #u64
   (#let values Array4 (#array-of 10 42 30 40))
   (#let index #usize 1usize)
   (#return
-    (#if-valid (#call Array4::in-bounds (: index index))
+    (#if-valid (#call Array4::in-bounds ((index index)))
       (#block
-        (#call Array4::prove-in-bounds (: index index))
-        (#call Array4::get (: values (#borrow values) : index index)))
+        (#call Array4::prove-in-bounds ((index index)))
+        (#call Array4::get ((values (#borrow values)) (index index))))
       0u64)))
 ```
 
@@ -3330,14 +3330,14 @@ conversion between two comparison bounds.
 
 ### Optional and result APIs
 
-`(#generate #optional (: type T : name Name))` always creates an enum with `Name-some`
+`(#generate #optional ((type T) (name Name)))` always creates an enum with `Name-some`
 and `Name-none`, plus the free-standing `Name-construct` constructor. When the
 enum and its payload are Copy, it also creates:
 
 - `Name-is-some`
 - `Name-unwrap-or`
 
-`(#generate #result (: ok Ok : error Err : name Name))` always creates an enum with
+`(#generate #result ((ok Ok) (error Err) (name Name)))` always creates an enum with
 `Name-ok-value` and `Name-err-value`, plus the `Name-ok` and `Name-err`
 constructors. When the enum and both payloads are Copy, it also creates:
 
@@ -3697,7 +3697,7 @@ successes, intentional traps, and compiler/linker/timeout failures separately.
 Spawn and join are ordinary named calls, including when the compiler derives
 their signatures from a short `#thread-task` declaration. Spawn uses the
 worker's parameter names; join uses `task`. For example, write
-`(#call Task::join (: task handle))`. Generated enum variants in
+`(#call Task::join ((task handle)))`. Generated enum variants in
 `#case` patterns retain their constructor syntax. There is no positional-call
 exception for generated thread functions.
 # Floating-point global evaluation
@@ -3813,8 +3813,8 @@ does not re-import stale entry loans. Typed word writes likewise register the
 actual owner and pointee loans they store; raw bytes alone do not register them.
 
 ```lisp run=42
-(#struct RefValue () (: value (#ref #u64)))
-(#fn read-value (: words (#slice #u64)) #u64
+(#struct RefValue () ((value (#ref #u64))))
+(#fn read-value ((words (#slice #u64))) #u64
   (#let restored RefValue (#unsafe (#word-read RefValue words)))
   (#let answer #u64 (#deref (#get restored value)))
   (#forget restored)
@@ -3824,8 +3824,8 @@ actual owner and pointee loans they store; raw bytes alone do not register them.
   (#let seed #u64 42u64)
   (#let-mut words (#array #u64 1) (#array-repeat 0u64))
   (#unsafe (#word-write RefValue (#borrow-slice-mut words)
-    (#struct-literal RefValue (: value (#borrow seed)))))
-  (#let answer #u64 (#call read-value (: words (#borrow-slice words))))
+    (#struct-literal RefValue ((value (#borrow seed))))))
+  (#let answer #u64 (#call read-value ((words (#borrow-slice words)))))
   (#forget words)
   (#return answer))
 ```

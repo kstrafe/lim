@@ -119,7 +119,7 @@ fn cfg_and_file_aliases_apply_before_merging() {
         config.set("extra", extra);
         lim::compile_source_to_assembly(
             "(#alias value = ./errors.lim::value)
-          (#fn main () #u64 (#return (#call value (:))))",
+          (#fn main () #u64 (#return (#call value ())))",
             &scratch.path().join("main.lim"),
             &config,
             &scratch.path().join("cache"),
@@ -149,11 +149,11 @@ fn conflicts_and_unknown_targets_have_precise_diagnostics() {
 
 #[test]
 fn linear_payloads_propagate_without_marking_the_distributed_enum() {
-    let source = "(#struct Resource (#linear) (: value #u64))
+    let source = "(#struct Resource (#linear) ((value #u64)))
         (#distributed-enum Error ())
         (#enum-contribute Error (Error.Failure Resource))
         (#fn main () ()
-          (#let error Error (Error.Failure (#struct-literal Resource (: value 1u64))))
+          (#let error Error (Error.Failure (#struct-literal Resource ((value 1u64)))))
           (#return ()))";
     assert!(check(source).is_err());
     check(&source.replace("(#return ())", "(#forget error) (#return ())")).unwrap();

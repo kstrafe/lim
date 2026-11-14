@@ -731,7 +731,7 @@ mod tests {
     fn scoped_graph(count: usize) -> Graph {
         let statements = "(#borrow (#deref view) ())\n".repeat(count);
         prepare(&format!(
-            "(#fn work (: view (#ref-mut #u64)) () {statements} (#return ()))"
+            "(#fn work ((view (#ref-mut #u64))) () {statements} (#return ()))"
         ))
         .0
     }
@@ -740,16 +740,16 @@ mod tests {
         let statements = (0..count)
             .map(|index| {
                 format!(
-                    "(#let duplicate{index} Resource (#clone (#call make (: value {index}u64))))
+                    "(#let duplicate{index} Resource (#clone (#call make ((value {index}u64)))))
                  (#forget duplicate{index})"
                 )
             })
             .collect::<Vec<_>>()
             .join("\n");
         prepare(&format!(
-            "(#struct Resource (#linear) (: value #u64))
-             (#fn make (: value #u64) Resource
-               (#return (#struct-literal Resource (: value value))))
+            "(#struct Resource (#linear) ((value #u64)))
+             (#fn make ((value #u64)) Resource
+               (#return (#struct-literal Resource ((value value)))))
              (#fn work () () {statements} (#return ()))"
         ))
         .0
@@ -777,12 +777,12 @@ mod tests {
     #[test]
     fn projected_clone_retention_excludes_only_its_parent_formations() {
         let (mut graph, _) = prepare(
-            "(#struct Resource (#linear) (: value #u64))
-             (#struct Envelope () (: item (#tuple Resource #u64)))
+            "(#struct Resource (#linear) ((value #u64)))
+             (#struct Envelope () ((item (#tuple Resource #u64))))
              (#fn make () Envelope
-               (#return (#struct-literal Envelope (: item
+               (#return (#struct-literal Envelope ((item
                  (#tuple (#tuple Resource #u64)
-                   (#struct-literal Resource (: value 42u64)) 0u64)))))
+                   (#struct-literal Resource ((value 42u64))) 0u64))))))
              (#fn work () ()
                (#let duplicate Resource (#clone (#get (#get (#call make ()) item) 0)))
                (#forget duplicate) (#return ()))",
@@ -817,7 +817,7 @@ mod tests {
     #[test]
     fn clone_retention_index_matches_scan_for_all_exclusion_pairs() {
         let branch = prepare(
-            "(#fn work (: choose #bool : value #u64) #u64
+            "(#fn work ((choose #bool) (value #u64)) #u64
                (#return (#if choose (#clone value) (#clone (#u64::add-wrap value value)))))",
         )
         .0;
@@ -971,12 +971,12 @@ mod tests {
 
     #[test]
     fn no_handle_values_need_no_plan() {
-        let (graph, types) = prepare("(#fn work (: value #u64) #u64 (#return value))");
+        let (graph, types) = prepare("(#fn work ((value #u64)) #u64 (#return value))");
         assert!(Plan::new(&graph, &types).is_none());
         for source in [
-            "(#fn work (: view (#ref-mut #u64)) #u64 (#return (#deref view)))",
-            "(#struct Holder (#linear) (: view (#ref #u64)))
-                (#fn work (: owner Holder) () (#forget owner) (#return ()))",
+            "(#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view)))",
+            "(#struct Holder (#linear) ((view (#ref #u64))))
+                (#fn work ((owner Holder)) () (#forget owner) (#return ()))",
         ] {
             let (graph, types) = prepare(source);
             assert!(
@@ -989,7 +989,7 @@ mod tests {
     #[test]
     fn handle_roots_live_until_the_place_recipe_is_used() {
         let (graph, types) =
-            prepare("(#fn work (: view (#ref #u64)) #u64 (#return (#deref view)))");
+            prepare("(#fn work ((view (#ref #u64))) #u64 (#return (#deref view)))");
         let mut plan = Plan::new(&graph, &types).unwrap();
         plan.validate(&graph).unwrap();
         let (block, index, root) = graph
@@ -1026,8 +1026,8 @@ mod tests {
         for ty in ["#ref-mut", "#pin-ref-mut"] {
             let (graph, types) = prepare(&format!(
                 "(#type View ({ty} #u64))
-                 (#fn echo (: view View) View (#return view))
-                 (#fn work (: view View) #u64 (#return (#deref (#call echo (: view view)))))"
+                 (#fn echo ((view View)) View (#return view))
+                 (#fn work ((view View)) #u64 (#return (#deref (#call echo ((view view))))))"
             ));
             let target = Box::new(crate::Type::U64);
             let alias = if ty == "#ref-mut" {
@@ -1086,9 +1086,9 @@ mod tests {
     #[test]
     fn exclusive_candidate_requests_cannot_retire_arbitrary_owners() {
         for source in [
-            "(#fn work (: value #u64) #u64 (#return value))",
-            "(#struct Holder (#linear) (: view (#ref-mut #u64)))
-             (#fn work (: value Holder) Holder (#return value))",
+            "(#fn work ((value #u64)) #u64 (#return value))",
+            "(#struct Holder (#linear) ((view (#ref-mut #u64))))
+             (#fn work ((value Holder)) Holder (#return value))",
         ] {
             let (graph, types) = prepare(source);
             let requested = (0..graph.values.len()).map(ValueId).collect();
@@ -1101,11 +1101,11 @@ mod tests {
     #[test]
     fn aliases_branches_and_loop_backedges_keep_required_handles_available() {
         for source in [
-            "(#fn work (: view (#ref #u64)) #u64
+            "(#fn work ((view (#ref #u64))) #u64
                 (#let alias (#ref #u64) view) (#drop view) (#return (#deref alias)))",
-            "(#fn work (: choose #bool : left (#ref #u64) : right (#ref #u64)) #u64
+            "(#fn work ((choose #bool) (left (#ref #u64)) (right (#ref #u64))) #u64
                 (#let selected (#ref #u64) (#if choose left right)) (#return (#deref selected)))",
-            "(#fn work (: view (#ref #u64)) #u64
+            "(#fn work ((view (#ref #u64))) #u64
                 (#let-mut count #u64 0u64)
                 (#while (#u64::lt count 2u64)
                     (#let observed #u64 (#deref view))
@@ -1136,7 +1136,7 @@ mod tests {
     #[test]
     fn block_entry_cannot_fabricate_a_retired_parameter() {
         let (graph, types) = prepare(
-            "(#fn work (: choose #bool : left (#ref #u64) : right (#ref #u64)) #u64
+            "(#fn work ((choose #bool) (left (#ref #u64)) (right (#ref #u64))) #u64
             (#let selected (#ref #u64) (#if choose left right)) (#return (#deref selected)))",
         );
         let mut plan = Plan::new(&graph, &types).unwrap();
@@ -1166,17 +1166,17 @@ mod tests {
         let context = crate::parse_program(
             "(#enum Child (#linear) ((Child.Waiting #u64)))
           (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
-          (#fn step-poll (: task Child : waker (#ref #u64)) ChildPoll
+          (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
             (#return (#match task (#case (Child.Waiting count)
               (#if (#u64::eq count 0u64) (ChildPoll.Ready 42u64) (ChildPoll.Pending (Child.Waiting 0u64)))))))
-          (#fn combine (: view (#ref #u64) : result #u64) #u64
+          (#fn combine ((view (#ref #u64)) (result #u64)) #u64
             (#return (#u64::add-wrap (#deref view) result)))",
         )
         .unwrap();
         let source = crate::parse(
-            "(#fn work (: view (#ref #u64)) #u64
-          (#return (#call combine (: view view
-            : result (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))))))",
+            "(#fn work ((view (#ref #u64))) #u64
+          (#return (#call combine ((view view)
+            (result (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))))))",
         )
         .unwrap()
         .remove(0);

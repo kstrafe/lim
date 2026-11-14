@@ -124,7 +124,7 @@ fn enum_case_variants_navigate_in_every_borrow_mode_without_binding_false_positi
         let uri = lsp::path_to_uri(&path).unwrap();
         let text = format!(
             "(#enum Choice () ((Choice.Full #u64) Choice.Empty))\n
-          (#fn inspect (: input {ty}) #u64
+          (#fn inspect ((input {ty})) #u64
             (#return (#match input
               ({keyword} (Choice.Full payload) (#when true)
                 (#let answer #u64 {read}) answer)
@@ -184,9 +184,9 @@ fn enum_case_variants_navigate_in_nested_and_or_patterns() {
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     let text = "(#enum Color () (Color.Red Color.Green Color.Blue))
       (#enum Wrapped () ((Wrapped.Wrap Color)))
-      (#fn nested (: input Wrapped) #u64 (#return (#match input
+      (#fn nested ((input Wrapped)) #u64 (#return (#match input
         (#case (Wrapped.Wrap inner) (#match inner (#case Color.Red 1u64) (#case _ 0u64))))))
-      (#fn alternatives (: input Color) #u64 (#return (#match input
+      (#fn alternatives ((input Color)) #u64 (#return (#match input
         (#case (#or Color.Red Color.Green) 42u64) (#case Color.Blue 0u64))))";
     lim::check_types(&lim::parse_program(text).unwrap()).unwrap();
     let mut messages = start();
@@ -228,7 +228,7 @@ fn enum_case_variants_resolve_through_explicit_file_aliases() {
     let entry = base.join("main.lim");
     let types_text = "(#enum Choice () ((Choice.Full #u64) Choice.Empty))";
     let child_text = "(#alias Choice = ./types.lim::Choice)
-      (#fn read (: input Choice) #u64 (#return (#match input
+      (#fn read ((input Choice)) #u64 (#return (#match input
         (#case (Choice.Full payload) (#let answer #u64 payload) answer)
         (#case Choice.Empty 0u64))))";
     let entry_text = "(#alias Choice = ./types.lim::Choice) (#alias read = ./child.lim::read)
@@ -300,11 +300,11 @@ fn enum_case_variants_navigate_to_user_and_builtin_generated_definitions() {
         ),
         (
             "builtin",
-            "(#generate #optional (: type #u64 : name Maybe))",
+            "(#generate #optional ((type #u64) (name Maybe)))",
             "Maybe",
             "Maybe.Some",
             "Maybe.None",
-            "(#call Maybe::construct (: value 42u64))",
+            "(#call Maybe::construct ((value 42u64)))",
         ),
     ] {
         let base = std::env::temp_dir().join(format!(
@@ -409,7 +409,7 @@ fn enum_case_variants_resolve_through_direct_file_aliases() {
     std::fs::create_dir_all(&base).unwrap();
     let library = base.join("library.lim");
     let app = base.join("app.lim");
-    let library_text = "(#enum Choice () ((Choice.Ready #u64) Choice.Pending))\n(#fn classify (: input Choice) #u64 (#return (#match input (#case (Choice.Ready payload) payload) (#case Choice.Pending 0u64))))";
+    let library_text = "(#enum Choice () ((Choice.Ready #u64) Choice.Pending))\n(#fn classify ((input Choice)) #u64 (#return (#match input (#case (Choice.Ready payload) payload) (#case Choice.Pending 0u64))))";
     let entry_text = "(#alias classify = ./library.lim::classify)";
     std::fs::write(&library, library_text).unwrap();
     std::fs::write(&app, entry_text).unwrap();
@@ -757,7 +757,7 @@ fn unused_type_warnings_have_warning_severity_and_clear_when_used() {
     let uri = "file:///tmp/lim-lsp-unused-types.lim";
     let source = "(#enum Unused () (Unused.Only))";
     let updated =
-        format!("{source}\n(#fn consume (: value Unused) () (#forget value) (#return ()))");
+        format!("{source}\n(#fn consume ((value Unused)) () (#forget value) (#return ()))");
     let mut messages = start();
     messages.push(open(uri, 1, source));
     messages.push(change(uri, 2, &updated));
@@ -998,7 +998,7 @@ fn generator_name_resolves_original_span_through_direct_file_identity() {
 fn builtin_macro_at_navigates_but_builtin_name_and_noninvocations_do_not() {
     let base = std::env::temp_dir().join(format!("lim-lsp-macro-builtin-{}", std::process::id()));
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
-    let source = "(#generate #optional (: type #u64 : name Maybe))";
+    let source = "(#generate #optional ((type #u64) (name Maybe)))";
     let mut messages = start();
     messages.push(open(&uri, 1, source));
     messages.push(definition(2, &uri, source, "#optional"));
@@ -1093,7 +1093,7 @@ fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors(
     std::fs::create_dir_all(&base).unwrap();
     let root = base.join("main.lim");
     let child = base.join("child.lim");
-    let text = "(#alias Number = ./child.lim::Number)\n(#alias read = ./child.lim::read)\n(#fn main () #u64 (#let value Number 42u64) (#return (#call read (: value value))))\n(#fn broken () #u64 (#return #true))\n(#struct Holder () ((field Number)))\n(#enum Choice () ((Choice.Present Number) (Choice.Absent ())))";
+    let text = "(#alias Number = ./child.lim::Number)\n(#alias read = ./child.lim::read)\n(#fn main () #u64 (#let value Number 42u64) (#return (#call read ((value value)))))\n(#fn broken () #u64 (#return #true))\n(#struct Holder () ((field Number)))\n(#enum Choice () ((Choice.Present Number) (Choice.Absent ())))";
     let imported = "(#type Number #u64)\n(#fn read ((value Number)) #u64 (#return value))";
     std::fs::write(&root, text).unwrap();
     std::fs::write(&child, imported).unwrap();
@@ -1104,7 +1104,7 @@ fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors(
     for (id, needle) in [
         (2, "child.lim"),
         (3, "read ="),
-        (4, "read (:"),
+        (4, "read (("),
         (5, "Number ="),
     ] {
         messages.push(definition(id, &uri, text, needle));
@@ -1440,7 +1440,7 @@ fn symbols_and_definition_only_on_declaration_names() {
 #[test]
 fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
     let uri = "file:///tmp/lim-lsp-calls.lim";
-    let source = "(#fn target () #u64 (#return 0u64))\n(#fn main () #u64 (#return (#call target (:))))\n(#struct Holder () ((target #u64)))\n'(#call target (:))";
+    let source = "(#fn target () #u64 (#return 0u64))\n(#fn main () #u64 (#return (#call target ())))\n(#struct Holder () ((target #u64)))\n'(#call target ())";
     let mut messages = start();
     messages.push(open(uri, 1, source));
     for (id, line, character) in [(2, 1, 34), (3, 2, 18), (4, 3, 8)] {
@@ -1484,7 +1484,7 @@ fn generated_array_type_and_accessor_navigate_to_exact_declarations() {
     let base = std::env::temp_dir().join(format!("lim-lsp-array-api-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
-    let source = "(#generate #array (: element #u64 : length 4 : name Array4))\n(#fn read ((values (#ref Array4)) (index #usize)) #u64 (#requires (#call #usize::lt (: left index : right 4usize))) (#return (#call Array4::get (: values values : index index))))";
+    let source = "(#generate #array ((element #u64) (length 4) (name Array4)))\n(#fn read ((values (#ref Array4)) (index #usize)) #u64 (#requires (#call #usize::lt ((left index) (right 4usize)))) (#return (#call Array4::get ((values values) (index index)))))";
     for _ in 0..2 {
         let mut messages = start();
         messages.push(open(&uri, 1, source));
@@ -1500,8 +1500,8 @@ fn generated_array_type_and_accessor_navigate_to_exact_declarations() {
             4,
             &uri,
             source,
-            "Array4::get (: values",
-            "Array4::get (: ".len(),
+            "Array4::get ((values",
+            "Array4::get ((".len(),
         ));
         finish(&mut messages);
         let (_, replies) = session(messages);
@@ -1541,7 +1541,7 @@ fn generated_function_definition_publishes_an_exact_source_snapshot() {
     std::fs::create_dir_all(&base).unwrap();
     let path = base.join("main.lim");
     let uri = format!("file://{}", path.display());
-    let source = "(#generate #optional (: type #u64 : name Maybe))\n(#fn main () () (#let value Maybe (#call Maybe::construct (: value 42u64))) (#forget value) (#return ()))";
+    let source = "(#generate #optional ((type #u64) (name Maybe)))\n(#fn main () () (#let value Maybe (#call Maybe::construct ((value 42u64)))) (#forget value) (#return ()))";
     let character = source
         .lines()
         .nth(1)
@@ -1675,7 +1675,7 @@ fn compilation_context_navigates_an_unsaved_external_file_alias() {
     let child = external.join("child.lim");
     let uri = lsp::path_to_uri(&child).unwrap();
     let root_uri = lsp::path_to_uri(&base).unwrap();
-    let source = "(#fn child () #u64 (#return 42u64)) (#generate #optional (: type #u64 : name Maybe)) (#fn wrap () Maybe (#return (#call Maybe::construct (: value 42u64))))";
+    let source = "(#fn child () #u64 (#return 42u64)) (#generate #optional ((type #u64) (name Maybe))) (#fn wrap () Maybe (#return (#call Maybe::construct ((value 42u64)))))";
     std::fs::write(
         &entry,
         format!(

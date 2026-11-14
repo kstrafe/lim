@@ -79,7 +79,7 @@ fn mutation_detaches_cloned_trees_and_preserves_raw_parent_expr() {
 
 #[test]
 fn reader_and_group_children_keep_exact_source_spans() {
-    let source = "'alpha `beta ,gamma ,@delta (: first x : second ($ name)) ($ shorthand)";
+    let source = "'alpha `beta ,gamma ,@delta ((first x) (second ($ name))) ($ shorthand)";
     let forms = lim::parse(source).unwrap();
     let check = |node: &SpannedExpr, expected: &str| {
         assert_eq!(&source[node.span.start..node.span.end], expected);
@@ -119,7 +119,7 @@ fn reader_and_group_children_keep_exact_source_spans() {
     }
 
     let grouped = &forms[4];
-    check(grouped, "(: first x : second ($ name))");
+    check(grouped, "((first x) (second ($ name)))");
     for child in &grouped.children {
         assert_eq!(child.span.source_id, 0);
         check(child, &source[child.span.start..child.span.end]);

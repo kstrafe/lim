@@ -6,19 +6,19 @@ use std::{fs, process::Command, time::Duration};
 const SOURCE: &str = "
   (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
   (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
-  (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+  (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
     (#return (#match task
       (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
       (#case (Child.Resume value) (ChildPoll.Ready value)))))
-  (#generate #async-fn (: protocol WorkAwait : waker #u64
-    : function (#fn work (: seed #u64) #u64
-      (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed))))))
+  (#generate #async-fn ((protocol WorkAwait) (waker #u64)
+    (function (#fn work ((seed #u64)) #u64
+      (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed)))))))
   (#fn main () #u64
     (#let waker #u64 0u64)
     (#let first Work::Poll (#call Work::poll
-      (: task (#call work (: seed 42u64)) : waker (#borrow waker))))
+      ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-    (#return (#match (#call Work::poll (: task next : waker (#borrow waker)))
+    (#return (#match (#call Work::poll ((task next) (waker (#borrow waker))))
       (#case (Work::Poll.Ready value) value)
       (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable))))))";
 
@@ -84,7 +84,7 @@ fn cached_generator_output_never_certifies_changed_user_code() {
         )
     };
     compile(SOURCE).unwrap();
-    let invalid = SOURCE.replace(": seed 42u64", ": seed true");
+    let invalid = SOURCE.replace("(seed 42u64)", "(seed true)");
     for _ in 0..2 {
         let diagnostic = compile(&invalid).unwrap_err();
         assert_eq!(diagnostic.source_text.as_deref(), Some(invalid.as_str()));
@@ -171,7 +171,7 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
                     "(#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable)) {edit}"
                 ),
                     )
-                    .replace(": task next", &format!(": task {receiver}"));
+                    .replace("(task next)", &format!("(task {receiver})"));
                 let diagnostic = compile(&invalid).unwrap_err();
                 assert!(diagnostic.message.contains("opaque"), "{diagnostic:?}");
                 let span = diagnostic.span.expect("opaque field span");

@@ -24,12 +24,12 @@
 (#fn main () #u64
   (#let scratch (#ptr-mut #u8)
     (#unsafe (#unsafe-call linux-mmap
-      (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
-       : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+      ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)
+       (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
   (#let name (#ptr-mut #u8) scratch)
   (#unsafe (#ptr-write name 0u8))
   (#let fd #i64 (#unsafe (#unsafe-call linux-memfd-create
-    (: name name : flags 1u32))))
+    ((name name) (flags 1u32)))))
   (#assert (#i64::ge fd 0i64))
   (#let input (#ptr-mut #u8) (#unsafe (#ptr-offset scratch 32usize)))
   (#unsafe (#block
@@ -38,8 +38,8 @@
     (#ptr-write (#ptr-offset (#clone input) 2usize) 77u8)
     (#ptr-write (#ptr-offset (#clone input) 3usize) 33u8)))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-write
-    (: fd fd : source input : count 4usize))) 4i64))
-  (#let context-result AioOwnedContextCreate (#call aio-owned-context-create (:)))
+    ((fd fd) (source input) (count 4usize)))) 4i64))
+  (#let context-result AioOwnedContextCreate (#call aio-owned-context-create ()))
   (#let-mut context AioOwnedContext
     (#match context-result
       (#case (AioOwnedContextCreate.AioOwnedContextCreated owner) owner)
@@ -48,18 +48,18 @@
 
   //; A readiness operation is cancelled asynchronously; the wrapper waits for
   //; its completion acknowledgement before exposing a completed owner.
-  (#let poll-fd #i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 526336i32)))
+  (#let poll-fd #i64 (#call linux-eventfd2 ((initial-value 0u32) (flags 526336i32))))
   (#assert (#i64::ge poll-fd 0i64))
   (#let poll-submission AioOwnedSubmit
     (#call aio-owned-poll-submit
-      (: context (#borrow context) : fd poll-fd : events 1u16)))
+      ((context (#borrow context)) (fd poll-fd) (events 1u16))))
   (#let poll-operation AioOwnedPending
     (#match poll-submission
       (#case (AioOwnedSubmit.AioOwnedSubmitted operation) operation)
       (#case (AioOwnedSubmit.AioOwnedSubmitFailed error)
         (#block (#forget error) (#unreachable)))))
   (#let cancel-result AioOwnedCancel
-    (#call aio-owned-cancel-wait (: operation poll-operation)))
+    (#call aio-owned-cancel-wait ((operation poll-operation))))
   (#let cancelled AioOwnedCompleted
     (#match cancel-result
       (#case (AioOwnedCancel.AioOwnedCancelFinished operation) operation)
@@ -71,21 +71,21 @@
           (#forget still-pending)
           (#unreachable)))))
   (#assert (#i64::eq (#call aio-owned-completed-result
-    (: operation (#borrow cancelled))) 0i64))
+    ((operation (#borrow cancelled)))) 0i64))
   (#let cancel-unmapped #i64
-    (#call aio-owned-completed-destroy (: operation cancelled)))
+    (#call aio-owned-completed-destroy ((operation cancelled))))
   (#assert (#i64::eq cancel-unmapped 0i64))
-  (#assert (#i64::eq (#call linux-close (: fd poll-fd)) 0i64))
+  (#assert (#i64::eq (#call linux-close ((fd poll-fd))) 0i64))
 
   (#let read-submission AioOwnedSubmit
     (#call aio-owned-read-submit
-      (: context (#borrow context) : fd fd : length 4usize : offset 0i64)))
+      ((context (#borrow context)) (fd fd) (length 4usize) (offset 0i64))))
   (#let read-operation AioOwnedPending
     (#match read-submission
       (#case (AioOwnedSubmit.AioOwnedSubmitted operation) operation)
       (#case (AioOwnedSubmit.AioOwnedSubmitFailed error)
         (#block (#forget error) (#unreachable)))))
-  (#let wait-result AioOwnedWait (#call aio-owned-wait (: operation read-operation)))
+  (#let wait-result AioOwnedWait (#call aio-owned-wait ((operation read-operation))))
   (#let completed AioOwnedCompleted
     (#match wait-result
       (#case (AioOwnedWait.AioOwnedFinished operation) operation)
@@ -97,22 +97,22 @@
           (#forget still-pending)
           (#unreachable)))))
   (#assert (#i64::eq (#call aio-owned-completed-result
-    (: operation (#borrow completed))) 4i64))
+    ((operation (#borrow completed)))) 4i64))
   (#assert (#u8::eq (#call aio-owned-completed-byte
-    (: operation (#borrow completed) : index 0usize)) 76u8))
+    ((operation (#borrow completed)) (index 0usize))) 76u8))
   (#assert (#u8::eq (#call aio-owned-completed-byte
-    (: operation (#borrow completed) : index 1usize)) 73u8))
+    ((operation (#borrow completed)) (index 1usize))) 73u8))
   (#assert (#u8::eq (#call aio-owned-completed-byte
-    (: operation (#borrow completed) : index 2usize)) 77u8))
+    ((operation (#borrow completed)) (index 2usize))) 77u8))
   (#assert (#u8::eq (#call aio-owned-completed-byte
-    (: operation (#borrow completed) : index 3usize)) 33u8))
+    ((operation (#borrow completed)) (index 3usize))) 33u8))
   (#let read-unmapped #i64
-    (#call aio-owned-completed-destroy (: operation completed)))
+    (#call aio-owned-completed-destroy ((operation completed))))
   (#assert (#i64::eq read-unmapped 0i64))
   (#let context-destroyed #i64
-    (#call aio-owned-context-destroy (: context context)))
+    (#call aio-owned-context-destroy ((context context))))
   (#assert (#i64::eq context-destroyed 0i64))
-  (#assert (#i64::eq (#call linux-close (: fd fd)) 0i64))
+  (#assert (#i64::eq (#call linux-close ((fd fd))) 0i64))
   (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap
-    (: address scratch : length 4096usize))) 0i64))
+    ((address scratch) (length 4096usize)))) 0i64))
   (#return 42u64))

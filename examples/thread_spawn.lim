@@ -20,19 +20,19 @@
 (#fn sum-seven ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64)) #u64
   (#return (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap a b) c) d) e) f) g)))
 
-(#generate #thread-spawn (: task ReadValueTask : worker read-value))
-(#generate #thread-spawn (: task ScaleTask : worker scale))
-(#generate #thread-spawn (: task NoopTask : worker noop))
-(#generate #thread-spawn (: task PairTask : worker add-pair))
-(#generate #thread-spawn (: task LargeTask : worker pass-large))
-(#generate #thread-spawn (: task SumSevenTask : worker sum-seven))
+(#generate #thread-spawn ((task ReadValueTask) (worker read-value)))
+(#generate #thread-spawn ((task ScaleTask) (worker scale)))
+(#generate #thread-spawn ((task NoopTask) (worker noop)))
+(#generate #thread-spawn ((task PairTask) (worker add-pair)))
+(#generate #thread-spawn ((task LargeTask) (worker pass-large)))
+(#generate #thread-spawn ((task SumSevenTask) (worker sum-seven)))
 
 (#fn main () #u64
   (#let-mut shared SharedValue (#struct-literal SharedValue ((value 42))))
   (#return
-    (#match (#call ReadValueTask::spawn (: value (#borrow shared)))
+    (#match (#call ReadValueTask::spawn ((value (#borrow shared))))
       (#case (ReadValueTask::SpawnResult.Ok task)
-        (#match (#call ReadValueTask::join (: task task))
+        (#match (#call ReadValueTask::join ((task task)))
           (#case (ReadValueTask::JoinResult.Ok result) result)
           (#case (ReadValueTask::JoinResult.Error (#tuple retry-task error-code)) (#panic))))
       (#case (ReadValueTask::SpawnResult.Error error) (#panic)))))

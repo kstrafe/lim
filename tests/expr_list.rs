@@ -126,8 +126,8 @@ fn cloned_function_bodies_keep_their_distinct_type_contexts() {
         "(#fn copy-word ((value #u64)) #u64 (#return (#clone value)))
          (#fn copy-flag ((value #bool)) #bool (#return (#clone value)))
          (#fn main () #u64
-           (#assert (#call copy-flag (: value true)))
-           (#return (#call copy-word (: value 42u64))))",
+           (#assert (#call copy-flag ((value true))))
+           (#return (#call copy-word ((value 42u64)))))",
     )
     .unwrap();
     let lim::Item::Function(original) = &program.items[0] else {
@@ -161,8 +161,8 @@ fn repeated_shared_call_syntax_still_rejects_a_second_linear_consumption() {
         "(#struct Owned (#linear) ((value #u64)))
          (#fn consume ((value Owned)) () (#forget value) (#return ()))
          (#fn main () #u64
-           (#let item Owned (#struct-literal Owned (: value 42u64)))
-           (#call consume (: value item))
+           (#let item Owned (#struct-literal Owned ((value 42u64))))
+           (#call consume ((value item)))
            (#return 0u64))",
     )
     .unwrap();

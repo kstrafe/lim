@@ -2,4 +2,4 @@
 (#fn main () #u64
   (#let-mut owner #u64 1u64)
   (#let reference (#ref-mut #u64) (#borrow-mut owner))
-  (#return (#call owner (: arg owner))))
+  (#return (#call owner ((arg owner)))))

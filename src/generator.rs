@@ -3051,8 +3051,8 @@ mod tests {
 
     #[test]
     fn nested_deduplicated_generators_keep_precise_builtin_origins() {
-        let source = "(#gn inner () `((#generate #optional (: type #u64 : name Shared))))\n\
-            (#gn outer () `((#generate inner) (#generate #optional (: type #u64 : name OuterOnly))))\n\
+        let source = "(#gn inner () `((#generate #optional ((type #u64) (name Shared)))))\n\
+            (#gn outer () `((#generate inner) (#generate #optional ((type #u64) (name OuterOnly)))))\n\
             (#gn other () `((#generate inner)))\n\
             (#generate outer)\n(#generate other)\n(#generate other)";
         let mut origins = Origins::default();
@@ -3147,7 +3147,7 @@ mod tests {
             CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).unwrap();
-        let source = "(#gn-fn emit (name temporary) `((#fn ,name (: task #u64) #u64
+        let source = "(#gn-fn emit (name temporary) `((#fn ,name ((task #u64)) #u64
               (#let ,temporary #u64 task) (#return ,temporary))))
           (#gn child (name temporary) (#gn-call emit name temporary))
           (#gn-fn forward (name temporary) `((#generate child ,name ,temporary)))

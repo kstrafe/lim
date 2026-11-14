@@ -2,8 +2,8 @@
 (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
 (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
   (#return (#match task (#case (Child.Waiting value) (ChildPoll.ChildReady value)))))
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work () ()
     (#let value #u64 (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 42u64)))
     (#break)
-    (#return ()))))
+    (#return ())))))

@@ -15,24 +15,24 @@
     (#case InnerTask.MakeOuter (InnerPoll.InnerPending InnerTask.ResumeOuter))
     (#case InnerTask.ResumeOuter (InnerPoll.InnerReady (OuterTask.Waiting 42u64))))))
 
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work () #u64
     (#let result #u64
       (#u64::add-wrap 0u64
         (#await #u64 OuterTask OuterPoll.OuterPending OuterPoll.OuterReady outer-poll
           (#await OuterTask InnerTask InnerPoll.InnerPending InnerPoll.InnerReady inner-poll InnerTask.MakeOuter))))
-    (#return result))))
+    (#return result)))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let first Work::Poll
-    (#call Work::poll (: task (#call work (:)) : waker (#borrow waker))))
+    (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending inner-pending) Work::Poll first (#unreachable))
   (#let second Work::Poll
-    (#call Work::poll (: task inner-pending : waker (#borrow waker))))
+    (#call Work::poll ((task inner-pending) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending outer-pending) Work::Poll second (#unreachable))
   (#let third Work::Poll
-    (#call Work::poll (: task outer-pending : waker (#borrow waker))))
+    (#call Work::poll ((task outer-pending) (waker (#borrow waker)))))
   (#let result #u64
     (#match third
       (#case (Work::Poll.Ready value) value)

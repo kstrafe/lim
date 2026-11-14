@@ -4,4 +4,4 @@
   (#return 41))
 
 (#fn main () #u64
-  (#return (#call consume (: value uNIT))))
+  (#return (#call consume ((value uNIT)))))

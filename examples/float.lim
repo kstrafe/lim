@@ -42,14 +42,14 @@
     #let
     total
     #f64
-    (#call add (: left left : right right))
+    (#call add ((left left) (right right)))
   )
   (
     #return
     (
       #if
       (#f64::gt  total 3.0)
-      (#call choose (: value 42 : scale 2.0))
+      (#call choose ((value 42) (scale 2.0)))
       0
     )
   )

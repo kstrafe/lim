@@ -15,7 +15,7 @@ fn global_reference_origins_remain_in_scope_across_branches() {
             (#block (#borrow vALUE))))
         (#return result))
       (#fn main () #u64
-        (#return (#deref (#call select (: condition true)))))
+        (#return (#deref (#call select ((condition true))))))
     "#,
     )
     .unwrap();
@@ -54,7 +54,7 @@ fn global_types_are_visible_in_initializers_and_pattern_branches() {
         (#return (#match value
           (#case (Value.Number number) (#u64::add-wrap number bASE))
           (#case Value.Absent aNSWER))))
-      (#fn main () #u64 (#return (#call pick (: value (Value.Number 2u64)))))
+      (#fn main () #u64 (#return (#call pick ((value (Value.Number 2u64))))))
     "#,
     )
     .unwrap();

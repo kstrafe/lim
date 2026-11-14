@@ -1560,7 +1560,7 @@ mod async_migration_tests {
     const CONTEXT: &str = "
       (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
       (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-      (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
           (#case (Child.Resume value) (ChildPoll.ChildReady value)))))";
@@ -1568,8 +1568,8 @@ mod async_migration_tests {
     fn source(body: &str) -> String {
         format!(
             "{CONTEXT}
-          (#generate #async-fn (: protocol WorkAwait : waker #u64 : function
-            (#fn work (: seed #u64) #u64 {body})))"
+          (#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
+            (#fn work ((seed #u64)) #u64 {body}))))"
         )
     }
 
@@ -1809,14 +1809,14 @@ mod async_migration_tests {
     fn graph_cache_separates_files_and_reuses_locations_within_each_file() {
         let scratch = Scratch::new();
         let text = format!("{CONTEXT}
-          (#struct Source (#linear) (: amount #u64))
-          (#fn make (: amount #u64) Source (#return (#struct-literal Source (: amount amount))))
-          (#fn consume (: owner Source : amount #u64) #u64
+          (#struct Source (#linear) ((amount #u64)))
+          (#fn make ((amount #u64)) Source (#return (#struct-literal Source ((amount amount)))))
+          (#fn consume ((owner Source) (amount #u64)) #u64
             (#let result #u64 (#u64::add-wrap (#get owner amount) amount)) (#forget owner) (#return result))
-          (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64 : function
-            (#fn work (: seed #u64) #u64 (#return (#call consume
-              (: owner (#call make (: amount seed))
-                 : amount (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64))))))))");
+          (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (function
+            (#fn work ((seed #u64)) #u64 (#return (#call consume
+              ((owner (#call make ((amount seed))))
+                 (amount (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64))))))))))");
         let count = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
         let mut bodies = Vec::new();
         for (name, padding) in [
@@ -1876,7 +1876,7 @@ mod async_migration_tests {
     fn graph_frame_protocol_collisions_reject_fresh_and_cached_output() {
         let scratch = Scratch::new();
         let text =
-            source("(#return seed)").replace(": protocol WorkAwait", ": protocol Work::Task");
+            source("(#return seed)").replace("(protocol WorkAwait)", "(protocol Work::Task)");
         let prepared = syntax(&text, Some(&scratch.0));
         let error = expand_prepared_program(&prepared).unwrap_err();
         assert!(error
@@ -1994,11 +1994,11 @@ mod async_migration_tests {
             source("(#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))")
                 .replace("#generate #async-fn", "#generate #async-fn-pinned")
                 .replace(
-                    ": function",
-                    ": cancel (work-cancel ((await-0 cancel-child))) : function",
+                    "(function)",
+                    "(cancel (work-cancel ((await-0 cancel-child))) : function)",
                 );
         let text =
-            format!("{text}\n(#fn cancel-child (: child Child) () (#forget child) (#return ()))");
+            format!("{text}\n(#fn cancel-child ((child Child)) () (#forget child) (#return ()))");
         let prepared = syntax(&text, None);
         let program = expand_prepared_program(&prepared).unwrap();
         let output = &program.source_files.last().unwrap().source;
@@ -2028,9 +2028,9 @@ mod async_migration_tests {
           (#fn main () #u64
             (#let waker #u64 0u64)
             (#let first Work::Poll (#call Work::poll
-              (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
+              ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))
             (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-            (#return (#match (#call Work::poll (: task next : waker (#borrow waker)))
+            (#return (#match (#call Work::poll ((task next) (waker (#borrow waker))))
               (#case (Work::Poll.Ready value) value)
               (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable))))))",
             source(
@@ -2069,14 +2069,14 @@ mod async_migration_tests {
     fn graph_route_handles_generator_produced_async_forms_and_multiple_outputs() {
         let text = format!(
             "{CONTEXT}
-          (#gn produce () `((#generate #async-fn (: protocol WorkAwait : waker #u64 : function
-            (#fn work (: seed #u64) #u64
-              (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))))))
+          (#gn produce () `((#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
+            (#fn work ((seed #u64)) #u64
+              (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))))))))
           (#generate produce)
-          (#generate #async-fn (: protocol SecondAwait : waker #u64 : function
-            (#fn second (: seed #u64) #u64
+          (#generate #async-fn ((protocol SecondAwait) (waker #u64) (function
+            (#fn second ((seed #u64)) #u64
               (#return (#await Work::Task Work::Poll.Pending Work::Poll.Ready Work::poll
-                (#call work (: seed seed)))))))"
+                (#call work ((seed seed)))))))))"
         );
         let scratch = Scratch::new();
         let prepared = syntax(&text, Some(&scratch.0));
@@ -2118,7 +2118,7 @@ mod async_migration_tests {
     fn obsolete_per_state_cancellation_patterns_are_not_supported() {
         let text = format!(
             "{}
-          (#fn cancel-frame (: task Work::frame-state) ()
+          (#fn cancel-frame ((task Work::frame-state)) ()
             (#match task
               (#case (work-frame-start seed) (#forget seed))
               (#case (work-frame-await-0 seed child) (#block (#forget seed) (#forget child)))

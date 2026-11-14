@@ -15,21 +15,21 @@
 
 (#fn mutate-cell-through-reference () #u64
   (#let-mut state CellState (#struct-literal CellState ((prefix 5) (counter
-    (#call CellU64::create (: value 1u64))))))
+    (#call CellU64::create ((value 1u64)))))))
   (#let state-ref (#ref CellState) (#borrow state))
   (#let cell (#ref CellU64) (#borrow (#get state-ref counter)))
-  (#call CellU64::set (: cell (#clone cell) : value 42u64))
-  (#let result #u64 (#call CellU64::get (: cell cell)))
+  (#call CellU64::set ((cell (#clone cell)) (value 42u64)))
+  (#let result #u64 (#call CellU64::get ((cell cell))))
   (#drop state-ref)
   (#forget state)
   (#return result))
 
 (#fn main () #u64
   (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
-  (#let original-y #u64 (#call point-y (: point (#borrow point))))
+  (#let original-y #u64 (#call point-y ((point (#borrow point)))))
   (#let point-ref (#ref-mut Point) (#borrow-mut point))
   (#let y-ref (#ref-mut #u64) (#borrow-mut (#get point-ref y)))
   (#deref-set y-ref 42)
   (#return (#u64::add-wrap
-    (#u64::add-wrap (#u64::add-wrap (#deref y-ref) original-y) (#call origin-y (:)))
-    (#call mutate-cell-through-reference (:)))))
+    (#u64::add-wrap (#u64::add-wrap (#deref y-ref) original-y) (#call origin-y ()))
+    (#call mutate-cell-through-reference ()))))

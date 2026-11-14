@@ -38,16 +38,16 @@ fn records_calls_and_semicolon_lists_lower_to_existing_forms() {
         trees("(read { index = x; })"),
         trees("(#call read ((index x)))")
     );
-    for source in ["(read (: index x))", "read (: index x)"] {
+    for source in ["(read ((index x)))", "read ((index x))"] {
         assert_eq!(trees(source), trees("(#call read ((index x)))"));
     }
-    assert_eq!(trees("(finish (:))"), trees("(#call finish ())"));
+    assert_eq!(trees("(finish ())"), trees("(#call finish ())"));
     assert_eq!(
-        trees("#usize::lt (: left x : right 4usize)"),
+        trees("#usize::lt ((left x) (right 4usize))"),
         trees("(#call #usize::lt ((left x) (right 4usize)))")
     );
     assert_eq!(
-        trees("(#let next #u64 read (: index x); #return next;)"),
+        trees("(#let next #u64 read ((index x)); #return next;)"),
         trees("((#let next #u64 (#call read ((index x)))) (#return next))")
     );
     assert_eq!(
@@ -139,7 +139,7 @@ fn declaration_records_normalize_with_required_fields_and_empty_defaults() {
 fn generated_function_records_keep_unquoted_names_and_canonical_structure() {
     let source = "(#gn make (name) `((#fn ,name { #params = {}; #returns = #u64; #body = (#return 42u64;); }))) (#generate make read) #fn main { #params = {}; #returns = #u64; #body = (#return read {};); }";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
-    let aggregate = "(#gn make (name) `((#struct ,name () (: value #u64)) (#fn create ((value #u64)) ,name (#return (#struct-literal ,name (: value value)))))) (#generate make Item) (#fn main () #u64 (#return (#get (create (: value 42)) value)))";
+    let aggregate = "(#gn make (name) `((#struct ,name () ((value #u64))) (#fn create ((value #u64)) ,name (#return (#struct-literal ,name ((value value))))))) (#generate make Item) (#fn main () #u64 (#return (#get (create ((value 42))) value)))";
     lim::check_types(&lim::parse_program(aggregate).unwrap()).unwrap();
     for keyword in ["#fn", "#static", "#const", "#unsafe-fn"] {
         assert_eq!(trees(keyword), vec![lim::Expr::Symbol(keyword.into())]);
@@ -157,7 +157,7 @@ fn implicit_calls_use_aliases_of_quoted_file_targets() {
     for call in [
         "read { value = 42; }",
         "(read { value = 42; })",
-        "(read (: value 42))",
+        "(read ((value 42)))",
     ] {
         let source = "(#alias read = \"./value with spaces.lim::read\")\n#fn main { #params = {}; #returns = #u64; #body = (#return CALL;); }"
             .replace("CALL", call);
@@ -175,23 +175,23 @@ fn implicit_calls_use_aliases_of_quoted_file_targets() {
 
 #[test]
 fn marker_free_calls_retain_function_identity_and_unsafe_requirements() {
-    let source = "(#fn panic ((value #u64)) #u64 (#return value)) #fn main { #params = {}; #returns = #u64; #body: \n  #return panic (: value 42);\n}";
+    let source = "(#fn panic ((value #u64)) #u64 (#return value)) #fn main { #params = {}; #returns = #u64; #body: \n  #return panic ((value 42));\n}";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
     assert_eq!(
-        trees("(: name Example : fields (: value #u64))"),
+        trees("((name Example) (fields ((value #u64))))"),
         trees("((name Example) (fields ((value #u64))))")
     );
     assert_eq!(
-        trees("(: argument identity (: value 42))"),
+        trees("((argument identity ((value 42))))"),
         trees("((argument (#call identity ((value 42)))))")
     );
-    for call in ["danger {}", "(danger (:))", "danger (:)"] {
+    for call in ["danger {}", "(danger ())", "danger ()"] {
         let source = format!("(#unsafe-fn danger () () (#return ())) #fn main {{ #params = {{}}; #returns = (); #body = (#unsafe ({call}); #return ();); }}");
         assert!(lim::parse_program(&source)
             .unwrap_err()
             .contains("#unsafe-call"));
     }
-    for arguments in ["(: wrong 1)", "(: value 1 : value 2)", "(:)"] {
+    for arguments in ["((wrong 1))", "((value 1) (value 2))", "()"] {
         let source = format!("(#fn read ((value #u64)) #u64 (#return value)) (#fn main () #u64 (#return (read {arguments})))");
         assert!(lim::parse_program(&source).is_err(), "accepted {source}");
     }

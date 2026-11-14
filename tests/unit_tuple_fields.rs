@@ -42,7 +42,7 @@ fn zero_word_aggregate_locals_can_be_enum_payloads() {
         (
             "(#struct Empty () ())",
             "Empty",
-            "(#struct-literal Empty (:))",
+            "(#struct-literal Empty ())",
         ),
     ] {
         let source = format!(
@@ -51,7 +51,7 @@ fn zero_word_aggregate_locals_can_be_enum_payloads() {
           (#fn make () Outcome
             (#let empty {ty} {value}) (#return (Outcome.Done empty)))
           (#fn main () #u64
-            (#return (#match (#call make (:))
+            (#return (#match (#call make ())
               (#case (Outcome.Done value) (#block value 42u64)))))"
         );
         assert_eq!(run(&source).code(), Some(42), "{source}");

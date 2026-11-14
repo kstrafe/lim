@@ -1015,7 +1015,7 @@ mod tests {
     fn pending_retries_only_the_poll_and_keeps_exact_source() {
         let source = "(#fn work ((saved #u64)) #u64
           (#let answer #u64 (#await #u64 Child Pending Ready poll
-            (#call make (: value saved))))
+            (#call make ((value saved)))))
           (#return (#u64::add-wrap saved answer)))";
         let parsed = parsed(source);
         let environment = AsyncTypeEnvironment::default();
@@ -1028,7 +1028,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             source_text(source, await_node),
-            "(#await #u64 Child Pending Ready poll\n            (#call make (: value saved)))"
+            "(#await #u64 Child Pending Ready poll\n            (#call make ((value saved))))"
         );
         assert_eq!(
             await_node
@@ -1232,10 +1232,10 @@ mod tests {
         let source = "(#struct Values () ((first #u64) (second #u64)))
           (#fn combine ((first #u64) (second #u64)) #u64 (#return first))
           (#fn work () #u64
-            (#let record Values (#struct-literal Values (: second
-              (#await #u64 Child Pending Ready poll 2u64) : first 1u64)))
-            (#return (#call combine (: second
-              (#await #u64 Child Pending Ready poll 4u64) : first 3u64))))";
+            (#let record Values (#struct-literal Values ((second
+              (#await #u64 Child Pending Ready poll 2u64)) (first 1u64))))
+            (#return (#call combine ((second
+              (#await #u64 Child Pending Ready poll 4u64)) (first 3u64)))))";
         let parsed = parsed(source);
         let environment = crate::generator::frontend::async_type_environment(&parsed);
         let graph = build(&parsed[2], &environment).unwrap().unwrap();
@@ -1268,8 +1268,8 @@ mod tests {
     fn unsafe_call_arguments_keep_declaration_order_and_inferred_result_type() {
         let source = "(#unsafe-fn combine ((first #u64) (second #u64)) #u64 (#return first))
           (#fn work () #u64
-            (#return (#match (#unsafe (#unsafe-call combine (: second
-              (#await #u64 Child Pending Ready poll 4u64) : first 3u64)))
+            (#return (#match (#unsafe (#unsafe-call combine ((second
+              (#await #u64 Child Pending Ready poll 4u64)) (first 3u64))))
               (#case result result))))";
         let forms = parsed(source);
         let environment = crate::generator::frontend::async_type_environment(&forms);
@@ -1419,7 +1419,7 @@ mod tests {
     fn metadata_symbols_are_not_value_reads() {
         let source = "(#fn work ((field #u64) (parameter #u64) (record Record)) #u64
           (#let result #u64 (#await #u64 Child Pending Ready poll
-            (#call child (: parameter (#get record field)))))
+            (#call child ((parameter (#get record field))))))
           (#return result))";
         let forms = parsed(source);
         let environment = AsyncTypeEnvironment::default();

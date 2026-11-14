@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn entry_only_facts_cannot_authorize_suspended_storage() {
         let (program, declarations) =
-            prepare("(#fn work ((value #u64)) () (#call checkpoint (:)) (#return ()))");
+            prepare("(#fn work ((value #u64)) () (#call checkpoint ()) (#return ()))");
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];
         let types = LinearTypes::from_program(&program);
@@ -486,8 +486,8 @@ mod tests {
         let (program, declarations, facts) = prepare_staged(
             "(#fn work () ()
                (#let-mut owner #u64 1u64)
-               (#borrow-mut owner (#block (#call checkpoint (:)) ()))
-               (#call checkpoint (:)) (#return ()))",
+               (#borrow-mut owner (#block (#call checkpoint ()) ()))
+               (#call checkpoint ()) (#return ()))",
         );
         crate::CheckedProgram::validate(&program).unwrap();
         let body = &declarations.bodies["work"];
@@ -514,10 +514,10 @@ mod tests {
         let (program, declarations, facts) = prepare_staged(
             "(#struct Owner () ((value #u64)))
              (#fn work () ()
-               (#let-mut owner Owner (#struct-literal Owner (: value 1u64)))
+               (#let-mut owner Owner (#struct-literal Owner ((value 1u64))))
                (#let view (#ref-mut Owner) (#borrow-mut owner))
-               (#borrow (#get view value) (#block (#call checkpoint (:)) ()))
-               (#drop view) (#call checkpoint (:)) (#return ()))",
+               (#borrow (#get view value) (#block (#call checkpoint ()) ()))
+               (#drop view) (#call checkpoint ()) (#return ()))",
         );
         crate::CheckedProgram::validate(&program).unwrap();
         let body = &declarations.bodies["work"];
@@ -551,14 +551,14 @@ mod tests {
              (#fn consume ((value (#ref-mut Resource))) ()
                (#forget (#deref value)) (#return ()))
              (#fn initialize ((value (#ref-mut Resource))) ()
-               (#deref-set value (#struct-literal Resource (: value 42u64))) (#return ()))
+               (#deref-set value (#struct-literal Resource ((value 42u64)))) (#return ()))
              (#fn forward ((value (#ref-mut Resource))) ()
-               (#call initialize (: value value)) (#return ()))
+               (#call initialize ((value value))) (#return ()))
              (#fn work () ()
-               (#let-mut owner Resource (#struct-literal Resource (: value 1u64)))
+               (#let-mut owner Resource (#struct-literal Resource ((value 1u64))))
                (#let view (#ref-mut Resource) (#borrow-mut owner))
-               (#call consume (: value view)) (#call checkpoint (:))
-               (#call forward (: value view)) (#call checkpoint (:))
+               (#call consume ((value view))) (#call checkpoint ())
+               (#call forward ((value view))) (#call checkpoint ())
                (#drop view) (#forget owner) (#return ()))",
         );
         let body = &declarations.bodies["work"];
@@ -582,11 +582,11 @@ mod tests {
     fn callee_consumes_only_the_projected_linear_field() {
         let (program, declarations, facts) = prepare_staged(
             "(#struct Resource (#linear) ((value #u64)))
-             (#struct Pair () (: left-part Resource : right Resource))
+             (#struct Pair () ((left-part Resource) (right Resource)))
              (#fn consume ((value (#ref-mut Pair))) ()
                (#forget (#get value left-part)) (#return ()))
              (#fn work ((#mut owner Pair)) ()
-               (#call consume (: value (#borrow-mut owner))) (#call checkpoint (:))
+               (#call consume ((value (#borrow-mut owner)))) (#call checkpoint ())
                (#return (#unreachable)))",
         );
         let body = &declarations.bodies["work"];
@@ -610,12 +610,12 @@ mod tests {
              (#fn consume ((value (#ref-mut Resource))) ()
                (#forget (#deref value)) (#return ()))
              (#fn work ((choice #bool)) ()
-               (#let-mut left Resource (#struct-literal Resource (: value 1u64)))
-               (#let-mut right Resource (#struct-literal Resource (: value 2u64)))
+               (#let-mut left Resource (#struct-literal Resource ((value 1u64))))
+               (#let-mut right Resource (#struct-literal Resource ((value 2u64))))
                (#let selected (#ref-mut Resource)
                  (#if choice (#borrow-mut left) (#borrow-mut right)))
-               (#call consume (: value selected)) (#drop selected)
-               (#call checkpoint (:)) (#return (#unreachable)))",
+               (#call consume ((value selected))) (#drop selected)
+               (#call checkpoint ()) (#return (#unreachable)))",
         );
         let body = &declarations.bodies["work"];
         let types = LinearTypes::from_program(&program);
@@ -639,7 +639,7 @@ mod tests {
             "(#struct Resource (#linear) ((value #u64)))
              (#fn stop () () (#loop ()) (#return ()))
              (#fn work ((owner Resource)) ()
-               (#call stop (:)) (#call checkpoint (:)) (#return ()))",
+               (#call stop ()) (#call checkpoint ()) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let types = LinearTypes::from_program(&program);
@@ -652,7 +652,7 @@ mod tests {
         let (program, declarations) = prepare(
             "(#struct Resource (#linear) ((value #u64)))
              (#fn work ((owner Resource)) ()
-               (#call checkpoint (:)) (#call checkpoint (:)) (#return ()))",
+               (#call checkpoint ()) (#call checkpoint ()) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];
@@ -677,8 +677,8 @@ mod tests {
             "(#struct Resource (#linear) ((value #u64)))
              (#extern-fn #abi-c opaque ((owner (#ref-mut Resource))) ())
              (#fn work ((owner (#ref-mut Resource))) ()
-               (#unsafe (#unsafe-call opaque (: owner owner)))
-               (#call checkpoint (:)) (#return ()))",
+               (#unsafe (#unsafe-call opaque ((owner owner))))
+               (#call checkpoint ()) (#return ()))",
         );
         let types = LinearTypes::from_program(&program);
         let error = declarations
@@ -703,17 +703,17 @@ mod tests {
              (#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
              (#fn initialize ((value (#ref-mut Resource)) (complete #bool)) Outcome
                (#return (#if complete
-                 (#block (#deref-set value (#struct-literal Resource (: value 42u64))) (Outcome.Ready))
+                 (#block (#deref-set value (#struct-literal Resource ((value 42u64)))) (Outcome.Ready))
                  (Outcome.Pending))))
              (#fn work ((complete #bool)) ()
-               (#let-mut owner Resource (#struct-literal Resource (: value 1u64)))
+               (#let-mut owner Resource (#struct-literal Resource ((value 1u64))))
                (#let view (#ref-mut Resource) (#borrow-mut owner))
                (#forget (#deref view))
-               (#let outcome Outcome (#call initialize (: value view : complete complete)))
+               (#let outcome Outcome (#call initialize ((value view) (complete complete))))
                (#let before-match #bool false)
                (#match outcome
-                 (#case (Outcome.Ready) (#block (#call checkpoint (:)) (#forget (#deref view))))
-                 (#case (Outcome.Pending) (#call checkpoint (:))))
+                 (#case (Outcome.Ready) (#block (#call checkpoint ()) (#forget (#deref view))))
+                 (#case (Outcome.Pending) (#call checkpoint ())))
                (#drop view) (#return (#unreachable)))",
         );
         let body = &declarations.bodies["work"];
@@ -758,8 +758,8 @@ mod tests {
                (#let owner #u64 42u64)
                (#let-mut holder Choice (Choice.Full (#borrow owner)))
                (#let target (#ref-mut Choice) (#borrow-mut holder))
-               (#call checkpoint (:)) (#call clear (: target target)) (#drop target)
-               (#call checkpoint (:)) (#forget holder) (#return ()))",
+               (#call checkpoint ()) (#call clear ((target target))) (#drop target)
+               (#call checkpoint ()) (#forget holder) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let types = LinearTypes::from_program(&program);
@@ -777,7 +777,7 @@ mod tests {
         let (program, declarations) = prepare(
             "(#struct Resource (#linear) ((value #u64)))
              (#fn work ((unread Resource) (consumed Resource)) ()
-               (#forget consumed) (#call checkpoint (:)) (#return ()))",
+               (#forget consumed) (#call checkpoint ()) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];
@@ -804,9 +804,9 @@ mod tests {
             "(#struct Resource (#linear) ((value #u64)))
              (#fn work ((#mut owner Resource) (flag #bool)) ()
                (#if flag (#forget owner) ())
-               (#call checkpoint (:))
-               (#set owner (#struct-literal Resource (: value 1u64)))
-               (#call checkpoint (:)) (#forget owner) (#return ()))",
+               (#call checkpoint ())
+               (#set owner (#struct-literal Resource ((value 1u64))))
+               (#call checkpoint ()) (#forget owner) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];
@@ -834,8 +834,8 @@ mod tests {
         let (program, declarations) = prepare(
             "(#fn work () () (#let owner #u64 42u64)
                (#let view (#ref #u64) (#borrow owner))
-               (#call checkpoint (:)) (#drop view)
-               (#call checkpoint (:)) (#return ()))",
+               (#call checkpoint ()) (#drop view)
+               (#call checkpoint ()) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];
@@ -856,9 +856,9 @@ mod tests {
         let (program, declarations) = prepare(
             "(#struct Resource (#linear) ((value #u64)))
              (#fn work () ()
-               (#block (#let local Resource (#struct-literal Resource (: value 1u64)))
+               (#block (#let local Resource (#struct-literal Resource ((value 1u64))))
                  (#forget local))
-               (#call checkpoint (:)) (#return ()) (#call checkpoint (:)) (#return ()))",
+               (#call checkpoint ()) (#return ()) (#call checkpoint ()) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];
@@ -877,10 +877,10 @@ mod tests {
     fn partially_consumed_aggregate_is_never_a_full_loadable_value() {
         let (program, declarations) = prepare(
             "(#struct Resource (#linear) ((value #u64)))
-             (#struct Pair () (: left-part Resource : right Resource))
+             (#struct Pair () ((left-part Resource) (right Resource)))
              (#fn work ((owner-part Pair)) ()
                (#let extracted Resource (#get owner-part left-part))
-               (#call checkpoint (:))
+               (#call checkpoint ())
                (#forget extracted) (#forget owner-part) (#return ()))",
         );
         let body = &declarations.bodies["work"];
@@ -907,7 +907,7 @@ mod tests {
             "(#fn work ((raw (#ptr #u64))) ()
                (#let anchor #u64 0u64)
                (#let view (#ref #u64) (#unsafe (#ptr-borrow (#borrow anchor) raw)))
-               (#call checkpoint (:)) (#drop view) (#return ()))",
+               (#call checkpoint ()) (#drop view) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];
@@ -926,7 +926,7 @@ mod tests {
             "(#fn work ((unused (#ref #u64))) ()
                (#let owner #u64 42u64)
                (#let fresh (#ref #u64) (#borrow owner))
-               (#call checkpoint (:)) (#return ()))",
+               (#call checkpoint ()) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];
@@ -946,13 +946,13 @@ mod tests {
     #[test]
     fn releasing_one_reference_field_preserves_only_the_other_loan() {
         let (program, declarations) = prepare(
-            "(#struct Holder () (: first (#ref #u64) : second (#ref #u64)))
+            "(#struct Holder () ((first (#ref #u64)) (second (#ref #u64))))
              (#fn work () ()
                (#let first-owner #u64 1u64) (#let second-owner #u64 2u64)
                (#let holder Holder (#struct-literal Holder
-                 (: first (#borrow first-owner) : second (#borrow second-owner))))
+                 ((first (#borrow first-owner)) (second (#borrow second-owner)))))
                (#drop (#get holder first))
-               (#call checkpoint (:)) (#return ()))",
+               (#call checkpoint ()) (#return ()))",
         );
         let body = &declarations.bodies["work"];
         let flow = &declarations.flows["work"];

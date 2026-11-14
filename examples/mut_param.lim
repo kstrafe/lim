@@ -20,6 +20,6 @@
   #u64
   (
     #return
-    (#call increment (: value 41))
+    (#call increment ((value 41)))
   )
 )

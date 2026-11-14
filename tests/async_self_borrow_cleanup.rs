@@ -6,15 +6,15 @@ use std::{fs, process::Command, time::Duration};
 fn child_retaining_a_parent_borrow_cannot_be_exported_by_cleanup() {
     let source = "(#enum Child (#linear) ((Child.Holding (#tuple (#ref #u64) #u64))))
       (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-      (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Child.Holding (#tuple view count))
           (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Holding (#tuple view 1u64)))
             (ChildPoll.ChildReady (#deref view)))))))
-      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-        : function (#fn work () #u64
+      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+        (function (#fn work () #u64
           (#let owner #u64 40u64)
           (#let answer #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Holding (#tuple (#borrow owner) 0u64))))
-          (#forget owner) (#return answer))))";
+          (#forget owner) (#return answer)))))";
     let scratch = support::Scratch::new("async-retained-child-borrow");
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");
@@ -41,32 +41,32 @@ fn child_retaining_a_parent_borrow_cannot_be_exported_by_cleanup() {
 
 #[test]
 fn cancellation_clears_internal_handles_before_exporting_stationary_owners() {
-    let source = "(#struct Owner (#linear) (: amount #u64))
+    let source = "(#struct Owner (#linear) ((amount #u64)))
       (#enum Child () ((Child.Start #u64)))
       (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-      (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Child.Start count)
           (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Start 2u64)) (ChildPoll.ChildReady count))))))
-      (#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-        : function (#fn work () #u64
-          (#let owner Owner (#struct-literal Owner (: amount 40u64)))
+      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+        (function (#fn work () #u64
+          (#let owner Owner (#struct-literal Owner ((amount 40u64))))
           (#let view (#ref Owner) (#borrow owner))
           (#let result #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))
           (#let answer #u64 (#u64::add-wrap (#get view amount) result))
-          (#drop view) (#forget owner) (#return answer))))
+          (#drop view) (#forget owner) (#return answer)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let-mut task Work::Frame (#call work ()))
         (#let first Work::Poll (#call Work::poll
-          (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
         (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
-        (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup (: task pending)))
+        (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup ((task pending))))
         (#let amount #u64 (#match (#get cleanup owner)
           (#case Work::Frame::Cleanup::Owner.Empty (#unreachable))
           (#case (Work::Frame::Cleanup::Owner.Full extracted)
             (#block (#let answer #u64 (#get extracted amount)) (#forget extracted) answer))))
         (#forget cleanup)
-        (#let again Work::Frame::Cleanup (#call Work::Poll::cleanup (: task (#pin-borrow-mut task))))
+        (#let again Work::Frame::Cleanup (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))
         (#assert (#variant-is (#borrow (#get again owner)) Work::Frame::Cleanup::Owner.Empty))
         (#forget again) (#forget task) (#return (#u64::add-wrap amount 2u64)))";
     let scratch = support::Scratch::new("async-self-borrow-cleanup");

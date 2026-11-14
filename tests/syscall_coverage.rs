@@ -338,7 +338,7 @@ fn library_sources_use_native_services_without_ffi() {
 
 #[test]
 fn comments_strings_and_quoted_calls_are_not_runtime_evidence() {
-    let found = calls("// (#call comment (:)) (#unsafe-call unsafe-comment (:))\n\"(#call string (:)) (#unsafe-call unsafe-string (:))\"\n'(#call quoted (:))\n'(#unsafe-call unsafe-quoted (:))\n(#fn f () () (#call real (:)) (#unsafe (#unsafe-call unsafe-real (:))) (#return ()))");
+    let found = calls("// (#call comment (:)) (#unsafe-call unsafe-comment (:))\n\"(#call string (:)) (#unsafe-call unsafe-string (:))\"\n'(#call quoted ())\n'(#unsafe-call unsafe-quoted ())\n(#fn f () () (#call real ()) (#unsafe (#unsafe-call unsafe-real ())) (#return ()))");
     assert_eq!(
         found,
         BTreeSet::from(["real".to_owned(), "unsafe-real".to_owned()])

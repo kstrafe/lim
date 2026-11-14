@@ -21,7 +21,7 @@
       (#f32::gt
         (
           #index
-          (#call make (:))
+          (#call make ())
           1
         )
         2.0

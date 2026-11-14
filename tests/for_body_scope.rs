@@ -3,7 +3,7 @@ mod support;
 
 use std::{process::Command, time::Duration};
 
-const CONTEXT: &str = "(#struct Resource (#linear) (: value #u64)) ";
+const CONTEXT: &str = "(#struct Resource (#linear) ((value #u64))) ";
 
 fn run(body: &str) {
     let program = lim::parse_program(&format!("{CONTEXT} {body}")).unwrap();
@@ -33,7 +33,7 @@ fn step_consumes_the_body_owner_before_iteration_scope_ends() {
           (#let-mut index #u64 0u64) (#let-mut result #u64 0u64)
           (#label iteration (#for () (#u64::lt index 1u64)
             (#block (#set result (#get token value)) (#forget token) (#set index 1u64))
-            (#let token Resource (#struct-literal Resource (: value 42u64))) {control}))
+            (#let token Resource (#struct-literal Resource ((value 42u64)))) {control}))
           (#return result))"
         ));
     }
@@ -44,7 +44,7 @@ fn break_consumes_body_owner_without_running_step() {
     run("(#fn main () #u64
       (#let-mut result #u64 0u64)
       (#for () true (#assert false)
-        (#let token Resource (#struct-literal Resource (: value 42u64)))
+        (#let token Resource (#struct-literal Resource ((value 42u64))))
         (#set result (#get token value)) (#forget token) (#break))
       (#return result))");
 }
@@ -56,7 +56,7 @@ fn body_scope_still_requires_explicit_linear_consumption() {
             "{CONTEXT} (#fn main () #u64
           (#let-mut index #u64 0u64)
           (#for () (#u64::lt index 1u64) (#set index 1u64)
-            (#let token Resource (#struct-literal Resource (: value 42u64))) {tail})
+            (#let token Resource (#struct-literal Resource ((value 42u64)))) {tail})
           (#return 42u64))"
         );
         let program = lim::parse_program(&source).unwrap();
@@ -75,12 +75,12 @@ fn a_step_cannot_return_a_reference_to_a_body_local() {
 
 #[test]
 fn a_step_can_return_an_external_reference_without_losing_its_origin() {
-    run("(#fn select (: source (#ref #u64)) (#ref #u64)
+    run("(#fn select ((source (#ref #u64))) (#ref #u64)
       (#for () true (#return source) (#let body-ran #bool true))
       (#return source))
       (#fn main () #u64
         (#let owner #u64 42u64)
-        (#let view (#ref #u64) (#call select (: source (#borrow owner))))
+        (#let view (#ref #u64) (#call select ((source (#borrow owner)))))
         (#return (#deref view)))");
 }
 
@@ -89,7 +89,7 @@ fn continue_before_initialization_cannot_supply_the_step_owner() {
     let source = format!(
         "{CONTEXT} (#fn main () #u64
       (#for () true (#forget token)
-        (#continue) (#let token Resource (#struct-literal Resource (: value 42u64))))
+        (#continue) (#let token Resource (#struct-literal Resource ((value 42u64)))))
       (#return 42u64))"
     );
     let program = lim::parse_program(&source).unwrap();
@@ -117,9 +117,9 @@ fn nested_break_and_continue_cleanup_only_the_exited_body_scopes() {
           (#let-mut result #u64 0u64) (#let-mut count #u64 0u64)
           (#label outer (#for () (#u64::lt count 1u64)
             (#block (#set result (#get outer-token value)) (#forget outer-token) (#set count 1u64))
-            (#let outer-token Resource (#struct-literal Resource (: value 42u64)))
+            (#let outer-token Resource (#struct-literal Resource ((value 42u64))))
             (#for () true ()
-              (#let inner-token Resource (#struct-literal Resource (: value 1u64)))
+              (#let inner-token Resource (#struct-literal Resource ((value 1u64))))
               (#forget inner-token)
               {cleanup} {transfer})))
           (#return result))",

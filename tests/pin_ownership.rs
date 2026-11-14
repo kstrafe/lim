@@ -49,13 +49,13 @@ fn movable_heap_owners_initialize_native_scalars_and_large_aggregates() {
         ),
     ] {
         let source = format!(
-            "(#fn forward (: owner (#pin-own {ty})) (#pin-own {ty}) (#return owner))
+            "(#fn forward ((owner (#pin-own {ty}))) (#pin-own {ty}) (#return owner))
           (#fn main () #u64
           (#let pointer (#ptr-mut {ty}) (#unsafe (#linux-syscall (#ptr-mut {ty}) 9usize
             (0usize (#size-of {ty}) 3usize 34usize -1i64 0usize))))
           (#let owner (#pin-own {ty}) (#unsafe (#pin-own-of pointer {value})))
           (#let view (#pin-ref {ty}) (#pin-own-borrow owner))
-          (#let moved (#pin-own {ty}) (#call forward (: owner owner)))
+          (#let moved (#pin-own {ty}) (#call forward ((owner owner))))
           (#let result #u64 {read}) (#forget view)
           (#let raw (#ptr-mut {ty}) (#unsafe (#pin-release moved)))
           (#let status #i64 (#unsafe (#linux-syscall #i64 11usize (raw (#size-of {ty})))))
@@ -70,20 +70,20 @@ fn pin_owned_reference_enum_initialization_preserves_inactive_and_live_slots() {
     for initializer in ["Slot.Empty", "(Slot.Full (#borrow source))"] {
         let source = format!(
             "(#enum Slot () ((Slot.Empty) (Slot.Full (#ref #u64))))
-          (#struct Holder () (: slot Slot))
-          (#fn forward (: owner (#pin-own Holder)) (#pin-own Holder) (#return owner))
-          (#fn read (: view (#pin-ref Holder)) #u64
+          (#struct Holder () ((slot Slot)))
+          (#fn forward ((owner (#pin-own Holder))) (#pin-own Holder) (#return owner))
+          (#fn read ((view (#pin-ref Holder))) #u64
             (#return (#if (#variant-is (#pin-borrow (#get view slot)) Slot.Empty) 42u64
               (#deref (#deref (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get view slot)) Slot.Full)))))))
           (#fn main () #u64
             (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
               (0usize (#size-of Holder) 3usize 34usize -1i64 0usize))))
             (#let-mut source #u64 42u64)
-            (#let initial Holder (#struct-literal Holder (: slot {initializer})))
+            (#let initial Holder (#struct-literal Holder ((slot {initializer}))))
             (#let-mut owner (#pin-own Holder) (#unsafe (#pin-own-of pointer initial)))
             (#let view (#pin-ref Holder) (#pin-own-borrow owner))
-            (#let result #u64 (#call read (: view view))) (#forget view)
-            (#let moved (#pin-own Holder) (#call forward (: owner owner)))
+            (#let result #u64 (#call read ((view view)))) (#forget view)
+            (#let moved (#pin-own Holder) (#call forward ((owner owner))))
             (#let raw (#ptr-mut Holder) (#unsafe (#pin-release moved)))
             (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Holder)))) 0i64))
             (#return result))"

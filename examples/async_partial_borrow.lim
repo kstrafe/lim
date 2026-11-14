@@ -1,15 +1,15 @@
 // An array element stays borrowed while a disjoint struct field is moved,
 // restored after StepPoll.Pending, and the original index variable is changed.
-(#struct Resource (#linear) (: value #u64))
+(#struct Resource (#linear) ((value #u64)))
 
-(#struct Holder (#linear) (: data (#array #u64 2)))
+(#struct Holder (#linear) ((data (#array #u64 2))))
 
-(#struct Pair (#linear) (: left Resource : right Holder))
+(#struct Pair (#linear) ((left Resource) (right Holder)))
 
 (#enum Step (#linear) (Step.Start Step.Resume))
 
 (#enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ())))
-(#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return
     (#match task
       (#case Step.Start
@@ -18,36 +18,36 @@
         (StepPoll.Ready ())))))
 (#generate
   #async-fn-pinned
-  (: protocol WorkAwait : waker #u64 : function
+  ((protocol WorkAwait) (waker #u64) (function
   (#fn work () #u64
     (#let-mut pair Pair (#struct-literal Pair
-      (: left (#struct-literal Resource (: value 20u64))
-       : right (#struct-literal Holder
-         (: data (#array-of (#array #u64 2) 21u64 22u64))))))
+      ((left (#struct-literal Resource ((value 20u64))))
+       (right (#struct-literal Holder
+         ((data (#array-of (#array #u64 2) 21u64 22u64))))))))
     (#let-mut selection #usize 1usize)
     (#let view (#ref #u64) (#borrow (#index (#get (#get pair right) data) selection)))
     (#set selection 0usize)
     (#let moved Resource (#get pair left))
     (#let ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
     (#forget moved)
-    (#set-field pair left (#struct-literal Resource (: value 23u64)))
+    (#set-field pair left (#struct-literal Resource ((value 23u64))))
     (#let observed #u64 (#deref view))
     (#drop view)
     (#let result #u64 (#u64::add-wrap (#get (#get pair left) value) observed))
     (#forget pair)
-    (#return result))))
+    (#return result)))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut frame Work::Frame (#call work (:)))
+  (#let-mut frame Work::Frame (#call work ()))
   (#let
     first
     Work::Poll
-    (#call Work::poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+    (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
   (#let
     result
     #u64
-    (#match (#call Work::poll (: task pending : waker (#borrow waker)))
+    (#match (#call Work::poll ((task pending) (waker (#borrow waker))))
       (#case (Work::Poll.Ready value)
         value)
       (#case (Work::Poll.Pending unexpected)

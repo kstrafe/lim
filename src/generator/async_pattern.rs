@@ -483,7 +483,7 @@ mod tests {
             assert!(!text.contains(prohibited), "{text}");
         }
         let source = format!(
-            "{source}\n(#fn inspect-choice (: value (#pin-ref Choice)) #bool (#return {text}))"
+            "{source}\n(#fn inspect-choice ((value (#pin-ref Choice))) #bool (#return {text}))"
         );
         crate::CheckedProgram::validate(&crate::parse_program(&source).unwrap()).unwrap();
 

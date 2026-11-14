@@ -44,7 +44,7 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
     };
     let Some(Expr::List(arguments)) = items.get(2) else {
         return Err(format!(
-            "#generate {kind} requires a named argument list (: key value : ...)"
+            "#generate {kind} requires a named argument list ((key value) (...))"
         ));
     };
     if items.len() != 3 {
@@ -56,12 +56,12 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
     for argument in arguments {
         let Expr::List(pair) = argument else {
             return Err(format!(
-                "#generate {kind} arguments must be (: key value : ...)"
+                "#generate {kind} arguments must be ((key value) (...))"
             ));
         };
         let [Expr::Symbol(key), value] = pair.as_slice() else {
             return Err(format!(
-                "#generate {kind} arguments must be (: key value : ...)"
+                "#generate {kind} arguments must be ((key value) (...))"
             ));
         };
         if !keys.contains(&key.as_str()) {
@@ -174,7 +174,7 @@ mod tests {
             ("#async-fn", "Work::Task"),
             ("#async-fn-pinned", "Work::Frame"),
         ] {
-            let source = format!("(#generate {generator} (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 0u64))))");
+            let source = format!("(#generate {generator} ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#return 0u64)))))");
             let expression = crate::parse(&source).unwrap().remove(0).expr;
             let normalized = normalize_builtin_generator_invocation(&expression).unwrap();
             let Expr::List(items) = normalized else {

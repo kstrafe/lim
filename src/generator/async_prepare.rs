@@ -341,8 +341,8 @@ mod tests {
     fn work(body: &str) -> String {
         format!(
             "{CONTEXT}\n
-          (#generate #async-fn (: protocol work-await : waker #u64
-            : function (#fn work ((choose #bool)) #u64 {body})))"
+          (#generate #async-fn ((protocol work-await) (waker #u64)
+            (function (#fn work ((choose #bool)) #u64 {body}))))"
         )
     }
 
@@ -350,8 +350,8 @@ mod tests {
     fn source_ownership_and_emission_share_classification_for_all_functions() {
         let text = format!(
             "{}
-          (#generate #async-fn (: protocol OtherAwait : waker #u64
-            : function (#fn other () #u64 (#return 42u64))))",
+          (#generate #async-fn ((protocol OtherAwait) (waker #u64)
+            (function (#fn other () #u64 (#return 42u64)))))",
             work("1u64 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting 1u64)))")
         );
         let planning = prepare(&syntax(&text)).unwrap();
@@ -421,11 +421,11 @@ mod tests {
     fn async_calls_use_deferred_interfaces_not_fake_definitions() {
         let text = format!(
             "{CONTEXT}
-          (#generate #async-fn (: protocol FirstAwait : waker #u64 : function (#fn first ((seed #u64)) #u64
-              (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting seed))))))
-          (#generate #async-fn (: protocol SecondAwait : waker #u64 : function (#fn second ((seed #u64)) #u64
+          (#generate #async-fn ((protocol FirstAwait) (waker #u64) (function (#fn first ((seed #u64)) #u64
+              (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting seed)))))))
+          (#generate #async-fn ((protocol SecondAwait) (waker #u64) (function (#fn second ((seed #u64)) #u64
               (#return (#await First::Task First::Poll.Pending First::Poll.Ready First::poll
-                (#call first (: seed seed)))))))"
+                (#call first ((seed seed)))))))))"
         );
         let planning = prepare(&syntax(&text)).unwrap();
         assert_eq!(planning.functions.len(), 2);
@@ -445,9 +445,9 @@ mod tests {
     fn deferred_frame_has_no_fields_until_physical_layout_exists() {
         let text = format!(
             "{CONTEXT}
-          (#generate #async-fn (: protocol FirstAwait : waker #u64 : function (#fn first () #u64 (#return 1u64))))
-          (#generate #async-fn (: protocol SecondAwait : waker #u64 : function (#fn second ((child First::Task)) #u64
-              (#return (#get child state)))))"
+          (#generate #async-fn ((protocol FirstAwait) (waker #u64) (function (#fn first () #u64 (#return 1u64)))))
+          (#generate #async-fn ((protocol SecondAwait) (waker #u64) (function (#fn second ((child First::Task)) #u64
+              (#return (#get child state))))))"
         );
         let error = prepare(&syntax(&text)).err().unwrap();
         assert!(error.message.contains("deferred"), "{error:?}");
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn rejects_generated_name_conflicting_with_non_async_builtin() {
         let text = format!(
-            "(#generate #optional (: type #u64 : name Work::Task)) {}",
+            "(#generate #optional ((type #u64) (name Work::Task))) {}",
             work("(#return 1u64)")
         );
         let error = prepare(&syntax(&text)).err().unwrap();
@@ -467,12 +467,12 @@ mod tests {
     #[test]
     fn non_async_generated_declarations_are_available_before_source_planning() {
         let text = format!(
-            "(#generate #optional (: type #u64 : name Maybe)) {}",
+            "(#generate #optional ((type #u64) (name Maybe))) {}",
             work(
                 "
-          (#let optional Maybe (#call Maybe::construct (: value
-            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting 1u64)))))
-          (#return (#call Maybe::unwrap-or (: value optional : fallback 0u64)))"
+          (#let optional Maybe (#call Maybe::construct ((value
+            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting 1u64))))))
+          (#return (#call Maybe::unwrap-or ((value optional) (fallback 0u64))))"
             )
         );
         let planning = prepare(&syntax(&text)).unwrap();
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     fn duplicate_async_interfaces_fail_before_any_body_is_emitted() {
         let second =
-            work("(#return 2u64)").replace(": protocol work-await", ": protocol work-await-2");
+            work("(#return 2u64)").replace("(protocol work-await)", "(protocol work-await-2)");
         let text = format!("{}\n{}", work("(#return 1u64)"), &second[CONTEXT.len()..]);
         let error = prepare(&syntax(&text)).err().unwrap();
         assert!(error.message.contains("conflict"), "{error:?}");
@@ -509,9 +509,9 @@ mod tests {
             "{CONTEXT}
           (#gn produce ()
             `( (#generate #async-fn
-              (: protocol work-await : waker #u64
-               : function (#fn work ((seed #u64)) #u64
-                 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting seed)))))) ))
+              ((protocol work-await) (waker #u64)
+               (function (#fn work ((seed #u64)) #u64
+                 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting seed))))))) ))
           (#generate produce)"
         );
         let planning = prepare(&syntax(&text)).unwrap();

@@ -30,12 +30,12 @@ fn run(source: &str, stdout: &[u8]) {
 #[test]
 fn exact_reference_pointer_round_trip_preserves_nested_slice_contents() {
     let source = r#"
-      (#fn recover (: owner (#pin-ref (#slice #u64))) (#ref (#slice #u64))
+      (#fn recover ((owner (#pin-ref (#slice #u64)))) (#ref (#slice #u64))
         (#return (#unsafe (#ptr-borrow owner (#ref-ptr owner)))))
       (#fn main () #u64
         (#let backing (#array #u64 1) (#array-of (#array #u64 1) 42u64))
         (#let descriptor (#slice #u64) (#slice-of (#borrow backing)))
-        (#let view (#ref (#slice #u64)) (#call recover (: owner (#pin-shared descriptor))))
+        (#let view (#ref (#slice #u64)) (#call recover ((owner (#pin-shared descriptor)))))
         (#let answer #u64 (#deref (#slice-idx (#deref view) 0usize)))
         (#forget view) (#forget descriptor) (#forget backing) (#return answer))"#;
     run(source, &[]);
@@ -73,8 +73,8 @@ fn packed_scalar_references_access_exact_width_at_a_guard_page() {
         let expected = if ty == "#bool" { "true" } else { new };
         let source = format!(
             r#"
-          (#fn read (: view (#ref {ty})) {ty} (#return (#deref view)))
-          (#fn write (: view (#ref-mut {ty}) : value {ty}) () (#deref-set view value) (#return ()))
+          (#fn read ((view (#ref {ty}))) {ty} (#return (#deref view)))
+          (#fn write ((view (#ref-mut {ty})) (value {ty})) () (#deref-set view value) (#return ()))
           (#fn main () #u64
             (#let base (#ptr-mut {ty}) (#unsafe (#linux-syscall (#ptr-mut {ty}) 9usize
               (0usize 8192usize 3usize 34usize -1i64 0usize))))
@@ -85,11 +85,11 @@ fn packed_scalar_references_access_exact_width_at_a_guard_page() {
             (#unsafe (#ptr-write last {old}))
             (#let-mut anchor #u64 0u64)
             (#let view (#ref-mut {ty}) (#unsafe (#ptr-borrow-mut (#borrow-mut anchor) last)))
-            (#call write (: view view : value {new}))
+            (#call write ((view view) (value {new})))
             (#assert ({ty}.== (#unsafe (#ptr-read last)) {expected}))
             (#drop view)
             (#let shared (#ref {ty}) (#unsafe (#ptr-borrow (#borrow anchor) last)))
-            (#assert ({ty}.== (#call read (: view shared)) {expected}))
+            (#assert ({ty}.== (#call read ((view shared))) {expected}))
             (#drop shared)
             (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (base 8192usize))) 0i64))
             (#return 42u64))"#,
@@ -103,8 +103,8 @@ fn packed_scalar_references_access_exact_width_at_a_guard_page() {
 #[test]
 fn odd_byte_references_survive_calls_struct_storage_and_native_boundaries() {
     run(
-        r#"(#struct Holder () (: byte (#ref #u8)))
-      (#fn forward (: byte (#ref #u8)) (#ref #u8) (#return byte))
+        r#"(#struct Holder () ((byte (#ref #u8))))
+      (#fn forward ((byte (#ref #u8))) (#ref #u8) (#return byte))
       (#fn main () #u64
         (#let base (#ptr-mut #u8) (#unsafe (#linux-syscall (#ptr-mut #u8) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -114,8 +114,8 @@ fn odd_byte_references_survive_calls_struct_storage_and_native_boundaries() {
         (#unsafe (#ptr-write odd 120u8))
         (#unsafe (#ptr-write (#ptr-offset base 2usize) 100u8))
         (#let anchor #u64 0u64)
-        (#let view (#ref #u8) (#call forward (: byte (#unsafe (#ptr-borrow (#borrow anchor) odd)))))
-        (#let holder Holder (#struct-literal Holder (: byte view)))
+        (#let view (#ref #u8) (#call forward ((byte (#unsafe (#ptr-borrow (#borrow anchor) odd))))))
+        (#let holder Holder (#struct-literal Holder ((byte view))))
         (#assert (#u8::eq (#deref (#get holder byte)) 120u8))
         (#assert (#i64::eq (#unsafe (#linux-syscall #i64 1usize (1i64 (#get holder byte) 1usize))) 1i64))
         (#assert (#usize::eq (#unsafe (#asm #usize ((rax (#get holder byte))) "")) (#ptr-address odd)))
@@ -131,15 +131,15 @@ fn odd_byte_references_survive_calls_struct_storage_and_native_boundaries() {
 #[test]
 fn word_backed_narrow_locals_and_heap_fields_still_store_canonical_words() {
     run(
-        r#"(#struct Value () (: field #i8))
-      (#fn update (: field (#ref-mut #i8)) () (#deref-set field 42i8) (#return ()))
+        r#"(#struct Value () ((field #i8)))
+      (#fn update ((field (#ref-mut #i8))) () (#deref-set field 42i8) (#return ()))
       (#fn main () #u64
         (#let-mut local #i8 -1i8)
-        (#call update (: field (#borrow-mut local)))
+        (#call update ((field (#borrow-mut local))))
         (#assert (#i8::eq local 42i8))
         (#let pointer (#ptr-mut Value) (#unsafe (#linux-syscall (#ptr-mut Value) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
-        (#let-mut owner (#pin-own Value) (#unsafe (#pin-own-of pointer (#struct-literal Value (: field -1i8)))))
+        (#let-mut owner (#pin-own Value) (#unsafe (#pin-own-of pointer (#struct-literal Value ((field -1i8))))))
         (#let view (#pin-ref-mut Value) (#pin-own-borrow-mut owner))
         (#unsafe (#pin-write (#pin-borrow-mut (#get view field)) 42i8))
         (#assert (#i8::eq (#get view field) 42i8))

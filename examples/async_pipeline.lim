@@ -33,8 +33,8 @@
    (counter Count CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 counter-input)))
 
 (#fn main () #u64
-  (#call cancel-pipeline (: task (Pipeline.Begin (Count.Counting 100u64))))
+  (#call cancel-pipeline ((task (Pipeline.Begin (Count.Counting 100u64)))))
   (#let results Results
     (#call run-pipeline
-      (: pipeline-input (Pipeline.Begin (Count.Counting 2u64)) : counter-input (Count.Counting 3u64))))
+      ((pipeline-input (Pipeline.Begin (Count.Counting 2u64))) (counter-input (Count.Counting 3u64)))))
   (#return (#u64::add-wrap (#get results pipeline) (#get results counter))))

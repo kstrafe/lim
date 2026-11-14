@@ -15,7 +15,7 @@ fn source(length: usize, global: bool) -> String {
         String::new()
     };
     let extra = if global {
-        "(#assert (#u64::eq (#call inspect (: values (#unsafe table))) 42u64))"
+        "(#assert (#u64::eq (#call inspect ((values (#unsafe table)))) 42u64))"
     } else {
         ""
     };
@@ -24,17 +24,17 @@ fn source(length: usize, global: bool) -> String {
       (#type RowAlias Row) (#type Grid (#array RowAlias 2)) {declaration}
       (#fn make-row () RowAlias (#return {row}))
       (#fn make-grid () Grid (#return {grid}))
-      (#fn inspect (: values Grid) #u64
+      (#fn inspect ((values Grid)) #u64
         (#return (#u64::add-wrap (#index (#index values 0usize) 0usize)
           (#index (#index values 1usize) {last}usize))))
       (#fn main () #u64
         (#let local Grid {grid})
-        (#assert (#u64::eq (#call inspect (: values local)) 42u64))
+        (#assert (#u64::eq (#call inspect ((values local))) 42u64))
         (#let returned Grid (#call make-grid ()))
-        (#assert (#u64::eq (#call inspect (: values returned)) 42u64))
+        (#assert (#u64::eq (#call inspect ((values returned))) 42u64))
         (#let returned-row RowAlias (#call make-row ()))
         (#assert (#u64::eq (#index returned-row 0usize) 17u64)) {extra}
-        (#return (#call inspect (: values {grid}))))",
+        (#return (#call inspect ((values {grid})))))",
         last = length - 1
     )
 }

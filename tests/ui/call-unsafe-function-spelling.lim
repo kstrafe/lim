@@ -1,3 +1,3 @@
 (#unsafe-fn answer () #u64 (#return 42u64))
 (#fn main () #u64
-  (#return (#unsafe (#call answer (:)))))
+  (#return (#unsafe (#call answer ()))))

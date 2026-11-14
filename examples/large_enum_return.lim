@@ -18,5 +18,5 @@
 (#fn main () #u64
   (#let result LargeChoice
     (#call bounce-large-choice
-      (: choice (#call make-large-choice (:)))))
-  (#return (#call read-large-choice (: choice result))))
+      ((choice (#call make-large-choice ())))))
+  (#return (#call read-large-choice ((choice result)))))

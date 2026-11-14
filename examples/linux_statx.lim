@@ -37,11 +37,11 @@
         (#ptr-write (#ptr-offset memory 39usize) 107u8)
         ())))
   (#let fd #i64
-    (#unsafe (#unsafe-call linux-memfd-create (: name (#ptr-offset memory 8usize) : flags 1u32))))
+    (#unsafe (#unsafe-call linux-memfd-create ((name (#ptr-offset memory 8usize)) (flags 1u32)))))
   (#let bytes-written #i64
-    (#unsafe (#unsafe-call linux-write (: fd fd : source (#ptr-offset memory 32usize) : count 8usize))))
+    (#unsafe (#unsafe-call linux-write ((fd fd) (source (#ptr-offset memory 32usize)) (count 8usize)))))
   (#let statx-result #i64
-    (#unsafe (#unsafe-call linux-statx (: directory fd : path memory : flags 4096u32 : mask 2047u32 : metadata metadata))))
+    (#unsafe (#unsafe-call linux-statx ((directory fd) (path memory) (flags 4096u32) (mask 2047u32) (metadata metadata)))))
   (#let returned-mask #u64 (#unsafe (#ptr-read metadata)))
   (#let returned-size #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 5usize))))
@@ -52,30 +52,30 @@
       (#ptr-write (#ptr-offset memory 1usize) 0u8)
       ())))
   (#let stat-result #i64
-    (#unsafe (#unsafe-call linux-stat (: path memory : metadata metadata))))
+    (#unsafe (#unsafe-call linux-stat ((path memory) (metadata metadata)))))
   (#let stat-inode #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 1usize))))
   (#let lstat-result #i64
-    (#unsafe (#unsafe-call linux-lstat (: path memory : metadata metadata))))
+    (#unsafe (#unsafe-call linux-lstat ((path memory) (metadata metadata)))))
   (#let lstat-inode #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 1usize))))
   (#let fstatat-result #i64
-    (#unsafe (#unsafe-call linux-newfstatat (: directory fd : path (#ptr-offset memory 4usize) : metadata metadata : flags 4096i32))))
+    (#unsafe (#unsafe-call linux-newfstatat ((directory fd) (path (#ptr-offset memory 4usize)) (metadata metadata) (flags 4096i32)))))
   (#let fstatat-size #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 6usize))))
   (#let statfs-result #i64
-    (#unsafe (#unsafe-call linux-statfs (: path memory : statistics metadata))))
+    (#unsafe (#unsafe-call linux-statfs ((path memory) (statistics metadata)))))
   (#let statfs-type #u64 (#unsafe (#ptr-read metadata)))
   (#let fstatfs-result #i64
-    (#unsafe (#unsafe-call linux-fstatfs (: fd fd : statistics metadata))))
+    (#unsafe (#unsafe-call linux-fstatfs ((fd fd) (statistics metadata)))))
   (#let fstatfs-type #u64 (#unsafe (#ptr-read metadata)))
   (#let faccessat-result #i64
-    (#unsafe (#unsafe-call linux-faccessat (: directory -100i64 : path memory : mode 0i32))))
+    (#unsafe (#unsafe-call linux-faccessat ((directory -100i64) (path memory) (mode 0i32)))))
   (#let faccessat2-result #i64
-    (#unsafe (#unsafe-call linux-faccessat2 (: directory -100i64 : path memory : mode 0i32 : flags 0i32))))
+    (#unsafe (#unsafe-call linux-faccessat2 ((directory -100i64) (path memory) (mode 0i32) (flags 0i32)))))
   (#let invalid-access-flags #i64
-    (#unsafe (#unsafe-call linux-faccessat2 (: directory -100i64 : path memory : mode 0i32 : flags -1i32))))
-  (#let fd-closed #i64 (#call linux-close (: fd fd)))
+    (#unsafe (#unsafe-call linux-faccessat2 ((directory -100i64) (path memory) (mode 0i32) (flags -1i32)))))
+  (#let fd-closed #i64 (#call linux-close ((fd fd))))
   (#let memory-unmapped #i64
     (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
   (#let metadata-unmapped #i64

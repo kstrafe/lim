@@ -32,9 +32,9 @@
     (#u64::add-wrap
       (#index copied 0)
       (#u64::add-wrap
-        (#index (#call return-values (:)) 2)
+        (#index (#call return-values ()) 2)
         (#u64::add-wrap
-          (#call take (: values (#unsafe static-values) : point (#unsafe origin)))
+          (#call take ((values (#unsafe static-values)) (point (#unsafe origin))))
           (#u64::add-wrap
-            (#call read-choice (: choice copied-choice))
-            (#call read-choice (: choice (#call return-choice (:))))))))))
+            (#call read-choice ((choice copied-choice)))
+            (#call read-choice ((choice (#call return-choice ()))))))))))

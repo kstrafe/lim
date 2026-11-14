@@ -2902,7 +2902,7 @@ mod tests {
     #[test]
     fn unresolved_word_obligations_never_seed_parameter_capabilities() {
         let program = crate::parse_program(
-            "(#fn pinned (: frame (#pin-ref-mut #u64)) #u64 (#return (#deref frame)))
+            "(#fn pinned ((frame (#pin-ref-mut #u64))) #u64 (#return (#deref frame)))
              (#fn main () #u64 (#return 0u64))",
         )
         .unwrap();

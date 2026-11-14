@@ -405,7 +405,7 @@ mod tests {
     #[test]
     fn builtin_output_inherits_wrapper_but_not_unrelated_invocations() {
         let mut registry = Registry::default();
-        let invocation = crate::parse("(#generate #optional (: type #u64 : name Maybe))")
+        let invocation = crate::parse("(#generate #optional ((type #u64) (name Maybe)))")
             .unwrap()
             .remove(0)
             .expr;

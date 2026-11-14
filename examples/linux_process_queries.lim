@@ -13,8 +13,8 @@
 (#alias linux-tgkill = ../library/linux_x86_64.lim::linux-tgkill)
 
 (#fn main () #u64
-  (#let pid #i64 (#call linux-getpid (:)))
-  (#let tid #i64 (#call linux-gettid (:)))
+  (#let pid #i64 (#call linux-getpid ()))
+  (#let tid #i64 (#call linux-gettid ()))
   (#let max-fifo-priority #i64
     (#unsafe (#linux-syscall #i64 lINUX-SYS-SCHED-GET-PRIORITY-MAX (1usize))))
   (#let min-fifo-priority #i64
@@ -22,9 +22,9 @@
   (#let-mut cpu #u32 4294967295u32)
   (#let-mut node #u32 4294967295u32)
   (#let cpu-query #i64
-    (#unsafe (#unsafe-call linux-getcpu (: cpu (#addr-of-mut cpu) : node (#addr-of-mut node)))))
+    (#unsafe (#unsafe-call linux-getcpu ((cpu (#addr-of-mut cpu)) (node (#addr-of-mut node))))))
   (#let thread-signal-probe #i64
-    (#call linux-tgkill (: group pid : thread tid : signal 0i32)))
+    (#call linux-tgkill ((group pid) (thread tid) (signal 0i32))))
   (#let limits (#ptr-mut #u64)
     (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -34,25 +34,25 @@
   (#let open-files-maximum #u64
     (#unsafe (#ptr-read (#ptr-offset limits 1usize))))
   (#let scheduler #i64
-    (#call linux-sched-getscheduler (: pid 0i64)))
+    (#call linux-sched-getscheduler ((pid 0i64))))
   (#let interval-query #i64
-    (#unsafe (#unsafe-call linux-sched-rr-get-interval (: pid 0i64 : interval limits))))
+    (#unsafe (#unsafe-call linux-sched-rr-get-interval ((pid 0i64) (interval limits)))))
   (#let interval-seconds #u64 (#unsafe (#ptr-read limits)))
   (#let interval-nanoseconds #u64
     (#unsafe (#ptr-read (#ptr-offset limits 1usize))))
   (#let invalid-interval #i64
-    (#unsafe (#unsafe-call linux-sched-rr-get-interval (: pid -1i64 : interval limits))))
+    (#unsafe (#unsafe-call linux-sched-rr-get-interval ((pid -1i64) (interval limits)))))
   (#let attributes-query #i64
-    (#unsafe (#unsafe-call linux-sched-getattr (: pid 0i64 : attributes limits : size 56u32 : flags 0u32))))
+    (#unsafe (#unsafe-call linux-sched-getattr ((pid 0i64) (attributes limits) (size 56u32) (flags 0u32)))))
   (#let attributes-header #u64 (#unsafe (#ptr-read limits)))
   (#let attributes-size #u64 (#u64::bit-and attributes-header 4294967295u64))
   (#let attributes-policy #u64 (#u64::shr attributes-header 32u64))
   (#let invalid-attributes-size #i64
-    (#unsafe (#unsafe-call linux-sched-getattr (: pid 0i64 : attributes limits : size 8u32 : flags 0u32))))
+    (#unsafe (#unsafe-call linux-sched-getattr ((pid 0i64) (attributes limits) (size 8u32) (flags 0u32)))))
   (#let invalid-attributes-flags #i64
-    (#unsafe (#unsafe-call linux-sched-getattr (: pid 0i64 : attributes limits : size 56u32 : flags 1u32))))
+    (#unsafe (#unsafe-call linux-sched-getattr ((pid 0i64) (attributes limits) (size 56u32) (flags 1u32)))))
   (#let system-info #i64
-    (#unsafe (#unsafe-call linux-sysinfo (: buffer limits))))
+    (#unsafe (#unsafe-call linux-sysinfo ((buffer limits)))))
   (#let uptime #u64 (#unsafe (#ptr-read limits)))
   (#let total-ram #u64
     (#unsafe (#ptr-read (#ptr-offset limits 4usize))))

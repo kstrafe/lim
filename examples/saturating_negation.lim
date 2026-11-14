@@ -2,4 +2,4 @@
   (#return (#i8::sub-saturate value)))
 
 (#fn main () #u64
-  (#return (#as (#call saturate (: value -128)) #u64)))
+  (#return (#as (#call saturate ((value -128))) #u64)))

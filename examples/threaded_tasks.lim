@@ -13,9 +13,9 @@
 
 (#fn main () #u64
   (#return
-    (#match (#call Worker::spawn (: number-input (NumberTask.Number 42u64)))
+    (#match (#call Worker::spawn ((number-input (NumberTask.Number 42u64))))
       (#case (Worker::SpawnResult.Ok thread)
-        (#match (#call Worker::join (: task thread))
+        (#match (#call Worker::join ((task thread)))
           (#case (Worker::JoinResult.Ok results) (#get results number))
           (#case (Worker::JoinResult.Error (#tuple retry error)) (#panic))))
       (#case (Worker::SpawnResult.Error error) (#panic)))))

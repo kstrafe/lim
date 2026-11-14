@@ -258,20 +258,20 @@ mod tests {
         let source = format!(
             "(#enum Child () ((Child.Waiting #u64)))
           (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
-          (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+          (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
             (#return (#match task (#case (Child.Waiting value) (ChildPoll.Ready value)))))
-          (#fn touch (: value #u64 : target (#ref-mut #u64)) ()
+          (#fn touch ((value #u64) (target (#ref-mut #u64))) ()
             (#deref-set target value) (#return ()))
-          (#fn touch-before (: target (#ref-mut #u64) : value #u64) ()
+          (#fn touch-before ((target (#ref-mut #u64)) (value #u64)) ()
             (#deref-set target value) (#return ()))
           (#fn effect () #u64 (#return 1u64))
-          (#fn inspect (: items (#slice #u64)) #u64
+          (#fn inspect ((items (#slice #u64))) #u64
             (#return (#deref (#slice-idx items 0usize))))
-          (#struct Pair () (: left #u64 : right #u64))
-          (#fn touch-two (: left (#ref-mut #u64) : right (#ref-mut #u64)) ()
+          (#struct Pair () ((left #u64) (right #u64)))
+          (#fn touch-two ((left (#ref-mut #u64)) (right (#ref-mut #u64))) ()
             (#deref-set left 20u64) (#deref-set right 22u64) (#return ()))
-          (#generate #async-fn (: protocol WorkAwait : waker #u64
-            : function (#fn work () #u64 {body})))"
+          (#generate #async-fn ((protocol WorkAwait) (waker #u64)
+            (function (#fn work () #u64 {body}))))"
         );
         let prepared = crate::prepare_program_syntax(
             &source,
@@ -291,12 +291,12 @@ mod tests {
     #[test]
     fn borrow_after_await_has_one_operation_local_consumer() {
         let graph = graph("(#let-mut owner #u64 0u64)
-          (#call touch (: value (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Waiting 42u64)) : target (#borrow-mut owner)))
+          (#call touch ((value (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Waiting 42u64))) (target (#borrow-mut owner))))
           (#return owner)");
         assert_eq!(Plan::new(&graph).unwrap().borrows.len(), 1);
         let graph = super::tests::graph(
             "(#let-mut owner #u64 0u64)
-          (#call touch (: target (#borrow-mut owner) : value 42u64)) (#return owner)",
+          (#call touch ((target (#borrow-mut owner)) (value 42u64))) (#return owner)",
         );
         assert_eq!(Plan::new(&graph).unwrap().borrows.len(), 1);
     }
@@ -306,13 +306,13 @@ mod tests {
         for value in ["42u64", "(#literal #u64 42)"] {
             let direct = graph(&format!(
                 "(#let-mut owner #u64 0u64)
-                  (#call touch-before (: target (#borrow-mut owner) : value {value}))
+                  (#call touch-before ((target (#borrow-mut owner)) (value {value})))
                   (#return owner)"
             ));
             assert_eq!(Plan::new(&direct).unwrap().borrows.len(), 1, "{value}");
             let projected = graph(&format!(
-                "(#let-mut owner Pair (#struct-literal Pair (: left 0u64 : right 0u64)))
-                  (#call touch-before (: target (#borrow-mut (#get owner right)) : value {value}))
+                "(#let-mut owner Pair (#struct-literal Pair ((left 0u64) (right 0u64))))
+                  (#call touch-before ((target (#borrow-mut (#get owner right))) (value {value})))
                   (#return (#get owner right))"
             ));
             assert_eq!(Plan::new(&projected).unwrap().borrows.len(), 1, "{value}");
@@ -322,9 +322,9 @@ mod tests {
     #[test]
     fn borrows_before_await_or_effects_and_stored_handles_are_not_delayed() {
         for body in [
-            "(#call touch-before (: target (#borrow-mut owner) : value (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Waiting 42u64))))",
-            "(#call touch-before (: target (#borrow-mut owner) : value (#call effect ())))",
-            "(#let view (#ref-mut #u64) (#borrow-mut owner)) (#call touch (: target view : value 42u64))",
+            "(#call touch-before ((target (#borrow-mut owner)) (value (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Waiting 42u64)))))",
+            "(#call touch-before ((target (#borrow-mut owner)) (value (#call effect ()))))",
+            "(#let view (#ref-mut #u64) (#borrow-mut owner)) (#call touch ((target view) (value 42u64)))",
         ] {
             let graph = graph(&format!("(#let-mut owner #u64 0u64) {body} (#return owner)"));
             assert!(Plan::new(&graph).unwrap().borrows.is_empty(), "{body}");
@@ -333,8 +333,8 @@ mod tests {
 
     #[test]
     fn disjoint_projection_arguments_share_a_single_synchronous_call() {
-        let graph = graph("(#let-mut pair Pair (#struct-literal Pair (: left 0u64 : right 0u64)))
-          (#call touch-two (: left (#borrow-mut (#get pair left)) : right (#borrow-mut (#get pair right))))
+        let graph = graph("(#let-mut pair Pair (#struct-literal Pair ((left 0u64) (right 0u64))))
+          (#call touch-two ((left (#borrow-mut (#get pair left))) (right (#borrow-mut (#get pair right)))))
           (#return (#u64::add-wrap (#get pair left) (#get pair right)))");
         assert_eq!(Plan::new(&graph).unwrap().borrows.len(), 2);
     }
@@ -344,14 +344,14 @@ mod tests {
         let prefix = "(#let values (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))";
         let direct = graph(&format!(
             "{prefix}
-          (#return (#call inspect (: items (#borrow-slice values 0usize 2usize))))"
+          (#return (#call inspect ((items (#borrow-slice values 0usize 2usize)))))"
         ));
         let plan = Plan::new(&direct).unwrap();
         assert_eq!(plan.borrows.len(), 1);
         assert!(plan.borrows.values().all(|borrow| borrow.slice.is_some()));
         for body in [
-            "(#let items (#slice #u64) (#borrow-slice values)) (#return (#call inspect (: items items)))",
-            "(#return (#call inspect (: items (#if true (#borrow-slice values) (#borrow-slice values)))))",
+            "(#let items (#slice #u64) (#borrow-slice values)) (#return (#call inspect ((items items))))",
+            "(#return (#call inspect ((items (#if true (#borrow-slice values) (#borrow-slice values))))))",
         ] {
             let graph = graph(&format!("{prefix} {body}"));
             assert!(Plan::new(&graph).unwrap().borrows.is_empty(), "{body}");

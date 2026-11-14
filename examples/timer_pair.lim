@@ -8,30 +8,30 @@
 
 (#fn main () #u64
   (#let created-first TimerCreate1
-    (#call timer-reactor1-create (: nanoseconds 10000000u64)))
+    (#call timer-reactor1-create ((nanoseconds 10000000u64))))
   (#let-else (TimerCreate1.TimerCreated1 first) TimerCreate1 created-first (#unreachable))
   (#let created-second TimerCreate1
-    (#call timer-reactor1-create (: nanoseconds 20000000u64)))
+    (#call timer-reactor1-create ((nanoseconds 20000000u64))))
   (#let-else (TimerCreate1.TimerCreated1 second) TimerCreate1 created-second (#unreachable))
   (#let alias-wait TimerWait2
-    (#call timer-reactor2-wait (: first (#borrow first) : second (#borrow first))))
+    (#call timer-reactor2-wait ((first (#borrow first)) (second (#borrow first)))))
   (#assert (#match alias-wait
     (#case (TimerWait2.TimerPairFailed1 error) (#i64::eq error -22i64))
     (#case (TimerWait2.TimerPairWoken1 readiness) false)))
   (#let wake TimerWait2
-    (#call timer-reactor2-wait (: first (#borrow first) : second (#borrow second))))
+    (#call timer-reactor2-wait ((first (#borrow first)) (second (#borrow second)))))
   (#let-else (TimerWait2.TimerPairWoken1 readiness) TimerWait2 wake (#unreachable))
   (#let first-woke #bool (#get readiness first))
   (#let second-woke #bool (#get readiness second))
   (#assert (#bool::or first-woke second-woke))
   (#let first-poll TimerPoll1
-    (#call timer-reactor1-poll (: timer (#borrow first))))
+    (#call timer-reactor1-poll ((timer (#borrow first)))))
   (#let first-done #bool (#match first-poll
     (#case TimerPoll1.TimerPending1 false)
     (#case (TimerPoll1.TimerReady1 count) (#u64::eq count 1u64))
     (#case (TimerPoll1.TimerPollFailed1 error) (#unreachable))))
   (#let second-poll TimerPoll1
-    (#call timer-reactor1-poll (: timer (#borrow second))))
+    (#call timer-reactor1-poll ((timer (#borrow second)))))
   (#let second-done #bool (#match second-poll
     (#case TimerPoll1.TimerPending1 false)
     (#case (TimerPoll1.TimerReady1 count) (#u64::eq count 1u64))
@@ -40,23 +40,23 @@
     ()
     (#block
       (#let another TimerWait2
-        (#call timer-reactor2-wait (: first (#borrow first) : second (#borrow second))))
+        (#call timer-reactor2-wait ((first (#borrow first)) (second (#borrow second)))))
       (#assert (#match another
         (#case (TimerWait2.TimerPairWoken1 event-readiness)
           (#bool::or (#get event-readiness first) (#get event-readiness second)))
         (#case (TimerWait2.TimerPairFailed1 error) false)))
       (#if (#bool::not first-done)
-        (#assert (#match (#call timer-reactor1-poll (: timer (#borrow first)))
+        (#assert (#match (#call timer-reactor1-poll ((timer (#borrow first))))
           (#case (TimerPoll1.TimerReady1 count) (#u64::eq count 1u64))
           (#case _ false)))
         ())
       (#if (#bool::not second-done)
-        (#assert (#match (#call timer-reactor1-poll (: timer (#borrow second)))
+        (#assert (#match (#call timer-reactor1-poll ((timer (#borrow second))))
           (#case (TimerPoll1.TimerReady1 count) (#u64::eq count 1u64))
           (#case _ false)))
         ())))
-  (#let first-closed #i64 (#call timer-reactor1-cancel (: timer first)))
-  (#let second-closed #i64 (#call timer-reactor1-cancel (: timer second)))
+  (#let first-closed #i64 (#call timer-reactor1-cancel ((timer first))))
+  (#let second-closed #i64 (#call timer-reactor1-cancel ((timer second))))
   (#return (#if (#bool::and (#i64::eq first-closed 0i64)
                          (#i64::eq second-closed 0i64))
     42u64 0u64)))

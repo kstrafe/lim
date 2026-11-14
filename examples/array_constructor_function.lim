@@ -5,4 +5,4 @@
   (#return (#index values 2)))
 
 (#fn main () #u64
-  (#return (#call consume (: values (#call make (:))))))
+  (#return (#call consume ((values (#call make ()))))))

@@ -13,9 +13,9 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
     )
 }
 
-const SOURCE: &str = "(#struct Holder () (: link (#ref #u64)))
-  (#struct Frame () (: state #u64 : original (#array #u64 1) : moved (#array #u64 1)))
-  (#fn relay (: frame Frame : transfer #bool) Frame
+const SOURCE: &str = "(#struct Holder () ((link (#ref #u64))))
+  (#struct Frame () ((state #u64) (original (#array #u64 1)) (moved (#array #u64 1))))
+  (#fn relay ((frame Frame) (transfer #bool)) Frame
     (#let-mut result Frame frame)
     (#match (#get result state)
       (#case 1 (#if transfer (#block
@@ -25,7 +25,7 @@ const SOURCE: &str = "(#struct Holder () (: link (#ref #u64)))
         (#set-field result state 2u64)) ()))
       (#case _ (#unreachable)))
     (#return result))
-  (#fn read (: frame Frame) #u64
+  (#fn read ((frame Frame)) #u64
     (#let-mut local Frame frame)
     (#let owner (#pin-own Holder) (#match (#get local state)
       (#case 1 (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get local original)))))
@@ -40,17 +40,17 @@ const SOURCE: &str = "(#struct Holder () (: link (#ref #u64)))
     (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
     (#let-mut frame Frame (#struct-literal Frame
-      (: state 1u64 : original (#array-repeat 0u64) : moved (#array-repeat 0u64))))
+      ((state 1u64) (original (#array-repeat 0u64)) (moved (#array-repeat 0u64)))))
     (#unsafe (#word-write (#pin-own Holder) (#borrow-slice-mut (#get frame original))
-      (#pin-own-of pointer (#struct-literal Holder (: link (#borrow amount))))))
-    (#let forwarded Frame (#call relay (: frame frame : transfer #false)))
-    (#let answer #u64 (#call read (: frame forwarded)))
+      (#pin-own-of pointer (#struct-literal Holder ((link (#borrow amount)))))))
+    (#let forwarded Frame (#call relay ((frame frame) (transfer #false))))
+    (#let answer #u64 (#call read ((frame forwarded))))
     (#set amount 0u64) (#return answer))";
 
 #[test]
 fn conditional_pass_through_preserves_heap_owner_and_retained_reference() {
     compile(SOURCE).expect("a pass-through return preserves the checked heap-entry loan");
-    compile(&SOURCE.replace(": transfer #false", ": transfer #true"))
+    compile(&SOURCE.replace("(transfer #false)", "(transfer #true)"))
         .expect("a checked typed word transfer carries the pointee loan to the destination");
 }
 

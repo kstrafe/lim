@@ -24,11 +24,11 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)
-    (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+    (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
   (#let descriptors (#ptr-mut #i32)
     (#unsafe (#asm (#ptr-mut #i32) ((rdi memory)) "mov rax, rdi")))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-socketpair (: domain 1i32 : socket-type 2050i32 : protocol 0i32 : descriptors descriptors))) 0i64))
+    (#unsafe (#unsafe-call linux-socketpair ((domain 1i32) (socket-type 2050i32) (protocol 0i32) (descriptors descriptors)))) 0i64))
   (#let sender #i64 (#as (#unsafe (#ptr-read descriptors)) #i64))
   (#let receiver #i64
     (#as (#unsafe (#ptr-read (#ptr-offset descriptors 1usize))) #i64))
@@ -41,39 +41,39 @@
     (#ptr-write (#ptr-offset memory 400usize) 65u8)
     (#ptr-write (#ptr-offset memory 401usize) 66u8)
     (#ptr-write (#ptr-offset memory 418usize) 10u8)
-    (#unsafe-call initialize-message (: header outgoing : vector (#ptr-offset memory 320usize) : payload (#ptr-offset memory 400usize)))
-    (#unsafe-call initialize-message (: header outgoing-second : vector (#ptr-offset memory 336usize) : payload (#ptr-offset memory 401usize)))
-    (#unsafe-call initialize-message (: header incoming : vector (#ptr-offset memory 352usize) : payload received))
-    (#unsafe-call initialize-message (: header incoming-second : vector (#ptr-offset memory 368usize) : payload (#ptr-offset memory 417usize)))
+    (#unsafe-call initialize-message ((header outgoing) (vector (#ptr-offset memory 320usize)) (payload (#ptr-offset memory 400usize))))
+    (#unsafe-call initialize-message ((header outgoing-second) (vector (#ptr-offset memory 336usize)) (payload (#ptr-offset memory 401usize))))
+    (#unsafe-call initialize-message ((header incoming) (vector (#ptr-offset memory 352usize)) (payload received)))
+    (#unsafe-call initialize-message ((header incoming-second) (vector (#ptr-offset memory 368usize)) (payload (#ptr-offset memory 417usize))))
     ()))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-sendmsg (: fd -1i64 : message outgoing : flags 64i32))) -9i64))
+    (#unsafe (#unsafe-call linux-sendmsg ((fd -1i64) (message outgoing) (flags 64i32)))) -9i64))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-sendmmsg (: fd -1i64 : messages outgoing : count 2u32 : flags 64i32))) -9i64))
+    (#unsafe (#unsafe-call linux-sendmmsg ((fd -1i64) (messages outgoing) (count 2u32) (flags 64i32)))) -9i64))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-recvmsg (: fd receiver : message incoming : flags 64i32))) -11i64))
+    (#unsafe (#unsafe-call linux-recvmsg ((fd receiver) (message incoming) (flags 64i32)))) -11i64))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-sendmsg (: fd sender : message outgoing : flags 64i32))) 1i64))
+    (#unsafe (#unsafe-call linux-sendmsg ((fd sender) (message outgoing) (flags 64i32)))) 1i64))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-recvmsg (: fd receiver : message incoming : flags 64i32))) 1i64))
+    (#unsafe (#unsafe-call linux-recvmsg ((fd receiver) (message incoming) (flags 64i32)))) 1i64))
   (#assert (#u8::eq (#unsafe (#ptr-read received)) 65u8))
   (#unsafe (#ptr-write received 0u8))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-sendmmsg (: fd sender : messages outgoing : count 2u32 : flags 64i32))) 2i64))
-  (#assert (#u32::eq (#unsafe (#unsafe-call message-length (: header outgoing))) 1u32))
-  (#assert (#u32::eq (#unsafe (#unsafe-call message-length (: header outgoing-second))) 1u32))
+    (#unsafe (#unsafe-call linux-sendmmsg ((fd sender) (messages outgoing) (count 2u32) (flags 64i32)))) 2i64))
+  (#assert (#u32::eq (#unsafe (#unsafe-call message-length ((header outgoing)))) 1u32))
+  (#assert (#u32::eq (#unsafe (#unsafe-call message-length ((header outgoing-second)))) 1u32))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-recvmmsg (: fd receiver : messages incoming : count 2u32 : flags 64i32 : timeout (#ptr-null (#ptr-mut #i64))))) 2i64))
-  (#assert (#u32::eq (#unsafe (#unsafe-call message-length (: header incoming))) 1u32))
-  (#assert (#u32::eq (#unsafe (#unsafe-call message-length (: header incoming-second))) 1u32))
+    (#unsafe (#unsafe-call linux-recvmmsg ((fd receiver) (messages incoming) (count 2u32) (flags 64i32) (timeout (#ptr-null (#ptr-mut #i64)))))) 2i64))
+  (#assert (#u32::eq (#unsafe (#unsafe-call message-length ((header incoming)))) 1u32))
+  (#assert (#u32::eq (#unsafe (#unsafe-call message-length ((header incoming-second)))) 1u32))
   (#assert (#u8::eq (#unsafe (#ptr-read received)) 65u8))
   (#assert (#u8::eq (#unsafe (#ptr-read (#ptr-offset received 1usize))) 66u8))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-recvmmsg (: fd receiver : messages incoming : count 2u32 : flags 64i32 : timeout (#ptr-null (#ptr-mut #i64))))) -11i64))
+    (#unsafe (#unsafe-call linux-recvmmsg ((fd receiver) (messages incoming) (count 2u32) (flags 64i32) (timeout (#ptr-null (#ptr-mut #i64)))))) -11i64))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-write (: fd 1i64 : source received : count 3usize))) 3i64))
-  (#assert (#i64::eq (#call linux-close (: fd sender)) 0i64))
-  (#assert (#i64::eq (#call linux-close (: fd receiver)) 0i64))
+    (#unsafe (#unsafe-call linux-write ((fd 1i64) (source received) (count 3usize)))) 3i64))
+  (#assert (#i64::eq (#call linux-close ((fd sender))) 0i64))
+  (#assert (#i64::eq (#call linux-close ((fd receiver))) 0i64))
   (#assert (#i64::eq
-    (#unsafe (#unsafe-call linux-munmap (: address memory : length 4096usize))) 0i64))
+    (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))) 0i64))
   (#return 42u64))

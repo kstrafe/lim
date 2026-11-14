@@ -7,4 +7,4 @@
   (#let unit-value () ())
   (#let pair (#tuple () #u64) (#tuple (#tuple () #u64) (#clone unit-value) 40))
   (#let tagged Tagged (#struct-literal Tagged ((marker (#clone unit-value)) (value 1))))
-  (#return (#u64::add-wrap (#call consume (: marker unit-value)) (#u64::add-wrap (#get pair 1) (#get tagged value)))))
+  (#return (#u64::add-wrap (#call consume ((marker unit-value))) (#u64::add-wrap (#get pair 1) (#get tagged value)))))

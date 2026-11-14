@@ -9,4 +9,4 @@
       (#case (ApplicationError.ParseFailure number) number))))
 
 (#fn main () #u64
-  (#return (#call code (: error (ApplicationError.FileFailure 42u32)))))
+  (#return (#call code ((error (ApplicationError.FileFailure 42u32))))))

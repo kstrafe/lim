@@ -5,24 +5,24 @@
 
 (#std)
 
-(#fn print-trace (: text (#slice #char)) ()
+(#fn print-trace ((text (#slice #char))) ()
   (#let owned String
     (#match (#call String::from-chars (($ text)))
       (#case (StringCreateResult.StringCreated string) string)
       (#case (StringCreateResult.StringCreateFailed error) (#panic))))
   (#assert (#i64::eq (#println (#borrow owned)) 0i64))
-  (#call String::free (: string owned))
+  (#call String::free ((string owned)))
   (#return ()))
 
 (#fn third () ()
-  (#call print-trace (: text (#call-graph)))
+  (#call print-trace ((text (#call-graph))))
   (#return ()))
 
 (#fn second () ()
-  (#call third (:))
+  (#call third ())
   (#return ()))
 
 (#fn main () #u64
-  (#call second (:))
-  (#call second (:))
+  (#call second ())
+  (#call second ())
   (#return 42u64))

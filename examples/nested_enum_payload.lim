@@ -7,4 +7,4 @@
       (#case Boxed.Empty 0))))
 
 (#fn main () #u64
-  (#return (#call sum (: value (Boxed.Wrapped (#tuple (#tuple #u64 #u64) 10 22))))))
+  (#return (#call sum ((value (Boxed.Wrapped (#tuple (#tuple #u64 #u64) 10 22)))))))

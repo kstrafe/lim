@@ -9,9 +9,9 @@
   (#return (#unsafe globalOuter)))
 
 (#fn main () #u64
-  (#let local Outer (#call make (:)))
+  (#let local Outer (#call make ()))
   (#let local-values (#array #u64 7) (#get local values))
-  (#let returned-values (#array #u64 7) (#get (#call make (:)) values))
+  (#let returned-values (#array #u64 7) (#get (#call make ()) values))
   (#let static-values (#array #u64 7) (#get (#unsafe globalOuter) values))
   (#return (#u64::add-wrap
     (#index local-values 6u64)

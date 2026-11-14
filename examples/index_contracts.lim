@@ -3,7 +3,7 @@
   (#return (#usize::lt index 2usize)))
 
 (#fn widen-to-four ((index #usize)) ()
-  (#requires (#call under-two (: index index)))
+  (#requires (#call under-two ((index index))))
   (#ensures (#usize::lt index 4usize))
   (#return ()))
 
@@ -14,14 +14,14 @@
 
 (#fn read-first-two ((values (#ref (#array #u64 4))) (index #usize)) #u64
   (#return
-    (#if-valid (#call under-two (: index index))
+    (#if-valid (#call under-two ((index index)))
       (#block
-        (#call widen-to-four (: index index))
+        (#call widen-to-four ((index index)))
         (#let checked Index4 index)
-        (#call read-four (: values values : index checked)))
+        (#call read-four ((values values) (index checked))))
       0u64)))
 
 (#fn main () #u64
   (#let values (#array #u64 4)
     (#array (#array #u64 4) 10u64 42u64 30u64 40u64))
-  (#return (#call read-first-two (: values (#borrow values) : index 1usize))))
+  (#return (#call read-first-two ((values (#borrow values)) (index 1usize)))))

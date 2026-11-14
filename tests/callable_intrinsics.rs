@@ -42,11 +42,11 @@ fn scalar_intrinsics_have_normal_named_calls_and_typed_results() {
       (#let left #u64 20u64)
       (#let right #u64 22u64)
       (#let sum #u64 (#call #u64::add-wrap (($ right) ($ left))))
-      (#assert (#call #u64::eq (: right 42u64 : left sum)))
-      (#assert (#call #bool::not (: value false)))
-      (#assert (#call #u8::eq (: left (#call #u8::not (: value 255u8)) : right 0u8)))
-      (#assert (#call #i128::lt (: left -2i128 : right 1i128)))
-      (#assert (#call #f64::eq (: left (#call #f64::mul (: left 3.0f64 : right 2.0f64)) : right 6.0f64)))
+      (#assert (#call #u64::eq ((right 42u64) (left sum))))
+      (#assert (#call #bool::not ((value false))))
+      (#assert (#call #u8::eq ((left (#call #u8::not ((value 255u8)))) (right 0u8))))
+      (#assert (#call #i128::lt ((left -2i128) (right 1i128))))
+      (#assert (#call #f64::eq ((left (#call #f64::mul ((left 3.0f64) (right 2.0f64)))) (right 6.0f64))))
       (#return sum))"#;
     assert_eq!(execute(source, false), 42);
 }
@@ -60,20 +60,20 @@ fn intrinsic_arguments_execute_once_in_parameter_order() {
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let result #u64 (#call #u64::add-wrap
-          (: right (#call next (: counter (#borrow-mut counter) : expected 1u64))
-           : left (#call next (: counter (#borrow-mut counter) : expected 0u64)))))
+          ((right (#call next ((counter (#borrow-mut counter)) (expected 1u64))))
+           (left (#call next ((counter (#borrow-mut counter)) (expected 0u64)))))))
         (#assert (#u64::eq counter 2u64)) (#return result))"#;
     assert_eq!(execute(source, false), 42);
 }
 
 #[test]
 fn array_get_can_return_copy_aggregates() {
-    let source = r#"(#struct Row () (: a #u64 : b #u64 : c #u64 : d #u64 : e #u64 : f #u64 : g #u64 : h #u64))
-      (#generate #array (: element Row : length 1 : name Rows))
+    let source = r#"(#struct Row () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64) (h #u64)))
+      (#generate #array ((element Row) (length 1) (name Rows)))
       (#fn main () #u64
-        (#let values Rows (#array-of (#struct-literal Row (: a 1 : b 2 : c 3 : d 4 : e 5 : f 6 : g 7 : h 42))))
-        (#let index #usize 0usize) (#assume (#call #usize::lt (: left index : right 1usize)))
-        (#let row Row (#call Rows::get (: values (#borrow values) : index index)))
+        (#let values Rows (#array-of (#struct-literal Row ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7) (h 42)))))
+        (#let index #usize 0usize) (#assume (#call #usize::lt ((left index) (right 1usize))))
+        (#let row Row (#call Rows::get ((values (#borrow values)) (index index))))
         (#return (#get row h)))"#;
     for checks in [false, true] {
         assert_eq!(execute(source, checks), 42);
@@ -84,7 +84,7 @@ fn array_get_can_return_copy_aggregates() {
 fn generated_array_artifacts_and_provenance_survive_cache_hits() {
     let scratch = support::Scratch::new("array-api-artifact");
     let entry = scratch.path().join("main.lim");
-    let source = "(#generate #array (: length 4 : name Array4 : element #u64)) (#require-generated Array4 #array (Array4::get Array4::borrow Array4::prove-in-bounds))";
+    let source = "(#generate #array ((length 4) (name Array4) (element #u64))) (#require-generated Array4 #array (Array4::get Array4::borrow Array4::prove-in-bounds))";
     for _ in 0..2 {
         lim::check_source_with_generated_sources(
             source,
@@ -115,15 +115,15 @@ fn generated_array_artifacts_and_provenance_survive_cache_hits() {
 #[test]
 fn intrinsic_argument_names_types_and_modes_are_checked() {
     for expression in [
-        "(#call #usize::lt (: left 1usize))",
-        "(#call #usize::lt (: left 1usize : right 2usize : wrong 0usize))",
-        "(#call #usize::lt (: left 1usize : left 2usize))",
-        "(#call #usize::lt (: left 1usize : right false))",
-        "(#call #u64::add (: left 1u64 : right 2u64))",
-        "(#call #u64::eq-wrap (: left 1u64 : right 2u64))",
-        "(#call #bool::not (: value 1u64))",
-        "(#call #bool::and (: left true : right true))",
-        "(#unsafe (#unsafe-call #usize::lt (: left 1usize : right 2usize)))",
+        "(#call #usize::lt ((left 1usize)))",
+        "(#call #usize::lt ((left 1usize) (right 2usize) (wrong 0usize)))",
+        "(#call #usize::lt ((left 1usize) (left 2usize)))",
+        "(#call #usize::lt ((left 1usize) (right false)))",
+        "(#call #u64::add ((left 1u64) (right 2u64)))",
+        "(#call #u64::eq-wrap ((left 1u64) (right 2u64)))",
+        "(#call #bool::not ((value 1u64)))",
+        "(#call #bool::and ((left true) (right true)))",
+        "(#unsafe (#unsafe-call #usize::lt ((left 1usize) (right 2usize))))",
     ] {
         let source = format!("(#fn main () () {expression} (#return ()))");
         assert!(check(&source).is_err(), "accepted {expression}");
@@ -133,19 +133,19 @@ fn intrinsic_argument_names_types_and_modes_are_checked() {
 #[test]
 fn intrinsic_calls_and_direct_comparisons_share_exact_claims() {
     let source = r#"(#fn read ((values (#ref (#array #u64 4))) (index #usize)) #u64
-      (#requires (#call #usize::lt (: right 4usize : left index)))
+      (#requires (#call #usize::lt ((right 4usize) (left index))))
       (#return (#index-proven values index)))
       (#fn use ((values (#ref (#array #u64 4))) (index #usize)) #u64
         (#return (#if-valid (#usize::lt index 4usize)
-          (#call read (: values values : index index)) 0u64)))"#;
+          (#call read ((values values) (index index))) 0u64)))"#;
     check(source).unwrap();
     let reversed = source
         .replace(
             "(#usize::lt index 4usize)",
-            "(#call #usize::lt (: left index : right 4usize))",
+            "(#call #usize::lt ((left index) (right 4usize)))",
         )
         .replace(
-            "(#requires (#call #usize::lt (: right 4usize : left index)))",
+            "(#requires (#call #usize::lt ((right 4usize) (left index))))",
             "(#requires (#usize::lt index 4usize))",
         );
     check(&reversed).unwrap();
@@ -164,7 +164,7 @@ fn generated_array_get_uses_an_explicit_comparison_contract() {
         assert_eq!(execute(source, checks), 42);
     }
     assert!(
-        check(&source.replace("        (#call widen (: index index))\n", ""))
+        check(&source.replace("        (#call widen ((index index)))\n", ""))
             .unwrap_err()
             .contains("missing evidence")
     );
@@ -172,15 +172,15 @@ fn generated_array_get_uses_an_explicit_comparison_contract() {
 
 #[test]
 fn generated_validator_needs_its_explicit_claim_bridge() {
-    let source = r#"(#generate #array (: element #u64 : length 4 : name Values))
+    let source = r#"(#generate #array ((element #u64) (length 4) (name Values)))
       (#fn main () #u64
         (#let values Values (#array-of 1 42 3 4)) (#let index #usize 1usize)
-        (#return (#if-valid (#call Values::in-bounds (: index index))
-          (#block (#call Values::prove-in-bounds (: index index))
-            (#call Values::get (: values (#borrow values) : index index))) 0u64)))"#;
+        (#return (#if-valid (#call Values::in-bounds ((index index)))
+          (#block (#call Values::prove-in-bounds ((index index)))
+            (#call Values::get ((values (#borrow values)) (index index)))) 0u64)))"#;
     assert_eq!(execute(source, true), 42);
     assert!(
-        check(&source.replace("(#call Values::prove-in-bounds (: index index))", ""))
+        check(&source.replace("(#call Values::prove-in-bounds ((index index)))", ""))
             .unwrap_err()
             .contains("missing evidence")
     );
@@ -188,19 +188,19 @@ fn generated_validator_needs_its_explicit_claim_bridge() {
 
 #[test]
 fn generated_borrows_keep_mutation_and_ownership_checks() {
-    let source = r#"(#generate #array (: element #u64 : length 2 : name Values))
+    let source = r#"(#generate #array ((element #u64) (length 2) (name Values)))
       (#fn main () #u64
         (#let-mut values Values (#array-of 1 2)) (#let index #usize 1usize)
-        (#return (#if-valid (#call #usize::lt (: left index : right 2usize))
+        (#return (#if-valid (#call #usize::lt ((left index) (right 2usize)))
           (#block
-            (#let slot (#ref-mut #u64) (#call Values::borrow-mut (: values (#borrow-mut values) : index index)))
+            (#let slot (#ref-mut #u64) (#call Values::borrow-mut ((values (#borrow-mut values)) (index index))))
             (#deref-set slot 42u64) (#drop slot)
-            (#call Values::get (: values (#borrow values) : index index))) 0u64)))"#;
+            (#call Values::get ((values (#borrow values)) (index index)))) 0u64)))"#;
     assert_eq!(execute(source, false), 42);
     assert_eq!(execute(source, true), 42);
-    let overlap = source.replace("(#deref-set slot 42u64) (#drop slot)", "(#let shared (#ref #u64) (#call Values::borrow (: values (#borrow values) : index index))) (#deref-set slot 42u64) (#drop shared)");
+    let overlap = source.replace("(#deref-set slot 42u64) (#drop slot)", "(#let shared (#ref #u64) (#call Values::borrow ((values (#borrow values)) (index index)))) (#deref-set slot 42u64) (#drop shared)");
     assert!(check(&overlap).is_err());
-    let linear = "(#struct Resource (#linear) ((value #u64))) (#generate #array (: element Resource : length 2 : name Resources))";
+    let linear = "(#struct Resource (#linear) ((value #u64))) (#generate #array ((element Resource) (length 2) (name Resources)))";
     check(linear).unwrap();
     let program = lim::parse_program(linear).unwrap();
     assert!(!program.items.iter().any(|item| matches!(item, lim::Item::Function(function) if function.name.ends_with("Resources::get"))));
@@ -211,10 +211,10 @@ fn generated_borrows_keep_mutation_and_ownership_checks() {
 fn generated_array_lengths_are_literals_and_empty_bounds_stay_empty() {
     for length in ["-1", "false", "unknown", "1.5"] {
         assert!(check(&format!(
-            "(#generate #array (: element #u64 : length {length} : name Values))"
+            "(#generate #array ((element #u64) (length {length}) (name Values)))"
         ))
         .is_err());
     }
-    let source = "(#generate #array (: element #u64 : length 0 : name Empty)) (#fn read ((values (#ref Empty)) (index #usize)) #u64 (#return (#call Empty::get (: values values : index index))))";
+    let source = "(#generate #array ((element #u64) (length 0) (name Empty))) (#fn read ((values (#ref Empty)) (index #usize)) #u64 (#return (#call Empty::get ((values values) (index index)))))";
     assert!(check(source).unwrap_err().contains("missing evidence"));
 }

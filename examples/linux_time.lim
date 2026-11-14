@@ -18,23 +18,23 @@
   (#let monotonic-nanoseconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 1usize))))
   (#let clock-resolution #i64
-    (#unsafe (#unsafe-call linux-clock-getres (: clock-id 1i64 : time (#ptr-offset memory 2usize)))))
+    (#unsafe (#unsafe-call linux-clock-getres ((clock-id 1i64) (time (#ptr-offset memory 2usize))))))
   (#let resolution-seconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 2usize))))
   (#let resolution-nanoseconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 3usize))))
   (#let wall-clock #i64
-    (#unsafe (#unsafe-call linux-gettimeofday (: time (#ptr-offset memory 4usize) : timezone (#ptr-null (#ptr-mut #i64))))))
+    (#unsafe (#unsafe-call linux-gettimeofday ((time (#ptr-offset memory 4usize)) (timezone (#ptr-null (#ptr-mut #i64)))))))
   (#let wall-seconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 4usize))))
   (#let wall-microseconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 5usize))))
   (#let time-result #i64
-    (#unsafe (#unsafe-call linux-time (: output (#ptr-offset memory 6usize)))))
+    (#unsafe (#unsafe-call linux-time ((output (#ptr-offset memory 6usize))))))
   (#let time-output #i64
     (#unsafe (#ptr-read (#ptr-offset memory 6usize))))
   (#let process-times #i64
-    (#unsafe (#unsafe-call linux-times (: output (#ptr-offset memory 8usize)))))
+    (#unsafe (#unsafe-call linux-times ((output (#ptr-offset memory 8usize))))))
   (#let user-ticks #i64
     (#unsafe (#ptr-read (#ptr-offset memory 8usize))))
   (#let system-ticks #i64
@@ -50,7 +50,7 @@
         (#ptr-write (#ptr-offset memory 13usize) 0i64)
         ())))
   (#let sleep-result #i64
-    (#unsafe (#unsafe-call linux-clock-nanosleep (: clock-id 1i64 : flags 0i32 : request (#ptr-offset memory 12usize) : remaining (#ptr-offset memory 14usize)))))
+    (#unsafe (#unsafe-call linux-clock-nanosleep ((clock-id 1i64) (flags 0i32) (request (#ptr-offset memory 12usize)) (remaining (#ptr-offset memory 14usize))))))
   (#let unmapped #i64
     (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
   (#let time-ok #bool

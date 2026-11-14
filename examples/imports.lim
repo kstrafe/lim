@@ -6,5 +6,5 @@
 (#fn main () #u64
   (#return
     (#u64::add-wrap
-      (#call widget-value (: widget (#struct-literal Widget ((value 20)))))
-      (#call external@widget-value (: widget (#struct-literal external@Widget ((value 22))))))))
+      (#call widget-value ((widget (#struct-literal Widget ((value 20))))))
+      (#call external@widget-value ((widget (#struct-literal external@Widget ((value 22)))))))))

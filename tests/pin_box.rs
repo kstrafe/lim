@@ -15,7 +15,7 @@ fn allocator_owned_pin_box_runs_and_generated_code_is_inspectable() {
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
     let source = example_source();
-    assert!(source.contains(": allocator SystemAllocator::Allocator"));
+    assert!(source.contains("(allocator SystemAllocator::Allocator)"));
     assert!(!source.contains("Arena"));
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(
@@ -67,7 +67,7 @@ fn derived_pin_prevents_destroying_its_box() {
     let scratch = support::Scratch::new("pin-box-borrow");
     let input = scratch.path().join("main.lim");
     let original = example_source();
-    let destroy = "(#call PinU64Box::destroy (: owner moved-owner))";
+    let destroy = "(#call PinU64Box::destroy ((owner moved-owner)))";
     let read = "(#let value #u64";
     assert_eq!(original.matches(destroy).count(), 1);
     assert_eq!(original.matches(read).count(), 1);
@@ -99,7 +99,7 @@ fn a_pointee_view_retains_the_allocator_after_leaking_the_movable_owner() {
     let source = include_str!("fixtures/pin_box_arena.lim")
         .replace("../../library/", &format!("{}/library/", env!("CARGO_MANIFEST_DIR")))
         .replace("(#let arena Arena", "(#let-mut arena Arena")
-        .replace("          (#call PinU64Box::destroy (: owner moved-owner))", "")
+        .replace("          (#call PinU64Box::destroy ((owner moved-owner)))", "")
         .replace("          (#let value #u64 (#unsafe (#pin-read value-reference)))", "          (#forget moved-owner)\n          (#set-field arena identity 2u64)\n          (#let value #u64 (#unsafe (#pin-read value-reference)))");
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(
@@ -132,7 +132,7 @@ fn mutable_native_heap_pin_reference_reads_in_place() {
         .replace(
             "(#drop value-reference)",
             "(#drop value-reference)
-          (#let-mut pin (#pin-ref-mut #u64) (#call PinU64Box::borrow-mut (: owner (#borrow-mut moved-owner))))
+          (#let-mut pin (#pin-ref-mut #u64) (#call PinU64Box::borrow-mut ((owner (#borrow-mut moved-owner)))))
           (#let changed #u64 (#unsafe (#pin-read pin)))
           (#assert (#u64::eq changed 42u64)) (#forget pin)",
         );

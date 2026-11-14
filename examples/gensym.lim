@@ -1,5 +1,5 @@
 (#gn-fn emit-function (name temporary)
-  `((#fn ,name (: task #u64) #u64
+  `((#fn ,name ((task #u64)) #u64
      (#let ,temporary #u64 task)
      (#return (#u64::add-wrap task ,temporary)))))
 
@@ -11,5 +11,5 @@
 (#generate make-function first)
 
 (#fn main () #u64
-  (#assert (#u64::eq (#call second (: task 21u64)) 42u64))
-  (#return (#call first (: task 21u64))))
+  (#assert (#u64::eq (#call second ((task 21u64))) 42u64))
+  (#return (#call first ((task 21u64)))))

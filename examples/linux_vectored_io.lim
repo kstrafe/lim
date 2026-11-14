@@ -34,41 +34,41 @@
     (#ptr-write (#ptr-offset data 17usize) 66u8)
     (#ptr-write (#ptr-offset data 18usize) 67u8)
     (#ptr-write (#ptr-offset data 19usize) 68u8)
-    (#unsafe-call set-iovec (: slot vectors : base (#ptr-offset data 16usize) : length 2usize))
-    (#unsafe-call set-iovec (: slot (#ptr-offset vectors 16usize) : base (#ptr-offset data 18usize) : length 2usize))
+    (#unsafe-call set-iovec ((slot vectors) (base (#ptr-offset data 16usize)) (length 2usize)))
+    (#unsafe-call set-iovec ((slot (#ptr-offset vectors 16usize)) (base (#ptr-offset data 18usize)) (length 2usize)))
     ()))
   (#let fd #i64
-    (#unsafe (#unsafe-call linux-memfd-create (: name data : flags 1u32))))
+    (#unsafe (#unsafe-call linux-memfd-create ((name data) (flags 1u32)))))
   (#let gathered #i64
-    (#unsafe (#unsafe-call linux-writev (: fd fd : iovecs vectors : count 2i32))))
+    (#unsafe (#unsafe-call linux-writev ((fd fd) (iovecs vectors) (count 2i32)))))
   (#let invalid-vector-count #i64
-    (#unsafe (#unsafe-call linux-writev (: fd fd : iovecs vectors : count -1i32))))
+    (#unsafe (#unsafe-call linux-writev ((fd fd) (iovecs vectors) (count -1i32)))))
   (#unsafe (#block
-    (#unsafe-call set-iovec (: slot vectors : base (#ptr-offset data 32usize) : length 2usize))
-    (#unsafe-call set-iovec (: slot (#ptr-offset vectors 16usize) : base (#ptr-offset data 34usize) : length 2usize))
+    (#unsafe-call set-iovec ((slot vectors) (base (#ptr-offset data 32usize)) (length 2usize)))
+    (#unsafe-call set-iovec ((slot (#ptr-offset vectors 16usize)) (base (#ptr-offset data 34usize)) (length 2usize)))
     ()))
   (#let seek-start #i64
-    (#call linux-lseek (: fd fd : offset 0i64 : whence 0i64)))
+    (#call linux-lseek ((fd fd) (offset 0i64) (whence 0i64))))
   (#let scattered #i64
-    (#unsafe (#unsafe-call linux-readv (: fd fd : iovecs vectors : count 2i32))))
+    (#unsafe (#unsafe-call linux-readv ((fd fd) (iovecs vectors) (count 2i32)))))
   (#let first-byte #u8 (#unsafe (#ptr-read (#ptr-offset data 32usize))))
   (#let fourth-byte #u8 (#unsafe (#ptr-read (#ptr-offset data 35usize))))
   (#unsafe (#block
-    (#unsafe-call set-iovec (: slot vectors : base (#ptr-offset data 16usize) : length 2usize))
-    (#unsafe-call set-iovec (: slot (#ptr-offset vectors 16usize) : base (#ptr-offset data 18usize) : length 2usize))
+    (#unsafe-call set-iovec ((slot vectors) (base (#ptr-offset data 16usize)) (length 2usize)))
+    (#unsafe-call set-iovec ((slot (#ptr-offset vectors 16usize)) (base (#ptr-offset data 18usize)) (length 2usize)))
     ()))
   (#let positioned-written #i64
-    (#unsafe (#unsafe-call linux-pwritev (: fd fd : iovecs vectors : count 2i32 : offset 8i64))))
+    (#unsafe (#unsafe-call linux-pwritev ((fd fd) (iovecs vectors) (count 2i32) (offset 8i64)))))
   (#let positioned-written-v2 #i64
-    (#unsafe (#unsafe-call linux-pwritev2 (: fd fd : iovecs vectors : count 2i32 : offset 16i64 : flags 0i32))))
+    (#unsafe (#unsafe-call linux-pwritev2 ((fd fd) (iovecs vectors) (count 2i32) (offset 16i64) (flags 0i32)))))
   (#unsafe (#block
     (#ptr-write (#ptr-offset data 32usize) 0u8)
     (#ptr-write (#ptr-offset data 35usize) 0u8)
-    (#unsafe-call set-iovec (: slot vectors : base (#ptr-offset data 32usize) : length 2usize))
-    (#unsafe-call set-iovec (: slot (#ptr-offset vectors 16usize) : base (#ptr-offset data 34usize) : length 2usize))
+    (#unsafe-call set-iovec ((slot vectors) (base (#ptr-offset data 32usize)) (length 2usize)))
+    (#unsafe-call set-iovec ((slot (#ptr-offset vectors 16usize)) (base (#ptr-offset data 34usize)) (length 2usize)))
     ()))
   (#let positioned-read #i64
-    (#unsafe (#unsafe-call linux-preadv (: fd fd : iovecs vectors : count 2i32 : offset 8i64))))
+    (#unsafe (#unsafe-call linux-preadv ((fd fd) (iovecs vectors) (count 2i32) (offset 8i64)))))
   (#let positioned-first #u8 (#unsafe (#ptr-read (#ptr-offset data 32usize))))
   (#let positioned-fourth #u8 (#unsafe (#ptr-read (#ptr-offset data 35usize))))
   (#unsafe (#block
@@ -76,16 +76,16 @@
     (#ptr-write (#ptr-offset data 35usize) 0u8)
     ()))
   (#let positioned-read-v2 #i64
-    (#unsafe (#unsafe-call linux-preadv2 (: fd fd : iovecs vectors : count 2i32 : offset 16i64 : flags 0i32))))
+    (#unsafe (#unsafe-call linux-preadv2 ((fd fd) (iovecs vectors) (count 2i32) (offset 16i64) (flags 0i32)))))
   (#let positioned-v2-first #u8
     (#unsafe (#ptr-read (#ptr-offset data 32usize))))
   (#let positioned-v2-fourth #u8
     (#unsafe (#ptr-read (#ptr-offset data 35usize))))
   (#let position-after-positioned-io #i64
-    (#call linux-lseek (: fd fd : offset 0i64 : whence 1i64)))
+    (#call linux-lseek ((fd fd) (offset 0i64) (whence 1i64))))
   (#let end-position #i64
-    (#call linux-lseek (: fd fd : offset 0i64 : whence 2i64)))
-  (#let fd-closed #i64 (#call linux-close (: fd fd)))
+    (#call linux-lseek ((fd fd) (offset 0i64) (whence 2i64))))
+  (#let fd-closed #i64 (#call linux-close ((fd fd))))
   (#let data-unmapped #i64
     (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (data 4096usize))))
   (#let vectors-unmapped #i64
@@ -115,10 +115,10 @@
     (#block
       (#let-mut byte #u8 86u8)
       (#let first #i64
-        (#call linux-write-byte (: source (#borrow byte))))
+        (#call linux-write-byte ((source (#borrow byte)))))
       (#set byte 10u8)
       (#let second #i64
-        (#call linux-write-byte (: source (#borrow byte))))
+        (#call linux-write-byte ((source (#borrow byte)))))
       (#if (#bool::and (#i64::eq first 1i64) (#i64::eq second 1i64))
         42u64 1u64))
     1u64)))

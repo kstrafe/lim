@@ -7,12 +7,12 @@ fn run(source: &str) -> String {
     // Import IO after the fixture to preserve its explicitly asserted lines.
     let program = lim::parse_program(&format!(
         "{source}\n(#std)
-      (#fn print-trace (: text (#slice #char)) ()
+      (#fn print-trace ((text (#slice #char))) ()
         (#let owned String (#match (#call String::from-chars (($ text)))
           (#case (StringCreateResult.StringCreated string) string)
           (#case (StringCreateResult.StringCreateFailed error) (#panic))))
         (#let status #i64 (#println (#borrow owned)))
-        (#call String::free (: string owned))
+        (#call String::free ((string owned)))
         (#return ()))\n"
     ))
     .unwrap();
@@ -37,14 +37,14 @@ fn run(source: &str) -> String {
 #[test]
 fn executing_lines_distinguish_repeated_calls() {
     let source = "(#fn third () ()
-  (#call print-trace (: text (#call-graph)))
+  (#call print-trace ((text (#call-graph))))
   (#return ()))
 (#fn second () ()
-  (#call third (:))
+  (#call third ())
   (#return ()))
 (#fn main () #u64
-  (#call second (:))
-  (#call second (:))
+  (#call second ())
+  (#call second ())
   (#return 42u64))";
     assert_eq!(
         run(source),
@@ -57,8 +57,8 @@ fn main_trace_and_live_distinct_trace_sites() {
     let source = "(#fn main () #u64
   (#let first (#slice #char) (#call-graph))
   (#let second (#slice #char) (#call-graph))
-  (#call print-trace (: text first))
-  (#call print-trace (: text second))
+  (#call print-trace ((text first)))
+  (#call print-trace ((text second)))
   (#return 42u64))";
     assert_eq!(run(source), "main:2\nmain:3\n");
 }
@@ -66,20 +66,20 @@ fn main_trace_and_live_distinct_trace_sites() {
 #[test]
 fn only_the_executed_branch_appears() {
     let source = "(#fn leaf () ()
-  (#call print-trace (: text (#call-graph)))
+  (#call print-trace ((text (#call-graph))))
   (#return ()))
 (#fn left () ()
-  (#call leaf (:))
+  (#call leaf ())
   (#return ()))
 (#fn right () ()
-  (#call leaf (:))
+  (#call leaf ())
   (#return ()))
-(#fn choose (: condition #bool) ()
-  (#if condition (#call left (:)) (#call right (:)))
+(#fn choose ((condition #bool)) ()
+  (#if condition (#call left ()) (#call right ()))
   (#return ()))
 (#fn main () #u64
-  (#call choose (: condition true))
-  (#call choose (: condition false))
+  (#call choose ((condition true)))
+  (#call choose ((condition false)))
   (#return 42u64))";
     assert_eq!(
         run(source),
@@ -89,12 +89,12 @@ fn only_the_executed_branch_appears() {
 
 #[test]
 fn implicit_clone_hooks_participate_in_the_chain() {
-    let source = "(#struct Value () (: number #u64))
-(#fn Value::clone (: value Value) Value
-  (#call print-trace (: text (#call-graph)))
+    let source = "(#struct Value () ((number #u64)))
+(#fn Value::clone ((value Value)) Value
+  (#call print-trace ((text (#call-graph))))
   (#return value))
 (#fn main () #u64
-  (#let value Value (#struct-literal Value (: number 42u64)))
+  (#let value Value (#struct-literal Value ((number 42u64))))
   (#let copied Value (#clone value))
   (#return (#get copied number)))";
     assert_eq!(run(source), "main:7 -> Value::clone:3\n");
@@ -103,14 +103,14 @@ fn implicit_clone_hooks_participate_in_the_chain() {
 #[test]
 fn thread_workers_receive_owned_caller_contexts() {
     let source = "(#fn worker () #u64
-  (#call print-trace (: text (#call-graph)))
+  (#call print-trace ((text (#call-graph))))
   (#return 42u64))
-(#generate #thread-spawn (: task Task : worker worker))
+(#generate #thread-spawn ((task Task) (worker worker)))
 (#fn main () #u64
   (#let-else (Task::SpawnResult.Ok running) Task::SpawnResult
-    (#call Task::spawn (:))
+    (#call Task::spawn ())
     (#panic))
-  (#return (#match (#call Task::join (: task running))
+  (#return (#match (#call Task::join ((task running)))
     (#case (Task::JoinResult.Ok answer) answer)
     (#case (Task::JoinResult.Error (#tuple retry error)) (#panic)))))";
     assert_eq!(run(source), "main:7 -> worker:2\n");
@@ -119,15 +119,15 @@ fn thread_workers_receive_owned_caller_contexts() {
 #[test]
 fn async_validation_witnesses_keep_their_original_checks() {
     let source = "(#fn report () ()
-  (#call print-trace (: text (#call-graph)))
+  (#call print-trace ((text (#call-graph))))
   (#return ()))
-(#generate #async-fn (: protocol WorkAwait : waker #u64
-  : function (#fn work () #u64
-    (#call report (:))
-    (#return 42u64))))
+(#generate #async-fn ((protocol WorkAwait) (waker #u64)
+  (function (#fn work () #u64
+    (#call report ())
+    (#return 42u64)))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#return (#match (#call Work::poll (: task (#call work (:)) : waker (#borrow waker)))
+  (#return (#match (#call Work::poll ((task (#call work ())) (waker (#borrow waker))))
     (#case (Work::Poll.Ready value) value)
     (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable))))))";
     let output = run(source);
@@ -157,10 +157,10 @@ fn shared_callees_do_not_expand_into_every_possible_path() {
         let child = index - 1;
         source.push_str(&format!(
             "(#fn step{index} () #usize
-          (#return (#usize::add-wrap (#call step{child} (:)) (#call step{child} (:)))))\n"
+          (#return (#usize::add-wrap (#call step{child} ()) (#call step{child} ()))))\n"
         ));
     }
-    source.push_str("(#fn main () #usize (#return (#call step24 (:))))");
+    source.push_str("(#fn main () #usize (#return (#call step24 ())))");
     let program = lim::parse_program(&source).unwrap();
     // More than sixteen million call paths still need only one append helper.
     assert_eq!(program.items.len(), 27);

@@ -37,7 +37,7 @@ fn explicit_payload_and_fieldless_values_keep_patterns_unchanged() {
         run(&format!("(#enum Answer () ((Answer.Value 18446744073709551615 #u64) (Answer.Empty 7)))
           (#type Result Answer)
           (#fn make () Result (#return {value}))
-          (#fn main () #u64 (#let answer Result (#call make (:)))
+          (#fn main () #u64 (#let answer Result (#call make ()))
             (#return (#match answer (#case (Answer.Value number) number) (#case Answer.Empty 7u64))))"), expected);
     }
 }
@@ -45,12 +45,12 @@ fn explicit_payload_and_fieldless_values_keep_patterns_unchanged() {
 #[test]
 fn payload_computation_is_evaluated_once_and_nested_literals_work() {
     run(
-        "(#enum Inner () ((Inner.Number #u64))) (#struct Row () (: item Inner))
+        "(#enum Inner () ((Inner.Number #u64))) (#struct Row () ((item Inner)))
       (#enum Outer () ((Outer.Wrapped Row)))
       (#fn main () #u64 (#let-mut count #u64 0u64)
         (#let value Outer (#enum-literal Outer.Wrapped
-          (#struct-literal Row (: item (#enum-literal Inner.Number
-            (#block (#set count (#u64::add-wrap count 1u64)) 41u64))))))
+          (#struct-literal Row ((item (#enum-literal Inner.Number
+            (#block (#set count (#u64::add-wrap count 1u64)) 41u64)))))))
         (#let-else (Outer.Wrapped row) value (#else (#return 0u64)))
         (#return (#match (#get row item) (#case (Inner.Number number) (#u64::add-wrap count number)))))",
         42,
@@ -103,12 +103,12 @@ fn reference_payloads_keep_their_origin_and_exclusivity() {
 fn explicit_literals_work_inside_async_generator_functions() {
     run(
         "(#enum Answer () ((Answer.Number #u64) Answer.Empty))
-      (#generate #async-fn-pinned (: protocol Work::Await : waker #u64
-        : function (#fn work () Answer (#return (#enum-literal Answer.Number 42u64)))))
+      (#generate #async-fn-pinned ((protocol Work::Await) (waker #u64)
+        (function (#fn work () Answer (#return (#enum-literal Answer.Number 42u64))))))
       (#fn main () #u64 (#let waker #u64 0u64)
-        (#let-mut task Work::Frame (#call work (:)))
+        (#let-mut task Work::Frame (#call work ()))
         (#let-else (Work::Poll.Ready value)
-          (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+          (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
           (#else (#forget task) (#return 0u64)))
         (#forget task)
         (#return (#match value (#case (Answer.Number number) number) (#case Answer.Empty 0u64))))",
@@ -121,12 +121,12 @@ fn globals_unit_payloads_and_same_spelled_user_functions_are_distinct() {
     run(
         "(#enum Answer () ((Answer.Number #u64) (Answer.Marker ())))
       (#let gLOBAL Answer (#enum-literal Answer.Number 41u64))
-      (#fn enum-literal (: value #u64) #u64 (#return value))
+      (#fn enum-literal ((value #u64)) #u64 (#return value))
       (#fn main () #u64
         (#let marker Answer (#enum-literal Answer.Marker ()))
         (#forget marker)
         (#return (#match gLOBAL (#case (Answer.Number value)
-          (#u64::add-wrap value (#call enum-literal (: value 1u64))))
+          (#u64::add-wrap value (#call enum-literal ((value 1u64)))))
           (#case (Answer.Marker unit) (#block (#forget unit) 0u64)))))",
         42,
     );
@@ -143,7 +143,7 @@ fn imported_and_user_generated_enum_literals_keep_concrete_variant_identity() {
     .unwrap();
     let source =
         "(#alias Ext@make = ./module.lim::make)\n(#alias Ext@Answer = ./module.lim::Answer)
-      (#fn main () #u64 (#return (#match (#call Ext@make (:))
+      (#fn main () #u64 (#return (#match (#call Ext@make ())
         (#case (Ext@Answer.Value value) value) (#case Ext@Answer.Empty 0u64))))";
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     check_types(&program).unwrap();
@@ -152,7 +152,7 @@ fn imported_and_user_generated_enum_literals_keep_concrete_variant_identity() {
         "(#enum Answer () ((Answer.Value #u64) Answer.Empty))
       (#gn emit (name) `((#fn ,name () Answer (#return (#enum-literal Answer.Value 42u64)))))
       (#generate emit make)
-      (#fn main () #u64 (#return (#match (#call make (:))
+      (#fn main () #u64 (#return (#match (#call make ())
         (#case (Answer.Value value) value) (#case Answer.Empty 0u64))))",
         42,
     );

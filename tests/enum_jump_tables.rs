@@ -43,7 +43,7 @@ fn fieldless_source(tags: &[u64]) -> String {
     let checks = (0..tags.len())
         .map(|index| {
             format!(
-                "(#assert (#u64::eq (#call dispatch (: value Tag.Variant{index})) {}u64))",
+                "(#assert (#u64::eq (#call dispatch ((value Tag.Variant{index}))) {}u64))",
                 index + 10
             )
         })
@@ -51,7 +51,7 @@ fn fieldless_source(tags: &[u64]) -> String {
         .join("\n");
     format!(
         "(#enum Tag () ({variants}))
-        (#fn dispatch (: value Tag) #u64 (#return (#match value {arms})))
+        (#fn dispatch ((value Tag)) #u64 (#return (#match value {arms})))
         (#fn main () #u64 {checks} (#return 42u64))"
     )
 }
@@ -67,11 +67,11 @@ fn scalar_matches_materialize_constants_outside_signed_32_bit_immediates() {
         ("u128", "79228162514264337602133884927"),
     ] {
         let assembly = compile_and_run(&format!(
-            "(#fn dispatch (: value #{ty}) #u64
+            "(#fn dispatch ((value #{ty})) #u64
                (#return (#match value (#case {value}{ty} 42u64) (#case _ 0u64))))
              (#fn main () #u64
-               (#assert (#u64::eq (#call dispatch (: value 0{ty})) 0u64))
-               (#return (#call dispatch (: value {value}{ty}))))"
+               (#assert (#u64::eq (#call dispatch ((value 0{ty}))) 0u64))
+               (#return (#call dispatch ((value {value}{ty})))))"
         ));
         assert!(assembly.contains("cmp QWORD PTR [rsp], r11"), "{assembly}");
         assert!(!assembly.contains("enum_jump_table"));
@@ -103,8 +103,8 @@ fn small_sparse_and_few_destination_matches_keep_direct_branches() {
     }
     let assembly = compile_and_run(
         "(#enum Tag () (Tag.A Tag.B Tag.C Tag.D Tag.E))
-        (#fn dispatch (: value Tag) #u64 (#return (#match value (#case Tag.A 1u64) (#case _ 42u64))))
-        (#fn main () #u64 (#return (#call dispatch (: value Tag.E))))",
+        (#fn dispatch ((value Tag)) #u64 (#return (#match value (#case Tag.A 1u64) (#case _ 42u64))))
+        (#fn main () #u64 (#return (#call dispatch ((value Tag.E)))))",
     );
     assert!(!assembly.contains("enum_jump_table"));
 }
@@ -113,15 +113,15 @@ fn small_sparse_and_few_destination_matches_keep_direct_branches() {
 fn wildcard_entries_use_the_original_default_arm() {
     let assembly = compile_and_run(
         "(#enum Tag () (Tag.A Tag.B Tag.C Tag.D Tag.E Tag.F))
-        (#fn dispatch (: value Tag) #u64 (#return (#match value
+        (#fn dispatch ((value Tag)) #u64 (#return (#match value
           (#case Tag.D 4u64) (#case Tag.B 2u64) (#case Tag.A 1u64) (#case _ 42u64))))
         (#fn main () #u64
-          (#assert (#u64::eq (#call dispatch (: value Tag.A)) 1u64))
-          (#assert (#u64::eq (#call dispatch (: value Tag.B)) 2u64))
-          (#assert (#u64::eq (#call dispatch (: value Tag.D)) 4u64))
-          (#assert (#u64::eq (#call dispatch (: value Tag.C)) 42u64))
-          (#assert (#u64::eq (#call dispatch (: value Tag.E)) 42u64))
-          (#return (#call dispatch (: value Tag.F))))",
+          (#assert (#u64::eq (#call dispatch ((value Tag.A))) 1u64))
+          (#assert (#u64::eq (#call dispatch ((value Tag.B))) 2u64))
+          (#assert (#u64::eq (#call dispatch ((value Tag.D))) 4u64))
+          (#assert (#u64::eq (#call dispatch ((value Tag.C))) 42u64))
+          (#assert (#u64::eq (#call dispatch ((value Tag.E))) 42u64))
+          (#return (#call dispatch ((value Tag.F)))))",
     );
     assert!(assembly.contains("enum_jump_table"));
     assert!(!assembly.contains("cmp QWORD PTR [rsp]"));
@@ -135,15 +135,15 @@ fn guards_and_refutable_payloads_preserve_ordered_fallback() {
     ] {
         let source = format!(
             "(#enum Tag () ((Tag.A #u64) Tag.B Tag.C Tag.D))
-            (#fn dispatch (: value Tag) #u64 (#return (#match value
+            (#fn dispatch ((value Tag)) #u64 (#return (#match value
               {first} (#case Tag.B 20u64)
               (#case Tag.C 30u64) (#case Tag.D 40u64) (#case _ 42u64))))
             (#fn main () #u64
-              (#assert (#u64::eq (#call dispatch (: value (Tag.A 7u64))) 17u64))
-              (#assert (#u64::eq (#call dispatch (: value Tag.B)) 20u64))
-              (#assert (#u64::eq (#call dispatch (: value Tag.C)) 30u64))
-              (#assert (#u64::eq (#call dispatch (: value Tag.D)) 40u64))
-              (#return (#call dispatch (: value (Tag.A 42u64)))))"
+              (#assert (#u64::eq (#call dispatch ((value (Tag.A 7u64)))) 17u64))
+              (#assert (#u64::eq (#call dispatch ((value Tag.B))) 20u64))
+              (#assert (#u64::eq (#call dispatch ((value Tag.C))) 30u64))
+              (#assert (#u64::eq (#call dispatch ((value Tag.D))) 40u64))
+              (#return (#call dispatch ((value (Tag.A 42u64))))))"
         );
         let assembly = compile_and_run(&source);
         assert!(assembly.contains("enum_jump_table"));
@@ -155,13 +155,13 @@ fn guards_and_refutable_payloads_preserve_ordered_fallback() {
 fn wildcard_guard_failure_does_not_skip_later_variants() {
     let assembly = compile_and_run(
         "(#enum Tag () (Tag.A Tag.B Tag.C Tag.D Tag.E))
-        (#fn dispatch (: value Tag) #u64 (#return (#match value
+        (#fn dispatch ((value Tag)) #u64 (#return (#match value
           (#case Tag.A 10u64) (#case Tag.B 20u64) (#case Tag.C 30u64)
           (#case _ (#when false) 0u64) (#case Tag.D 40u64) (#case Tag.E 42u64))))
         (#fn main () #u64
-          (#assert (#u64::eq (#call dispatch (: value Tag.A)) 10u64))
-          (#assert (#u64::eq (#call dispatch (: value Tag.D)) 40u64))
-          (#return (#call dispatch (: value Tag.E))))",
+          (#assert (#u64::eq (#call dispatch ((value Tag.A))) 10u64))
+          (#assert (#u64::eq (#call dispatch ((value Tag.D))) 40u64))
+          (#return (#call dispatch ((value Tag.E)))))",
     );
     assert!(assembly.contains("enum_jump_table"));
 }
@@ -170,7 +170,7 @@ fn wildcard_guard_failure_does_not_skip_later_variants() {
 fn guarded_repeated_variants_evaluate_guards_once_and_only_for_matching_tags() {
     let assembly = compile_and_run(
         "(#enum Tag () ((Tag.A #u64) Tag.B Tag.C Tag.D))
-        (#fn dispatch (: value Tag : count (#ref-mut #u64)) #u64
+        (#fn dispatch ((value Tag) (count (#ref-mut #u64))) #u64
           (#return (#match value
             (#case (Tag.A first) (#when (#block
               (#deref-set count (#u64::add-wrap (#deref count) 1u64)) false)) 0u64)
@@ -178,9 +178,9 @@ fn guarded_repeated_variants_evaluate_guards_once_and_only_for_matching_tags() {
             (#case Tag.C 30u64) (#case Tag.D 40u64))))
         (#fn main () #u64
           (#let-mut checks #u64 0u64)
-          (#assert (#u64::eq (#call dispatch (: value Tag.B : count (#borrow-mut checks))) 20u64))
+          (#assert (#u64::eq (#call dispatch ((value Tag.B) (count (#borrow-mut checks)))) 20u64))
           (#assert (#u64::eq checks 0u64))
-          (#let answer #u64 (#call dispatch (: value (Tag.A 42u64) : count (#borrow-mut checks))))
+          (#let answer #u64 (#call dispatch ((value (Tag.A 42u64)) (count (#borrow-mut checks)))))
           (#assert (#u64::eq checks 1u64)) (#return answer))",
     );
     assert!(assembly.contains("enum_jump_table"));
@@ -230,9 +230,9 @@ fn invalid_discriminants_trap_before_indexing_the_table() {
 fn or_patterns_keep_existing_branch_semantics() {
     let assembly = compile_and_run(
         "(#enum Tag () (Tag.A Tag.B Tag.C Tag.D Tag.E))
-        (#fn dispatch (: value Tag) #u64 (#return (#match value
+        (#fn dispatch ((value Tag)) #u64 (#return (#match value
           (#case (#or Tag.A Tag.B) 42u64) (#case Tag.C 3u64) (#case Tag.D 4u64) (#case Tag.E 5u64))))
-        (#fn main () #u64 (#return (#call dispatch (: value Tag.B))))",
+        (#fn main () #u64 (#return (#call dispatch ((value Tag.B)))))",
     );
     assert!(!assembly.contains("enum_jump_table"));
 }
@@ -241,15 +241,15 @@ fn or_patterns_keep_existing_branch_semantics() {
 fn large_payloads_and_indirect_aggregate_destinations_survive_table_dispatch() {
     let assembly = compile_and_run("(#enum Tag () ((Tag.A (#array #u64 10))
           (Tag.B (#array #u64 10)) (Tag.C (#array #u64 10)) (Tag.D (#array #u64 10))))
-        (#fn make (: value #u64) Tag (#return (Tag.D (#array-repeat value))))
-        (#fn dispatch (: value Tag) Tag (#return (#match value
+        (#fn make ((value #u64)) Tag (#return (Tag.D (#array-repeat value))))
+        (#fn dispatch ((value Tag)) Tag (#return (#match value
           (#case (Tag.A first) (Tag.A first)) (#case (Tag.B second) (Tag.B second))
           (#case (Tag.C third) (Tag.C third)) (#case (Tag.D fourth) (Tag.D fourth)))))
         (#fn main () #u64
           (#let owner Tag (Tag.B (#array-repeat 42u64)))
-          (#let result Tag (#call dispatch (: value owner)))
-          (#let made Tag (#call make (: value 42u64)))
-          (#let other Tag (#call dispatch (: value made)))
+          (#let result Tag (#call dispatch ((value owner))))
+          (#let made Tag (#call make ((value 42u64))))
+          (#let other Tag (#call dispatch ((value made))))
           (#let first-value #u64 (#match result
             (#case (Tag.A fifth) (#index fifth 9u64)) (#case (Tag.B sixth) (#index sixth 9u64))
             (#case (Tag.C seventh) (#index seventh 9u64)) (#case (Tag.D eighth) (#index eighth 9u64))))
@@ -265,12 +265,12 @@ fn computed_and_static_scrutinees_and_float_results_preserve_staging() {
     let assembly = compile_and_run(
         "(#enum Tag () ((Tag.A #f64) (Tag.B #f64) (Tag.C #f64) (Tag.D #f64)))
         (#static stored Tag (Tag.C 42.0f64))
-        (#fn make (: count (#ref-mut #u64)) Tag
+        (#fn make ((count (#ref-mut #u64))) Tag
           (#deref-set count (#u64::add-wrap (#deref count) 1u64))
           (#return (Tag.D 42.0f64)))
         (#fn main () #u64
           (#let-mut count #u64 0u64)
-          (#let number #f64 (#match (#call make (: count (#borrow-mut count)))
+          (#let number #f64 (#match (#call make ((count (#borrow-mut count))))
             (#case (Tag.A first) first) (#case (Tag.B second) second)
             (#case (Tag.C third) third) (#case (Tag.D fourth) fourth)))
           (#assert (#u64::eq count 1u64))

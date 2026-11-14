@@ -5,5 +5,5 @@
 (#fn main () #u64
   (#return
     (#u64::add-wrap
-      (#call first (: offset 0u64))
-      (#call second (: offset 0u64)))))
+      (#call first ((offset 0u64)))
+      (#call second ((offset 0u64))))))

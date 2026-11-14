@@ -13,6 +13,6 @@
   #u64
   (
     #return
-    (#call identity-u64 (: value 42))
+    (#call identity-u64 ((value 42)))
   )
 )

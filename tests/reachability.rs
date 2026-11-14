@@ -28,8 +28,8 @@ fn executable_keeps_transitive_callees_but_library_keeps_exports() {
     let path = scratch.path().join("main.lim");
     let source = "(#fn unused () #u64 (#return 99u64))
         (#fn leaf ((x #u64)) #u64 (#return x))
-        (#fn middle () #u64 (#return (#call leaf (: x 42u64))))
-        (#fn main () #u64 (#return (#call middle (:))))";
+        (#fn middle () #u64 (#return (#call leaf ((x 42u64)))))
+        (#fn main () #u64 (#return (#call middle ())))";
     let full = assembly(source, &path, false).unwrap();
     let pruned = assembly(source, &path, true).unwrap();
     assert!(full.contains(".globl unused\n"));
@@ -57,12 +57,12 @@ fn implicit_copy_clone_hooks_and_their_callees_are_retained() {
       (#type Alias Value)
       (#fn increment ((value Value)) Value
         (#return (#struct-literal Value
-          (: number (#u64::add-wrap (#get value number) 1u64)))))
+          ((number (#u64::add-wrap (#get value number) 1u64))))))
       (#fn Value::clone ((value Value)) Value
-        (#return (#call increment (: value value))))
+        (#return (#call increment ((value value)))))
       (#fn unused () #u64 (#return 99u64))
       (#fn main () #u64
-        (#let original Alias (#struct-literal Value (: number 41u64)))
+        (#let original Alias (#struct-literal Value ((number 41u64))))
         (#let copied Alias (#clone original))
         (#return (#get copied number)))";
     let pruned = assembly(source, &scratch.path().join("main.lim"), true).unwrap();
@@ -93,14 +93,14 @@ fn implicit_clone_hooks_cannot_form_direct_or_mutual_recursion() {
         "(#struct Value () ((number #u64)))
          (#fn Value::clone ((value Value)) Value (#return (#clone value)))",
         "(#struct Value () ((number #u64)))
-         (#fn Value::clone ((value Value)) Value (#return (#call helper (: value value))))
+         (#fn Value::clone ((value Value)) Value (#return (#call helper ((value value)))))
          (#fn helper ((value Value)) Value (#return (#clone value)))",
         "(#struct Left () ((number #u64))) (#struct Right () ((number #u64)))
          (#fn Left::clone ((value Left)) Left
-           (#let right Right (#clone (#struct-literal Right (: number 0u64))))
+           (#let right Right (#clone (#struct-literal Right ((number 0u64)))))
            (#return value))
          (#fn Right::clone ((value Right)) Right
-           (#let left Left (#clone (#struct-literal Left (: number 0u64))))
+           (#let left Left (#clone (#struct-literal Left ((number 0u64)))))
            (#return value))",
     ];
     let scratch = support::Scratch::new("recursive-clone-hooks");

@@ -15906,8 +15906,8 @@ mod identity_pointer_borrow_tests {
             ("pin-ptr-borrow-mut", "#pin-ref-mut"),
         ] {
             let source = format!(
-                "(#fn work (: owner (#pin-ref-mut #u64)
-              : other (#pin-ref-mut #u64)) ()
+                "(#fn work ((owner (#pin-ref-mut #u64))
+              (other (#pin-ref-mut #u64))) ()
               (#let exact ({result} #u64) (#unsafe (#{operator} owner (#ref-ptr owner))))
               (#let unrelated ({result} #u64) (#unsafe (#{operator} owner (#ref-ptr other))))
               (#forget exact) (#forget unrelated) (#return ()))"
@@ -15953,7 +15953,7 @@ mod identity_pointer_borrow_tests {
     #[test]
     fn only_the_same_named_owner_recovers_actual_referent_identity() {
         let program = crate::parse_program(
-            "(#fn work (: owner (#pin-ref (#slice #u64)) : other (#pin-ref (#slice #u64))) ()
+            "(#fn work ((owner (#pin-ref (#slice #u64))) (other (#pin-ref (#slice #u64)))) ()
               (#let exact (#ref (#slice #u64)) (#unsafe (#ptr-borrow owner (#ref-ptr owner))))
               (#let unrelated (#ref (#slice #u64)) (#unsafe (#ptr-borrow owner (#ref-ptr other))))
               (#forget exact) (#forget unrelated) (#return ()))",
@@ -15978,21 +15978,21 @@ mod identity_pointer_borrow_tests {
 
 #[cfg(test)]
 mod stored_handle_parent_tests {
-    const SOURCE: &str = "(#struct Counter () (: value #u64))
-      (#struct Holder () (: first (#ref-mut Counter) : second (#ref #u64)))
-      (#fn lend (: value (#ref-mut #u64)) (#ref-mut #u64) (#return value))
-      (#fn project (: input (#ref-mut Holder)) (#ref-mut #u64)
-        (#return (#call lend (: value (#borrow-mut (#get (#get input first) value))))))
-      (#fn forward (: input (#ref-mut Holder)) (#ref-mut #u64)
-        (#return (#call project (: input input))))
-      (#fn touch (: value (#ref-mut #u64)) () (#deref-set value 42u64) (#return ()))
+    const SOURCE: &str = "(#struct Counter () ((value #u64)))
+      (#struct Holder () ((first (#ref-mut Counter)) (second (#ref #u64))))
+      (#fn lend ((value (#ref-mut #u64))) (#ref-mut #u64) (#return value))
+      (#fn project ((input (#ref-mut Holder))) (#ref-mut #u64)
+        (#return (#call lend ((value (#borrow-mut (#get (#get input first) value)))))))
+      (#fn forward ((input (#ref-mut Holder))) (#ref-mut #u64)
+        (#return (#call project ((input input)))))
+      (#fn touch ((value (#ref-mut #u64))) () (#deref-set value 42u64) (#return ()))
       (#fn main () #u64
-        (#let-mut left Counter (#struct-literal Counter (: value 41u64))) (#let right #u64 9u64)
+        (#let-mut left Counter (#struct-literal Counter ((value 41u64)))) (#let right #u64 9u64)
         (#let-mut holder Holder (#struct-literal Holder
-          (: first (#borrow-mut left) : second (#borrow right))))
-        (#let selected (#ref-mut #u64) (#call forward (: input (#borrow-mut holder))))
+          ((first (#borrow-mut left)) (second (#borrow right)))))
+        (#let selected (#ref-mut #u64) (#call forward ((input (#borrow-mut holder)))))
         (#assert (#u64::eq (#deref (#get holder second)) 9u64))
-        (#call touch (: value selected))
+        (#call touch ((value selected)))
         (#forget selected) (#forget holder) (#let answer #u64 (#get left value)) (#forget left) (#return answer))";
 
     #[test]
@@ -16034,11 +16034,11 @@ mod stored_handle_parent_tests {
     fn stored_handle_children_still_suspend_parent_access_and_pointee_release() {
         for inserted in [
             "(#forget left)",
-            "(#call touch (: value (#borrow-mut (#get (#get holder first) value))))",
+            "(#call touch ((value (#borrow-mut (#get (#get holder first) value)))))",
             "(#let conflict (#ref #u64) (#borrow (#get (#get holder first) value))) (#forget conflict)",
-            "(#let child (#ref #u64) (#borrow (#deref selected))) (#call touch (: value selected)) (#forget child)",
+            "(#let child (#ref #u64) (#borrow (#deref selected))) (#call touch ((value selected))) (#forget child)",
         ] {
-            let mut source = SOURCE.replace("(#call touch (: value selected))", &format!("{inserted} (#call touch (: value selected))"));
+            let mut source = SOURCE.replace("(#call touch ((value selected)))", &format!("{inserted} (#call touch ((value selected)))"));
             if inserted == "(#forget left)" {
                 source = source.replace("(#forget left) (#return answer)", "(#return answer)");
             }
@@ -16052,8 +16052,8 @@ mod stored_handle_parent_tests {
     fn returned_child_does_not_require_a_nonowning_pointer_holder_to_survive() {
         let source = SOURCE
             .replace(
-                "(#call touch (: value selected))",
-                "(#forget holder) (#call touch (: value selected))",
+                "(#call touch ((value selected)))",
+                "(#forget holder) (#call touch ((value selected)))",
             )
             .replace("(#forget selected) (#forget holder)", "(#forget selected)");
         crate::check_types(&crate::parse_program(&source).unwrap()).unwrap();
@@ -16069,11 +16069,11 @@ mod pinned_payload_projection_tests {
             ("pin-get-payload-unchecked-mut", "#pin-ref-mut"),
         ] {
             let source = format!(
-                "(#struct Owner () (: view (#ref #u64)))
+                "(#struct Owner () ((view (#ref #u64))))
               (#enum Storage () (Storage.Empty (Storage.Full Owner)))
-              (#unsafe-fn work (: seed (#ref #u64) : pointer (#ptr-mut Storage)) (#ref #u64)
+              (#unsafe-fn work ((seed (#ref #u64)) (pointer (#ptr-mut Storage))) (#ref #u64)
                 (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of pointer
-                  (Storage.Full (#struct-literal Owner (: view seed))))))
+                  (Storage.Full (#struct-literal Owner ((view seed)))))))
               (#let owner ({result} Owner) (#unsafe (#{operator}
                   (#pin-own-borrow-mut storage) Storage.Full)))
                 (#let holder (#pin-ref (#ref #u64)) (#pin-borrow (#get owner view)))
@@ -16121,14 +16121,14 @@ mod pinned_payload_projection_tests {
 
     #[test]
     fn shared_heap_payload_views_cannot_lend_exclusive_nested_references() {
-        let source = "(#struct Owner () (: view (#ref-mut #u64)))
+        let source = "(#struct Owner () ((view (#ref-mut #u64))))
           (#enum Storage () (Storage.Empty (Storage.Full Owner)))
-          (#fn touch (: value (#ref-mut #u64)) () (#deref-set value 0u64) (#return ()))
-          (#unsafe-fn work (: seed (#ref-mut #u64) : pointer (#ptr-mut Storage)) ()
+          (#fn touch ((value (#ref-mut #u64))) () (#deref-set value 0u64) (#return ()))
+          (#unsafe-fn work ((seed (#ref-mut #u64)) (pointer (#ptr-mut Storage))) ()
             (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of pointer
-              (Storage.Full (#struct-literal Owner (: view seed))))))
+              (Storage.Full (#struct-literal Owner ((view seed)))))))
             (#let owner (#pin-ref Owner) (#unsafe (#pin-get-payload-unchecked (#pin-own-borrow-mut storage) Storage.Full)))
-            (#call touch (: value (#get owner view)))
+            (#call touch ((value (#get owner view))))
             (#forget owner) (#forget storage) (#return ()))";
         let error = crate::check_types(&crate::parse_program(source).unwrap()).unwrap_err();
         assert!(error.contains("provenance"), "{error}");
@@ -19974,7 +19974,7 @@ mod tests {
     fn borrowed_cases_bind_checked_payload_borrows_without_moving_the_enum() {
         let program = crate::parse_program(
             "(#enum Choice () ((Choice.Full #u64) Choice.Empty))
-             (#fn inspect (: choice (#pin-ref-mut Choice)) #u64
+             (#fn inspect ((choice (#pin-ref-mut Choice))) #u64
                (#return (#match choice
                  (#case-pin-mut (Choice.Full value) (#deref value))
                  (#case _ 0u64))))",
@@ -20006,10 +20006,10 @@ mod tests {
     fn computed_pinned_match_snapshots_receiver_before_binding_payload() {
         let program = crate::parse_program(
             "(#enum Choice () ((Choice.Full #u64) Choice.Empty))
-             (#fn identity (: input (#pin-ref-mut Choice)) (#pin-ref-mut Choice)
+             (#fn identity ((input (#pin-ref-mut Choice))) (#pin-ref-mut Choice)
                (#return input))
-             (#fn inspect (: choice (#pin-ref-mut Choice)) #u64
-               (#return (#match (#call identity (: input choice))
+             (#fn inspect ((choice (#pin-ref-mut Choice))) #u64
+               (#return (#match (#call identity ((input choice)))
                  (#case-pin-mut (Choice.Full value) (#deref value))
                  (#case _ 0u64))))",
         )
@@ -20060,20 +20060,20 @@ mod tests {
     #[test]
     fn word_metadata_cannot_grant_extra_internal_alias_permissions() {
         use crate::call_self_loans::Plan;
-        let source = "(#struct Link () (: value #u64 : state #u32
-          : words (#array #u64 2) : view (#pin-ref #u64)))
-          (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+        let source = "(#struct Link () ((value #u64) (state #u32)
+          (words (#array #u64 2)) (view (#pin-ref #u64))))
+          (#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
             (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
             (#pin-set-field target view view) (#return target))
-          (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+          (#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
             (#pin-set-field target state 2u32) (#return target))
-          (#fn driver (: outside (#pin-ref #u64)) #u64
-            (#let-mut link Link (#struct-literal Link (: value 42u64 : state 0u32
-              : words (#array-repeat 0u64) : view outside)))
+          (#fn driver ((outside (#pin-ref #u64))) #u64
+            (#let-mut link Link (#struct-literal Link ((value 42u64) (state 0u32)
+              (words (#array-repeat 0u64)) (view outside))))
             (#let-mut running (#pin-ref-mut Link) (#pin-borrow-mut link))
-            (#let installed (#pin-ref-mut Link) (#call install (: target running)))
+            (#let installed (#pin-ref-mut Link) (#call install ((target running))))
             (#set running installed)
-            (#let updated (#pin-ref-mut Link) (#call tick (: target running)))
+            (#let updated (#pin-ref-mut Link) (#call tick ((target running))))
             (#set running updated) (#pin-set-field running view outside)
             (#drop running) (#forget link) (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
@@ -20231,9 +20231,9 @@ mod tests {
     #[test]
     fn empty_referent_summary_candidates_skip_consumption_solves() {
         let program = crate::parse_program(
-            "(#struct Resource (#linear) (: value #u64))
+            "(#struct Resource (#linear) ((value #u64)))
              (#fn work () #u64
-               (#let-mut owner Resource (#struct-literal Resource (: value 42u64)))
+               (#let-mut owner Resource (#struct-literal Resource ((value 42u64))))
                (#let handle (#ref-mut Resource) (#borrow-mut owner))
                (#let result #u64 (#get handle value))
                (#forget handle) (#forget owner) (#return result))",
@@ -20286,8 +20286,8 @@ mod tests {
     #[test]
     fn empty_call_requirements_skip_solves_but_unknown_inputs_do_not() {
         let program = crate::parse_program(
-            "(#struct Resource (#linear) (: value #u64))
-             (#fn work (: input (#ref-mut Resource)) ()
+            "(#struct Resource (#linear) ((value #u64)))
+             (#fn work ((input (#ref-mut Resource))) ()
                (#forget (#deref input)) (#return ()))",
         )
         .unwrap();
@@ -20346,8 +20346,8 @@ mod tests {
     #[test]
     fn referent_contract_helpers_reuse_same_graph_origins_without_changing_facts() {
         let program = crate::parse_program(
-            "(#struct Resource (#linear) (: value #u64))
-             (#fn work (: input (#ref-mut Resource) : choose #bool) ()
+            "(#struct Resource (#linear) ((value #u64)))
+             (#fn work ((input (#ref-mut Resource)) (choose #bool)) ()
                (#match choose
                  (#case true (#when (#u64::gt (#get input value) 0u64))
                    (#block (#forget (#deref input)) ()))
@@ -20416,14 +20416,14 @@ mod tests {
     fn definite_constructor_tags_do_not_require_complete_loan_substitution() {
         let program = crate::parse_program(
             "(#enum Choice () ((Choice.A (#ref #u64)) (Choice.B (#ref #u64))))
-             (#fn advance (: target (#ref-mut Choice)) ()
+             (#fn advance ((target (#ref-mut Choice))) ()
                (#let replacement Choice (#match (#deref target)
                  (#case (Choice.A initial) (Choice.B initial))
                  (#case (Choice.B final) (Choice.B final))))
                (#deref-set target replacement) (#return ()))
-             (#fn work (: source (#ref #u64)) ()
+             (#fn work ((source (#ref #u64))) ()
                (#let-mut target Choice (Choice.A source))
-               (#call advance (: target (#borrow-mut target)))
+               (#call advance ((target (#borrow-mut target))))
                (#forget target) (#return ()))",
         )
         .unwrap();
@@ -20467,15 +20467,15 @@ mod tests {
     fn definite_constructor_tags_require_a_single_actual_destination() {
         let program = crate::parse_program(
             "(#enum Choice () ((Choice.A (#ref #u64)) (Choice.B (#ref #u64))))
-             (#fn advance (: target (#ref-mut Choice)) ()
+             (#fn advance ((target (#ref-mut Choice))) ()
                (#let replacement Choice (#match (#deref target)
                  (#case (Choice.A initial) (Choice.B initial))
                  (#case (Choice.B final) (Choice.B final))))
                (#deref-set target replacement) (#return ()))
-             (#fn work (: source (#ref #u64) : choose #bool) ()
+             (#fn work ((source (#ref #u64)) (choose #bool)) ()
                (#let-mut left Choice (Choice.A source)) (#let-mut right Choice (Choice.A source))
                (#let selected (#ref-mut Choice) (#if choose (#borrow-mut left) (#borrow-mut right)))
-               (#call advance (: target selected))
+               (#call advance ((target selected)))
                (#forget selected) (#forget left) (#forget right) (#return ()))",
         )
         .unwrap();
@@ -20500,8 +20500,8 @@ mod tests {
     fn incoming_loan_paths_preserve_coexistence_and_stop_at_effects() {
         let program = crate::parse_program(
             "(#fn observe () #u64 (#return 0u64))
-             (#fn work (: view (#ref-mut #u64)) #u64
-               (#let marker #u64 (#call observe (:)))
+             (#fn work ((view (#ref-mut #u64))) #u64
+               (#let marker #u64 (#call observe ()))
                (#return (#deref view)))",
         )
         .unwrap();
@@ -20631,10 +20631,10 @@ mod tests {
 
     fn entry_pin_fixture(count: usize) -> crate::Program {
         let mut source =
-            String::from("(#struct Token (#linear) (: value #u64)) \n(#fn work () #u64\n");
+            String::from("(#struct Token (#linear) ((value #u64))) \n(#fn work () #u64\n");
         for index in 0..count {
             source.push_str(&format!(
-                "(#let-mut owner{index} Token (#struct-literal Token (: value 42u64)))
+                "(#let-mut owner{index} Token (#struct-literal Token ((value 42u64))))
               (#let pin{index} (#pin-ref-mut Token) (#pin-borrow-mut owner{index}))
               (#let taken{index} Token (#unsafe (#pin-read pin{index})))
               (#unsafe (#pin-write pin{index} taken{index}))
@@ -20696,14 +20696,14 @@ mod tests {
         ];
         programs.push(
             crate::parse_program(
-                "(#struct Token (#linear) (: value #u64))
+                "(#struct Token (#linear) ((value #u64)))
              (#enum Outcome () ((Outcome.Done #u64) (Outcome.Skip #u64)))
-             (#fn work (: input (#ref-mut Token) : choose #bool) Outcome
-               (#let token Token (#struct-literal Token (: value 7u64)))
+             (#fn work ((input (#ref-mut Token)) (choose #bool)) Outcome
+               (#let token Token (#struct-literal Token ((value 7u64))))
                (#if choose (#forget token) (#forget token))
                (#while choose
                  (#forget (#deref input))
-                 (#deref-set input (#struct-literal Token (: value 9u64)))
+                 (#deref-set input (#struct-literal Token ((value 9u64))))
                  (#break))
                (#return (#if choose (Outcome.Done 1u64) (Outcome.Skip 2u64))))",
             )
@@ -20809,8 +20809,8 @@ mod tests {
         // referent consumption. This source is type-correct but fails ordinary
         // ownership: a shared reference is not permission to move its Token.
         let program = crate::parse_program(
-            "(#struct Token (#linear) (: value #u64))
-          (#fn inspect (: input (#ref Token)) #u64
+            "(#struct Token (#linear) ((value #u64)))
+          (#fn inspect ((input (#ref Token))) #u64
             (#let moved Token (#deref input)) (#forget moved) (#return 0u64))",
         )
         .unwrap();
@@ -20875,13 +20875,13 @@ mod tests {
     #[test]
     fn shared_parameter_facts_match_independent_solves_in_both_modes() {
         let program = crate::parse_program(
-            "(#struct Holder () (: value (#ref #u64)))
+            "(#struct Holder () ((value (#ref #u64))))
             (#enum Choice () ((Choice.Found Holder) Choice.Missing))
-            (#fn choose (: owner (#ref #u64) : flag #bool) Choice
-              (#return (#if flag (Choice.Found (#struct-literal Holder (: value owner))) Choice.Missing)))
-            (#fn set (: slot (#ref-mut (#ref #u64)) : value (#ref #u64)) ()
+            (#fn choose ((owner (#ref #u64)) (flag #bool)) Choice
+              (#return (#if flag (Choice.Found (#struct-literal Holder ((value owner)))) Choice.Missing)))
+            (#fn set ((slot (#ref-mut (#ref #u64))) (value (#ref #u64))) ()
               (#deref-set slot value) (#return ()))
-            (#fn identity (: owner (#ref #u64)) (#ref #u64) (#return owner))
+            (#fn identity ((owner (#ref #u64))) (#ref #u64) (#return owner))
             (#fn main () #u64 (#return 42u64))",
         )
         .unwrap();
@@ -21454,7 +21454,7 @@ mod tests {
                 vec![0, 1],
             ),
             (
-                "(#let-mut selector #u64 1u64) (#call change (: value (#borrow-mut selector)))",
+                "(#let-mut selector #u64 1u64) (#call change ((value (#borrow-mut selector))))",
                 "selector",
                 vec![0, 1],
             ),
@@ -21476,9 +21476,9 @@ mod tests {
         ];
         for (setup, scrutinee, expected) in cases {
             let source = format!(
-                "(#fn change (: value (#ref-mut #u64)) ()
+                "(#fn change ((value (#ref-mut #u64))) ()
                     (#deref-set value 2u64) (#return ()))
-                 (#fn work (: condition #bool : other #u64) #u64
+                 (#fn work ((condition #bool) (other #u64)) #u64
                     {setup}
                     (#return (#match {scrutinee}
                         (#case 0 40u64) (#case 1 42u64)
@@ -21604,7 +21604,7 @@ mod tests {
         for aliased_flag in [false, true] {
             let alias = if aliased_flag {
                 "(#let flag (#ref-mut #bool) (#borrow-mut stopped))
-                 (#call stop (: target flag)) (#drop flag)"
+                 (#call stop ((target flag))) (#drop flag)"
             } else {
                 ""
             };
@@ -21643,8 +21643,8 @@ mod tests {
           (#struct Pair () ((left Item) (right Item)))
           (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair
-              (: left (#struct-literal Item (: number 1u64))
-               : right (#struct-literal Item (: number 2u64)))))
+              ((left (#struct-literal Item ((number 1u64))))
+               (right (#struct-literal Item ((number 2u64)))))))
             (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
             (#let slot (#pin-ref-mut Item) (#pin-borrow-mut (#get pinned left)))
             (#let held Item (#unsafe (#pin-read slot)))
@@ -21972,8 +21972,8 @@ mod tests {
     #[test]
     fn loaded_parameter_pointees_have_distinct_access_paths_from_the_container() {
         let program = crate::parse_program(
-            "(#struct Views () (: left (#pin-ref #u64) : right (#pin-ref #u64)))
-             (#fn inspect (: source (#ref Views)) #u64
+            "(#struct Views () ((left (#pin-ref #u64)) (right (#pin-ref #u64))))
+             (#fn inspect ((source (#ref Views))) #u64
                (#let loaded Views (#deref source))
                (#let left #u64 (#unsafe (#pin-read (#get loaded left))))
                (#let right #u64 (#unsafe (#pin-read (#get loaded right))))
@@ -23562,7 +23562,7 @@ mod tests {
           (#fn main () ()
             (#let token Token (#struct-literal Token ((value 7u64))))
             (#let copy #u64 4u64)
-            (#call consume (: arg token))
+            (#call consume ((arg token)))
             (#let still-copy #u64 copy)
             (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -24182,7 +24182,7 @@ mod tests {
     #[test]
     fn outcome_summaries_reuse_only_their_own_graph_origins() {
         let source = "(#enum Choice () ((Choice.Left (#ref #u64)) (Choice.Right (#ref #u64))))
-          (#fn choose (: flag #bool : left (#ref #u64) : right (#ref #u64)) Choice
+          (#fn choose ((flag #bool) (left (#ref #u64)) (right (#ref #u64))) Choice
             (#if flag
               (#block (#assert (#u64::eq (#deref left) 1u64)) (#return (Choice.Left left)))
               (#block (#assert (#u64::eq (#deref right) 2u64)) (#return (Choice.Right right))))
@@ -24338,19 +24338,19 @@ mod tests {
             "(#enum Child (#linear) ((Child.Start (#ref-mut #u64)) (Child.Resume (#ref-mut #u64))))
 
           (#enum Cell (#linear) ((Cell.Empty) (Cell.Full Child)))
-          (#fn read (: child Child) #u64
+          (#fn read ((child Child)) #u64
             (#return (#match child
               (#case (Child.Start view) (#deref view))
               (#case (Child.Resume view) (#deref view)))))
           (#fn main () #u64
             (#let-mut value #u64 42u64)
             (#let-mut cell Cell (Cell.Full (Child.Start (#borrow-mut value))))
-            (#let answer #u64 (#call read (: child (#block
+            (#let answer #u64 (#call read ((child (#block
               (#let slot (#pin-ref-mut Cell) (#pin-borrow-mut cell))
               (#let previous Cell (#unsafe (#pin-read slot)))
               (#unsafe (#pin-write slot (Cell.Empty))) (#drop slot)
               (#match previous (#case Cell.Empty (#unreachable))
-                (#case (Cell.Full child) child))))))
+                (#case (Cell.Full child) child)))))))
             (#forget cell) (#return answer))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -24370,17 +24370,17 @@ mod tests {
     fn confined_tag_mutations_preserve_disjoint_storage_and_read_snapshots() {
         let source = "(#enum Cell (#linear) ((Cell.Empty) (Cell.Full (#ref #u64))))
           (#enum Number (#linear) ((Number.Vacant) (Number.Occupied #u64)))
-          (#fn clear (: slot (#pin-ref-mut Number)) ()
+          (#fn clear ((slot (#pin-ref-mut Number))) ()
             (#let previous Number (#unsafe (#pin-read slot)))
             (#match previous (#case Number.Vacant ())
               (#case (Number.Occupied value) (#forget value)))
             (#unsafe (#pin-write slot (Number.Vacant))) (#return ()))
-          (#fn forward (: slot (#pin-ref-mut Number)) ()
-            (#call clear (: slot slot)) (#return ()))
+          (#fn forward ((slot (#pin-ref-mut Number))) ()
+            (#call clear ((slot slot))) (#return ()))
           (#fn main () ()
             (#let-mut cell Cell (Cell.Empty))
             (#let-mut number Number (Number.Occupied 42u64))
-            (#call forward (: slot (#pin-borrow-mut number)))
+            (#call forward ((slot (#pin-borrow-mut number))))
             (#let cell-slot (#pin-ref-mut Cell) (#pin-borrow-mut cell))
             (#let previous Cell (#unsafe (#pin-read cell-slot)))
             (#forget previous)
@@ -24489,11 +24489,11 @@ mod tests {
     #[test]
     fn opaque_and_ambiguous_tag_effects_still_invalidate_everything() {
         for effect in [
-            "(#extern-fn #abi-c mutate (: slot (#pin-ref-mut Choice)) ())",
-            "(#fn mutate (: slot (#pin-ref-mut Choice)) ()
+            "(#extern-fn #abi-c mutate ((slot (#pin-ref-mut Choice))) ())",
+            "(#fn mutate ((slot (#pin-ref-mut Choice))) ()
                 (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))",
             "(#static global Choice (Choice.Empty))
-              (#fn mutate (: slot (#pin-ref-mut Choice)) ()
+              (#fn mutate ((slot (#pin-ref-mut Choice))) ()
                 (#unsafe (#forget global)) (#return ()))",
         ] {
             let call_keyword = if effect.starts_with("(#extern-fn") {
@@ -24505,7 +24505,7 @@ mod tests {
                 "(#enum Choice () ((Choice.Empty) (Choice.Full #u64))) {effect}
               (#fn main () ()
                 (#let-mut cell Choice (Choice.Empty)) (#let-mut target Choice (Choice.Empty))
-                (#unsafe ({call_keyword} mutate (: slot (#pin-borrow-mut target))))
+                (#unsafe ({call_keyword} mutate ((slot (#pin-borrow-mut target)))))
                 (#forget cell) (#forget target) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -24531,15 +24531,15 @@ mod tests {
     #[test]
     fn tag_mutations_follow_references_loaded_from_borrowed_contents() {
         let source = "(#enum Choice () ((Choice.Empty) (Choice.Full #u64)))
-          (#struct Holder () (: slot (#pin-ref-mut Choice)))
-          (#fn mutate (: holder (#pin-ref-mut Holder)) ()
+          (#struct Holder () ((slot (#pin-ref-mut Choice))))
+          (#fn mutate ((holder (#pin-ref-mut Holder))) ()
             (#unsafe (#pin-write (#get holder slot) (Choice.Full 7u64))) (#return ()))
-          (#fn forward (: holder (#pin-ref-mut Holder)) ()
-            (#call mutate (: holder holder)) (#return ()))
+          (#fn forward ((holder (#pin-ref-mut Holder))) ()
+            (#call mutate ((holder holder))) (#return ()))
           (#fn main () ()
             (#let-mut cell Choice (Choice.Empty)) (#let-mut target Choice (Choice.Empty))
-            (#let-mut holder Holder (#struct-literal Holder (: slot (#pin-borrow-mut target))))
-            (#call forward (: holder (#pin-borrow-mut holder)))
+            (#let-mut holder Holder (#struct-literal Holder ((slot (#pin-borrow-mut target)))))
+            (#call forward ((holder (#pin-borrow-mut holder))))
             (#forget holder) (#forget cell) (#forget target) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations =
@@ -24594,13 +24594,13 @@ mod tests {
     #[test]
     fn ambiguous_call_tag_mutations_do_not_assume_one_destination() {
         let source = "(#enum Choice () ((Choice.Empty) (Choice.Full #u64)))
-          (#fn mutate (: slot (#pin-ref-mut Choice)) ()
+          (#fn mutate ((slot (#pin-ref-mut Choice))) ()
             (#unsafe (#pin-write slot (Choice.Full 7u64))) (#return ()))
-          (#fn main (: condition #bool) ()
+          (#fn main ((condition #bool)) ()
             (#let-mut cell Choice (Choice.Empty)) (#let-mut left Choice (Choice.Empty)) (#let-mut right Choice (Choice.Empty))
             (#let selected (#pin-ref-mut Choice)
               (#if condition (#pin-borrow-mut left) (#pin-borrow-mut right)))
-            (#call mutate (: slot selected))
+            (#call mutate ((slot selected)))
             (#drop selected) (#forget cell) (#forget left) (#forget right) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations =
@@ -24655,18 +24655,18 @@ mod tests {
         for (name, parameters, arguments) in [
             (
                 "pin-read",
-                "(: slot (#pin-ref-mut Choice))",
-                "(: slot (#pin-borrow-mut cell))",
+                "((slot (#pin-ref-mut Choice)))",
+                "((slot (#pin-borrow-mut cell)))",
             ),
             (
                 "deref-set",
-                "(: slot (#ref-mut Choice) : value Choice)",
-                "(: slot (#borrow-mut cell) : value (Choice.Empty))",
+                "((slot (#ref-mut Choice)) (value Choice))",
+                "((slot (#borrow-mut cell)) (value (Choice.Empty)))",
             ),
             (
                 "forget",
-                "(: slot (#ref-mut Choice))",
-                "(: slot (#borrow-mut cell))",
+                "((slot (#ref-mut Choice)))",
+                "((slot (#borrow-mut cell)))",
             ),
         ] {
             let source = format!(
@@ -24783,7 +24783,7 @@ mod tests {
             (#let left #u64 1u64)
             (#let right #u64 2u64)
             (#let selected (#ref #u64)
-              (#call choose (: condition true : first (#borrow left) : second (#borrow right))))
+              (#call choose ((condition true) (first (#borrow left)) (second (#borrow right)))))
             (#return (#deref selected)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -24869,17 +24869,17 @@ mod tests {
           (#fn wrap ((value (#ref #u64))) RefBox
             (#return (#struct-literal RefBox ((value value)))))
           (#fn wrap-again ((value (#ref #u64))) RefBox
-            (#return (#call wrap (: value value))))
+            (#return (#call wrap ((value value)))))
           (#fn project ((box RefBox)) (#ref #u64)
             (#return (#get box value)))
           (#fn project-again ((box RefBox)) (#ref #u64)
-            (#return (#call project (: box box))))
+            (#return (#call project ((box box)))))
           (#fn main () #u64
             (#let owner #u64 9u64)
             (#let boxed RefBox
-              (#call wrap-again (: value (#borrow owner))))
+              (#call wrap-again ((value (#borrow owner)))))
             (#let selected (#ref #u64)
-              (#call project-again (: box boxed)))
+              (#call project-again ((box boxed))))
             (#return (#deref selected)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -24936,10 +24936,10 @@ mod tests {
           (#fn wrap ((value (#ref #u64))) RefBox
             (#return (#struct-literal RefBox ((value value)))))
           (#fn wrap-again ((value (#ref #u64))) RefBox
-            (#return (#call wrap (: value value))))
+            (#return (#call wrap ((value value)))))
           (#fn bad () RefBox
             (#let owner #u64 9u64)
-            (#return (#call wrap-again (: value (#borrow owner)))))";
+            (#return (#call wrap-again ((value (#borrow owner))))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program)
             .err()
@@ -24958,7 +24958,7 @@ mod tests {
             (#let left #u64 1u64)
             (#let right #u64 2u64)
             (#let selected (#ref #u64)
-              (#call select (: pair (#tuple (#borrow left) (#borrow right)))))
+              (#call select ((pair (#tuple (#borrow left) (#borrow right))))))
             (#return (#deref selected)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -25366,13 +25366,13 @@ mod tests {
     fn staged_parameter_releases_preserve_copy_and_dynamic_contents() {
         for (source, name) in [
             (
-                "(#struct Part () (: view (#ref #u64)))
-              (#fn consume (: target (#ref-mut Part)) () (#forget (#deref target)) (#return ()))",
+                "(#struct Part () ((view (#ref #u64))))
+              (#fn consume ((target (#ref-mut Part))) () (#forget (#deref target)) (#return ()))",
                 "copy",
             ),
             (
-                "(#struct Part (#linear) (: view (#ref #u64)))
-              (#fn consume (: target (#ref-mut (#array Part 2)) : index #usize) ()
+                "(#struct Part (#linear) ((view (#ref #u64))))
+              (#fn consume ((target (#ref-mut (#array Part 2))) (index #usize)) ()
                 (#forget (#index target index)) (#return ()))",
                 "dynamic",
             ),
@@ -25402,9 +25402,9 @@ mod tests {
 
     #[test]
     fn staged_nested_parameter_release_keeps_the_outer_pointer_slot() {
-        let source = "(#struct Part (#linear) (: view (#ref #u64)))
-            (#struct Outer () (: inner (#ref-mut Part)))
-            (#fn consume (: target (#ref-mut Outer)) ()
+        let source = "(#struct Part (#linear) ((view (#ref #u64))))
+            (#struct Outer () ((inner (#ref-mut Part))))
+            (#fn consume ((target (#ref-mut Outer))) ()
               (#forget (#deref (#get target inner))) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -25452,9 +25452,9 @@ mod tests {
             ("(#forget (#unsafe (#deref target)))", 0),
         ] {
             let source = format!(
-                "(#struct Part (#linear) (: view (#ref #u64)))
-                 (#struct Pair () (: left Part : right Part))
-                 (#fn consume (: target (#ref-mut Pair) : other (#ref-mut Pair) : selected #bool) () {release} (#return ()))"
+                "(#struct Part (#linear) ((view (#ref #u64))))
+                 (#struct Pair () ((left Part) (right Part)))
+                 (#fn consume ((target (#ref-mut Pair)) (other (#ref-mut Pair)) (selected #bool)) () {release} (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
             let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -25624,7 +25624,7 @@ mod tests {
               (#case (State.Working unused) (#unreachable)))))
           (#fn main () (#ref #u64)
             (#let owner #u64 42u64)
-            (#return (#call finish (: source (#borrow owner)))))";
+            (#return (#call finish ((source (#borrow owner))))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
             .err()
@@ -25639,7 +25639,7 @@ mod tests {
                 "(#fn main () (#ref #u64)\n            (#let owner #u64 42u64)",
                 "(#fn main ((owner (#ref #u64))) (#ref #u64)",
             )
-            .replace("(: source (#borrow owner))", "(: source owner)");
+            .replace("((source (#borrow owner)))", "((source owner))");
         crate::CheckedProgram::validate(&crate::parse_program(&safe).unwrap()).unwrap();
     }
 
@@ -26036,9 +26036,9 @@ mod tests {
     fn staged_parameter_clears_and_missing_contents_do_not_resurrect_schema_loans() {
         let program = crate::parse_program(
             "(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
-            (#fn clear (: target (#ref-mut Choice)) Choice
+            (#fn clear ((target (#ref-mut Choice))) Choice
               (#deref-set target (Choice.Empty)) (#return (#deref target)))
-            (#fn read (: target (#ref Choice)) Choice (#return (#deref target)))",
+            (#fn read ((target (#ref Choice))) Choice (#return (#deref target)))",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -26265,7 +26265,7 @@ mod tests {
         let program = crate::parse_program(
             "(#enum Outcome () ((Outcome.Ready) (Outcome.Pending)))
              (#struct Pair () ((first Outcome) (second Outcome)))
-             (#fn factory () Pair (#return (#struct-literal Pair (: first (Outcome.Ready) : second (Outcome.Pending)))))
+             (#fn factory () Pair (#return (#struct-literal Pair ((first (Outcome.Ready)) (second (Outcome.Pending))))))
              (#fn main () #u64
                (#let packet Pair (#call factory ()))
                (#let result #u64 (#match (#get (#borrow packet) first)

@@ -29,63 +29,63 @@
 //; Field names and their concrete types are literal syntax; ordinary checking
 //; proves reads are nonmoving and writes obey the pinned-field restrictions.
 (#gn-fn pin-field-read (name field function)
-  `(#fn ,function (: pin (#ref ,name)) ,(#gn-call pin-second field)
+  `(#fn ,function ((pin (#ref ,name))) ,(#gn-call pin-second field)
     (#return (#get (#get pin view) ,(#gn-first field)))))
 (#gn-fn pin-field-write (name field function)
-  `(#fn ,function (: pin (#ref-mut ,name) : value ,(#gn-call pin-second field)) ()
+  `(#fn ,function ((pin (#ref-mut ,name)) (value ,(#gn-call pin-second field))) ()
     (#pin-set-field (#get pin view) ,(#gn-first field) value)
     (#return ())))
 
 (#gn-fn pin-project (element name field function mutable shared)
   (#gn-if (#gn-equal mutable true)
-    `(#fn ,function (: pin ,name) ,(#gn-call pin-second field)
+    `(#fn ,function ((pin ,name)) ,(#gn-call pin-second field)
       (#let view (#pin-ref-mut ,element)
-        (#unsafe (#unsafe-call ,(#gn-call pin-name name "into-view") (: pin pin))))
+        (#unsafe (#unsafe-call ,(#gn-call pin-name name "into-view") ((pin pin)))))
       (#let projected ,(#gn-call pin-second field)
         (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-second field) "from-mut")
-          (: view (#pin-borrow-mut (#get view ,(#gn-first field)))))))
+          ((view (#pin-borrow-mut (#get view ,(#gn-first field))))))))
       (#return projected))
-    `(#fn ,function (: pin ,name) ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
+    `(#fn ,function ((pin ,name)) ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
       (#let view ,(#gn-if (#gn-equal shared true) `(#pin-ref ,element) `(#pin-ref-mut ,element))
-        (#unsafe (#unsafe-call ,(#gn-call pin-name name "into-view") (: pin pin))))
+        (#unsafe (#unsafe-call ,(#gn-call pin-name name "into-view") ((pin pin)))))
       (#let projected ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
         (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-name (#gn-call pin-second field) "Shared") "from-ref")
-          (: view (#pin-borrow (#get view ,(#gn-first field)))))))
+          ((view (#pin-borrow (#get view ,(#gn-first field))))))))
       (#return projected))))
 
 (#gn-fn pin-copy-functions (element name shared)
-  `((#fn ,(#gn-call pin-name name "copy-proof") (: value (#ref ,element)) ,element
+  `((#fn ,(#gn-call pin-name name "copy-proof") ((value (#ref ,element))) ,element
       (#return (#clone (#deref value))))
-    (#fn ,(#gn-call pin-name name "read") (: pin (#ref ,name)) ,element
+    (#fn ,(#gn-call pin-name name "read") ((pin (#ref ,name))) ,element
       (#return (#deref (#get pin view))))
-    (#fn ,(#gn-call pin-name shared "read") (: pin (#ref ,shared)) ,element
+    (#fn ,(#gn-call pin-name shared "read") ((pin (#ref ,shared))) ,element
       (#return (#deref (#get pin view))))
-    (#fn ,(#gn-call pin-name name "write") (: pin (#ref-mut ,name) : value ,element) ()
+    (#fn ,(#gn-call pin-name name "write") ((pin (#ref-mut ,name)) (value ,element)) ()
       (#unsafe (#pin-write (#get pin view) value)) (#return ()))))
 
 (#gn-fn pin-borrow-project (name field function mutable)
   (#gn-if (#gn-equal mutable true)
-    `(#fn ,function (: pin (#ref-mut ,name)) ,(#gn-call pin-second field)
+    `(#fn ,function ((pin (#ref-mut ,name))) ,(#gn-call pin-second field)
       (#return (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-second field) "from-mut")
-        (: view (#pin-borrow-mut (#get (#get pin view) ,(#gn-first field))))))))
-    `(#fn ,function (: pin (#ref ,name)) ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
+        ((view (#pin-borrow-mut (#get (#get pin view) ,(#gn-first field)))))))))
+    `(#fn ,function ((pin (#ref ,name))) ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
       (#return (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-name (#gn-call pin-second field) "Shared") "from-ref")
-        (: view (#pin-borrow (#get (#get pin view) ,(#gn-first field))))))))))
+        ((view (#pin-borrow (#get (#get pin view) ,(#gn-first field)))))))))))
 
 (#gn-fn pin-build (element name shared fields projections copy checked)
-  `((#struct ,name (#linear) (: view (#pin-ref-mut ,element)))
+  `((#struct ,name (#linear) ((view (#pin-ref-mut ,element))))
     (#opaque ,name)
-    (#struct ,shared (#linear) (: view (#pin-ref ,element)))
+    (#struct ,shared (#linear) ((view (#pin-ref ,element))))
     (#opaque ,shared)
     (#unsafe-fn ,(#gn-call pin-name name "from-mut")
-      (: view (#pin-ref-mut ,element)) ,name
-      (#return (#struct-literal ,name (: view view))))
+      ((view (#pin-ref-mut ,element))) ,name
+      (#return (#struct-literal ,name ((view view)))))
     (#unsafe-fn ,(#gn-call pin-name shared "from-ref")
-      (: view (#pin-ref ,element)) ,shared
-      (#return (#struct-literal ,shared (: view view))))
-    (#unsafe-fn ,(#gn-call pin-name name "into-view") (: pin ,name) (#pin-ref-mut ,element)
+      ((view (#pin-ref ,element))) ,shared
+      (#return (#struct-literal ,shared ((view view)))))
+    (#unsafe-fn ,(#gn-call pin-name name "into-view") ((pin ,name)) (#pin-ref-mut ,element)
       (#let view (#pin-ref-mut ,element) (#get pin view)) (#forget pin) (#return view))
-    (#unsafe-fn ,(#gn-call pin-name shared "into-view") (: pin ,shared) (#pin-ref ,element)
+    (#unsafe-fn ,(#gn-call pin-name shared "into-view") ((pin ,shared)) (#pin-ref ,element)
       (#let view (#pin-ref ,element) (#get pin view)) (#forget pin) (#return view))
     ,@(#gn-for-each field fields
       (#gn-call pin-field-read name field
@@ -126,16 +126,16 @@
     (#gn-for-each option options (#gn-call pin-option-check option (type name fields projections copy)))))
 
 (#gn-fn pin-scope-build (element pin name run destroy result checked)
-  `((#fn ,name (: value ,element) ,result
+  `((#fn ,name ((value ,element)) ,result
     (#let-mut storage ,element value)
     (#let handle ,pin
       (#unsafe (#unsafe-call ,(#gn-call pin-name pin "from-mut")
-        (: view (#pin-borrow-mut storage)))))
-    (#let output ,result (#call ,run (: pin handle)))
+        ((view (#pin-borrow-mut storage))))))
+    (#let output ,result (#call ,run ((pin handle))))
     (#let cleanup ,pin
       (#unsafe (#unsafe-call ,(#gn-call pin-name pin "from-mut")
-        (: view (#pin-borrow-mut storage)))))
-    (#call ,destroy (: pin cleanup))
+        ((view (#pin-borrow-mut storage))))))
+    (#call ,destroy ((pin cleanup)))
     (#forget storage)
     (#return output))))
 

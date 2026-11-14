@@ -7,11 +7,11 @@ fn direct_nested_and_repeated_builtin_calls_share_one_checked_artifact() {
     for (generator, builtin) in [
         (
             "#optional",
-            "(#generate #optional (: type #u64 : name Shared))",
+            "(#generate #optional ((type #u64) (name Shared)))",
         ),
         (
             "#array",
-            "(#generate #array (: element #u64 : length 4 : name Shared))",
+            "(#generate #array ((element #u64) (length 4) (name Shared)))",
         ),
     ] {
         for invocations in [
@@ -79,14 +79,14 @@ fn canonical_named_argument_order_deduplicates_but_different_inputs_do_not() {
     let scratch = support::Scratch::new("builtin-canonical-dedup");
     let entry = scratch.path().join("main.lim");
     for source in [
-        "(#generate #optional (: type #u64 : name Shared)) (#generate #optional (: name Shared : type #u64))",
-        "(#generate #array (: element #u64 : length 4 : name Shared)) (#generate #array (: name Shared : length 4 : element #u64)) (#require-generated Shared #array (Shared::get Shared::borrow Shared::borrow-mut))",
-        "(#gn outer () `((#generate #optional (: name Shared : type #u64)))) (#generate outer) (#generate #optional (: type #u64 : name Shared)) (#require-generated Shared outer (Shared::construct)) (#require-generated Shared #optional (Shared::construct))",
+        "(#generate #optional ((type #u64) (name Shared))) (#generate #optional ((name Shared) (type #u64)))",
+        "(#generate #array ((element #u64) (length 4) (name Shared))) (#generate #array ((name Shared) (length 4) (element #u64))) (#require-generated Shared #array (Shared::get Shared::borrow Shared::borrow-mut))",
+        "(#gn outer () `((#generate #optional ((name Shared) (type #u64))))) (#generate outer) (#generate #optional ((type #u64) (name Shared))) (#require-generated Shared outer (Shared::construct)) (#require-generated Shared #optional (Shared::construct))",
     ] {
         lim::check_source_with_generated_sources(source, &entry, &lim::CompileConfig::default(), &scratch.path().join("cache"), &scratch.path().join("generated")).unwrap();
     }
     let invalid =
-        "(#generate #optional (: type #u64 : name Shared)) (#generate #optional (: type #u32 : name Shared))";
+        "(#generate #optional ((type #u64) (name Shared))) (#generate #optional ((type #u32) (name Shared)))";
     let error = lim::check_source_with_generated_sources(
         invalid,
         &entry,

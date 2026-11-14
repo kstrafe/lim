@@ -740,12 +740,12 @@ Candidate spellings below are a design sketch, **not accepted Lim syntax**:
 (#let-mut slots (#storage Owner) (#storage-empty Owner))
 (#storage-put (#storage-field slots kept) 40u64)
 (#storage-put (#storage-field slots item)
-  (#struct-literal Token (: value 1u64)))
+  (#struct-literal Token ((value 1u64))))
 (#let kept (#ref #u64) (#storage-borrow (#storage-field slots kept)))
 (#let moved Token (#storage-take (#storage-field slots item)))
 (#forget moved)
 (#storage-put (#storage-field slots item)
-  (#struct-literal Token (: value 2u64)))
+  (#struct-literal Token ((value 2u64))))
 (#let whole (#ref Owner) (#storage-borrow slots))
 ```
 

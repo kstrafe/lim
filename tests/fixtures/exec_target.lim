@@ -3,6 +3,6 @@
 (#fn main () #u64
   (#let letter #u8 88u8)
   (#let newline #u8 10u8)
-  (#assert (#i64::eq (#call linux-write-byte (: source (#borrow letter))) 1i64))
-  (#assert (#i64::eq (#call linux-write-byte (: source (#borrow newline))) 1i64))
+  (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
+  (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
   (#return 37u64))

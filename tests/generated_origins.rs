@@ -82,12 +82,12 @@ fn identical_builtin_invocations_deduplicate_within_each_file_and_keep_origins()
     write_module(
         root,
         "a.lim",
-        "(#generate #optional (: type #u64 : name Shared?))\n(#generate #optional (: type #u64 : name Shared?))\n",
+        "(#generate #optional ((type #u64) (name Shared?)))\n(#generate #optional ((type #u64) (name Shared?)))\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#generate #optional (: type #u64 : name Shared?))\n",
+        "(#generate #optional ((type #u64) (name Shared?)))\n",
     );
     write_module(
         root,
@@ -327,7 +327,7 @@ fn repeated_builtin_materialization_uses_one_cache_lookup() {
     let scratch = support::Scratch::new("builtin-ram-lookup");
     let root = scratch.path();
     let input = root.join("main.lim");
-    let source = "(#generate #optional (: type #u64 : name Shared))\n".repeat(64);
+    let source = "(#generate #optional ((type #u64) (name Shared)))\n".repeat(64);
     let run = || {
         lim::with_cache_report(|| {
             lim::write_generated_sources_from_path_with_config_and_cache(
@@ -362,7 +362,7 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
     write_module(
         root,
         "defs.lim",
-        "(#gn wrap-shared () `((#generate #optional (: type #u64 : name ,(#gn-gensym \"Nested\")))))\n",
+        "(#gn wrap-shared () `((#generate #optional ((type #u64) (name ,(#gn-gensym \"Nested\"))))))\n",
     );
     write_module(
         root,
@@ -412,12 +412,12 @@ fn warm_generation_retains_per_file_artifacts_and_origins() {
     write_module(
         root,
         "a.lim",
-        "(#generate #optional (: type #u64 : name Warm?))\n",
+        "(#generate #optional ((type #u64) (name Warm?)))\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#generate #optional (: type #u64 : name Warm?))\n",
+        "(#generate #optional ((type #u64) (name Warm?)))\n",
     );
     write_module(
         root,

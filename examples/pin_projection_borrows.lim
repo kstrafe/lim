@@ -1,40 +1,40 @@
 (#alias lim-gen-pin = ../library/pin.lim::#pin)
 (#alias lim-gen-pin-scope = ../library/pin.lim::#pin-scope)
 
-(#struct Number (#linear) (: value #u64))
+(#struct Number (#linear) ((value #u64)))
 
-(#struct Pair (#linear) (: left Number : right Number))
+(#struct Pair (#linear) ((left Number) (right Number)))
 
 
-(#generate lim-gen-pin (: type Number : name PinnedNumber : fields (: value #u64)))
-(#generate lim-gen-pin (: type Pair : name PinnedPair
-  : projections (: left PinnedNumber : right PinnedNumber)))
-(#generate lim-gen-pin-scope (: type Pair : pin PinnedPair : name with-pair
-  : run sum-pair : destroy destroy-pair : result #u64))
+(#generate lim-gen-pin ((type Number) (name PinnedNumber) (fields ((value #u64)))))
+(#generate lim-gen-pin ((type Pair) (name PinnedPair)
+  (projections ((left PinnedNumber) (right PinnedNumber)))))
+(#generate lim-gen-pin-scope ((type Pair) (pin PinnedPair) (name with-pair)
+  (run sum-pair) (destroy destroy-pair) (result #u64)))
 
-(#fn sum-pair (: pin PinnedPair) #u64
+(#fn sum-pair ((pin PinnedPair)) #u64
   (#let-mut parent PinnedPair pin)
   // Borrowing a child does not consume the parent handle. Disjoint children
   // can coexist; asking for left twice while it is borrowed would fail.
   (#let-mut left PinnedNumber
-    (#call PinnedPair::BorrowMut::left (: pin (#borrow-mut parent))))
+    (#call PinnedPair::BorrowMut::left ((pin (#borrow-mut parent)))))
   (#let-mut right PinnedNumber
-    (#call PinnedPair::BorrowMut::right (: pin (#borrow-mut parent))))
-  (#call PinnedNumber::Write::value (: pin (#borrow-mut left) : value 20u64))
-  (#call PinnedNumber::Write::value (: pin (#borrow-mut right) : value 22u64))
+    (#call PinnedPair::BorrowMut::right ((pin (#borrow-mut parent)))))
+  (#call PinnedNumber::Write::value ((pin (#borrow-mut left)) (value 20u64)))
+  (#call PinnedNumber::Write::value ((pin (#borrow-mut right)) (value 22u64)))
   (#let answer #u64 (#u64::add-wrap
-    (#call PinnedNumber::Read::value (: pin (#borrow left)))
-    (#call PinnedNumber::Read::value (: pin (#borrow right)))))
+    (#call PinnedNumber::Read::value ((pin (#borrow left))))
+    (#call PinnedNumber::Read::value ((pin (#borrow right))))))
   (#forget left)
   (#forget right)
   (#forget parent)
   (#return answer))
 
-(#fn destroy-pair (: pin PinnedPair) ()
+(#fn destroy-pair ((pin PinnedPair)) ()
   (#forget pin)
   (#return ()))
 
 (#fn main () #u64
-  (#return (#call with-pair (: value (#struct-literal Pair
-    (: left (#struct-literal Number (: value 0u64))
-     : right (#struct-literal Number (: value 0u64))))))))
+  (#return (#call with-pair ((value (#struct-literal Pair
+    ((left (#struct-literal Number ((value 0u64))))
+     (right (#struct-literal Number ((value 0u64)))))))))))

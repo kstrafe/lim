@@ -21,7 +21,7 @@
     #return
     (
       #as
-      (#call add (: left 20 : right 22))
+      (#call add ((left 20) (right 22)))
       #u64
     )
   )

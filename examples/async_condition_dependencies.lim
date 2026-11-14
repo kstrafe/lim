@@ -24,7 +24,7 @@
     (#case (BodyTask.Start value) (BodyPoll.BodyPending (BodyTask.Resume value)))
     (#case (BodyTask.Resume value) (BodyPoll.BodyReady value)))))
 
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work () #u64
     (#let-mut index #u64 0u64)
     (#let-mut total #u64 0u64)
@@ -37,13 +37,13 @@
       (#if (#u64::eq index 1u64) (#continue) ())
       (#let value #u64 (#await #u64 BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll (BodyTask.Start 40u64)))
       (#set total (#u64::add-wrap total value)))
-    (#return total))))
+    (#return total)))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let-mut task Work::Task (#call work ()))
   (#for-range (attempt #u64) 0u64 10u64
-    (#let polled Work::Poll (#call Work::poll (: task task : waker (#borrow waker))))
+    (#let polled Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
     (#match polled
       (#case (Work::Poll.Pending next) (#block (#set task next) ()))
       (#case (Work::Poll.Ready result) (#block (#return result)))))

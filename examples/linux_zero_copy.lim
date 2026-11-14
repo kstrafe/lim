@@ -37,21 +37,21 @@
   (#let payload-set () (#unsafe (#ptr-write data-memory 305419896i32)))
   (#let descriptor #i64
     (#unsafe (#unsafe-call linux-memfd-create
-      (: name name-memory : flags 1u32))))
+      ((name name-memory) (flags 1u32)))))
   (#let payload-written #i64
     (#unsafe (#linux-syscall #i64 lINUX-SYS-WRITE
       (descriptor data-memory 4usize))))
   (#let seek-start #i64
-    (#call linux-lseek (: fd descriptor : offset 0i64 : whence 0i64)))
+    (#call linux-lseek ((fd descriptor) (offset 0i64) (whence 0i64))))
   (#let pipe-memory (#ptr-mut #i32)
     (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let first-pipe #i64
-    (#unsafe (#unsafe-call linux-pipe2 (: descriptors pipe-memory : flags 0i32))))
+    (#unsafe (#unsafe-call linux-pipe2 ((descriptors pipe-memory) (flags 0i32)))))
   (#let second-pipe #i64
-    (#unsafe (#unsafe-call linux-pipe2 (: descriptors (#ptr-offset pipe-memory 2usize) : flags 0i32))))
+    (#unsafe (#unsafe-call linux-pipe2 ((descriptors (#ptr-offset pipe-memory 2usize)) (flags 0i32)))))
   (#let third-pipe #i64
-    (#unsafe (#unsafe-call linux-pipe2 (: descriptors (#ptr-offset pipe-memory 4usize) : flags 0i32))))
+    (#unsafe (#unsafe-call linux-pipe2 ((descriptors (#ptr-offset pipe-memory 4usize)) (flags 0i32)))))
   (#let first-read-fd #i32 (#unsafe (#ptr-read pipe-memory)))
   (#let first-write-fd #i32 (#unsafe (#ptr-read (#ptr-offset pipe-memory 1usize))))
   (#let second-read-fd #i32 (#unsafe (#ptr-read (#ptr-offset pipe-memory 2usize))))
@@ -62,14 +62,14 @@
     (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let sent #i64
-    (#unsafe (#unsafe-call linux-sendfile (: output (#as first-write-fd #i64) : input descriptor : offset offsets : count 4usize))))
+    (#unsafe (#unsafe-call linux-sendfile ((output (#as first-write-fd #i64)) (input descriptor) (offset offsets) (count 4usize)))))
   (#let sendfile-offset #i64 (#unsafe (#ptr-read offsets)))
   (#let tee-count #i64
-    (#call linux-tee (: input (#as first-read-fd #i64) : output (#as second-write-fd #i64) : count 4usize : flags 0u32)))
+    (#call linux-tee ((input (#as first-read-fd #i64)) (output (#as second-write-fd #i64)) (count 4usize) (flags 0u32))))
   (#let second-offset-set ()
     (#unsafe (#ptr-write (#ptr-offset offsets 1usize) 0i64)))
   (#let spliced #i64
-    (#unsafe (#unsafe-call linux-splice (: input descriptor : input-offset (#ptr-offset offsets 1usize) : output (#as third-write-fd #i64) : output-offset (#ptr-null (#ptr-mut #i64)) : count 4usize : flags 0u32))))
+    (#unsafe (#unsafe-call linux-splice ((input descriptor) (input-offset (#ptr-offset offsets 1usize)) (output (#as third-write-fd #i64)) (output-offset (#ptr-null (#ptr-mut #i64))) (count 4usize) (flags 0u32)))))
   (#let splice-offset #i64
     (#unsafe (#ptr-read (#ptr-offset offsets 1usize))))
   (#let receive-memory (#ptr-mut #i32)
@@ -90,18 +90,18 @@
   (#let third-payload #i32
     (#unsafe (#ptr-read (#ptr-offset receive-memory 2usize))))
   (#let first-read-close #i64
-    (#call linux-close (: fd (#as first-read-fd #i64))))
+    (#call linux-close ((fd (#as first-read-fd #i64)))))
   (#let first-write-close #i64
-    (#call linux-close (: fd (#as first-write-fd #i64))))
+    (#call linux-close ((fd (#as first-write-fd #i64)))))
   (#let second-read-close #i64
-    (#call linux-close (: fd (#as second-read-fd #i64))))
+    (#call linux-close ((fd (#as second-read-fd #i64)))))
   (#let second-write-close #i64
-    (#call linux-close (: fd (#as second-write-fd #i64))))
+    (#call linux-close ((fd (#as second-write-fd #i64)))))
   (#let third-read-close #i64
-    (#call linux-close (: fd (#as third-read-fd #i64))))
+    (#call linux-close ((fd (#as third-read-fd #i64)))))
   (#let third-write-close #i64
-    (#call linux-close (: fd (#as third-write-fd #i64))))
-  (#let descriptor-close #i64 (#call linux-close (: fd descriptor)))
+    (#call linux-close ((fd (#as third-write-fd #i64)))))
+  (#let descriptor-close #i64 (#call linux-close ((fd descriptor))))
   (#let name-unmap #i64
     (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (name-memory 4096usize))))
   (#let data-unmap #i64

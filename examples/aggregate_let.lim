@@ -10,4 +10,4 @@
   (#while-let (#tuple 1 _) value
     (#set total (#u64::add-wrap total (#get value 1)))
     (#set-field value 0 0))
-  (#return (#u64::add-wrap total (#call point-value (:)))))
+  (#return (#u64::add-wrap total (#call point-value ()))))

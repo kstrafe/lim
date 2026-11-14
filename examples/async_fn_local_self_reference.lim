@@ -11,7 +11,7 @@
 (#struct LocalPayload () ((left #u64) (right #u64)))
 (#struct LocalOwner () ((payload LocalPayload)))
 
-(#generate #async-fn-pinned ( : protocol LocalSelfRefAwait : waker #u64 : function
+(#generate #async-fn-pinned ( (protocol LocalSelfRefAwait) (waker #u64) (function
   (#fn local-self-ref ((seed #u64)) #u64
     (#let owner LocalOwner
       (#struct-literal LocalOwner
@@ -20,17 +20,17 @@
       (#pin-borrow (#get (#get owner payload) left)))
     (#let result #u64
       (#await LocalChild LocalChildPoll.LocalChildPending LocalChildPoll.LocalChildReady local-child-poll (LocalChild.Waiting 0u64)))
-    (#return (#u64::add-wrap (#deref view) result)))))
+    (#return (#u64::add-wrap (#deref view) result))))))
 
 (#fn main () #u64
-  (#let-mut frame Local-self-ref::Frame (#call local-self-ref (: seed 40u64)))
+  (#let-mut frame Local-self-ref::Frame (#call local-self-ref ((seed 40u64))))
   (#let waker #u64 0u64)
   (#let first Local-self-ref::Poll
     (#call Local-self-ref::poll
-      (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+      ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
   (#let-else (Local-self-ref::Poll.Pending pending-frame) Local-self-ref::Poll first (#unreachable))
   (#let second Local-self-ref::Poll
-    (#call Local-self-ref::poll (: task pending-frame : waker (#borrow waker))))
+    (#call Local-self-ref::poll ((task pending-frame) (waker (#borrow waker)))))
   (#let result #u64
     (#match second
       (#case (Local-self-ref::Poll.Ready value) value)

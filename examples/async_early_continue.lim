@@ -15,7 +15,7 @@
     (#case (BodyTask.Start value) (BodyPoll.BodyPending (BodyTask.Resume value)))
     (#case (BodyTask.Resume value) (BodyPoll.BodyReady value)))))
 
-(#generate #async-fn ( : protocol WorkAwait : waker #u64 : function
+(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
   (#fn work () #u64
     (#let-mut index #u64 0u64)
     (#while (#await #bool ConditionTask ConditionPoll.ConditionPending ConditionPoll.ConditionReady condition-poll (ConditionTask.Check index))
@@ -23,17 +23,17 @@
       (#if (#u64::eq index 1u64) (#continue) ())
       (#let value #u64 (#await #u64 BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll (BodyTask.Start 40u64)))
       (#return (#u64::add-wrap value index)))
-    (#return 0u64))))
+    (#return 0u64)))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Work::Poll (#call Work::poll (: task (#call work ()) : waker (#borrow waker))))
+  (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending first-condition) Work::Poll first (#unreachable))
-  (#let second Work::Poll (#call Work::poll (: task first-condition : waker (#borrow waker))))
+  (#let second Work::Poll (#call Work::poll ((task first-condition) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending second-condition) Work::Poll second (#unreachable))
-  (#let third Work::Poll (#call Work::poll (: task second-condition : waker (#borrow waker))))
+  (#let third Work::Poll (#call Work::poll ((task second-condition) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending body) Work::Poll third (#unreachable))
-  (#let fourth Work::Poll (#call Work::poll (: task body : waker (#borrow waker))))
+  (#let fourth Work::Poll (#call Work::poll ((task body) (waker (#borrow waker)))))
   (#return (#match fourth
     (#case (Work::Poll.Ready value) value)
     (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))

@@ -21,7 +21,7 @@ fn returned_exclusive_children_from_owned_slots_keep_the_immediate_parent() {
     for (ty, constructor, projection) in [
         (
             "Holder",
-            "(#struct-literal Holder (: view view))",
+            "(#struct-literal Holder ((view view)))",
             "(#get owner view)",
         ),
         (
@@ -31,12 +31,12 @@ fn returned_exclusive_children_from_owned_slots_keep_the_immediate_parent() {
         ),
     ] {
         let source = format!(
-            "(#struct Holder (#linear) (: view (#ref-mut #u64)))
-          (#fn capture (: view (#ref-mut #u64)) {ty} (#return {constructor}))
-          (#fn echo (: view (#ref-mut #u64)) (#ref-mut #u64) (#return view))
-          (#fn work (: view (#ref-mut #u64)) #u64
-            (#let owner {ty} (#call capture (: view view)))
-            (#let child (#ref-mut #u64) (#call echo (: view {projection})))
+            "(#struct Holder (#linear) ((view (#ref-mut #u64))))
+          (#fn capture ((view (#ref-mut #u64))) {ty} (#return {constructor}))
+          (#fn echo ((view (#ref-mut #u64))) (#ref-mut #u64) (#return view))
+          (#fn work ((view (#ref-mut #u64))) #u64
+            (#let owner {ty} (#call capture ((view view))))
+            (#let child (#ref-mut #u64) (#call echo ((view {projection}))))
             (#let answer #u64 (#deref child)) (#drop child)
             (#forget owner) (#drop view) (#return answer))"
         );
@@ -247,9 +247,9 @@ fn block_local_reference_cannot_be_passed_to_a_call() {
     let program = crate::parse_program(
         "(#fn read ((value (#ref #u64))) #u64 (#return (#deref value)))
          (#fn main () #u64
-           (#return (#call read (: value (#block
+           (#return (#call read ((value (#block
                (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
-               (#borrow local))))))",
+               (#borrow local)))))))",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -264,9 +264,9 @@ fn aliased_reference_parameter_cannot_hide_block_local_escape() {
         "(#type WordRef (#ref #u64))
          (#fn read ((value WordRef)) #u64 (#return (#deref value)))
          (#fn main () #u64
-           (#return (#call read (: value (#block
+           (#return (#call read ((value (#block
                (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
-               (#borrow local))))))",
+               (#borrow local)))))))",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -279,10 +279,10 @@ fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
     let program = crate::parse_program(
         "(#fn identity ((value #u64)) #u64 (#return value))
          (#fn main () #u64
-           (#return (#call identity (: value (#block
+           (#return (#call identity ((value (#block
                (#let local #u64 42u64)
                (#let alias (#ref #u64) (#borrow local))
-               (#deref alias))))))",
+               (#deref alias)))))))",
     )
     .unwrap();
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
@@ -321,7 +321,7 @@ fn matched_reference_payload_from_parameter_can_return() {
          (#fn main () #u64
            (#let owner #u64 42u64)
            (#let selected (#ref #u64)
-             (#call select (: source (#borrow owner))))
+             (#call select ((source (#borrow owner)))))
            (#return (#deref selected)))",
     )
     .unwrap();
@@ -474,7 +474,7 @@ fn moved_and_nested_aggregate_reborrows_protect_parent_calls() {
                (#let moved View view)
                (#let wrapped Wrapped (#struct-literal Wrapped ((view moved))))
                {release}
-               (#call overwrite (: parent parent))
+               (#call overwrite ((parent parent)))
                {cleanup} (#return ()))"
         );
         let source = if mutable {

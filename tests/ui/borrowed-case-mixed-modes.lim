@@ -1,5 +1,5 @@
 (#enum Choice () ((Choice.Full #u64) Choice.Empty))
-(#fn inspect (: choice (#ref Choice)) #u64
+(#fn inspect ((choice (#ref Choice))) #u64
   (#return (#match choice
     (#case-ref (Choice.Full value) (#deref value))
     (#case-pin Choice.Empty 0u64))))

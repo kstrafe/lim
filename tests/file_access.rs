@@ -18,11 +18,11 @@ fn direct_calls_and_aliases_keep_source_parameter_labels() {
     write(
         scratch.path(),
         "math.lim",
-        "(#fn add (: value #u64) #u64 (#return (#u64::add-wrap value 1u64)))",
+        "(#fn add ((value #u64)) #u64 (#return (#u64::add-wrap value 1u64)))",
     );
     for source in [
-        "(#alias increment = ./math.lim::add) (#fn main () #u64 (#return (#call increment (: value 41u64))))",
-        "(#fn main () #u64 (#return (#call ./math.lim::add (: value 41u64))))",
+        "(#alias increment = ./math.lim::add) (#fn main () #u64 (#return (#call increment ((value 41u64)))))",
+        "(#fn main () #u64 (#return (#call ./math.lim::add ((value 41u64)))))",
     ] { check(scratch.path(), source).unwrap(); }
 }
 
@@ -46,10 +46,10 @@ fn identical_names_in_distinct_files_do_not_collide() {
 fn facade_aliases_export_declarations_without_exporting_struct_fields() {
     let scratch = support::Scratch::new("file-alias-facade");
     write(scratch.path(), "value/lib.lim", "(#export Number create destroy) (#alias Number = ./impl.lim::Number) (#alias create = ./impl.lim::create) (#alias destroy = ./impl.lim::destroy)");
-    write(scratch.path(), "value/impl.lim", "(#struct Number (#linear) (: value #u64)) (#fn create () Number (#return (#struct-literal Number (: value 42u64)))) (#fn destroy (: number Number) () (#forget number) (#return ()))");
+    write(scratch.path(), "value/impl.lim", "(#struct Number (#linear) ((value #u64))) (#fn create () Number (#return (#struct-literal Number ((value 42u64))))) (#fn destroy ((number Number)) () (#forget number) (#return ()))");
     let imports = "(#alias Number = ./value/lib.lim::Number) (#alias create = ./value/lib.lim::create) (#alias destroy = ./value/lib.lim::destroy)";
-    check(scratch.path(), &format!("{imports} (#fn main () #u64 (#let number Number (#call create ())) (#call destroy (: number number)) (#return 42u64))")).unwrap();
-    let error = check(scratch.path(), &format!("{imports} (#fn main () #u64 (#let number Number (#call create ())) (#let answer #u64 (#get number value)) (#call destroy (: number number)) (#return answer))")).unwrap_err();
+    check(scratch.path(), &format!("{imports} (#fn main () #u64 (#let number Number (#call create ())) (#call destroy ((number number))) (#return 42u64))")).unwrap();
+    let error = check(scratch.path(), &format!("{imports} (#fn main () #u64 (#let number Number (#call create ())) (#let answer #u64 (#get number value)) (#call destroy ((number number))) (#return answer))")).unwrap_err();
     assert!(error.contains("private"), "{error}");
 }
 
@@ -76,8 +76,8 @@ fn unstable_is_explicit_and_target_specific() {
 #[test]
 fn aliases_do_not_create_new_types() {
     let scratch = support::Scratch::new("file-alias-type-identity");
-    write(scratch.path(), "value.lim", "(#struct Number () (: value #u64)) (#fn read (: value Number) #u64 (#return (#get value value)))");
-    check(scratch.path(), "(#alias First = ./value.lim::Number) (#alias Second = ./value.lim::Number) (#alias read = ./value.lim::read) (#fn main () #u64 (#let value First (#struct-literal Second (: value 42u64))) (#return (#call read (: value value))))").unwrap();
+    write(scratch.path(), "value.lim", "(#struct Number () ((value #u64))) (#fn read ((value Number)) #u64 (#return (#get value value)))");
+    check(scratch.path(), "(#alias First = ./value.lim::Number) (#alias Second = ./value.lim::Number) (#alias read = ./value.lim::read) (#fn main () #u64 (#let value First (#struct-literal Second ((value 42u64)))) (#return (#call read ((value value)))))").unwrap();
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn malformed_duplicate_and_cyclic_aliases_are_rejected() {
         "(#alias read = (#unstable))",
         "(#fn ./value.lim::forged () #u64 (#return 42u64))",
         "(#alias missing = ./value.lim::missing)",
-        "(#alias read = ./value.lim::read) (#fn main (: read #u64) #u64 (#return read))",
+        "(#alias read = ./value.lim::read) (#fn main ((read #u64)) #u64 (#return read))",
     ] {
         assert!(check(scratch.path(), source).is_err(), "{source}");
     }
@@ -154,7 +154,7 @@ fn exported_array_api_keeps_explicit_claims_across_aliases_and_cache_hits() {
     write(
         scratch.path(),
         "values/lib.lim",
-        "(#export Values Values::in-bounds Values::prove-in-bounds Values::get) (#generate #array (: element #u64 : length 4 : name Values))",
+        "(#export Values Values::in-bounds Values::prove-in-bounds Values::get) (#generate #array ((element #u64) (length 4) (name Values)))",
     );
     let source = "(#alias Quad = ./values/lib.lim::Values)
       (#alias valid = ./values/lib.lim::Values::in-bounds)
@@ -162,14 +162,14 @@ fn exported_array_api_keeps_explicit_claims_across_aliases_and_cache_hits() {
       (#alias get = ./values/lib.lim::Values::get)
       (#fn main () #u64
         (#let values Quad (#array-of 1 42 3 4)) (#let index #usize 1usize)
-        (#return (#if-valid (#call valid (: index index))
-          (#block (#call prove (: index index))
-            (#call get (: values (#borrow values) : index index))) 0u64)))";
+        (#return (#if-valid (#call valid ((index index)))
+          (#block (#call prove ((index index)))
+            (#call get ((values (#borrow values)) (index index)))) 0u64)))";
     for _ in 0..2 {
         check(scratch.path(), source).unwrap();
         let error = check(
             scratch.path(),
-            &source.replace("(#call prove (: index index))", ""),
+            &source.replace("(#call prove ((index index)))", ""),
         )
         .unwrap_err();
         assert!(error.contains("missing evidence"), "{error}");
@@ -182,7 +182,7 @@ fn builtin_generated_types_and_variants_have_file_identity() {
     write(
         scratch.path(),
         "value/lib.lim",
-        "(#export Value) (#generate #optional (: type #u64 : name Value))",
+        "(#export Value) (#generate #optional ((type #u64) (name Value)))",
     );
     check(scratch.path(), "(#alias Maybe = ./value/lib.lim::Value) (#fn main () #u64 (#let value Maybe (#enum-literal Maybe.Some 42u64)) (#return (#match value (#case (Maybe.Some answer) answer) (#case Maybe.None 0u64))))").unwrap();
 }
@@ -190,15 +190,15 @@ fn builtin_generated_types_and_variants_have_file_identity() {
 #[test]
 fn exported_names_still_require_exports_and_unstable_does_not_open_fields() {
     let scratch = support::Scratch::new("file-unstable-representation");
-    write(scratch.path(), "value/lib.lim", "(#export read) (#struct Secret () (: value #u64)) (#fn read () #u64 (#return 42u64)) (#fn private () #u64 (#return 0u64))");
+    write(scratch.path(), "value/lib.lim", "(#export read) (#struct Secret () ((value #u64))) (#fn read () #u64 (#return 42u64)) (#fn private () #u64 (#return 0u64))");
     let error = check(scratch.path(), "(#alias hidden = ./value/lib.lim::private)").unwrap_err();
     assert!(error.contains("not exported"), "{error}");
-    let error = check(scratch.path(), "(#alias Secret = (#unstable ./value/lib.lim::Secret)) (#fn main () #u64 (#let value Secret (#struct-literal Secret (: value 42u64))) (#return (#get value value)))").unwrap_err();
+    let error = check(scratch.path(), "(#alias Secret = (#unstable ./value/lib.lim::Secret)) (#fn main () #u64 (#let value Secret (#struct-literal Secret ((value 42u64)))) (#return (#get value value)))").unwrap_err();
     assert!(error.contains("private representation"), "{error}");
     write(
         scratch.path(),
         "value/lib.lim",
-        "(#export) (#enum State () (: State.Ready #u64 : State.Empty))",
+        "(#export) (#enum State () ((State.Ready #u64) (State.Empty)))",
     );
     check(scratch.path(), "(#alias State = (#unstable ./value/lib.lim::State)) (#fn main () #u64 (#let value State (#enum-literal State.Ready 42u64)) (#return (#match value (#case (State.Ready answer) answer) (#case State.Empty 0u64))))").unwrap();
 }
@@ -251,9 +251,9 @@ fn direct_references_are_part_of_cfg_collection_and_internal_formatting() {
 fn same_spelled_types_in_different_files_remain_distinct() {
     let scratch = support::Scratch::new("file-distinct-types");
     for path in ["first.lim", "second.lim"] {
-        write(scratch.path(), path, "(#struct Number () (: value #u64))");
+        write(scratch.path(), path, "(#struct Number () ((value #u64)))");
     }
-    let error = check(scratch.path(), "(#alias First = ./first.lim::Number) (#alias Second = ./second.lim::Number) (#fn main () #u64 (#let value First (#struct-literal Second (: value 42u64))) (#return 0u64))").unwrap_err();
+    let error = check(scratch.path(), "(#alias First = ./first.lim::Number) (#alias Second = ./second.lim::Number) (#fn main () #u64 (#let value First (#struct-literal Second ((value 42u64)))) (#return 0u64))").unwrap_err();
     assert!(
         error.contains("expected") || error.contains("mismatch"),
         "{error}"
@@ -295,21 +295,21 @@ fn quoted_paths_and_symlinks_preserve_canonical_identity() {
     write(
         scratch.path(),
         "space dir/value.lim",
-        "(#struct Number () (: value #u64))",
+        "(#struct Number () ((value #u64)))",
     );
     std::os::unix::fs::symlink(
         scratch.path().join("space dir/value.lim"),
         scratch.path().join("alias.lim"),
     )
     .unwrap();
-    check(scratch.path(), "(#alias First = \"./space dir/value.lim::Number\") (#alias Second = ./alias.lim::Number) (#fn main () #u64 (#let value First (#struct-literal Second (: value 42u64))) (#return (#get value value)))").unwrap();
+    check(scratch.path(), "(#alias First = \"./space dir/value.lim::Number\") (#alias Second = ./alias.lim::Number) (#fn main () #u64 (#let value First (#struct-literal Second ((value 42u64)))) (#return (#get value value)))").unwrap();
 }
 
 #[test]
 fn async_generator_outputs_are_distinct_between_source_files() {
     let scratch = support::Scratch::new("file-async-identity");
-    let source = "(#generate #async-fn (: protocol WorkAwait : waker #u64 : cancel (cancel-work ()) : function (#fn work (: value #u64) #u64 (#return value))))
-      (#fn run () #u64 (#let waker #u64 0u64) (#let result Work::Poll (#call Work::poll (: task (#call work (: value 21u64)) : waker (#borrow waker)))) (#return (#match result (#case (Work::Poll.Ready answer) answer) (#case (Work::Poll.Pending task) (#block (#forget task) (#unreachable))))))";
+    let source = "(#generate #async-fn ((protocol WorkAwait) (waker #u64) (cancel (cancel-work ())) (function (#fn work ((value #u64)) #u64 (#return value)))))
+      (#fn run () #u64 (#let waker #u64 0u64) (#let result Work::Poll (#call Work::poll ((task (#call work ((value 21u64)))) (waker (#borrow waker))))) (#return (#match result (#case (Work::Poll.Ready answer) answer) (#case (Work::Poll.Pending task) (#block (#forget task) (#unreachable))))))";
     write(scratch.path(), "first.lim", source);
     write(scratch.path(), "second.lim", source);
     check(scratch.path(), "(#alias first = ./first.lim::run) (#alias second = ./second.lim::run) (#fn main () #u64 (#return (#u64::add-wrap (#call first ()) (#call second ()))))").unwrap();
@@ -449,7 +449,7 @@ fn removed_import_forms_have_no_compatibility_path() {
 fn definition_references_survive_nested_generator_signature_templates() {
     let scratch = support::Scratch::new("file-generator-signature-helper");
     write(scratch.path(), "generator.lim", "(#gn-fn parameter () `(value #u64)) (#gn declare (name) `((#fn ,name (,(#gn-call @parameter)) #u64 (#return value))))");
-    check(scratch.path(), "(#alias declare = ./generator.lim::declare) (#generate declare answer) (#fn main () #u64 (#return (#call answer (: value 42u64))))").unwrap();
+    check(scratch.path(), "(#alias declare = ./generator.lim::declare) (#generate declare answer) (#fn main () #u64 (#return (#call answer ((value 42u64)))))").unwrap();
 }
 
 #[test]

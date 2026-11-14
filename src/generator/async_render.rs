@@ -740,7 +740,7 @@ mod tests {
             ("(#extern-fn #abi-c target () #u64)", "#unsafe-call"),
         ] {
             let source = format!(
-                "{declaration}\n(#fn main () #u64 (#return (#unsafe ({keyword} target (:)))))"
+                "{declaration}\n(#fn main () #u64 (#return (#unsafe ({keyword} target ()))))"
             );
             let program = crate::parse_program(&source).unwrap();
             let (declarations, graph) = prepare(&source, "main");
@@ -784,7 +784,7 @@ mod tests {
         let source = format!(
             "{declarations_source}
           (#fn main () #u32 (#return (#call combine
-            (: second (#call effect (:)) : first 3))))"
+            ((second (#call effect ())) (first 3)))))"
         );
         let (declarations, graph) = prepare(&source, "main");
         let context =
@@ -840,7 +840,7 @@ mod tests {
             "
           (#fn effect () #u64 (#return 7u64))
           (#fn main () #u64 (#return (#unsafe (#asm #u64
-            ((rax (#call effect (:))) (rdi 4u64)) \"add rax, rdi\"))))",
+            ((rax (#call effect ())) (rdi 4u64)) \"add rax, rdi\"))))",
             "main",
         );
         let context =
@@ -1076,7 +1076,7 @@ mod tests {
         let (declarations, graph) = prepare(
             "
           (#fn effect () #u64 (#return 7u64))
-          (#fn main () #u64 (#return (#literal #u64 (#call effect (:)))))",
+          (#fn main () #u64 (#return (#literal #u64 (#call effect ()))))",
             "main",
         );
         let context =

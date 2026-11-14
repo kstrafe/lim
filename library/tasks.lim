@@ -45,7 +45,7 @@
       (#case (,(#gn-call @task-fourth job) lim-executor-task)
         (#block
           (#set lim-executor-waiting true)
-          (#call ,(#gn-call @task-sixth job) (: task lim-executor-task))))
+          (#call ,(#gn-call @task-sixth job) ((task lim-executor-task)))))
       (#case (,(#gn-call @task-fifth job) lim-executor-value)
         (,(#gn-call @task-fifth job) lim-executor-value)))))
 (#gn-fn executor-result (job)
@@ -148,8 +148,8 @@
               ,poll-type
               (#call
                 ,poll-function
-                (: task lim-wake-executor-task
-                  : waker ,(#gn-call @wake-executor-waker-parameter job))))
+                ((task lim-wake-executor-task)
+                  (waker ,(#gn-call @wake-executor-waker-parameter job)))))
             (#match lim-wake-executor-next
               (#case (,pending lim-wake-executor-pending-task)
                 (#block
@@ -172,10 +172,10 @@
           (#forget lim-wake-executor-task)
           (#unreachable))))))
 (#gn-fn wake-executor-cancel-call (cancel-function job)
-  `(#call ,cancel-function (: state ,(#gn-call @wake-executor-state-name job))))
+  `(#call ,cancel-function ((state ,(#gn-call @wake-executor-state-name job)))))
 (#gn-fn wake-executor-wait-result (outputs wait-spec cancel-function jobs)
-  `(#match (#call ,(#gn-call @task-fifth wait-spec) (: ,(#gn-first (#gn-call @task-sixth wait-spec))
-          ,(#gn-first (#gn-call @task-sixth wait-spec))))
+  `(#match (#call ,(#gn-call @task-fifth wait-spec) ((,(#gn-first (#gn-call @task-sixth wait-spec))
+          ,(#gn-first (#gn-call @task-sixth wait-spec)))))
     (#case (,(#gn-call @task-second wait-spec) lim-wake-executor-mask)
       (#block
         (#set lim-wake-executor-ready-mask lim-wake-executor-mask)
@@ -275,12 +275,12 @@
     (#gn-if (#gn-equal (#gn-first continuation) #then)
       `(,(#gn-call @task-third names)
         (,(#gn-call @task-second continuation)
-          (#call ,(#gn-call @task-third continuation) (: value lim-async-value))))
+          (#call ,(#gn-call @task-third continuation) ((value lim-async-value)))))
       (#gn-error "async continuation must be (#return) or (#then State function)"))))
 (#gn-fn async-poll-case (names stage)
   (#gn-if (#gn-equal (#gn-first (#gn-call @task-second stage)) #await)
     `(#case (,(#gn-first stage) lim-async-task)
-      (#match (#call ,(#gn-call @task-fifth (#gn-call @task-second stage)) (: task lim-async-task))
+      (#match (#call ,(#gn-call @task-fifth (#gn-call @task-second stage)) ((task lim-async-task)))
         (#case (,(#gn-call @task-third (#gn-call @task-second stage)) lim-async-polled-task)
           (,(#gn-call @task-third names) (,(#gn-first stage) lim-async-polled-task)))
         (#case (,(#gn-call @task-fourth (#gn-call @task-second stage)) lim-async-value)
@@ -299,7 +299,7 @@
 (#gn-fn async-wake-poll-case (names stage)
   (#gn-if (#gn-equal (#gn-first (#gn-call @task-second stage)) #await)
     `(#case (,(#gn-first stage) lim-async-task)
-      (#match (#call ,(#gn-call @task-fifth (#gn-call @task-second stage)) (: task lim-async-task : waker waker))
+      (#match (#call ,(#gn-call @task-fifth (#gn-call @task-second stage)) ((task lim-async-task) (waker waker)))
         (#case (,(#gn-call @task-third (#gn-call @task-second stage)) lim-async-polled-task)
           (,(#gn-call @task-third names) (,(#gn-first stage) lim-async-polled-task)))
         (#case (,(#gn-call @task-fourth (#gn-call @task-second stage)) lim-async-value)
@@ -318,20 +318,20 @@
 (#gn-fn task-cancel-case (entry)
   (#gn-if (#gn-equal (#gn-length entry) 2)
     `(#case (,(#gn-first entry) lim-cancel-task)
-      (#call ,(#gn-call @task-second entry) (: task lim-cancel-task)))
+      (#call ,(#gn-call @task-second entry) ((task lim-cancel-task))))
     (#gn-if (#gn-equal (#gn-length entry) 3)
       (#gn-if (#gn-equal (#gn-length (#gn-call @task-third entry)) 0)
         `(#case ,(#gn-first entry)
-          (#call ,(#gn-call @task-second entry) (: task ())))
+          (#call ,(#gn-call @task-second entry) ((task ()))))
         `(#case (,(#gn-first entry) ,@(#gn-for-each field (#gn-call @task-third entry) (#gn-first field)))
           (#call
             ,(#gn-call @task-second entry)
-            (: task
+            ((task
               (#tuple
                 (#tuple ,@(#gn-for-each field (#gn-call @task-third entry)
                            (#gn-call @task-second field)))
                 ,@(#gn-for-each field (#gn-call @task-third entry)
-                     (#gn-first field)))))))
+                     (#gn-first field))))))))
       (#gn-error
         "task cancellation state requires (Variant handler) or (Variant handler ((field Type) ...))"))))
 (#gn #task-cancel (cancel task states)
@@ -339,4 +339,4 @@
 //; Choice.One explicit OS worker owns this executor and its fixed set of task slots.
 //; Existing #generate #thread-spawn Send checks, errors, and mandatory joining apply.
 (#gn #threaded-executor (run result jobs thread)
-  `((#generate #executor ,run ,result ,jobs) (#generate #thread-spawn (: task ,thread : worker ,run))))
+  `((#generate #executor ,run ,result ,jobs) (#generate #thread-spawn ((task ,thread) (worker ,run)))))

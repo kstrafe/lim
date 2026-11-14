@@ -23,22 +23,22 @@
 
 (#fn main () #i32
   (#let timer-created TimerCreate1
-    (#call timer-reactor1-create (: nanoseconds 100000000u64)))
+    (#call timer-reactor1-create ((nanoseconds 100000000u64))))
   (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
   (#let-mut byte #u8 0u8)
   (#assert (#i64::ge
-    (#call async-byte-read1-enable-nonblocking (: fd 0i64)) 0i64))
+    (#call async-byte-read1-enable-nonblocking ((fd 0i64))) 0i64))
   (#let read-created AsyncByteReadCreate1
     (#call async-byte-read1-create
-      (: fd 0i64 : destination (#borrow-mut byte))))
+      ((fd 0i64) (destination (#borrow-mut byte)))))
   (#let-else (AsyncByteReadCreate1.AsyncByteReadCreated1 initial-read-task) AsyncByteReadCreate1
     read-created (#unreachable))
   (#let-mut read-task AsyncByteRead1 initial-read-task)
 
   (#let timer-source AsyncPollSource4
-    (#call timer-reactor1-source (: timer (#borrow timer))))
+    (#call timer-reactor1-source ((timer (#borrow timer)))))
   (#let read-source AsyncPollSource4
-    (#call async-byte-read1-source (: task (#borrow read-task))))
+    (#call async-byte-read1-source ((task (#borrow read-task)))))
   (#let five-array (#array AsyncPollSource4 5)
     (#array-of (#array AsyncPollSource4 5)
       (#clone timer-source) (#clone read-source) (#clone timer-source)
@@ -47,7 +47,7 @@
     (#borrow-slice five-array))
   (#let too-many AsyncPoll4Result
     (#call async-poll4-wait
-      (: sources five-sources : timeout-ms -1i32)))
+      ((sources five-sources) (timeout-ms -1i32))))
   (#let rejected #bool (#match too-many
     (#case (AsyncPoll4Result.AsyncPoll4Failed error) (#i64::eq error -22i64))
     (#case (AsyncPoll4Result.AsyncPoll4Ready mask) (#block (#forget mask) false))))
@@ -59,14 +59,14 @@
     (#borrow-slice both-array))
   (#let first-wait AsyncPoll4Result
     (#call async-poll4-wait
-      (: sources both-sources : timeout-ms -1i32)))
+      ((sources both-sources) (timeout-ms -1i32))))
   (#let first-mask #u32 (#match first-wait
     (#case (AsyncPoll4Result.AsyncPoll4Ready mask) mask)
     (#case (AsyncPoll4Result.AsyncPoll4Failed error) (#block (#forget error) 0u32))))
 
   (#let timer-ready TimerPoll1
     (#if (#u32::ne (#u32::bit-and first-mask 1u32) 0u32)
-      (#call timer-reactor1-poll (: timer (#borrow timer)))
+      (#call timer-reactor1-poll ((timer (#borrow timer))))
       (#block
         (#let timer-array (#array AsyncPollSource4 1)
           (#array-of (#array AsyncPollSource4 1) (#clone timer-source)))
@@ -74,12 +74,12 @@
           (#borrow-slice timer-array))
         (#let timer-wait AsyncPoll4Result
           (#call async-poll4-wait
-            (: sources timer-sources : timeout-ms -1i32)))
-        (#call timer-reactor1-poll (: timer (#borrow timer))))))
+            ((sources timer-sources) (timeout-ms -1i32))))
+        (#call timer-reactor1-poll ((timer (#borrow timer)))))))
 
   (#let read-ready AsyncByteReadPoll1
     (#if (#u32::ne (#u32::bit-and first-mask 2u32) 0u32)
-      (#call async-byte-read1-poll (: task (#borrow-mut read-task)))
+      (#call async-byte-read1-poll ((task (#borrow-mut read-task))))
       (#block
         (#let read-array (#array AsyncPollSource4 1)
           (#array-of (#array AsyncPollSource4 1) (#clone read-source)))
@@ -87,8 +87,8 @@
           (#borrow-slice read-array))
         (#let read-wait AsyncPoll4Result
           (#call async-poll4-wait
-            (: sources read-sources : timeout-ms -1i32)))
-        (#call async-byte-read1-poll (: task (#borrow-mut read-task))))))
+            ((sources read-sources) (timeout-ms -1i32))))
+        (#call async-byte-read1-poll ((task (#borrow-mut read-task)))))))
 
   (#let timer-ok #bool (#match timer-ready
     (#case (TimerPoll1.TimerReady1 count) (#u64::ge count 1u64))
@@ -100,9 +100,9 @@
     (#case (AsyncByteReadPoll1.AsyncByteReadFailed1 error) (#block (#forget error) false))
     (#case AsyncByteReadPoll1.AsyncByteReadPending1 false)))
   (#let read-destroyed #i64
-    (#call async-byte-read1-destroy (: task read-task)))
+    (#call async-byte-read1-destroy ((task read-task))))
   (#let timer-destroyed #i64
-    (#call timer-reactor1-cancel (: timer timer)))
+    (#call timer-reactor1-cancel ((timer timer))))
   (#return (#if (#bool::and rejected (#bool::and timer-ok byte-ok))
     (#if (#bool::and (#i64::eq read-destroyed 0i64)
                    (#i64::eq timer-destroyed 0i64))

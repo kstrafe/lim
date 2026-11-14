@@ -27,7 +27,7 @@
     #let
     value
     Maybe
-    (#call make (:))
+    (#call make ())
   )
   (
     #return

@@ -13,4 +13,4 @@
   (#let duplicate Outer
     (#struct-literal Outer ((inner (#struct-literal Inner ((payload (#array (#array #u64 7) 8u64 9u64 10u64 11u64 12u64 13u64 42u64))))))))
   (#return (#call consume
-    (: left (#get (#get value inner) payload) : right (#get (#get duplicate inner) payload)))))
+    ((left (#get (#get value inner) payload)) (right (#get (#get duplicate inner) payload))))))

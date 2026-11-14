@@ -8,7 +8,7 @@
 (#fn print-text ((text (#slice #char))) ()
   (#for-range (offset #usize) 0usize (#slice-len text)
     (#let byte #u8 (#as (#deref (#slice-idx text offset)) #u8))
-    (#assert (#i64::eq (#call linux-write-byte (: source (#borrow byte))) 1i64)))
+    (#assert (#i64::eq (#call linux-write-byte ((source (#borrow byte)))) 1i64)))
   (#return ()))
 
 (#struct Executor () ((notifications CellU64)))
@@ -17,8 +17,8 @@
 (#fn notify ((executor (#ref Executor)) (metadata (#ref WakeMetadata))) ()
   (#let cell (#ref CellU64) (#borrow (#get executor notifications)))
   (#call CellU64::set
-    (: cell (#clone cell)
-     : value (#u64::add-wrap (#call CellU64::get (($ cell))) (#get metadata amount))))
+    ((cell (#clone cell))
+     (value (#u64::add-wrap (#call CellU64::get (($ cell))) (#get metadata amount)))))
   (#return ()))
 
 (#fn clone-metadata ((metadata (#ref WakeMetadata))) WakeMetadata
@@ -53,18 +53,18 @@
 
 (#syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll))
 (#generate #async-fn
-  (: protocol WorkAwait
-   : waker LocalWaker
-   : cancel (cancel-work ((await-0 cancel-step)))
-   : function (#fn work ((offset #u64)) #u64
+  ((protocol WorkAwait)
+   (waker LocalWaker)
+   (cancel (cancel-work ((await-0 cancel-step))))
+   (function (#fn work ((offset #u64)) #u64
        (#let started-text (#array #char 14) "work: started\n")
-       (#call print-text (: text (#borrow-slice started-text)))
+       (#call print-text ((text (#borrow-slice started-text))))
        (#let step Step (Step.Waiting 1u64))
        (#let-mut total #u64 0u64)
        (#set total (#await StepAwait step))
        (#let resumed-text (#array #char 14) "work: resumed\n")
-       (#call print-text (: text (#borrow-slice resumed-text)))
-       (#return (#u64::add-wrap total offset)))))
+       (#call print-text ((text (#borrow-slice resumed-text))))
+       (#return (#u64::add-wrap total offset))))))
 
 (#fn cancel-step ((task Step)) ()
   (#match task
@@ -72,20 +72,20 @@
   (#return ()))
 
 (#fn main () #u64
-  (#call cancel-work (: task (#call Work::Poll::cleanup (: task (#call work (: offset 99u64))))))
+  (#call cancel-work ((task (#call Work::Poll::cleanup ((task (#call work ((offset 99u64)))))))))
   (#let executor Executor
-    (#struct-literal Executor ((notifications (#call CellU64::create (: value 0u64))))))
+    (#struct-literal Executor ((notifications (#call CellU64::create ((value 0u64)))))))
   (#let waker LocalWaker
     (#call local-waker-create
-      (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
+      ((executor (#borrow executor)) (metadata (#struct-literal WakeMetadata ((amount 1u64)))))))
   (#let first Work::Poll
-    (#call Work::poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
+    (#call Work::poll ((task (#call work ((offset 1u64)))) (waker (#borrow waker)))))
   (#let-else (Work::Poll.Pending pending) Work::Poll
     first
     (#unreachable))
   (#let pending-text (#array #char 16) "poll 1: pending\n")
-  (#call print-text (: text (#borrow-slice pending-text)))
-  (#let second Work::Poll (#call Work::poll (: task pending : waker (#borrow waker))))
+  (#call print-text ((text (#borrow-slice pending-text))))
+  (#let second Work::Poll (#call Work::poll ((task pending) (waker (#borrow waker)))))
   (#let result #u64
     (#match second
       (#case (Work::Poll.Ready value) value)
@@ -93,10 +93,10 @@
         (#forget task)
         (#unreachable))))
   (#let ready-text (#array #char 14) "poll 2: ready\n")
-  (#call print-text (: text (#borrow-slice ready-text)))
+  (#call print-text ((text (#borrow-slice ready-text))))
   (#call local-waker-destroy (($ waker)))
   (#let executor-ref (#ref Executor) (#borrow executor))
-  (#let notifications #u64 (#call CellU64::get (: cell (#borrow (#get executor-ref notifications)))))
+  (#let notifications #u64 (#call CellU64::get ((cell (#borrow (#get executor-ref notifications))))))
   (#drop executor-ref)
   (#forget executor)
   (#return (#u64::add-wrap result notifications)))

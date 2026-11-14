@@ -17,7 +17,7 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 fn borrowed_arguments_and_generated_case_sequences_run_in_order() {
     let source = r#"
       (#gn make-function (name)
-        `((#fn ,name (: value (#ref-mut #u64)) #u64
+        `((#fn ,name ((value (#ref-mut #u64))) #u64
             (#return (#match true
               (#case true (#when true)
                 (#deref-set value (#u64::add-wrap (#deref value) 1u64))
@@ -55,7 +55,7 @@ fn shorthand_keeps_mutability_and_type_errors_on_the_original_expression() {
         ("#let-mut", "#u64", "#borrow"),
     ] {
         let source = format!(
-            "(#fn take (: value (#ref-mut #u64)) () (#return ()))
+            "(#fn take ((value (#ref-mut #u64))) () (#return ()))
           (#fn main () () ({binding} value {ty} 42{})
             (#call take (($ ({operation} value)))) (#return ()))",
             &ty[1..]
@@ -87,7 +87,7 @@ fn case_sequences_do_not_hide_aliasing_or_linear_leaks() {
 
 #[test]
 fn formatting_preserves_comments_sugar_and_semantics() {
-    let source = "(#fn take (: value (#ref #u64)) #u64 (#return (#deref value)))
+    let source = "(#fn take ((value (#ref #u64))) #u64 (#return (#deref value)))
       (#fn main () #u64 (#let value #u64 42u64)
         (#return (#match true
           (#case true // keep this arm comment

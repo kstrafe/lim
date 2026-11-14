@@ -7,7 +7,7 @@
 
 (#fn main () #u64
   (#return
-    (#match (#call make (:))
+    (#match (#call make ())
       (#case (#array
         (#tuple _ _)
         (#tuple _ _)

@@ -14,7 +14,7 @@ fn pinned_payload_projection_evaluates_a_computed_receiver_once() {
                 ""
             };
             let source = format!(
-                "(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n          (#enum Choice () ((Choice.Number {discriminant} #u64) (Choice.Empty 0)))\n          (#generate lim-gen-enum-project (: enum Choice : variant Choice.Number : payload #u64 : mode #pin-ref{suffix} : name Projection))\n          (#fn main () #u64\n            (#let-mut counter #u64 0u64)\n            (#let-mut owner (#array Choice 1)\n              (#array-of (#array Choice 1) (Choice.Number 42u64)))\n            (#let-else (Projection.Some payload)\n              (#call Projection::project (: source (#pin-borrow{suffix} (#index owner\n                (#block (#set counter (#u64::add-wrap counter 1u64)) 0usize)))))\n              (#else (#return 1u64)))\n            {write}\n            (#let result #u64 (#deref payload))\n            (#drop payload)\n            (#assert (#u64::eq counter 1u64))\n            (#forget owner) (#return result))"
+                "(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n          (#enum Choice () ((Choice.Number {discriminant} #u64) (Choice.Empty 0)))\n          (#generate lim-gen-enum-project ((enum Choice) (variant Choice.Number) (payload #u64) (mode #pin-ref{suffix}) (name Projection)))\n          (#fn main () #u64\n            (#let-mut counter #u64 0u64)\n            (#let-mut owner (#array Choice 1)\n              (#array-of (#array Choice 1) (Choice.Number 42u64)))\n            (#let-else (Projection.Some payload)\n              (#call Projection::project ((source (#pin-borrow{suffix} (#index owner\n                (#block (#set counter (#u64::add-wrap counter 1u64)) 0usize))))))\n              (#else (#return 1u64)))\n            {write}\n            (#let result #u64 (#deref payload))\n            (#drop payload)\n            (#assert (#u64::eq counter 1u64))\n            (#forget owner) (#return result))"
             );
             check(&source).unwrap();
             let scratch = support::Scratch::new("pinned-computed-payload");
@@ -116,16 +116,16 @@ fn returned_stored_reference_projections_outlive_their_pointer_container_nativel
 
 #[test]
 fn projected_borrow_receivers_are_snapshotted_before_effectful_indices_natively() {
-    let source = "(#struct Holder () (: view (#pin-ref (#array #u64 2))))
-      (#fn select-element (: holder (#pin-ref-mut Holder) : replacement (#pin-ref (#array #u64 2))) (#pin-ref #u64)
+    let source = "(#struct Holder () ((view (#pin-ref (#array #u64 2)))))
+      (#fn select-element ((holder (#pin-ref-mut Holder)) (replacement (#pin-ref (#array #u64 2)))) (#pin-ref #u64)
         (#return (#pin-borrow (#index (#get holder view)
           (#block (#pin-set-field holder view replacement) 1usize)))))
       (#fn main () #u64
         (#let-mut original (#array #u64 2) (#array-of (#array #u64 2) 40u64 42u64))
         (#let-mut replacement (#array #u64 2) (#array-of (#array #u64 2) 99u64 100u64))
-        (#let-mut holder Holder (#struct-literal Holder (: view (#pin-borrow original))))
+        (#let-mut holder Holder (#struct-literal Holder ((view (#pin-borrow original)))))
         (#let selected (#pin-ref #u64) (#call select-element
-          (: holder (#pin-borrow-mut holder) : replacement (#pin-borrow replacement))))
+          ((holder (#pin-borrow-mut holder)) (replacement (#pin-borrow replacement)))))
         (#forget holder)
         (#set replacement (#array-of (#array #u64 2) 7u64 8u64))
         (#return (#deref selected)))";
@@ -171,7 +171,7 @@ fn mutable_pinned_reference_and_shared_waker_can_be_passed_together() {
         (#let-mut payload Payload (#struct-literal Payload ((value 0u64))))
         (#let view (#pin-ref-mut Payload) (#pin-borrow-mut payload))
         (#let waker #u64 0u64)
-        (#call update (: view view : waker (#borrow waker)))
+        (#call update ((view view) (waker (#borrow waker))))
         (#let result #u64 (#get (#unsafe (#pin-read view)) value))
         (#drop view)
         (#forget payload)
@@ -197,7 +197,7 @@ fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
         (#drop state-slot)
         (#let view (#pin-ref-mut Payload)
           (#pin-borrow-mut (#get task owner)))
-        (#call advance (: state state : view view : waker waker))
+        (#call advance ((state state) (view view) (waker waker)))
         (#drop view)
         (#return ()))
       (#fn main () ()
@@ -205,7 +205,7 @@ fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
           (#struct-literal Frame ((state State.Ready) (owner (#struct-literal Payload ((value 0u64)))))))
         (#let view (#pin-ref-mut Frame) (#pin-borrow-mut frame))
         (#let waker #u64 0u64)
-        (#call poll (: task view : waker (#borrow waker)))
+        (#call poll ((task view) (waker (#borrow waker))))
         (#drop view)
         (#forget frame)
         (#forget waker)
@@ -727,7 +727,7 @@ fn a_pin_stays_effective_across_a_reference_returning_function() {
       (#fn main () #u64
         (#let owner #u64 7u64)
         (#let pinned (#pin-ref #u64) (#pin-borrow owner))
-        (#let retained (#pin-ref #u64) (#call retain (: value pinned)))
+        (#let retained (#pin-ref #u64) (#call retain ((value pinned))))
         (#let snapshot #u64 owner)
         (#return (#u64::add-wrap snapshot (#deref retained))))";
     let error = check(source).unwrap_err();
@@ -774,18 +774,18 @@ fn a_pinned_reference_runs_through_the_native_backend() {
 
 #[test]
 fn a_callee_can_update_disjoint_storage_with_an_internal_owner_reference() {
-    let source = "(#struct Link () (: value #u64 : state #u32 : view (#pin-ref #u64)))
-      (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+    let source = "(#struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64))))
+      (#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
         (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
         (#pin-set-field target view view) (#return target))
-      (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+      (#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
         (#pin-set-field target state 2u32) (#return target))
       (#fn main () #u64
         (#let outside #u64 0u64)
         (#let external (#pin-ref #u64) (#pin-borrow outside))
-        (#let-mut link Link (#struct-literal Link (: value 42u64 : state 0u32 : view external)))
-        (#let running (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
-        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))
+        (#let-mut link Link (#struct-literal Link ((value 42u64) (state 0u32) (view external))))
+        (#let running (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
+        (#let updated (#pin-ref-mut Link) (#call tick ((target running))))
         (#let answer #u64 (#deref (#get updated view)))
         (#assert (#u32::eq (#get updated state) 2u32))
         (#pin-set-field updated view external) (#drop updated) (#forget link)
@@ -878,7 +878,7 @@ fn a_pinned_reference_can_cross_a_function_boundary_natively() {
       (#fn main () #u64
         (#let owner #u64 42u64)
         (#let pinned (#pin-ref #u64) (#pin-borrow owner))
-        (#let retained (#pin-ref #u64) (#call retain (: value pinned)))
+        (#let retained (#pin-ref #u64) (#call retain ((value pinned))))
         (#return (#deref retained)))";
     let scratch = support::Scratch::new("pinned-function-return");
     let input = scratch.path().join("main.lim");

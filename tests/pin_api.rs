@@ -25,8 +25,8 @@ fn compile(source: &str, scratch: &support::Scratch) -> Result<String, lim::Diag
 fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
     let scratch = support::Scratch::new("pin-api-scope");
     let source = source().replace(
-        "(#fn destroy-frame (: pin PinnedFrame) ()",
-        "(#fn destroy-frame (: pin PinnedFrame) ()
+        "(#fn destroy-frame ((pin PinnedFrame)) ()",
+        "(#fn destroy-frame ((pin PinnedFrame)) ()
       (#let byte #u64 67u64)
       (#let pointer (#ptr #u64) (#unsafe (#addr-of byte)))
       (#let written #i64 (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))))
@@ -74,15 +74,15 @@ fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
 #[test]
 fn opaque_pins_cannot_be_unwrapped_forged_or_cloned_in_safe_code() {
     for (name, extra, expected) in [
-        ("field", "(#fn bad (: pin PinnedFrame) () (#let raw (#pin-ref-mut Frame) (#get pin view)) (#forget raw) (#return ()))", "opaque"),
-        ("pattern", "(#fn bad (: pin PinnedFrame) () (#let (PinnedFrame raw) PinnedFrame pin) (#forget raw) (#return ()))", "opaque"),
-        ("forge", "(#fn bad (: view (#pin-ref-mut Frame)) PinnedFrame (#return (#struct-literal PinnedFrame (: view view))))", "opaque"),
-        ("constructor", "(#fn bad (: view (#pin-ref-mut Frame)) PinnedFrame (#return (#unsafe-call PinnedFrame::from-mut (: view view))))", "unsafe"),
-        ("unwrap", "(#fn bad (: pin PinnedFrame) (#pin-ref-mut Frame) (#return (#unsafe-call PinnedFrame::into-view (: pin pin))))", "unsafe"),
-        ("clone", "(#fn bad (: pin PinnedFrame) () (#let duplicate PinnedFrame (#clone pin)) (#forget duplicate) (#forget pin) (#return ()))", "cloned"),
-        ("nested-clone", "(#fn bad (: pin PinnedFrame) () (#let wrapped (#tuple PinnedFrame) (#tuple pin)) (#let duplicate (#tuple PinnedFrame) (#clone wrapped)) (#forget wrapped) (#forget duplicate) (#return ()))", "cloned"),
-        ("private-storage", "(#fn bad (: pin PinnedFrame) () (#forget pin) (#forget storage) (#return ()))", "unknown"),
-        ("generated-field", "(#gn steal () `((#fn bad (: pin PinnedFrame) () (#let raw (#pin-ref-mut Frame) (#get pin view)) (#forget raw) (#return ())))) (#generate steal)", "opaque"),
+        ("field", "(#fn bad ((pin PinnedFrame)) () (#let raw (#pin-ref-mut Frame) (#get pin view)) (#forget raw) (#return ()))", "opaque"),
+        ("pattern", "(#fn bad ((pin PinnedFrame)) () (#let (PinnedFrame raw) PinnedFrame pin) (#forget raw) (#return ()))", "opaque"),
+        ("forge", "(#fn bad ((view (#pin-ref-mut Frame))) PinnedFrame (#return (#struct-literal PinnedFrame ((view view)))))", "opaque"),
+        ("constructor", "(#fn bad ((view (#pin-ref-mut Frame))) PinnedFrame (#return (#unsafe-call PinnedFrame::from-mut ((view view)))))", "unsafe"),
+        ("unwrap", "(#fn bad ((pin PinnedFrame)) (#pin-ref-mut Frame) (#return (#unsafe-call PinnedFrame::into-view ((pin pin)))))", "unsafe"),
+        ("clone", "(#fn bad ((pin PinnedFrame)) () (#let duplicate PinnedFrame (#clone pin)) (#forget duplicate) (#forget pin) (#return ()))", "cloned"),
+        ("nested-clone", "(#fn bad ((pin PinnedFrame)) () (#let wrapped (#tuple PinnedFrame) (#tuple pin)) (#let duplicate (#tuple PinnedFrame) (#clone wrapped)) (#forget wrapped) (#forget duplicate) (#return ()))", "cloned"),
+        ("private-storage", "(#fn bad ((pin PinnedFrame)) () (#forget pin) (#forget storage) (#return ()))", "unknown"),
+        ("generated-field", "(#gn steal () `((#fn bad ((pin PinnedFrame)) () (#let raw (#pin-ref-mut Frame) (#get pin view)) (#forget raw) (#return ())))) (#generate steal)", "opaque"),
     ] {
         let scratch = support::Scratch::new(&format!("pin-api-{name}"));
         let error = compile(&format!("{}\n{extra}", source()), &scratch).unwrap_err();
@@ -102,10 +102,10 @@ fn opaque_pins_cannot_be_unwrapped_forged_or_cloned_in_safe_code() {
 fn scoped_pin_handles_cannot_escape_the_private_storage() {
     let scratch = support::Scratch::new("pin-api-escape");
     let source = source()
-        .replace(": result #u64", ": result PinnedFrame")
-        .replace("(#fn drive-frame (: pin PinnedFrame) #u64", "(#fn drive-frame (: pin PinnedFrame) PinnedFrame")
+        .replace("(result #u64)", "(result PinnedFrame)")
+        .replace("(#fn drive-frame ((pin PinnedFrame)) #u64", "(#fn drive-frame ((pin PinnedFrame)) PinnedFrame")
         .replace("  (#forget handle)\n  (#return result)", "  (#return handle)")
-        .replace("(#return (#call with-pinned-frame\n    (: value (#struct-literal Frame (: value 0u64)))))", "(#let escaped PinnedFrame (#call with-pinned-frame (: value (#struct-literal Frame (: value 0u64)))))\n  (#forget escaped) (#return 0u64)");
+        .replace("(#return (#call with-pinned-frame\n    ((value (#struct-literal Frame ((value 0u64)))))))", "(#let escaped PinnedFrame (#call with-pinned-frame ((value (#struct-literal Frame ((value 0u64)))))))\n  (#forget escaped) (#return 0u64)");
     let error = compile(&source, &scratch).unwrap_err();
     assert!(
         error.message.contains("borrow") || error.message.contains("reference"),
@@ -118,34 +118,34 @@ fn scoped_pin_handles_cannot_escape_the_private_storage() {
 fn pin_generator_arguments_and_copy_proof_are_checked() {
     for (arguments, expected) in [
         (
-            "(: name PinnedFrame : type Frame : fields (: value #u64))",
+            "((name PinnedFrame) (type Frame) (fields ((value #u64))))",
             "",
         ),
         (
-            "(: type Frame : name PinnedFrame : fields (: value #bool))",
+            "((type Frame) (name PinnedFrame) (fields ((value #bool))))",
             "expected Bool",
         ),
         (
-            "(: type Frame : name PinnedFrame : copy true : fields (: value #u64))",
+            "((type Frame) (name PinnedFrame) (copy true) (fields ((value #u64))))",
             "linear",
         ),
         (
-            "(: type Frame : name PinnedFrame : fields (: value #u64) : typo true)",
+            "((type Frame) (name PinnedFrame) (fields ((value #u64))) (typo true))",
             "unknown named",
         ),
         (
-            "(: type Frame : name PinnedFrame : name Other)",
+            "((type Frame) (name PinnedFrame) (name Other))",
             "repeats key",
         ),
-        ("(: type Frame)", "missing key"),
+        ("((type Frame))", "missing key"),
         (
-            "(: type Frame : name PinnedFrame : copy 1)",
+            "((type Frame) (name PinnedFrame) (copy 1))",
             "true or false",
         ),
     ] {
         let scratch = support::Scratch::new("pin-api-arguments");
         let changed = source().replace(
-            "(: type Frame : name PinnedFrame : fields (: value #u64))",
+            "((type Frame) (name PinnedFrame) (fields ((value #u64))))",
             arguments,
         );
         let result = compile(&changed, &scratch);
@@ -164,8 +164,8 @@ fn whole_value_copy_access_rejects_exclusive_reference_fields() {
     let scratch = support::Scratch::new("pin-api-copy-exclusive");
     let source = format!(
         "{}
-      (#struct Held () (: reference (#ref-mut #u64)))
-      (#generate #pin (: type Held : name PinnedHeld : copy true))",
+      (#struct Held () ((reference (#ref-mut #u64))))
+      (#generate #pin ((type Held) (name PinnedHeld) (copy true)))",
         source()
     );
     assert!(
@@ -176,7 +176,7 @@ fn whole_value_copy_access_rejects_exclusive_reference_fields() {
 
 fn projection_source() -> String {
     format!(
-        "(#alias lim-gen-pin = \"{0}/library/pin.lim::#pin\")\n(#alias lim-gen-pin-scope = \"{0}/library/pin.lim::#pin-scope\")\n      (#struct Inner (#linear) (: value #u64))\n      (#struct Outer (#linear) (: child Inner))\n      (#generate lim-gen-pin (: type Inner : name PinnedInner : fields (: value #u64)))\n      (#generate lim-gen-pin (: type Outer : name PinnedOuter : projections (: child PinnedInner)))\n      (#generate lim-gen-pin-scope (: type Outer : pin PinnedOuter : name with-outer\n        : run drive-outer : destroy destroy-outer : result #u64))\n      (#fn drive-outer (: pin PinnedOuter) #u64\n        (#let-mut handle PinnedOuter pin)\n        (#let-mut child PinnedInner (#call PinnedOuter::ProjectMut::child (: pin handle)))\n        (#call PinnedInner::Write::value (: pin (#borrow-mut child) : value 42u64))\n        (#let result #u64 (#call PinnedInner::Read::value (: pin (#borrow child))))\n        (#forget child) (#return result))\n      (#fn destroy-outer (: pin PinnedOuter) () (#forget pin) (#return ()))\n      (#fn main () #u64 (#return (#call with-outer\n        (: value (#struct-literal Outer (: child (#struct-literal Inner (: value 0u64))))))))",
+        "(#alias lim-gen-pin = \"{0}/library/pin.lim::#pin\")\n(#alias lim-gen-pin-scope = \"{0}/library/pin.lim::#pin-scope\")\n      (#struct Inner (#linear) ((value #u64)))\n      (#struct Outer (#linear) ((child Inner)))\n      (#generate lim-gen-pin ((type Inner) (name PinnedInner) (fields ((value #u64)))))\n      (#generate lim-gen-pin ((type Outer) (name PinnedOuter) (projections ((child PinnedInner)))))\n      (#generate lim-gen-pin-scope ((type Outer) (pin PinnedOuter) (name with-outer)\n        (run drive-outer) (destroy destroy-outer) (result #u64)))\n      (#fn drive-outer ((pin PinnedOuter)) #u64\n        (#let-mut handle PinnedOuter pin)\n        (#let-mut child PinnedInner (#call PinnedOuter::ProjectMut::child ((pin handle))))\n        (#call PinnedInner::Write::value ((pin (#borrow-mut child)) (value 42u64)))\n        (#let result #u64 (#call PinnedInner::Read::value ((pin (#borrow child)))))\n        (#forget child) (#return result))\n      (#fn destroy-outer ((pin PinnedOuter)) () (#forget pin) (#return ()))\n      (#fn main () #u64 (#return (#call with-outer\n        ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64)))))))))))",
         env!("CARGO_MANIFEST_DIR")
     )
 }
@@ -202,12 +202,12 @@ fn projected_handles_cannot_escape_or_overlap_exclusively() {
     let source = projection_source();
     let overlapping = source.replace(
         "(#call PinnedInner::Write::value",
-        "(#let duplicate PinnedInner (#call PinnedOuter::ProjectMut::child (: pin handle))) (#forget duplicate)\n        (#call PinnedInner::Write::value");
+        "(#let duplicate PinnedInner (#call PinnedOuter::ProjectMut::child ((pin handle)))) (#forget duplicate)\n        (#call PinnedInner::Write::value");
     let escaping = source
-        .replace(": result #u64", ": result PinnedInner")
-        .replace("(#fn drive-outer (: pin PinnedOuter) #u64", "(#fn drive-outer (: pin PinnedOuter) PinnedInner")
+        .replace("(result #u64)", "(result PinnedInner)")
+        .replace("(#fn drive-outer ((pin PinnedOuter)) #u64", "(#fn drive-outer ((pin PinnedOuter)) PinnedInner")
         .replace("(#forget child) (#return result)", "(#return child)")
-        .replace("(#fn main () #u64 (#return (#call with-outer\n        (: value (#struct-literal Outer (: child (#struct-literal Inner (: value 0u64))))))))", "(#fn main () #u64 (#let escaped PinnedInner (#call with-outer (: value (#struct-literal Outer (: child (#struct-literal Inner (: value 0u64))))))) (#forget escaped) (#return 0u64))");
+        .replace("(#fn main () #u64 (#return (#call with-outer\n        ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64)))))))))))", "(#fn main () #u64 (#let escaped PinnedInner (#call with-outer ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64)))))))))) (#forget escaped) (#return 0u64))");
     for source in [overlapping, escaping] {
         let scratch = support::Scratch::new("pin-api-projection-invalid");
         let error = compile(&source, &scratch).unwrap_err();

@@ -9,21 +9,21 @@
 
 (#fn main () #u64
   (#let memory (#ptr-mut #u8)
-    (#unsafe (#unsafe-call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+    (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
   (#let locked #i64
-    (#unsafe (#unsafe-call linux-mlock (: address memory : length 4096usize))))
+    (#unsafe (#unsafe-call linux-mlock ((address memory) (length 4096usize)))))
   (#let unlocked #i64
-    (#unsafe (#unsafe-call linux-munlock (: address memory : length 4096usize))))
+    (#unsafe (#unsafe-call linux-munlock ((address memory) (length 4096usize)))))
   (#let locked-on-fault #i64
-    (#unsafe (#unsafe-call linux-mlock2 (: address memory : length 4096usize : flags 1i32))))
+    (#unsafe (#unsafe-call linux-mlock2 ((address memory) (length 4096usize) (flags 1i32)))))
   (#let invalid-lock-flags #i64
-    (#unsafe (#unsafe-call linux-mlock2 (: address memory : length 4096usize : flags 2i32))))
+    (#unsafe (#unsafe-call linux-mlock2 ((address memory) (length 4096usize) (flags 2i32)))))
   (#let invalid-all-flags #i64
-    (#call linux-mlockall (: flags 8i32)))
+    (#call linux-mlockall ((flags 8i32))))
   (#let all-unlocked #i64
-    (#call linux-munlockall (:)))
+    (#call linux-munlockall ()))
   (#let unmapped #i64
-    (#unsafe (#unsafe-call linux-munmap (: address memory : length 4096usize))))
+    (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))))
   (#return
     (#if (#bool::and (#i64::eq locked 0i64)
           (#bool::and (#i64::eq unlocked 0i64)
@@ -36,9 +36,9 @@
         (#let letter #u8 77u8)
         (#let newline #u8 10u8)
         (#let first-write #i64
-          (#call linux-write-byte (: source (#borrow letter))))
+          (#call linux-write-byte ((source (#borrow letter)))))
         (#let second-write #i64
-          (#call linux-write-byte (: source (#borrow newline))))
+          (#call linux-write-byte ((source (#borrow newline)))))
         (#if (#bool::and (#i64::eq first-write 1i64)
                      (#i64::eq second-write 1i64))
           42u64 2u64))

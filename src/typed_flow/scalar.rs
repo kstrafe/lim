@@ -1239,17 +1239,17 @@ mod tests {
 
     #[test]
     fn selected_patterns_refine_fresh_parameter_reads_only() {
-        let source = "(#struct State () (: pc #u64))
-          (#fn work (: view (#ref-mut State)) #u64
+        let source = "(#struct State () ((pc #u64)))
+          (#fn work ((view (#ref-mut State))) #u64
             (#return (#match (#get view pc)
               (#case 1 (#match (#get view pc) (#case 0 0u64) (#case _ 42u64)))
               (#case _ 0u64))))";
         assert_eq!(pruned(source), vec![0]);
-        let mutated = "(#struct State () (: pc #u64))
-          (#fn work (: view (#ref-mut State)) #u64
+        let mutated = "(#struct State () ((pc #u64)))
+          (#fn work ((view (#ref-mut State))) #u64
             (#return (#match (#get view pc)
               (#case 1 (#when (#block
-                (#deref-set view (#struct-literal State (: pc 0u64))) true))
+                (#deref-set view (#struct-literal State ((pc 0u64)))) true))
                 (#match (#get view pc) (#case 0 42u64) (#case 1 0u64) (#case _ 0u64)))
               (#case _ 0u64))))";
         assert_eq!(
@@ -1261,10 +1261,10 @@ mod tests {
 
     #[test]
     fn a_selected_alias_does_not_refine_every_possible_referent() {
-        let source = "(#struct State () (: pc #u64))
-          (#fn work (: condition #bool) #u64
-            (#let left State (#struct-literal State (: pc 0u64)))
-            (#let right State (#struct-literal State (: pc 1u64)))
+        let source = "(#struct State () ((pc #u64)))
+          (#fn work ((condition #bool)) #u64
+            (#let left State (#struct-literal State ((pc 0u64))))
+            (#let right State (#struct-literal State ((pc 1u64))))
             (#let view (#ref State) (#if condition (#borrow left) (#borrow right)))
             (#return (#match (#get view pc)
               (#case 1 (#match (#get left pc) (#case 0 42u64) (#case 1 0u64) (#case _ 0u64)))
@@ -1274,7 +1274,7 @@ mod tests {
 
     #[test]
     fn loop_widening_activates_later_pattern_edges_before_pruning() {
-        let source = "(#fn work (: condition #bool) #u64
+        let source = "(#fn work ((condition #bool)) #u64
           (#let-mut selector #u64 0u64)
           (#while condition (#match selector
             (#case 0 (#block (#set selector 1u64) ()))
@@ -1287,15 +1287,15 @@ mod tests {
 
     #[test]
     fn forward_owned_fields_and_loop_writes_join_every_reaching_value() {
-        let source = "(#struct State () (: pc #u64))
-          (#fn work (: condition #bool) #u64
-            (#let-mut state State (#struct-literal State (: pc 0u64)))
-            (#while condition (#set state (#struct-literal State (: pc 1u64))))
+        let source = "(#struct State () ((pc #u64)))
+          (#fn work ((condition #bool)) #u64
+            (#let-mut state State (#struct-literal State ((pc 0u64))))
+            (#while condition (#set state (#struct-literal State ((pc 1u64)))))
             (#return (#match (#get state pc)
               (#case 0 40u64) (#case 1 42u64) (#case 2 41u64) (#case _ 0u64))))";
         assert_eq!(pruned(source), vec![2]);
         assert_eq!(
-            pruned(&source.replace("(: pc 1u64)", "(: pc (#if condition 1u64 2u64))")),
+            pruned(&source.replace("((pc 1u64))", "((pc (#if condition 1u64 2u64)))")),
             vec![]
         );
     }
@@ -1312,16 +1312,16 @@ mod tests {
 
     #[test]
     fn checked_call_postconditions_replace_facts_but_assembly_invalidates_them() {
-        let prefix = "(#struct State () (: pc #u64))
-          (#fn change (: target (#ref-mut State)) ()
-            (#deref-set target (#struct-literal State (: pc 0u64))) (#return ()))";
+        let prefix = "(#struct State () ((pc #u64)))
+          (#fn change ((target (#ref-mut State))) ()
+            (#deref-set target (#struct-literal State ((pc 0u64)))) (#return ()))";
         for (write, expected) in [
-            ("(#call change (: target (#borrow-mut state)))", vec![1]),
+            ("(#call change ((target (#borrow-mut state))))", vec![1]),
             ("(#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut state)))) \"mov QWORD PTR [rdi], 0\"))", vec![]),
         ] {
             let source = format!(
                 "{prefix} (#fn work () #u64
-              (#let-mut state State (#struct-literal State (: pc 1u64))) {write}
+              (#let-mut state State (#struct-literal State ((pc 1u64)))) {write}
               (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64))))"
             );
             assert_eq!(pruned(&source), expected, "{source}");
@@ -1330,34 +1330,34 @@ mod tests {
 
     #[test]
     fn complete_scalar_mutation_footprints_preserve_only_disjoint_fields() {
-        let prefix = "(#struct State () (: pc #u64 : other #u64 : words (#array #u64 1)))
-          (#fn erase (: target (#ref-mut #u64)) () (#deref-set target 0u64) (#return ()))
-          (#fn forward (: target (#ref-mut #u64)) ()
-            (#call erase (: target target)) (#return ()))";
+        let prefix = "(#struct State () ((pc #u64) (other #u64) (words (#array #u64 1))))
+          (#fn erase ((target (#ref-mut #u64))) () (#deref-set target 0u64) (#return ()))
+          (#fn forward ((target (#ref-mut #u64))) ()
+            (#call erase ((target target))) (#return ()))";
         let source = |effect: &str| {
             format!(
                 "{prefix}
-          (#fn work (: condition #bool) #u64
+          (#fn work ((condition #bool)) #u64
             (#let-mut state State (#struct-literal State
-              (: pc 1u64 : other 9u64 : words (#array-repeat 0u64))))
+              ((pc 1u64) (other 9u64) (words (#array-repeat 0u64)))))
             {effect}
             (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64))))"
             )
         };
         for effect in [
-            "(#call forward (: target (#borrow-mut (#get state other))))",
+            "(#call forward ((target (#borrow-mut (#get state other)))))",
             "(#unsafe (#word-write #u64 (#borrow-slice-mut (#get state words)) 9u64))",
         ] {
             assert_eq!(pruned(&source(effect)), vec![0], "{effect}");
         }
         for (effect, expected) in [
             (
-                "(#call forward (: target (#borrow-mut (#get state pc))))",
+                "(#call forward ((target (#borrow-mut (#get state pc)))))",
                 vec![1],
             ),
             (
-                "(#call forward (: target (#if condition
-              (#borrow-mut (#get state pc)) (#borrow-mut (#get state other)))))",
+                "(#call forward ((target (#if condition
+              (#borrow-mut (#get state pc)) (#borrow-mut (#get state other))))))",
                 vec![],
             ),
         ] {
@@ -1369,24 +1369,24 @@ mod tests {
     fn resolved_reference_writes_update_only_the_actual_owned_place() {
         for setup in [
             "(#let view (#ref-mut State) (#borrow-mut state))
-             (#deref-set view (#struct-literal State (: pc 1u64)))",
+             (#deref-set view (#struct-literal State ((pc 1u64))))",
             "(#let view (#pin-ref-mut State) (#pin state)) (#pin-set-field view pc 1u64)",
         ] {
             let source = format!(
-                "(#struct State () (: pc #u64))
+                "(#struct State () ((pc #u64)))
               (#fn work () #u64
-                (#let-mut state State (#struct-literal State (: pc 0u64))) {setup}
+                (#let-mut state State (#struct-literal State ((pc 0u64)))) {setup}
                 (#return (#match (#get view pc)
                   (#case 0 0u64) (#case 1 42u64) (#case 2 2u64) (#case _ 3u64))))"
             );
             assert_eq!(pruned(&source), vec![0, 2], "{source}");
         }
-        let ambiguous = "(#struct State () (: pc #u64))
-          (#fn work (: condition #bool) #u64
-            (#let-mut left State (#struct-literal State (: pc 0u64)))
-            (#let-mut right State (#struct-literal State (: pc 0u64)))
+        let ambiguous = "(#struct State () ((pc #u64)))
+          (#fn work ((condition #bool)) #u64
+            (#let-mut left State (#struct-literal State ((pc 0u64))))
+            (#let-mut right State (#struct-literal State ((pc 0u64))))
             (#let view (#ref-mut State) (#if condition (#borrow-mut left) (#borrow-mut right)))
-            (#deref-set view (#struct-literal State (: pc 1u64)))
+            (#deref-set view (#struct-literal State ((pc 1u64))))
             (#return (#match (#get view pc) (#case 0 0u64) (#case 1 42u64) (#case _ 2u64))))";
         assert!(
             pruned(ambiguous).is_empty(),
@@ -1398,8 +1398,8 @@ mod tests {
     fn entry_scalar_assumptions_are_distinct_from_later_parameter_writes() {
         for reference in ["#ref-mut", "#pin-ref-mut"] {
             let source = format!(
-                "(#struct State () (: pc #u64))
-              (#fn work (: view ({reference} State)) #u64
+                "(#struct State () ((pc #u64)))
+              (#fn work ((view ({reference} State))) #u64
                 (#return (#match (#get view pc) (#case 0 0u64)
                   (#case 1 42u64) (#case _ 2u64))))"
             );
@@ -1448,7 +1448,7 @@ mod tests {
             let write = if reference == "#pin-ref-mut" {
                 "(#pin-set-field view pc 2u64)"
             } else {
-                "(#deref-set view (#struct-literal State (: pc 2u64)))"
+                "(#deref-set view (#struct-literal State ((pc 2u64))))"
             };
             let written = source.replace("(#return", &format!("{write} (#return"));
             let program = crate::parse_program(&written).unwrap();

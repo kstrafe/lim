@@ -1769,18 +1769,18 @@ mod tests {
         use crate::Type;
         use std::collections::HashSet;
         let program = parse_program(
-            "(#struct Plain () (: value #u64))
-             (#struct Forced (#linear) (: value #u64))
-             (#struct Shared () (: link (#ref #u64)))
-             (#struct Exclusive () (: link (#ref-mut #u64)))
-             (#struct Nested () (: child (#pin-own Exclusive)))
-             (#struct Diamond () (: left Shared : right Shared))
-             (#struct EmptyArray () (: items (#array Forced 0)))
+            "(#struct Plain () ((value #u64)))
+             (#struct Forced (#linear) ((value #u64)))
+             (#struct Shared () ((link (#ref #u64))))
+             (#struct Exclusive () ((link (#ref-mut #u64))))
+             (#struct Nested () ((child (#pin-own Exclusive))))
+             (#struct Diamond () ((left Shared) (right Shared)))
+             (#struct EmptyArray () ((items (#array Forced 0))))
              (#enum Choice () ((Choice.Data Plain) (Choice.View Shared) Choice.Empty))
              (#type Alias Choice) (#type Pair (#tuple Plain Exclusive))
              (#type LoopA LoopB) (#type LoopB LoopA)
-             (#struct Recursive () (: next (#ref Recursive)))
-             (#struct UnknownCarrier () (: value missing))",
+             (#struct Recursive () ((next (#ref Recursive))))
+             (#struct UnknownCarrier () ((value missing)))",
         )
         .unwrap();
         let types = LinearTypes::from_program(&program);
@@ -1860,9 +1860,9 @@ mod tests {
     fn property_caches_are_separate_for_different_declarations() {
         use super::LinearTypes;
         let copy =
-            LinearTypes::from_program(&parse_program("(#struct Value () (: item #u64))").unwrap());
+            LinearTypes::from_program(&parse_program("(#struct Value () ((item #u64)))").unwrap());
         let exclusive = LinearTypes::from_program(
-            &parse_program("(#struct Value () (: item (#ref-mut #u64)))").unwrap(),
+            &parse_program("(#struct Value () ((item (#ref-mut #u64))))").unwrap(),
         );
         let ty = crate::Type::Named("Value".into());
         for _ in 0..3 {
@@ -1880,10 +1880,10 @@ mod tests {
         use std::collections::HashSet;
 
         let program = parse_program(
-            "(#struct Shared () (: link (#ref #u64)))
-             (#struct Exclusive () (: link (#ref-mut #u64)))
-             (#struct Nested () (: child (#pin-own Exclusive)))
-             (#enum Choice () (: Choice.Empty : Choice.Present (#pin-own Shared)))",
+            "(#struct Shared () ((link (#ref #u64))))
+             (#struct Exclusive () ((link (#ref-mut #u64))))
+             (#struct Nested () ((child (#pin-own Exclusive))))
+             (#enum Choice () ((Choice.Empty) (Choice.Present (#pin-own Shared))))",
         )
         .unwrap();
         let types = LinearTypes::from_program(&program);
@@ -1955,7 +1955,7 @@ mod tests {
     fn all_returning_for_paths_have_no_ownership_back_edge() {
         let source = "(#struct Resource (#linear) ((value #u64)))
           (#fn main () #u64
-            (#let resource Resource (#struct-literal Resource (: value 42u64)))
+            (#let resource Resource (#struct-literal Resource ((value 42u64))))
             (#for-range (turn #u64) 0u64 2u64
               (#let value #u64 (#get resource value))
               (#match turn
@@ -2014,7 +2014,7 @@ mod tests {
     #[test]
     fn values_are_linear_and_clone_is_explicit() {
         let duplicate = parse_program(
-            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) () (#forget value) (#return ())) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 20u64)))) (#call consume (: value value)) (#call consume (: value value)) (#return 0u64))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) () (#forget value) (#return ())) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 20u64)))) (#call consume ((value value))) (#call consume ((value value))) (#return 0u64))",
         ).unwrap();
         assert!(check_types(&duplicate)
             .unwrap_err()
@@ -2030,7 +2030,7 @@ mod tests {
     #[test]
     fn cloning_a_moved_value_is_rejected() {
         let program = parse_program(
-            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) Resource (#return value)) (#fn inspect ((value Resource)) #u64 (#forget value) (#return 0u64)) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 1u64)))) (#let moved Resource (#call consume (: value value))) (#forget moved) (#return (#call inspect (: value (#clone value)))))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) Resource (#return value)) (#fn inspect ((value Resource)) #u64 (#forget value) (#return 0u64)) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 1u64)))) (#let moved Resource (#call consume ((value value)))) (#forget moved) (#return (#call inspect ((value (#clone value))))))",
         )
         .unwrap();
         let error = check_types(&program).unwrap_err();
@@ -2073,7 +2073,7 @@ mod tests {
     #[test]
     fn named_clone_functions_define_deep_clone_behavior() {
         let program = parse_program(
-            "(#struct Point () ((x #u64))) (#fn Point::clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) #u64 (#let result #u64 (#get point x)) (#forget point) (#return result)) (#fn main () #u64 (#let value Point (#struct-literal Point ((x 4)))) (#let result #u64 (#call consume (: point (#clone value)))) (#forget value) (#return result))",
+            "(#struct Point () ((x #u64))) (#fn Point::clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) #u64 (#let result #u64 (#get point x)) (#forget point) (#return result)) (#fn main () #u64 (#let value Point (#struct-literal Point ((x 4)))) (#let result #u64 (#call consume ((point (#clone value))))) (#forget value) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -2085,7 +2085,7 @@ mod tests {
     #[test]
     fn field_values_are_moved_independently_and_can_be_cloned() {
         let duplicate = parse_program(
-            "(#struct Resource (#linear) ((value #u64)))  (#fn use ((resource Resource)) () (#forget resource) (#return ())) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 20u64)))) (#call use (: resource resource)) (#call use (: resource resource)) (#return 0u64))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn use ((resource Resource)) () (#forget resource) (#return ())) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 20u64)))) (#call use ((resource resource))) (#call use ((resource resource))) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&duplicate)
@@ -2157,14 +2157,14 @@ mod tests {
             .contains("before leaving its scope"));
 
         let branch_leak = parse_program(
-            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) #u64 (#forget value) (#return 1u64)) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume (: value resource)) 0u64)))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) #u64 (#forget value) (#return 1u64)) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume ((value resource))) 0u64)))",
         ).unwrap();
         assert!(check_types(&branch_leak)
             .unwrap_err()
             .contains("consumed consistently on every control-flow path"));
 
         let both_branches_consume = parse_program(
-            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) #u64 (#forget value) (#return 1u64)) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume (: value resource)) (#call consume (: value resource)))))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) #u64 (#forget value) (#return 1u64)) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume ((value resource))) (#call consume ((value resource))))))",
         ).unwrap();
         assert!(check_types(&both_branches_consume).is_ok());
 
@@ -2417,7 +2417,7 @@ mod tests {
     #[test]
     fn thread_tasks_cannot_be_forgotten_instead_of_joined() {
         let program = parse_program(
-            "(#fn worker ((value #u64)) #u64 (#return value)) (#generate #thread-spawn (: task Task : worker worker)) (#fn main () #u64 (#let result Task::SpawnResult (#call Task::spawn (: value 1u64))) (#forget result) (#return 0u64))",
+            "(#fn worker ((value #u64)) #u64 (#return value)) (#generate #thread-spawn ((task Task) (worker worker))) (#fn main () #u64 (#let result Task::SpawnResult (#call Task::spawn ((value 1u64)))) (#forget result) (#return 0u64))",
         ).unwrap();
         let error = check_types(&program).unwrap_err();
         assert!(
