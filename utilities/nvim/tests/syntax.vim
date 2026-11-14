@@ -94,6 +94,15 @@ endfor
 for s:mode in ['wrap', 'saturate']
   call s:check('#' . s:mode, 'limOperator')
 endfor
+for [s:token, s:group] in [['#body', 'limSection'], ['#requires', 'limContract']]
+  call setline(1, '{ ' . s:token . ':')
+  for s:column in range(3, 2 + strlen(s:token))
+    call assert_equal(s:group, synIDattr(synID(1, s:column, 1), 'name'))
+  endfor
+  call assert_equal('limSeparator', synIDattr(synID(1, 3 + strlen(s:token), 1), 'name'))
+  call s:check(s:token . ':custom', 'limKeyword')
+  call s:check(s:token . '::custom', 'limKeyword')
+endfor
 call setline(1, '#fn read { #params={index=#usize;}; #returns=#bool; #body=([#usize; index < 4];); } // comment')
 for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#params', 'limSection'],
       \ ['#usize', 'limType'], ['#returns', 'limSection'], ['#bool', 'limType'],

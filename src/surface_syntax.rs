@@ -41,6 +41,44 @@ fn callable(node: &Node) -> bool {
         || crate::names::numeric_operation(value).is_some()
 }
 
+// A trailing single colon is punctuation only in the record-key position.
+// Keep the lexer unchanged so ordinary symbols and qualified names retain
+// their spelling. Unquoted keys use the same rule inside generator templates.
+fn split_layout_key(key: &Node) -> Option<(Node, Span)> {
+    let (expr, children, colon) = match &key.expr {
+        Expr::Symbol(value) => {
+            let value = value.strip_suffix(':')?;
+            if value.is_empty() || value.ends_with(':') {
+                return None;
+            }
+            let colon = Span::new(
+                key.span.end - 1,
+                key.span.end,
+                key.span.line,
+                key.span.column + value.chars().count(),
+            );
+            (Expr::Symbol(value.into()), Vec::new(), colon)
+        }
+        Expr::Unquote(_) => {
+            let (child, colon) = split_layout_key(key.children.first()?)?;
+            (
+                Expr::Unquote(Box::new(child.expr.clone())),
+                vec![child],
+                colon,
+            )
+        }
+        _ => return None,
+    };
+    Some((
+        Node {
+            expr,
+            span: through(key.span, colon.start),
+            children: children.into(),
+        },
+        colon,
+    ))
+}
+
 pub(super) fn record_declaration(name: &str) -> bool {
     matches!(name, "#fn" | "#unsafe-fn" | "#static" | "#const")
 }
@@ -57,7 +95,7 @@ pub(super) fn has_surface_notation(node: &Node, source: &str) -> bool {
 }
 
 pub(super) fn format_surface(node: &Node, source: &str) -> String {
-    // Layout is semantic only after '=:', so retain authored line boundaries
+    // Layout is semantic after a record-key colon, so retain line boundaries
     // and leading spaces. Never pretty-print the lowered tree as source sugar.
     let line = source[..node.span.start].rfind('\n').map_or(0, |i| i + 1);
     let prefix = &source[line..node.span.start];
@@ -170,18 +208,37 @@ impl<'a> Parser<'a> {
             if self.kind().is_none() {
                 return Err(self.error("unterminated named record; expected '}'", self.eof_span()));
             }
-            let key = self.expression_application(false)?;
+            let mut key = self.expression_application(false)?;
             if !matches!(key.expr, Expr::Symbol(_) | Expr::Unquote(_)) {
                 return Err(self.error("record keys must be identifiers", key.span));
             }
-            self.take(T::Equal, "record entries require 'key = value;'")?;
-            let layout = self.kind() == Some(&T::Colon);
-            let value = if layout {
-                self.layout(key.span)?
+            let attached_colon = if self.kind() == Some(&T::Equal) {
+                self.index += 1;
+                None
+            } else if self.kind() == Some(&T::Colon) {
+                None
+            } else if let Some((plain_key, colon)) = split_layout_key(&key) {
+                key = plain_key;
+                Some(colon)
+            } else {
+                return Err(self.error(
+                    "record entries require 'key = value;' or 'key:' with an indented value",
+                    self.current_span(),
+                ));
+            };
+            let colon = if attached_colon.is_some() {
+                attached_colon
+            } else if self.kind() == Some(&T::Colon) {
+                Some(self.take(T::Colon, "expected ':'")?)
+            } else {
+                None
+            };
+            let value = if let Some(colon) = colon {
+                self.layout(key.span, colon)?
             } else {
                 self.expression()?
             };
-            let end = if layout {
+            let end = if colon.is_some() {
                 value.span.end
             } else {
                 self.take(T::Semicolon, "record entries require a terminating ';'")?
@@ -316,14 +373,13 @@ impl<'a> Parser<'a> {
             .map_or(span.column - 1, |token| token.span.column - 1))
     }
 
-    fn layout(&mut self, key: Span) -> Result<Node, ParseError> {
-        let start = self.take(T::Colon, "expected ':'")?;
+    fn layout(&mut self, key: Span, start: Span) -> Result<Node, ParseError> {
         let header = self.indentation(key)?;
         let first = self.current_span();
         let indent = self.indentation(first)?;
         if self.kind().is_none() || first.line <= start.line || indent <= header {
             return Err(self.error(
-                "'=:' requires a nonempty indented list on the following line",
+                "a record-key ':' requires a nonempty indented list on the following line",
                 first,
             ));
         }
@@ -365,7 +421,7 @@ impl<'a> Parser<'a> {
             }
             if terms.is_empty() && next_indent != indent {
                 return Err(self.error(
-                    "unexpected indentation; use '=:' to open another group",
+                    "unexpected indentation; use 'key:' to open another group",
                     next,
                 ));
             }

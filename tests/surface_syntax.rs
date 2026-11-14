@@ -178,6 +178,9 @@ fn layout_is_local_and_delimited_operands_keep_their_own_semicolons() {
     let source = "#fn next {\n  #params = { value = #u64; };\n  #returns = #u64;\n  #requires =:\n    [#u64; value < 99];\n  #ensures =:\n    [#u64; (#result) < 100];\n  #body =:\n    // preserve this comment\n    #let next #u64 [#u64 #wrap; value + 1];\n    #return next;\n}\n";
     assert_eq!(trees(source), trees("(#fn next ((value #u64)) #u64 (#requires (#u64::lt value 99u64)) (#ensures (#u64::lt (#result) 100u64)) (#let next #u64 (#u64::add-wrap value 1u64)) (#return next))"));
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
+    let shorthand = source.replace(" =:", ":");
+    assert_eq!(trees(&shorthand), trees(source));
+    lim::check_types(&lim::parse_program(&shorthand).unwrap()).unwrap();
     let outdented = "(#fn identity ((value #u64)) #u64 (#return value))\n#fn main {\n  #params = {};\n  #returns = #u64;\n  #body =:\n    #return identity {\n      value = 42;\n};\n}\n";
     lim::check_types(&lim::parse_program(outdented).unwrap()).unwrap();
     let string = "#fn text {\n  #params = {};\n  #returns = (#array #char 3);\n  #body =:\n    #return \"x \n\";\n}\n";
@@ -189,6 +192,50 @@ fn layout_is_local_and_delimited_operands_keep_their_own_semicolons() {
         "{ body =:\n  value\n}",
         "{ body =:\n\tvalue;\n}",
         "{ body =:\n    one;\n  two;\n}",
+    ] {
+        for source in [source.to_owned(), source.replace(" =:", ":")] {
+            assert!(lim::parse(&source).is_err(), "accepted {source}");
+        }
+    }
+}
+
+#[test]
+fn indented_record_values_can_omit_equals_without_changing_symbols_or_key_spans() {
+    let source = "#fn identity {\n  #params:\n    value #u64;\n  #returns = #u64;\n  #body :\n    #return value;\n}\n";
+    assert_eq!(
+        trees(source),
+        trees("(#fn identity ((value #u64)) #u64 (#return value))")
+    );
+    lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
+
+    let nested =
+        "{ entries:\n  collect { items:\n    first;\n    second;\n  };\n  last;\nafter = done;\n}";
+    assert_eq!(trees(nested), trees(&nested.replace(":\n", " =:\n")));
+    let generated = "`{ ,key:\n  value;\n}";
+    assert_eq!(trees(generated), trees(&generated.replace(":\n", " =:\n")));
+
+    let source = "{ λ:\n  value;\n}";
+    let record = lim::parse(source).unwrap().remove(0);
+    let key = &record.children[0].children[0];
+    assert_eq!(&source[key.span.start..key.span.end], "λ");
+    let value = &record.children[0].children[1];
+    assert_eq!(&source[value.span.start..value.span.start + 1], ":");
+    assert_eq!(value.span.column, 4);
+
+    assert_eq!(
+        trees("name: Type::member key::"),
+        vec![
+            lim::Expr::Symbol("name:".into()),
+            lim::Expr::Symbol("Type::member".into()),
+            lim::Expr::Symbol("key::".into()),
+        ]
+    );
+    assert_eq!(trees("{ key: = value; }"), trees("((key: value))"));
+    for source in [
+        "{ key: value; }",
+        "{ key : value; }",
+        "{ key\n  value;\n}",
+        "{ key::\n  value;\n}",
     ] {
         assert!(lim::parse(source).is_err(), "accepted {source}");
     }

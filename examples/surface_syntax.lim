@@ -4,18 +4,18 @@
 #fn widen {
   #params = { index = #usize; };
   #returns = ();
-  #requires =:
+  #requires:
     [#usize; index < 2];
-  #ensures =:
+  #ensures:
     [#usize; index < 4];
-  #body =:
+  #body:
     #return ();
 }
 
 #fn main {
   #params = {};
   #returns = #u64;
-  #body =:
+  #body:
     #let values Array4 (#array-of 10 42 30 40);
     #let index #usize 1;
     #return (#if-valid [#usize; index < 2]

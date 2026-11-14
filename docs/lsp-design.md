@@ -155,6 +155,8 @@ roles. Literal record keys become argument labels or declaration sections in
 their consuming form; argument labels navigate to the callee's parameters.
 Section markers, arithmetic mode markers, infix operators and punctuation have
 no user declaration target. Newlines and dedents introduce no bindings.
+For `key:` indentation entries, the trailing colon is excluded from the key's
+source range; `key:`, `key :` and `key =:` retain the same canonical roles.
 Infix headers never cross ordinary calls or argument records. This local syntax
 context introduces no name-resolution or proof inference. Navigation tests
 cover exact positive and negative ranges in declaration records and layout.

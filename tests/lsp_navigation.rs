@@ -6,9 +6,9 @@ fn function_records_layout_calls_and_infix_keep_exact_source_roles() {
         "#fn [[function|identity]] {
           #[[params-key|params]] = { [[binding|value]] = #u64; };
           #[[returns-key|returns]] = #u64;
-          #requires =:
+          #[[requires-key|requires]][[requires-colon|:]]
             [#u64; [[require-use|value]] [[operator|<]] 100];
-          #body =:
+          #[[body-key|body]][[body-colon|:]]
             #return [[body-use|value]];
         }
         #fn main {
@@ -22,6 +22,10 @@ fn function_records_layout_calls_and_infix_keep_exact_source_roles() {
         &[
             ("params-key", &[]),
             ("returns-key", &[]),
+            ("requires-key", &[]),
+            ("requires-colon", &[]),
+            ("body-key", &[]),
+            ("body-colon", &[]),
             ("require-use", &["binding"]),
             ("operator", &[]),
             ("body-use", &["binding"]),

@@ -75,17 +75,17 @@ generated arrays, contracts, infix expressions and local indentation lists.
 #fn increment {
   #params = { value = #u64; };
   #returns = #u64;
-  #requires =:
+  #requires:
     [#u64; value < 99];
-  #ensures =:
+  #ensures:
     [#u64; (#result) < 100];
-  #body =:
+  #body:
     #return [#u64 #wrap; value + 1];
 }
 #fn main {
   #params = {};
   #returns = #u64;
-  #body =:
+  #body:
     #let input #u64 41;
     #return (#if-valid [#u64; input < 99]
       (increment { value = input; })
@@ -94,8 +94,9 @@ generated arrays, contracts, infix expressions and local indentation lists.
 ```
 
 - `{ key = form; ... }` is a named pair list. Keys are literal identifiers;
-  values are single forms. Each entry requires its final semicolon. Empty
-  records use `{}`. Duplicate argument keys are checked by their consumer.
+  inline values are single forms and require a final semicolon. Indented
+  list values use `key:` as described below. Empty records use `{}`.
+  Duplicate argument keys are checked by their consumer.
 - `function { name = value; }` and `(function { name = value; })` are ordinary
   named calls, including generated scalar intrinsics. They use the same safe
   call checks and parameter-order evaluation as `#call`. Unsafe calls retain
@@ -119,11 +120,15 @@ generated arrays, contracts, infix expressions and local indentation lists.
   and default to empty. Unit results explicitly use `#returns = ();` and
   `(#return ())`. Unknown and duplicate section keys are errors. Parenthesized
   sections such as `(#params {...})` also normalize to canonical functions.
-- `key =:` followed by a newline opens an indented list value. Dedent closes
-  both the list and that record entry, so it needs no extra outer semicolon.
+- `key:` followed by a newline opens an indented list value; `key :` and
+  `key =:` are equivalent spellings. Dedent closes both the list and that
+  record entry, so it needs no extra outer semicolon.
   Only the colon activates layout; explicit nested delimiters contain their
   own syntax. Blank/comment lines do not affect scope. Use spaces for layout
   indentation and return to an enclosing indentation level when dedenting.
+  Inline entries retain `=`. A trailing single colon is recognized as this
+  separator only in record-key position; `::` names and symbols elsewhere
+  keep their spelling.
 - At module scope, `#fn`, `#unsafe-fn`, `#static`, `#const` and `#generate`
   accept an unparenthesized name and record. Its closing brace ends the form.
   Static and constant records require `#type` and `#value`.
