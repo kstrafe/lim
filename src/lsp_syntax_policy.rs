@@ -44,7 +44,7 @@ mod tests {
         "borrow-slice-mut",
         "break",
         "break-to",
-        "call", // Implicit name { args } calls normalize to this role; labels target parameters.
+        "call", // Marker-free record/colon-argument calls; labels target parameters.
         "call-graph",
         "capability",
         "case",

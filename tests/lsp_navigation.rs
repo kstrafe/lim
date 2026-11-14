@@ -15,7 +15,7 @@ fn indented_statement_headers_keep_loop_scopes_and_call_labels() {
             #let-mut [[total|total]] #u64 0;
             #[[loop|for-range]] ([[index|index]] #u64) 1 11[[colon|:]]
               #set [[set-use|total]] [#u64 #wrap; [[total-use|total]] +
-                ([[call|identity]] { [[label|value]] = [[argument|index]]; })];
+                ([[call|identity]] (: [[label|value]] [[argument|index]]))];
             #return [[after-loop|total]];
         }",
         &[

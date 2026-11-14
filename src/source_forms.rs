@@ -87,7 +87,7 @@ impl<'a> SourceForms<'a> {
                     }
                     _ => {
                         if tokens.len() == 1
-                            && matches!(kind, TokenKind::Symbol(name) if crate::names::value_name(name))
+                            && matches!(kind, TokenKind::Symbol(name) if crate::surface_syntax::callable_name(name))
                         {
                             let mut lookahead = self.lexer.clone();
                             if let Ok(next) = lookahead.next_token() {
@@ -99,6 +99,21 @@ impl<'a> SourceForms<'a> {
                                 Some(TokenKind::LBrace)
                             ) {
                                 continue;
+                            }
+                            if matches!(
+                                self.pending.as_ref().map(|token| &token.kind),
+                                Some(TokenKind::LParen)
+                            ) {
+                                let mut lookahead = self.lexer.clone();
+                                if matches!(
+                                    lookahead.next_token(),
+                                    Ok(Some(Token {
+                                        kind: TokenKind::Colon,
+                                        ..
+                                    }))
+                                ) {
+                                    continue;
+                                }
                             }
                         }
                         return parse_one(&tokens, self.source).map(Some);
@@ -134,6 +149,20 @@ fn parse_one(tokens: &[Token], source: &str) -> Result<SpannedExpr, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streams_marker_free_named_calls_with_the_same_spans_as_parse() {
+        let source = "read (: value 42)\n#usize::lt (: left 1usize : right 4usize)\n(read (: value 1))\nread {}";
+        let expected = crate::parse(source).unwrap();
+        let mut reader = SourceForms::new(source);
+        let actual = std::iter::from_fn(|| reader.next().transpose())
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(actual, expected);
+        let formatted = crate::format_source(source).unwrap();
+        assert!(!formatted.contains("#call"));
+        assert_eq!(crate::format_source(&formatted).unwrap(), formatted);
+    }
 
     #[test]
     fn streams_the_same_spanned_trees_as_parse() {

@@ -31,17 +31,17 @@ enforces the same rules on generated declarations and handwritten code.
 Compiler-issued hygienic `#gn-gensym` names occupy a separate reserved domain;
 they can also name private types without colliding with public declarations.
 
-User function names retain their identity when called with `#call`, even
-when a name also spells a builtin. For example, `(#call panic (: value
-reference))` calls the declared user function named `panic`; `(#panic)` remains
-the builtin trap. `#call` requires named arguments, evaluates their expressions
+User function names retain their identity in named calls, even when a name
+also spells a builtin. For example, `panic { value = reference; }` calls the
+declared user function named `panic`; `(#panic)` remains the builtin trap.
+Calls require named arguments, evaluate their expressions
 in parameter declaration order, and applies the declared function signature
-and ordinary eager-call ownership rules. `#call` accepts only safe functions,
+and ordinary eager-call ownership rules. Ordinary calls accept only safe functions,
 even inside `#unsafe`. Use `#unsafe-call` for unsafe or external functions;
 it requires an enclosing `#unsafe` block and uses the same named arguments,
 evaluation order, signature checks, and ownership rules.
 
-Strict scalar intrinsics also accept `#call`. The compiler generates their
+Strict scalar intrinsics also accept ordinary named calls. The compiler generates their
 typed signatures and lowers calls to the existing native operations. Binary
 parameters are `left` and `right`; unary `not` takes `value`. Integer arithmetic
 still requires `-wrap` or `-saturate`. Short-circuit `#bool::and` and `#bool::or`
@@ -98,7 +98,9 @@ generated arrays, contracts, infix expressions and local indentation lists.
   list values use `key:` as described below. Empty records use `{}`.
   Duplicate argument keys are checked by their consumer.
 - `function { name = value; }` and `(function { name = value; })` are ordinary
-  named calls, including generated scalar intrinsics. They use the same safe
+  named calls, including generated scalar intrinsics. `function (: name value)`
+  and `(function (: name value))` are equivalent. Empty calls use `function {}`
+  or `(function (:))`. No `#call` marker is required. They use the same safe
   call checks and parameter-order evaluation as `#call`. Unsafe calls retain
   `#unsafe-call` and an enclosing `#unsafe`.
 - In a parenthesized semicolon list, `#let x #u64 expression; #return x;`
@@ -2014,14 +2016,14 @@ marked mutable:
   (#return value))
 ```
 
-Function calls also name every argument explicitly. Use `#call` for safe
-functions or `#unsafe-call` for unsafe and external functions, with a
-list of `(name value)` pairs or a colon-prefixed argument list;
-each argument label must match a parameter in
-the declaration:
+Function calls name every argument explicitly. Safe calls use a function name
+followed by a record or colon-prefixed argument list. Unsafe and external
+functions use `#unsafe-call` within `#unsafe`. Each argument label must match a
+parameter in the declaration:
 
 ```lisp syntax
-(#call add (: left 20u32 : right 22u32))
+(add (: left 20u32 : right 22u32))
+add { left = 20u32; right = 22u32; }
 ```
 
 When a variable has the same name as its parameter, `($ name)` expands to
@@ -2048,11 +2050,13 @@ Do not add a colon around an already grouped `($ name)` pair: `(: ($ name))`
 would introduce an extra list, just like `(: (name name))`.
 
 Positional call forms are rejected. Calls with no arguments use
-`(#call function ())` for safe functions, or
+`function {}` or `(function (:))` for safe functions, or
 `(#unsafe (#unsafe-call function ()))` for unsafe and external functions.
 The equivalent empty colon group `(:)` formats as `()`.
-`#call` rejects unsafe and external callees even inside `#unsafe`;
+Ordinary calls reject unsafe and external callees even inside `#unsafe`;
 `#unsafe-call` requires an enclosing `#unsafe` block and rejects safe callees.
+The explicit `#call` form remains accepted for existing canonical generator
+output; handwritten calls do not need it.
 Both forms accept `($ name)` shorthand and apply the same argument checks.
 
 `(#call-graph)` returns a `(#slice #char)` containing the actual caller chain:

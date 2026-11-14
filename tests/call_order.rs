@@ -9,28 +9,30 @@ const NEXT: &str = "
     (#return expected))";
 
 fn run(source: &str) {
-    let scratch = support::Scratch::new("call-order");
-    let input = scratch.path().join("main.lim");
-    let binary = scratch.path().join("program");
-    fs::write(&input, source).unwrap();
-    let (status, _, stderr) = support::run(
-        Command::new(env!("CARGO_BIN_EXE_lim"))
-            .arg(&input)
-            .arg("-o")
-            .arg(&binary),
-        Duration::from_secs(20),
-        1024 * 1024,
-    )
-    .unwrap();
-    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
-    let (status, _, stderr) =
-        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
-    assert_eq!(
-        status.code(),
-        Some(42),
-        "{status:?}: {}",
-        String::from_utf8_lossy(&stderr)
-    );
+    for source in [source.to_owned(), source.replace("#call ", "")] {
+        let scratch = support::Scratch::new("call-order");
+        let input = scratch.path().join("main.lim");
+        let binary = scratch.path().join("program");
+        fs::write(&input, &source).unwrap();
+        let (status, _, stderr) = support::run(
+            Command::new(env!("CARGO_BIN_EXE_lim"))
+                .arg(&input)
+                .arg("-o")
+                .arg(&binary),
+            Duration::from_secs(20),
+            1024 * 1024,
+        )
+        .unwrap();
+        assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+        let (status, _, stderr) =
+            support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+        assert_eq!(
+            status.code(),
+            Some(42),
+            "{status:?}: {}",
+            String::from_utf8_lossy(&stderr)
+        );
+    }
 }
 
 #[test]

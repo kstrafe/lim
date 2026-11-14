@@ -160,6 +160,9 @@ source range; `key:`, `key :` and `key =:` retain the same canonical roles.
 Statement-header colons append indented children without changing their roles:
 loop binders cover the loop body, and dedented forms retain the enclosing scope.
 The colon is punctuation, including when attached to a numeric bound.
+Marker-free calls with braces or `(: name value)` arguments normalize through
+the same call roles: the callee resolves to its function and labels to its
+parameters. The compiler's synthetic call marker has no authored source range.
 Infix headers never cross ordinary calls or argument records. This local syntax
 context introduces no name-resolution or proof inference. Navigation tests
 cover exact positive and negative ranges in declaration records and layout.

@@ -36,9 +36,39 @@ fn name(node: &Node) -> &str {
     }
 }
 fn callable(node: &Node) -> bool {
-    let value = name(node);
+    callable_name(name(node))
+}
+
+pub(super) fn callable_name(value: &str) -> bool {
     (!value.is_empty() && !value.starts_with('#') && crate::names::value_name(value))
         || crate::names::numeric_operation(value).is_some()
+}
+
+fn syntax_operand(terms: &[Node]) -> bool {
+    terms.is_empty()
+        || (terms.len() == 1
+            && (matches!(
+                name(&terms[0]),
+                "#fn"
+                    | "#unsafe-fn"
+                    | "#static"
+                    | "#const"
+                    | "#call"
+                    | "#unsafe-call"
+                    | "#gn"
+                    | "#gn-fn"
+                    | "#gn-call"
+                    | "#struct-literal"
+                    | "#enum-literal"
+                    | "#thread-task-spawn"
+                    | "#thread-task-join"
+                    | "#type"
+                    | "#syntax"
+                    | "#struct"
+                    | "#enum"
+                    | "#distributed-enum"
+            ) || matches!(terms[0].expr, Expr::Generate)))
+        || (terms.len() == 2 && name(&terms[0]) == "#extern-fn")
 }
 
 // A trailing single colon is punctuation in a record key or layout header.
@@ -92,6 +122,13 @@ pub(super) fn record_declaration(name: &str) -> bool {
 }
 
 pub(super) fn has_surface_notation(node: &Node, source: &str) -> bool {
+    fn implicit_call(node: &Node) -> bool {
+        (name(node) == "#call" && node.span.start == node.span.end)
+            || node.children.iter().any(implicit_call)
+    }
+    if implicit_call(node) {
+        return true;
+    }
     let text = &source[node.span.start..node.span.end];
     let mut lexer = crate::Lexer::new(text);
     while let Ok(Some(token)) = lexer.next_token() {
@@ -192,12 +229,33 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn postfix_call(&mut self, callee: Node) -> Result<Node, ParseError> {
-        if self.kind() == Some(&T::LBrace) && callable(&callee) {
+        let named_arguments = self.kind() == Some(&T::LBrace)
+            || (self.kind() == Some(&T::LParen)
+                && self
+                    .tokens
+                    .get(self.index + 1)
+                    .is_some_and(|token| token.kind == T::Colon));
+        if named_arguments && callable(&callee) {
             let arguments = self.expression()?;
             Ok(self.application(callee, arguments))
         } else {
             Ok(callee)
         }
+    }
+
+    fn named_arguments(&self, node: &Node) -> bool {
+        self.records.contains(&node.span.start)
+            || self
+                .tokens
+                .binary_search_by_key(&node.span.start, |token| token.span.start)
+                .ok()
+                .is_some_and(|index| {
+                    self.tokens[index].kind == T::LParen
+                        && self
+                            .tokens
+                            .get(index + 1)
+                            .is_some_and(|token| token.kind == T::Colon)
+                })
     }
 
     fn application(&self, callee: Node, arguments: Node) -> Node {
@@ -304,24 +362,7 @@ impl<'a> Parser<'a> {
                 _ => {
                     // Declaration names and explicit call targets are syntax,
                     // so their following argument record is a separate child.
-                    let head = segment.first().map_or("", name);
-                    let syntax_operand = segment.is_empty()
-                        || (segment.len() == 1
-                            && (matches!(
-                                head,
-                                "#fn"
-                                    | "#unsafe-fn"
-                                    | "#static"
-                                    | "#const"
-                                    | "#call"
-                                    | "#unsafe-call"
-                                    | "#gn"
-                                    | "#gn-fn"
-                            ) || matches!(
-                                segment.first().map(|n| &n.expr),
-                                Some(Expr::Generate)
-                            )));
-                    let term = self.expression_application(!syntax_operand)?;
+                    let term = self.expression_application(!syntax_operand(&segment))?;
                     if let Some((term, colon)) = split_layout_suffix(&term)
                         .filter(|(_, colon)| self.current_span().line > colon.line)
                     {
@@ -351,17 +392,14 @@ impl<'a> Parser<'a> {
                 children: children.into(),
             });
         }
-        if children.len() == 2
-            && callable(&children[0])
-            && self.records.contains(&children[1].span.start)
-        {
+        if children.len() == 2 && callable(&children[0]) && self.named_arguments(&children[1]) {
             return Ok(self.application(children[0].clone(), children[1].clone()));
         }
         self.normalize_declaration(list(children, span))
     }
 
     fn form_group(&self, mut terms: Vec<Node>) -> Result<Node, ParseError> {
-        if terms.len() == 2 && callable(&terms[0]) && self.records.contains(&terms[1].span.start) {
+        if terms.len() == 2 && callable(&terms[0]) && self.named_arguments(&terms[1]) {
             return Ok(self.application(terms[0].clone(), terms[1].clone()));
         }
         if terms.len() == 1 {
@@ -481,7 +519,7 @@ impl<'a> Parser<'a> {
                 }
                 groups.push(self.form_group(std::mem::take(&mut terms))?);
             } else {
-                let term = self.expression()?;
+                let term = self.expression_application(!syntax_operand(&terms))?;
                 if let Some((term, colon)) = split_layout_suffix(&term) {
                     terms.push(term);
                     let form = self.layout_form(std::mem::take(&mut terms), colon)?;
