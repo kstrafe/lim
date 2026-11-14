@@ -157,9 +157,15 @@ Section markers, arithmetic mode markers, infix operators and punctuation have
 no user declaration target. Newlines and dedents introduce no bindings.
 For `key:` indentation entries, the trailing colon is excluded from the key's
 source range; `key:`, `key :` and `key =:` retain the same canonical roles.
-Statement-header colons append indented children without changing their roles:
-loop binders cover the loop body, and dedented forms retain the enclosing scope.
+Statement-header colons group indented children without changing their roles:
+body collections normalize like explicitly parenthesized collections. Loop
+binders cover the loop body, and dedented forms retain the enclosing scope.
 The colon is punctuation, including when attached to a numeric bound.
+Inline colons introduce ordinary nested lists at any expression position.
+They do not bind names or require a list-head position. Source ranges begin
+at the written colon, while contained callees, labels and operands retain
+their own exact ranges. Named calls with ordinary pair lists resolve their
+callee and labels in expression context; quoted and generator data remain data.
 Marker-free calls with braces or `((name value))` arguments normalize through
 the same call roles: the callee resolves to its function and labels to its
 parameters. The compiler's synthetic call marker has no authored source range.

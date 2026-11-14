@@ -199,8 +199,12 @@ impl Recipes {
                             projected = next;
                         }
                         recipes.declarations.push(format!(
-                            "(#fn {name} (({})) {} {} (#return {projected}))",
-                            signature.join(" : "),
+                            "(#fn {name} ({}) {} {} (#return {projected}))",
+                            signature
+                                .iter()
+                                .map(|parameter| format!("({parameter})"))
+                                .collect::<Vec<_>>()
+                                .join(" "),
                             crate::type_source(&reference(target_type(
                                 &place,
                                 prefix,
@@ -371,9 +375,13 @@ impl Recipes {
                 .map(|(position, name)| format!("{name} {}", indices[position])),
         );
         Some(format!(
-            "(#call {} (({})))",
+            "(#call {} ({}))",
             projection.name,
-            arguments.join(" : ")
+            arguments
+                .iter()
+                .map(|argument| format!("({argument})"))
+                .collect::<Vec<_>>()
+                .join(" ")
         ))
     }
 }

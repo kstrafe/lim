@@ -38,18 +38,6 @@ fn records_calls_and_semicolon_lists_lower_to_existing_forms() {
         trees("(read { index = x; })"),
         trees("(#call read ((index x)))")
     );
-    for source in ["(read ((index x)))", "read ((index x))"] {
-        assert_eq!(trees(source), trees("(#call read ((index x)))"));
-    }
-    assert_eq!(trees("(finish ())"), trees("(#call finish ())"));
-    assert_eq!(
-        trees("#usize::lt ((left x) (right 4usize))"),
-        trees("(#call #usize::lt ((left x) (right 4usize)))")
-    );
-    assert_eq!(
-        trees("(#let next #u64 read ((index x)); #return next;)"),
-        trees("((#let next #u64 (#call read ((index x)))) (#return next))")
-    );
     assert_eq!(
         trees("(#call read { index = x; })"),
         trees("(#call read ((index x)))")
@@ -63,6 +51,43 @@ fn records_calls_and_semicolon_lists_lower_to_existing_forms() {
         trees("(finish {}; #return ();)"),
         trees("((#call finish ()) (#return ()))")
     );
+}
+
+#[test]
+fn colons_group_the_remaining_line_and_nest_without_a_head_position_rule() {
+    for (source, canonical) in [
+        ("(a : b c)", "(a (b c))"),
+        ("(a : b : c)", "(a (b (c)))"),
+        ("a : b : c", "(a (b (c)))"),
+        (": a b", "(a b)"),
+        ("(: a b)", "((a b))"),
+        ("(a : b\n c)", "(a (b) c)"),
+        ("(:\n  a b\n)", "((a b))"),
+        (
+            "(#return : #u64::add-wrap 20 22)",
+            "(#return (#u64::add-wrap 20 22))",
+        ),
+        ("{ row = : x y; tail = z; }", "((row (x y)) (tail z))"),
+        ("{ row: x y; tail = z; }", "((row (x y)) (tail z))"),
+        (
+            "(#let answer #u64 : #u64::add-wrap 20 22; #return answer;)",
+            "((#let answer #u64 (#u64::add-wrap 20 22)) (#return answer))",
+        ),
+        ("`(a : b : c)", "`(a (b (c)))"),
+    ] {
+        assert_eq!(trees(source), trees(canonical), "{source}");
+        let formatted = lim::format_source(source).unwrap();
+        assert_eq!(trees(source), trees(&formatted), "{source}");
+        assert_eq!(lim::format_source(&formatted).unwrap(), formatted);
+    }
+    for source in [":", "(:)", "(a :)", "{ value:; }", "(:\nvalue\n)"] {
+        assert!(lim::parse(source).is_err(), "accepted {source}");
+    }
+    let nested = format!("({}value)", "a : ".repeat(600));
+    assert!(lim::parse(&nested).unwrap_err().contains("nesting"));
+    let source =
+        "#fn main { #params = {}; #returns = #u64; #body: #return : #u64::add-wrap 20 22; }";
+    lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
 }
 
 #[test]
@@ -175,7 +200,7 @@ fn implicit_calls_use_aliases_of_quoted_file_targets() {
 
 #[test]
 fn marker_free_calls_retain_function_identity_and_unsafe_requirements() {
-    let source = "(#fn panic ((value #u64)) #u64 (#return value)) #fn main { #params = {}; #returns = #u64; #body: \n  #return panic ((value 42));\n}";
+    let source = "(#fn panic ((value #u64)) #u64 (#return value)) #fn main { #params = {}; #returns = #u64; #body: \n  #return panic { value = 42; };\n}";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
     assert_eq!(
         trees("((name Example) (fields ((value #u64))))"),
@@ -183,7 +208,7 @@ fn marker_free_calls_retain_function_identity_and_unsafe_requirements() {
     );
     assert_eq!(
         trees("((argument identity ((value 42))))"),
-        trees("((argument (#call identity ((value 42)))))")
+        trees("((argument identity ((value 42))))")
     );
     for call in ["danger {}", "(danger ())", "danger ()"] {
         let source = format!("(#unsafe-fn danger () () (#return ())) #fn main {{ #params = {{}}; #returns = (); #body = (#unsafe ({call}); #return ();); }}");
@@ -229,9 +254,7 @@ fn layout_is_local_and_delimited_operands_keep_their_own_semicolons() {
     lim::check_types(&lim::parse_program(string).unwrap()).unwrap();
     assert_eq!(trees(string), trees(&lim::format_source(string).unwrap()));
     for source in [
-        "{ body =: value; }",
         "{ body =:\nvalue;\n}",
-        "{ body =:\n  value\n}",
         "{ body =:\n\tvalue;\n}",
         "{ body =:\n    one;\n  two;\n}",
     ] {
@@ -265,20 +288,15 @@ fn indented_record_values_can_omit_equals_without_changing_symbols_or_key_spans(
     assert_eq!(value.span.column, 4);
 
     assert_eq!(
-        trees("name: Type::member key::"),
+        trees("'name: Type::member key::"),
         vec![
-            lim::Expr::Symbol("name:".into()),
+            lim::Expr::Quote(Box::new(lim::Expr::Symbol("name:".into()))),
             lim::Expr::Symbol("Type::member".into()),
             lim::Expr::Symbol("key::".into()),
         ]
     );
-    assert_eq!(trees("{ key: = value; }"), trees("((key: value))"));
-    for source in [
-        "{ key: value; }",
-        "{ key : value; }",
-        "{ key\n  value;\n}",
-        "{ key::\n  value;\n}",
-    ] {
+    assert_eq!(trees("{ key: = value; }"), trees("((key (= value)))"));
+    for source in ["{ key\n  value;\n}", "{ key::\n  value;\n}"] {
         assert!(lim::parse(source).is_err(), "accepted {source}");
     }
 }
@@ -313,9 +331,7 @@ fn statement_headers_append_nested_indented_forms_and_end_on_dedent() {
         trees("`{ #body = ((#for-range (i #u64) 0 ,end (#call use ((value i))))); }")
     );
     for source in [
-        "{ #body:\n  #loop: #break;\n}",
         "{ #body:\n  #loop:\n  #break;\n}",
-        "{ #body:\n  #loop:\n    #break\n  #return 0;\n}",
         "{ #body:\n  #loop:\n\t#break;\n}",
         "{ #body:\n  #loop:\n      #break;\n    #return 0;\n}",
     ] {

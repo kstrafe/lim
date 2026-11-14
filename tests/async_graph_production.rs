@@ -268,7 +268,7 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
         .replace("read-after-await", "work")
         .replace("Read::after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait")
-        .replace("(waker #u64)", "(waker #u64 : cancel (work-cancel ((await-0 cancel-child))))")
+        .replace("(waker #u64)", "(waker #u64) (cancel (work-cancel ((await-0 cancel-child))))")
         .replace(
             "(#enum Child (#linear) ((Child.Waiting #u64)))",
             "(#enum Child (#linear) ((Child.Waiting (#tuple (#ref Counter) #u64))))",
@@ -700,9 +700,9 @@ fn linear_reference_guard_cancellation_reads_and_releases_the_retained_owner() {
         &source[..source.find("(#fn main").unwrap()]
     )
     .replace(
-        "(function (#fn work)",
+        "(function (#fn work",
         "(cancel (work-cancel ((source-expression-17 cancel-holder)
-               (await-0 cancel-child) (await-1 cancel-child)))\n: function (#fn work)",
+               (await-0 cancel-child) (await-1 cancel-child))))\n(function (#fn work",
     );
     run_guard_cancellation_matrix(&declarations, "async-linear-guard-cancel");
 }
@@ -807,10 +807,10 @@ fn guard_cancellation_declarations() -> String {
              (#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ()))",
         )
         .replace(
-            "(function (#fn work)",
+            "(function (#fn work",
             "(cancel (work-cancel ((source-expression-11 cancel-holder)
-               (await-0 cancel-child) (await-1 cancel-child)))
-             : function (#fn work)",
+               (await-0 cancel-child) (await-1 cancel-child))))
+             (function (#fn work",
         );
     assert!(declarations.contains("(#fn cancel-holder"));
     declarations

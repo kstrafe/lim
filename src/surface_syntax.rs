@@ -132,7 +132,11 @@ pub(super) fn has_surface_notation(node: &Node, source: &str) -> bool {
     let text = &source[node.span.start..node.span.end];
     let mut lexer = crate::Lexer::new(text);
     while let Ok(Some(token)) = lexer.next_token() {
-        if matches!(token.kind, T::LBrace | T::LBracket | T::Semicolon) {
+        if matches!(
+            token.kind,
+            T::LBrace | T::LBracket | T::Semicolon | T::Colon
+        ) || matches!(token.kind, T::Symbol(ref value) if value.ends_with(':') && !value.ends_with("::"))
+        {
             return true;
         }
     }
@@ -225,16 +229,85 @@ impl<'a> Parser<'a> {
             let span = through(head.span, fields.span.end);
             return self.normalize_declaration(list(vec![head, declared, fields], span));
         }
+        if self.top_colon_header() {
+            let line = self.current_span().line;
+            let mut terms = Vec::new();
+            while self.kind().is_some()
+                && self.current_span().line == line
+                && self.kind() != Some(&T::Semicolon)
+            {
+                let term = self.expression_application(!syntax_operand(&terms))?;
+                if let Some((term, colon)) = split_layout_suffix(&term) {
+                    terms.push(term);
+                    let inline = self.current_span().line == colon.line;
+                    let header = terms[0].span;
+                    terms.push(self.colon_value(header, colon)?);
+                    if !inline {
+                        break;
+                    }
+                } else {
+                    terms.push(term);
+                }
+            }
+            let end = if self.kind() == Some(&T::Semicolon) {
+                let end = self.current_span().end;
+                self.index += 1;
+                Some(end)
+            } else {
+                None
+            };
+            let mut form = self.form_group(terms)?;
+            if let Some(end) = end {
+                form.span.end = end;
+            }
+            return Ok(form);
+        }
         self.expression()
     }
 
+    fn top_colon_header(&self) -> bool {
+        if matches!(
+            self.kind(),
+            Some(
+                T::Quote
+                    | T::QuasiQuote
+                    | T::Unquote
+                    | T::UnquoteSplicing
+                    | T::LParen
+                    | T::LBrace
+                    | T::LBracket
+            )
+        ) {
+            return false;
+        }
+        let line = self.current_span().line;
+        let mut depth = 0;
+        for token in &self.tokens[self.index..] {
+            if depth == 0 && (token.span.line != line || token.kind == T::Semicolon) {
+                break;
+            }
+            if depth == 0
+                && (token.kind == T::Colon
+                    || matches!(&token.kind, T::Symbol(value) if value.ends_with(':') && !value.ends_with("::")))
+            {
+                return true;
+            }
+            match token.kind {
+                T::LParen | T::LBrace | T::LBracket => depth += 1,
+                T::RParen | T::RBrace | T::RBracket => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     pub(super) fn postfix_call(&mut self, callee: Node) -> Result<Node, ParseError> {
-        let named_arguments = self.kind() == Some(&T::LBrace)
-            || (self.kind() == Some(&T::LParen)
-                && self
-                    .tokens
-                    .get(self.index + 1)
-                    .is_some_and(|token| token.kind == T::Colon));
+        let named_arguments = self.kind() == Some(&T::LBrace);
         if named_arguments && callable(&callee) {
             let arguments = self.expression()?;
             Ok(self.application(callee, arguments))
@@ -245,17 +318,6 @@ impl<'a> Parser<'a> {
 
     fn named_arguments(&self, node: &Node) -> bool {
         self.records.contains(&node.span.start)
-            || self
-                .tokens
-                .binary_search_by_key(&node.span.start, |token| token.span.start)
-                .ok()
-                .is_some_and(|index| {
-                    self.tokens[index].kind == T::LParen
-                        && self
-                            .tokens
-                            .get(index + 1)
-                            .is_some_and(|token| token.kind == T::Colon)
-                })
     }
 
     fn application(&self, callee: Node, arguments: Node) -> Node {
@@ -278,14 +340,14 @@ impl<'a> Parser<'a> {
             if !matches!(key.expr, Expr::Symbol(_) | Expr::Unquote(_)) {
                 return Err(self.error("record keys must be identifiers", key.span));
             }
-            let attached_colon = if self.kind() == Some(&T::Equal) {
+            let attached_colon = if let Some((plain_key, colon)) = split_layout_suffix(&key) {
+                key = plain_key;
+                Some(colon)
+            } else if self.kind() == Some(&T::Equal) {
                 self.index += 1;
                 None
             } else if self.kind() == Some(&T::Colon) {
                 None
-            } else if let Some((plain_key, colon)) = split_layout_suffix(&key) {
-                key = plain_key;
-                Some(colon)
             } else {
                 return Err(self.error(
                     "record entries require 'key = value;' or 'key:' with an indented value",
@@ -302,12 +364,13 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
+            let inline = colon.is_some_and(|colon| self.current_span().line == colon.line);
             let value = if let Some(colon) = colon {
-                self.layout(key.span, colon)?
+                self.colon_value(key.span, colon)?
             } else {
                 self.expression()?
             };
-            let end = if colon.is_some() {
+            let end = if colon.is_some() && !inline {
                 value.span.end
             } else {
                 self.take(T::Semicolon, "record entries require a terminating ';'")?
@@ -322,9 +385,6 @@ impl<'a> Parser<'a> {
 
     pub(super) fn surface_list(&mut self) -> Result<Node, ParseError> {
         let start = self.take(T::LParen, "expected '('")?;
-        if self.kind() == Some(&T::Colon) {
-            return self.colon_list(start);
-        }
         let mut segment: Vec<Node> = Vec::new();
         let mut groups = Vec::new();
         let mut terminated = false;
@@ -353,22 +413,30 @@ impl<'a> Parser<'a> {
                     groups.push(self.form_group(std::mem::take(&mut segment))?);
                     terminated = true;
                 }
-                Some(T::Colon) if !segment.is_empty() => {
+                Some(T::Colon) => {
                     let colon = self.take(T::Colon, "expected ':'")?;
-                    groups.push(self.layout_form(std::mem::take(&mut segment), colon)?);
-                    terminated = true;
+                    let inline = self.current_span().line == colon.line;
+                    let header = segment.first().map_or(colon, |term| term.span);
+                    segment.push(self.colon_value(header, colon)?);
+                    if !inline && segment.len() > 1 {
+                        groups.push(self.form_group(std::mem::take(&mut segment))?);
+                        terminated = true;
+                    }
                 }
                 None => return Err(self.error("unterminated list; expected ')'", self.eof_span())),
                 _ => {
                     // Declaration names and explicit call targets are syntax,
                     // so their following argument record is a separate child.
                     let term = self.expression_application(!syntax_operand(&segment))?;
-                    if let Some((term, colon)) = split_layout_suffix(&term)
-                        .filter(|(_, colon)| self.current_span().line > colon.line)
-                    {
+                    if let Some((term, colon)) = split_layout_suffix(&term) {
                         segment.push(term);
-                        groups.push(self.layout_form(std::mem::take(&mut segment), colon)?);
-                        terminated = true;
+                        let inline = self.current_span().line == colon.line;
+                        let header = segment[0].span;
+                        segment.push(self.colon_value(header, colon)?);
+                        if !inline {
+                            groups.push(self.form_group(std::mem::take(&mut segment))?);
+                            terminated = true;
+                        }
                     } else {
                         segment.push(term);
                     }
@@ -395,7 +463,7 @@ impl<'a> Parser<'a> {
         if children.len() == 2 && callable(&children[0]) && self.named_arguments(&children[1]) {
             return Ok(self.application(children[0].clone(), children[1].clone()));
         }
-        self.normalize_declaration(list(children, span))
+        self.normalize_declaration(self.body_lists(list(children, span)))
     }
 
     fn form_group(&self, mut terms: Vec<Node>) -> Result<Node, ParseError> {
@@ -413,7 +481,7 @@ impl<'a> Parser<'a> {
             return Ok(list(vec![term.clone()], term.span));
         }
         let span = through(terms[0].span, terms.last().unwrap().span.end);
-        self.normalize_declaration(list(terms, span))
+        self.normalize_declaration(self.body_lists(list(terms, span)))
     }
 
     fn indentation(&self, span: Span) -> Result<usize, ParseError> {
@@ -436,12 +504,81 @@ impl<'a> Parser<'a> {
             .map_or(span.column - 1, |token| token.span.column - 1))
     }
 
-    fn layout_form(&mut self, mut terms: Vec<Node>, colon: Span) -> Result<Node, ParseError> {
-        let body = self.layout(terms[0].span, colon)?;
-        terms.extend(body.children.iter().cloned());
-        let mut form = self.form_group(terms)?;
-        form.span.end = body.span.end;
-        Ok(form)
+    // Body collections are accepted identically whether written with explicit
+    // parentheses or introduced by a colon. Colon reading knows no form names.
+    fn body_lists(&self, node: Node) -> Node {
+        let offset = match node.children.first().map(name) {
+            Some("#loop" | "#block") => 1,
+            Some(
+                "#while" | "#match" | "#case" | "#case-ref" | "#case-ref-mut" | "#case-pin"
+                | "#case-pin-mut" | "#if" | "#if-valid" | "#label",
+            ) => 2,
+            Some("#for" | "#for-range") => 4,
+            Some("#while-let") => 3,
+            _ => return node,
+        };
+        if node.children.len() != offset + 1 {
+            return node;
+        }
+        let body = &node.children[offset];
+        if !matches!(body.expr, Expr::List(_))
+            || !body
+                .children
+                .first()
+                .is_some_and(|child| matches!(child.expr, Expr::List(_)))
+        {
+            return node;
+        }
+        let mut children = node.children[..offset].to_vec();
+        children.extend(body.children.iter().cloned());
+        list(children, node.span)
+    }
+
+    pub(super) fn colon_expression(&mut self) -> Result<Node, ParseError> {
+        let colon = self.take(T::Colon, "expected ':'")?;
+        // expression_application has already counted this grouping level.
+        if self.kind().is_some() && self.current_span().line == colon.line {
+            self.inline_colon(colon)
+        } else {
+            self.layout_inner(colon, colon)
+        }
+    }
+
+    fn colon_value(&mut self, header: Span, colon: Span) -> Result<Node, ParseError> {
+        if self.kind().is_none() || self.current_span().line != colon.line {
+            return self.layout(header, colon);
+        }
+        if self.depth >= crate::MAX_PARSE_NESTING {
+            return Err(self.error("expression nesting exceeds maximum", colon));
+        }
+        self.depth += 1;
+        let result = self.inline_colon(colon);
+        self.depth -= 1;
+        result
+    }
+
+    fn inline_colon(&mut self, colon: Span) -> Result<Node, ParseError> {
+        let mut children = Vec::new();
+        while self.kind().is_some()
+            && self.current_span().line == colon.line
+            && !matches!(
+                self.kind(),
+                Some(T::RParen | T::RBrace | T::RBracket | T::Semicolon)
+            )
+        {
+            let term = self.expression_application(!syntax_operand(&children))?;
+            if let Some((term, nested)) = split_layout_suffix(&term) {
+                children.push(term);
+                children.push(self.colon_value(colon, nested)?);
+            } else {
+                children.push(term);
+            }
+        }
+        if children.is_empty() {
+            return Err(self.error("':' requires following syntax or an indented group", colon));
+        }
+        let end = children.last().unwrap().span.end;
+        self.finish_list(children, through(colon, end))
     }
 
     fn layout(&mut self, key: Span, start: Span) -> Result<Node, ParseError> {
@@ -471,6 +608,7 @@ impl<'a> Parser<'a> {
         let mut groups = Vec::new();
         let mut terms: Vec<Node> = Vec::new();
         let mut end = start.end;
+        let mut terminated = false;
         loop {
             let next = self.current_span();
             let at_end = self.kind().is_none()
@@ -494,7 +632,7 @@ impl<'a> Parser<'a> {
                 self.indentation(next)?
             };
             if at_end || next_indent < indent {
-                if !terms.is_empty() {
+                if terminated && !terms.is_empty() {
                     return Err(self.error("every indented form requires a terminating ';'", next));
                 }
                 if !at_end && next_indent > header {
@@ -512,9 +650,15 @@ impl<'a> Parser<'a> {
             }
             if self.kind() == Some(&T::Colon) && !terms.is_empty() {
                 let colon = self.take(T::Colon, "expected ':'")?;
-                let form = self.layout_form(std::mem::take(&mut terms), colon)?;
-                end = form.span.end;
-                groups.push(form);
+                let inline = self.current_span().line == colon.line;
+                let header = terms[0].span;
+                terms.push(self.colon_value(header, colon)?);
+                if !inline {
+                    let form = self.form_group(std::mem::take(&mut terms))?;
+                    end = form.span.end;
+                    groups.push(form);
+                    terminated = true;
+                }
             } else if self.kind() == Some(&T::Semicolon) {
                 end = self.current_span().end;
                 self.index += 1;
@@ -522,17 +666,28 @@ impl<'a> Parser<'a> {
                     return Err(self.error("empty semicolon group", next));
                 }
                 groups.push(self.form_group(std::mem::take(&mut terms))?);
+                terminated = true;
             } else {
                 let term = self.expression_application(!syntax_operand(&terms))?;
                 if let Some((term, colon)) = split_layout_suffix(&term) {
                     terms.push(term);
-                    let form = self.layout_form(std::mem::take(&mut terms), colon)?;
-                    end = form.span.end;
-                    groups.push(form);
+                    let inline = self.current_span().line == colon.line;
+                    let header = terms[0].span;
+                    terms.push(self.colon_value(header, colon)?);
+                    if !inline {
+                        let form = self.form_group(std::mem::take(&mut terms))?;
+                        end = form.span.end;
+                        groups.push(form);
+                        terminated = true;
+                    }
                 } else {
                     terms.push(term);
                 }
             }
+        }
+        if !terminated {
+            end = terms.last().map_or(start.end, |term| term.span.end);
+            return self.finish_list(terms, through(start, end));
         }
         Ok(list(groups, through(start, end)))
     }
@@ -637,7 +792,18 @@ impl<'a> Parser<'a> {
             output.push(require("#type")?);
             output.push(require("#value")?);
         } else {
-            output.push(require("#params")?);
+            let params = require("#params")?;
+            output.push(
+                if params
+                    .children
+                    .first()
+                    .is_some_and(|node| matches!(node.expr, Expr::Symbol(_)))
+                {
+                    list(vec![params.clone()], params.span)
+                } else {
+                    params
+                },
+            );
             output.push(require("#returns")?);
             for section in ["#requires", "#ensures", "#preserves"] {
                 if let Some((key, predicates)) = values.get(section) {
@@ -648,7 +814,16 @@ impl<'a> Parser<'a> {
                             predicates.span,
                         ));
                     }
-                    for predicate in &predicates.children {
+                    let clauses = if predicates
+                        .children
+                        .first()
+                        .is_some_and(|node| matches!(node.expr, Expr::Symbol(_)))
+                    {
+                        vec![(*predicates).clone()]
+                    } else {
+                        predicates.children.to_vec()
+                    };
+                    for predicate in &clauses {
                         output.push(list(
                             vec![(*key).clone(), predicate.clone()],
                             through(key.span, predicate.span.end),
@@ -660,7 +835,15 @@ impl<'a> Parser<'a> {
             if !matches!(&body.expr, Expr::List(items) if items.len() == body.children.len()) {
                 return Err(self.error("#body requires a list of forms", body.span));
             }
-            output.extend(body.children.iter().cloned());
+            if body
+                .children
+                .first()
+                .is_some_and(|node| matches!(node.expr, Expr::Symbol(_)))
+            {
+                output.push(body);
+            } else {
+                output.extend(body.children.iter().cloned());
+            }
         }
         Ok(list(output, node.span))
     }

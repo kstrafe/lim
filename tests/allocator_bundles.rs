@@ -158,8 +158,8 @@ fn allocation_must_be_safe_and_unsafe_operations_require_unsafe_calls() {
         for call in ["#call", "#unsafe-call"] {
             let expression = format!(
                 "({call} SystemAllocator::Allocator::{operation}
-                ((allocator (#borrow allocator)) (pointer (#ptr-null (#ptr-mut #u8))
-                 {extra}) (layout 16usize) (alignment 8usize)))"
+                ((allocator (#borrow allocator)) (pointer (#ptr-null (#ptr-mut #u8)))
+                 {extra} (layout 16usize) (alignment 8usize)))"
             );
             // Even an unsafe block cannot turn #call into #unsafe-call.
             let expression = if call == "#call" {
@@ -262,7 +262,7 @@ fn one_bundle_adapts_multiple_types_and_rejects_unknown_operations_or_options() 
         let source = format!(
             "(#std)
           (#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u64)
-            (name TypedAllocator) (operations {operations} {extra})))"
+            (name TypedAllocator) (operations {operations}) {extra}))"
         );
         let error = check(&source).expect_err("invalid adapter options must fail expansion");
         assert_eq!(error.code_string(), "E3000");

@@ -551,8 +551,8 @@ fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
     );
     run(&format!("{owned_prefix}{projected_wrapper}{nested_main}"));
     let bad_nested_main = nested_main.replace(
-        &format!("(selected {pair} : decoy {opposite})"),
-        &format!("(selected {opposite} : decoy {pair})"),
+        &format!("(selected {pair}) (decoy {opposite})"),
+        &format!("(selected {opposite}) (decoy {pair})"),
     );
     assert_ne!(bad_nested_main, nested_main);
     assert_eq!(

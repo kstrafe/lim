@@ -77,7 +77,7 @@ for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],
 endfor
 call assert_equal('Type', synIDattr(synIDtrans(hlID('limType')), 'name'))
 call assert_equal('Operator', synIDattr(synIDtrans(hlID('limOperator')), 'name'))
-call setline(1, '(#generate #array (: element #u64 : length 4 : name Array4)) (#if-valid (#call #usize::lt (: left index : right 4usize)) (#call Array4::get (: values values : index index)) 0u64)')
+call setline(1, '(#generate #array ((element #u64) (length 4) (name Array4))) (#if-valid (#call #usize::lt ((left index) (right 4usize))) (#call Array4::get ((values values) (index index))) 0u64)')
 for [s:token, s:group] in [['#generate', 'limGenerated'], ['#array', 'limTypeForm'],
       \ ['#u64', 'limType'], ['#if-valid', 'limContract'], ['#call', 'limKeyword'],
       \ ['#usize::lt', 'limOperator']]
@@ -93,6 +93,11 @@ for s:section in ['params', 'returns', 'body', 'value']
 endfor
 for s:mode in ['wrap', 'saturate']
   call s:check('#' . s:mode, 'limOperator')
+endfor
+call setline(1, '(#return : #u64::add-wrap 20 22)')
+for [s:token, s:group] in [['#return', 'limControl'], [':', 'limSeparator'], ['#u64::add-wrap', 'limOperator']]
+  let s:column = stridx(getline(1), s:token) + 1
+  call assert_equal(s:group, synIDattr(synID(1, s:column, 1), 'name'))
 endfor
 for [s:token, s:group] in [['#body', 'limSection'], ['#requires', 'limContract'],
       \ ['#loop', 'limRepeat'], ['#for-range', 'limRepeat']]

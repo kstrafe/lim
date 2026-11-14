@@ -314,7 +314,8 @@ fn async_protocols_cross_relative_and_project_root_references() {
               (#fn child ((amount Amount)) Amount (#return amount)))))",
         )
         .unwrap();
-        let source = format!("(#alias child = {path}::child)\n (#alias ChildAwait = {path}::ChildAwait)
+        let source = format!(
+            "(#alias child = {path}::child)\n (#alias ChildAwait = {path}::ChildAwait)
           (#generate #async-fn ((protocol ParentAwait) (waker #u64) (function
             (#fn parent () #u64
               (#return (#await ChildAwait (#call child ((amount 42u64)))))))))
@@ -322,7 +323,8 @@ fn async_protocols_cross_relative_and_project_root_references() {
             (#let waker #u64 0u64)
             (#return (#match (#call Parent::poll ((task (#call parent ())) (waker (#borrow waker))))
               (#case (Parent::Poll.Ready value) value)
-              (#case (Parent::Poll.Pending task) (#block (#forget task) (#unreachable))))))");
+              (#case (Parent::Poll.Pending task) (#block (#forget task) (#unreachable))))))"
+        );
         let program =
             lim::parse_program_from_path(&source, &scratch.path().join("main.lim")).unwrap();
         lim::check_types(&program).unwrap();
@@ -724,12 +726,12 @@ fn async_while_let_returned_references_keep_their_source_loan() {
         .replace("(#let chosen #u64", "(#let chosen (#ref #u64)")
         .replace("(#let empty #u64", "(#let empty (#ref #u64)")
         .replace(
-            "(choice (Choice.Chosen 37u64) : waker)",
-            "(choice (Choice.Chosen 37u64) : counter (#borrow storage) : waker)",
+            "(choice (Choice.Chosen 37u64)) (waker",
+            "(choice (Choice.Chosen 37u64)) (counter (#borrow storage)) (waker",
         )
         .replace(
-            "(choice Choice.Empty : waker)",
-            "(choice Choice.Empty : counter (#borrow storage) : waker)",
+            "(choice Choice.Empty) (waker",
+            "(choice Choice.Empty) (counter (#borrow storage)) (waker",
         )
         .replace(
             "(#u64::add-wrap chosen empty)",
@@ -1096,12 +1098,12 @@ fn async_returning_branch_skips_a_suspending_common_tail() {
             "(#let-mut counter #u64 0u64) (#let early #u64",
         )
         .replace(
-            "(early true : waker)",
-            "(early true : counter (#borrow-mut counter) : waker)",
+            "(early true) (waker",
+            "(early true) (counter (#borrow-mut counter)) (waker",
         )
         .replace(
-            "(early false : waker)",
-            "(early false : counter (#borrow-mut counter) : waker)",
+            "(early false) (waker",
+            "(early false) (counter (#borrow-mut counter)) (waker",
         )
         .replace(
             "(#let later #u64",
@@ -1160,12 +1162,12 @@ fn async_returning_branch_skips_a_suspending_common_tail() {
             .replace("(#let first #u64", "(#forget resource) (#let first #u64")
             .replace("(#let result #u64", "(#forget resource) (#let result #u64")
             .replace(
-                "(early true : waker)",
-                "(early true : resource (#struct-literal Resource ((value 1u64))) : waker)"
+                "(early true) (waker",
+                "(early true) (resource (#struct-literal Resource ((value 1u64)))) (waker"
             )
             .replace(
-                "(early false : waker)",
-                "(early false : resource (#struct-literal Resource ((value 2u64))) : waker)"
+                "(early false) (waker",
+                "(early false) (resource (#struct-literal Resource ((value 2u64)))) (waker"
             )
     );
     build_and_run(&linear, 49);
@@ -1397,8 +1399,8 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
         (#forget waker)
         (#return result))";
     let source = source.replace(
-        "(waker #u64 : function)",
-        "(waker #u64 : cancel (cancel-frame ((await-0 cancel-child))) : function)",
+        "(waker #u64) (function",
+        "(waker #u64) (cancel (cancel-frame ((await-0 cancel-child)))) (function",
     );
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");
@@ -2076,8 +2078,8 @@ fn async_call_arguments_are_evaluated_in_declaration_order_before_suspension() {
     let generated = build_and_run_graph(source, 1);
     assert!(generated.contains("(#call mark"), "{generated}");
     let reordered = source.replace(
-        "first (#call mark ((counter counter)))\n              : second (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Waiting)",
-        "second (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Waiting)\n              : first (#call mark ((counter counter)))");
+        "first (#call mark ((counter counter))))\n              (second (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Waiting)",
+        "second (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Waiting))\n              (first (#call mark ((counter counter)))");
     assert_ne!(reordered, source);
     build_and_run_graph(&reordered, 1);
 }
@@ -4566,12 +4568,12 @@ fn async_conditional_continuations_can_change_result_type() {
             "(#let waker #u64 0u64) (#let-mut storage #u64 42u64)",
         )
         .replace(
-            "(choose true : waker)",
-            "(choose true : view (#borrow storage) : waker)",
+            "(choose true) (waker",
+            "(choose true) (view (#borrow storage)) (waker",
         )
         .replace(
-            "(choose false : waker)",
-            "(choose false : view (#borrow storage) : waker)",
+            "(choose false) (waker",
+            "(choose false) (view (#borrow storage)) (waker",
         )
         .replace("(#u64::eq skipped 0u64)", "(#u64::eq skipped 42u64)");
     build_and_run(&borrowed, 42);
@@ -7293,8 +7295,8 @@ fn async_clones_rebuilt_whole_aggregates_without_relocating_borrowed_fields() {
                (#return (#struct-literal Holder ((reference reference) (value value)))))
              (#struct Pair (#linear) ((left Resource) (right Holder)))")
         .replace("(Pair left right reference)", "(Pair left right)")
-        .replace("(right right : reference reference)", "(right right)")
-        .replace("(right (#struct-literal Resource ((value 1u64))) : reference owner)",
+        .replace("(right right) (reference reference)", "(right right)")
+        .replace("(right (#struct-literal Resource ((value 1u64)))) (reference owner)",
             "(right (#struct-literal Holder ((reference owner) (value 1u64))))")
         .replace("(#let view (#ref Resource) (#borrow (#get pair right)))", "")
         .replace("(#assert (#u64::eq (#get view value) 1u64))", "")
@@ -9770,7 +9772,7 @@ fn async_branch_prefixes_capture_only_live_values() {
     build_and_run(
         &consumed_prefix
             .replace("(StepPoll.StepPending (Step.Resume value))", "(#panic)")
-            .replace("(choose true : waker)", "(choose false : waker)"),
+            .replace("(choose true) (waker", "(choose false) (waker"),
         10,
     );
     let destructor = format!(
@@ -9802,8 +9804,8 @@ fn async_branch_prefixes_capture_only_live_values() {
             "(Step.Start (#u64::add-wrap (#as left #u64) offset))",
         )
         .replace(
-            "(choose choose : values)",
-            "(choose choose : offset 3u64 : values)",
+            "(choose choose) (values",
+            "(choose choose) (offset 3u64) (values",
         );
     build_and_run(&outer_child_only, 50);
     let scratch = support::Scratch::new("async-prefix-ownership");
@@ -9877,7 +9879,7 @@ fn async_scoped_blocks_keep_nested_pattern_captures() {
     build_and_run(&immediate, 47);
     let skipped = branch
         .replace("(StepPoll.StepPending (Step.Resume value))", "(#panic)")
-        .replace("(choose true : waker)", "(choose false : waker)");
+        .replace("(choose true) (waker", "(choose false) (waker");
     build_and_run(&skipped, 10);
     let mutable = branch
         .replace("(#let (Values", "(#let-mut (Values")
@@ -11626,7 +11628,7 @@ fn graph_slice_element_reference_selects_external_holders_across_branches() {
         )
         .replace(
             "(items (#slice-mut #u64))",
-            "(items (#slice-mut #u64) : other (#slice-mut #u64) : choose #bool)",
+            "(items (#slice-mut #u64)) (other (#slice-mut #u64)) (choose #bool)",
         )
         .replace(
             "(#slice-mut-idx items 0usize)",
@@ -11639,7 +11641,7 @@ fn graph_slice_element_reference_selects_external_holders_across_branches() {
         )
         .replace(
             "(items (#slice-mut-of (#borrow-mut values)))",
-            "(items (#slice-mut-of (#borrow-mut values)) : other (#slice-mut-of (#borrow-mut second)) : choose true)",
+            "(items (#slice-mut-of (#borrow-mut values))) (other (#slice-mut-of (#borrow-mut second))) (choose true)",
         )
         .replace(
             "(#u64::eq (#index values 0usize) 42u64)",
@@ -11667,7 +11669,7 @@ fn graph_slice_nested_array_selection_does_not_probe_a_dormant_invalid_branch() 
             "(#let answer #u64 (#deref (#slice-mut-idx items 0usize)))",
             "(#let answer #u64 (#deref view)) (#forget view)",
         )
-        .replace("(items (#slice-mut #u64))", "(items (#slice-mut (#array #u64 2)) : choose #bool)")
+        .replace("(items (#slice-mut #u64))", "(items (#slice-mut (#array #u64 2))) (choose #bool)")
         .replace(
             "(#slice-mut-idx items 0usize)",
             "(#if choose (#borrow-mut (#index row 0usize)) (#borrow-mut (#index row 2usize)))",
@@ -11679,7 +11681,7 @@ fn graph_slice_nested_array_selection_does_not_probe_a_dormant_invalid_branch() 
             "(#array-of (#array (#array #u64 2) 1) 41u64)",
             "(#array-of (#array (#array #u64 2) 1) (#array-of (#array #u64 2) 41u64 17u64))",
         )
-        .replace("(items (#slice-mut-of (#borrow-mut values)))", "(items (#slice-mut-of (#borrow-mut values)) : choose true)")
+        .replace("(items (#slice-mut-of (#borrow-mut values)))", "(items (#slice-mut-of (#borrow-mut values))) (choose true)")
         .replace("(#index values 0usize)", "(#index (#index values 0usize) 0usize)");
     build_and_run_graph(&source, 42);
     let invalid_first = source
@@ -11813,9 +11815,9 @@ fn graph_slice_nested_runtime_coordinates_survive_index_mutation() {
     );
     build_and_run_graph(&zero_sized, 42);
     let branched = source
-        .replace("(items (#slice-mut Row))", "(items (#slice-mut Row) : choose #bool)")
+        .replace("(items (#slice-mut Row))", "(items (#slice-mut Row)) (choose #bool)")
         .replace("(#borrow-mut (#index (#get row cells) inner))", "(#if choose (#borrow-mut (#index (#get row cells) inner)) (#borrow-mut (#index (#get row cells) 0usize)))")
-        .replace("(items (#slice-mut-of (#borrow-mut values)))", "(items (#slice-mut-of (#borrow-mut values)) : choose true)");
+        .replace("(items (#slice-mut-of (#borrow-mut values)))", "(items (#slice-mut-of (#borrow-mut values))) (choose true)");
     build_and_run_graph(&branched, 42);
     let constant_branch = branched.replace("(choose true)", "(choose false)").replace(
         "(#index (#get (#index values 1usize) cells) 1usize) 42u64",
@@ -11834,11 +11836,11 @@ fn graph_selected_reference_mixes_slice_and_external_reference_targets() {
     let source = external_mutable_slice_source()
         .replace("(#forget view)", "")
         .replace("(#let answer #u64 (#deref (#slice-mut-idx items 0usize)))", "(#let answer #u64 (#deref view)) (#forget view)")
-        .replace("(items (#slice-mut #u64))", "(items (#slice-mut #u64) : fallback (#ref-mut #u64) : choose #bool)")
+        .replace("(items (#slice-mut #u64))", "(items (#slice-mut #u64)) (fallback (#ref-mut #u64)) (choose #bool)")
         .replace("(#slice-mut-idx items 0usize)", "(#if choose (#slice-mut-idx items 0usize) (#borrow-mut (#deref fallback)))")
         .replace("(#forget items)", "(#forget items) (#forget fallback)")
         .replace("(#let waker #u64 0u64)", "(#let-mut fallback #u64 41u64) (#let waker #u64 0u64)")
-        .replace("(items (#slice-mut-of (#borrow-mut values)))", "(items (#slice-mut-of (#borrow-mut values)) : fallback (#borrow-mut fallback) : choose true)")
+        .replace("(items (#slice-mut-of (#borrow-mut values)))", "(items (#slice-mut-of (#borrow-mut values))) (fallback (#borrow-mut fallback)) (choose true)")
         .replace("(#u64::eq (#index values 0usize) 42u64)", "(#u64::eq (#u64::add-wrap (#index values 0usize) fallback) 83u64)");
     build_and_run_graph(&source, 42);
     build_and_run_graph(&source.replace("(choose true)", "(choose false)"), 42);
@@ -12435,8 +12437,8 @@ fn async_for_initializers_register_every_declared_pattern_leaf() {
         )
         .replace("value bias)", "value (#as bias #u64))")
         .replace(
-            "(a 20u64 : z (#tuple (#tuple #u64 #u64) 0u64 2u64))",
-            "(a 20u32 : z (#tuple (#tuple #u8 #u16) 0u8 2u16))",
+            "(a 20u64) (z (#tuple (#tuple #u64 #u64) 0u64 2u64))",
+            "(a 20u32) (z (#tuple (#tuple #u8 #u16) 0u8 2u16))",
         );
     build_and_run_graph(&narrow, 42);
     let awaited =
@@ -12872,8 +12874,8 @@ fn generated_async_frames_support_source_named_task_cancellation() {
         (#forget waker)
         (#return 42u64))";
     let source = source.replace(
-        "(waker #u64 : function)",
-        "(waker #u64 : cancel (cancel-frame ((await-0 child-cancel))) : function)",
+        "(waker #u64) (function",
+        "(waker #u64) (cancel (cancel-frame ((await-0 child-cancel)))) (function",
     );
     build_and_run_graph(&source, 42);
 }

@@ -36,7 +36,7 @@ mod tests {
         "atomic-store",
         "await",
         "block",
-        "body", // Record-key ':' is punctuation, excluded from section/key spans.
+        "body", // Generic inline/indented ':' is punctuation, excluded from key/reference spans.
         "bool",
         "borrow",
         "borrow-mut",

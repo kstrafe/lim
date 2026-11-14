@@ -122,22 +122,22 @@ generated arrays, contracts, infix expressions and local indentation lists.
   and default to empty. Unit results explicitly use `#returns = ();` and
   `(#return ())`. Unknown and duplicate section keys are errors. Parenthesized
   sections such as `(#params {...})` also normalize to canonical functions.
-- `key:` followed by a newline opens an indented list value; `key :` and
-  `key =:` are equivalent spellings. Dedent closes both the list and that
-  record entry, so it needs no extra outer semicolon.
-  Only the colon activates layout; explicit nested delimiters contain their
-  own syntax. Blank/comment lines do not affect scope. Use spaces for layout
-  indentation and return to an enclosing indentation level when dedenting.
-  Inline entries retain `=`. A trailing single colon is recognized as this
-  separator in record-key position; `::` names keep their spelling.
-- Within an indented list or parenthesized form sequence, `header:` opens an
-  indented group whose forms become trailing children of the header form.
-  Dedent closes the complete form without an extra semicolon. For example,
-  `#for-range (number #u64) 1 11:` appends its indented statements as the loop
-  body. This rule is independent of the header's name and requires no type or
-  arity inference. Statements in the body retain their final semicolons.
-  Explicit nested delimiters retain their own syntax. A colon must open a
-  nonempty group on a later, more indented line.
+- `:` groups the following syntax as parentheses. On the same line it
+  consumes the remaining forms until the newline, the enclosing closing
+  delimiter, or a semicolon. Repeated colons nest: `(a : b : c)` is
+  `(a (b (c)))`. A colon can appear anywhere a form is expected; it has no
+  special meaning at the head of a list.
+- A colon at the end of a line groups the following indented syntax. Dedent
+  closes the group. Semicolons inside it group statements, just as they do in
+  an explicit parenthesized sequence. An indented header form ends on dedent
+  without another semicolon. Loops accept a body collection written either
+  with explicit parentheses or with colon grouping.
+- In records, `key: syntax;`, `key : syntax;`, and `key = : syntax;` assign
+  that grouped value. Inline entries retain their terminating semicolon;
+  multiline groups close the entry on dedent. Blank/comment lines do not
+  affect scope. Use spaces for indentation. `::`, embedded `left:right`, and
+  prefixed `:label` remain ordinary identifier text; a standalone colon or
+  a single trailing colon starts a group.
 - At module scope, `#fn`, `#unsafe-fn`, `#static`, `#const` and `#generate`
   accept an unparenthesized name and record. Its closing brace ends the form.
   Static and constant records require `#type` and `#value`.
@@ -147,6 +147,16 @@ trailing horizontal whitespace. Its canonical S-expression formatting remains
 available for fully delimited sources. Reader nesting limits also bound trees
 created by flat infix chains. Surface syntax does not infer contracts or change
 the exact identity of comparison evidence.
+
+Inline colons also work inside a function's body field:
+
+```lisp run=42
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body: #return : #u64::add-wrap 20u64 22u64;
+}
+```
 
 Lim currently provides:
 
@@ -1757,9 +1767,9 @@ uphold these obligations internally; printing does not require `#unsafe`.
 
 `(#std)` also provides `StringView` and `Utf8Slice`: opaque, allocation-free
 UTF-8 views that retain a shared borrow of their source. `String-view
-(: string (#ref String))` borrows the complete String in constant time, since
+((string (#ref String)))` borrows the complete String in constant time, since
 safe String operations already guarantee valid UTF-8. `Utf8Slice::from-owner
-(: owner (#slice #u8))` validates the complete byte slice and returns
+((owner (#slice #u8)))` validates the complete byte slice and returns
 `(Utf8Slice::Result.Valid view)` or `Utf8Slice::Result.InvalidUtf8`, without allocating or
 copying the bytes. Empty input and embedded NUL are valid.
 
@@ -1990,8 +2000,8 @@ The canonical form is:
   (#return total))
 ```
 
-The parameter list is a list of `(name Type)` pairs. A colon-prefixed list
-is equivalent and avoids repeating parentheses around each pair:
+The parameter list is a list of `(name Type)` pairs. Function records also
+accept a parameter record such as `{ left = #u32; right = #u32; }`:
 
 ```lisp run=42
 (#fn add ((left #u32) (right #u32)) #u32
@@ -2000,17 +2010,22 @@ is equivalent and avoids repeating parentheses around each pair:
   (#return (#as (#call add ((right 2u32) (left 40u32))) #u64)))
 ```
 
-At one list depth, `((left #u32) (right #u32))` expands to
-`((left #u32) (right #u32))`. This grouped-list notation starts with a colon
-immediately after `(`; `(left : #u32)` is invalid. Nested lists have their own depth, so
-their colons do not affect the enclosing list. Empty or adjacent groups and
-a trailing colon are rejected; `()` is an empty list. Only a standalone `:`
-token groups elements: embedded colons belong to the identifier, so
-`Pipeline::Pending`, `left:right`, and `:label` are flat names, not namespace
-lookups. This syntax works in other lists of groups too. Separately, a record
-key or statement header can end in `:` to open an indented group, as described
-under [surface notation](#surface-notation). A named-list label remains a label
-when its value is another named list. Parameters may be marked mutable:
+Colon grouping is ordinary parenthesis sugar, independent of named arguments:
+
+```lisp syntax
+(#return : #u64::add-wrap left right)
+// Equivalent to (#return (#u64::add-wrap left right)).
+
+(a : b : c)
+// Equivalent to (a (b (c))).
+```
+
+The old sibling notation `(: left 1 : right 2)` now nests and is not a named
+argument table. Write `((left 1) (right 2))` or `{ left = 1; right = 2; }`
+instead. Empty lists use `()`. Nested explicit delimiters contain their own
+syntax. A colon must have syntax on its line or a nonempty indented group.
+`Pipeline::Pending`, `left:right`, and `:label` remain flat identifiers.
+Parameters may be marked mutable:
 
 ```lisp library
 (#fn increment ((#mut value #u64)) #u64
@@ -2019,7 +2034,7 @@ when its value is another named list. Parameters may be marked mutable:
 ```
 
 Function calls name every argument explicitly. Safe calls use a function name
-followed by a record or colon-prefixed argument list. Unsafe and external
+followed by a record or a list of `(name value)` pairs. Unsafe and external
 functions use `#unsafe-call` within `#unsafe`. Each argument label must match a
 parameter in the declaration:
 
@@ -2048,7 +2063,7 @@ and `#pin-borrow-mut`; arbitrary expressions and implicit borrowing are not
 supported. It preserves that
 identifier's source location for diagnostics, and does not change evaluation
 order or borrowing rules. The formatter preserves the shorthand spelling.
-Do not add a colon around an already grouped `($ name)` pair: `((($ name)))`
+Do not add extra groups around an already grouped `($ name)` pair: `((($ name)))`
 would introduce an extra list, just like `(((name name)))`.
 
 Positional call forms are rejected. Calls with no arguments use
@@ -3189,13 +3204,13 @@ No wildcard is needed when integer patterns cover the entire domain. This
 example tests the inclusive boundary between two ranges:
 
 ```lim run=42
-(#fn classify (: value #u8) #u64
+(#fn classify ((value #u8)) #u64
   (#return (#match value
     (#case (#range 0u8 127u8) 0u64)
     (#case (#range 128u8 255u8) 42u64))))
 (#fn main () #u64
-  (#assert (#u64::eq (#call classify (: value 127u8)) 0u64))
-  (#return (#call classify (: value 128u8))))
+  (#assert (#u64::eq (#call classify ((value 127u8))) 0u64))
+  (#return (#call classify ((value 128u8)))))
 ```
 
 Destructuring uses the same aggregate pattern shapes:
@@ -3261,10 +3276,10 @@ handle. This is a generator limitation, not a restriction on ordinary functions;
 ```
 
 ```lim run=42
-(#struct Payload () (: value #u64))
+(#struct Payload () ((value #u64)))
 (#enum Choice () ((Choice.Full Payload) Choice.Empty))
 (#fn main () #u64
-  (#let-mut choice Choice (Choice.Full (#struct-literal Payload (: value 41u64))))
+  (#let-mut choice Choice (Choice.Full (#struct-literal Payload ((value 41u64)))))
   (#let pin (#pin-ref-mut Choice) (#pin choice))
   (#let answer #u64 (#match pin
     (#case-pin-mut (Choice.Full payload)
@@ -3280,7 +3295,7 @@ handle. This is a generator limitation, not a restriction on ordinary functions;
 ## Generated declarations
 
 `#generate` marks a generated declaration. Compiler-provided generators take one
-colon-prefixed list of named literal arguments. Keys may be written in any
+list of named `(key value)` pairs or a record of literal arguments. Keys may be written in any
 order, but every required key must appear exactly once. User-defined `#gn`
 generators retain their own positional literal interface. For example:
 

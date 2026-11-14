@@ -2715,10 +2715,10 @@ mod tests {
     #[test]
     fn a_disjoint_same_type_tag_does_not_exclude_the_incoming_pointer() {
         let source = STORAGE_ENTRY_SOURCE
-            .replace("(view View))", "(view View : other View))")
+            .replace("(view View))", "(view View) (other View))")
             .replace(
                 "(view View.NoView)",
-                "(view View.NoView : other View.NoView)",
+                "(view View.NoView) (other View.NoView)",
             )
             .replace(
                 "(#variant-is (#pin-borrow (#get target view)) View.NoView)",
@@ -3229,9 +3229,9 @@ mod tests {
         let source = SOURCE
             .replace(
                 "(view (#pin-ref #u64))))",
-                "(view (#pin-ref #u64) : second (#pin-ref #u64))))",
+                "(view (#pin-ref #u64)) (second (#pin-ref #u64))))",
             )
-            .replace("(view outside)", "(view outside : second outside)")
+            .replace("(view outside)", "(view outside) (second outside)")
             .replace(
                 "(#pin-set-field target view view)",
                 "(#pin-set-field target view view) (#pin-set-field target second view)",

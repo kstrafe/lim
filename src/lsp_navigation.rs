@@ -12,6 +12,15 @@ struct Binding {
 }
 type Scope = HashMap<String, Binding>;
 
+fn named_call(node: &Node) -> Option<(&Node, &Node)> {
+    let [callee, arguments] = &node.children[..] else {
+        return None;
+    };
+    (symbol(callee).is_some_and(crate::surface_syntax::callable_name)
+        && crate::named_argument_list(&arguments.expr))
+    .then_some((callee, arguments))
+}
+
 fn symbol(node: &Node) -> Option<&str> {
     if let Expr::Symbol(name) | Expr::Function(name) = &node.expr {
         Some(name)
@@ -256,6 +265,16 @@ impl<'a> Index<'a> {
         }
     }
     fn value_type(&self, node: &Node, scope: &Scope) -> Option<Type> {
+        if let Some((callee, _)) = named_call(node) {
+            if let Some(intrinsic) = crate::intrinsics::declaration(symbol(callee)?)
+                .ok()
+                .flatten()
+            {
+                return Some(intrinsic.return_type);
+            }
+            let declaration = self.declaration(symbol(callee)?)?;
+            return ty(declaration.children.get(name_index(declaration) + 2)?);
+        }
         if let Some(name) = symbol(node) {
             if let Some(binding) = scope.get(name) {
                 return binding.ty.clone().or_else(|| self.checked_type(node));
@@ -651,6 +670,26 @@ impl<'a> Index<'a> {
         )
     }
     fn walk(&self, node: &Node, scope: &mut Scope, labels: &Scope) -> Vec<Span> {
+        if let Some((callee, arguments)) = named_call(node) {
+            let name = symbol(callee).unwrap();
+            if self.contains(callee) {
+                return self.global(name);
+            }
+            for pair in arguments.children.iter().filter(|pair| self.contains(pair)) {
+                if let Some(value) = pair.children.get(1).filter(|value| self.contains(value)) {
+                    return self.walk(value, scope, labels);
+                }
+                if let Some(label) = pair
+                    .children
+                    .first()
+                    .filter(|key| self.contains(key))
+                    .and_then(symbol)
+                {
+                    return self.parameter(name, label);
+                }
+            }
+            return vec![];
+        }
         if !self.contains(node) {
             return vec![];
         }
@@ -914,7 +953,12 @@ impl<'a> Index<'a> {
                         {
                             return self.walk(value, scope, labels);
                         }
-                        if let Some(label) = pair.children.first().and_then(symbol) {
+                        if let Some(label) = pair
+                            .children
+                            .first()
+                            .filter(|key| self.contains(key))
+                            .and_then(symbol)
+                        {
                             return self.parameter(callee, label);
                         }
                     }

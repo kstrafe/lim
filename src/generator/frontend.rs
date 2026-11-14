@@ -1994,8 +1994,8 @@ mod async_migration_tests {
             source("(#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))")
                 .replace("#generate #async-fn", "#generate #async-fn-pinned")
                 .replace(
-                    "(function)",
-                    "(cancel (work-cancel ((await-0 cancel-child))) : function)",
+                    "(function",
+                    "(cancel (work-cancel ((await-0 cancel-child)))) (function",
                 );
         let text =
             format!("{text}\n(#fn cancel-child ((child Child)) () (#forget child) (#return ()))");

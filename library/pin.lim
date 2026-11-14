@@ -2,16 +2,16 @@
 //; sees the underlying pinned references. Unsafe constructors require storage
 //; that remains valid and stationary until its in-place cleanup completes.
 //;
-//; (#generate #pin (: type Frame : name PinnedFrame : fields (: value #u64)))
+//; (#generate #pin ((type Frame) (name PinnedFrame) (fields ((value #u64)))))
 //; creates PinnedFrame and PinnedFrame::Shared. Optional `copy true` also emits
 //; whole-value read/write functions, with a compiler-checked Copy proof.
-//; `projections (: child PinnedChild)` exposes a nonmoving field through
+//; `projections ((child PinnedChild))` exposes a nonmoving field through
 //; another already-generated opaque pin API, including linear fields.
 //; `::project`/`::project-mut` consume the parent; `::borrow`/`::borrow-mut`
 //; reborrow a parent handle and retain the child's checked lifetime.
 //;
-//; (#generate #pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
-//;   : run drive-frame : destroy destroy-frame : result #u64))
+//; (#generate #pin-scope ((type Frame) (pin PinnedFrame) (name with-pinned-frame)
+//;   (run drive-frame) (destroy destroy-frame) (result #u64)))
 //; generates a normal function taking `value Frame`. Its private stack storage
 //; is never exposed directly. run consumes `pin PinnedFrame` and returns the
 //; chosen result; destroy consumes another pin handle and returns unit.

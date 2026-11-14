@@ -1,5 +1,5 @@
 #[test]
-fn only_a_standalone_colon_groups_arguments() {
+fn qualified_colon_names_stay_identifiers() {
     let tokens = lim::lex("Pipeline::Poll.Pending left:right :leading trailing: :: :").unwrap();
     for (token, expected) in tokens.iter().zip([
         "Pipeline::Poll.Pending",
@@ -12,7 +12,7 @@ fn only_a_standalone_colon_groups_arguments() {
     }
     assert_eq!(tokens.last().unwrap().kind, lim::TokenKind::Colon);
     assert_eq!(
-        lim::parse("((task Pipeline::Poll.Pending) (tag left:right))").unwrap()[0].expr,
+        lim::parse(": (task Pipeline::Poll.Pending) (tag left:right)").unwrap()[0].expr,
         lim::parse("((task Pipeline::Poll.Pending) (tag left:right))").unwrap()[0].expr,
     );
 }
@@ -53,7 +53,6 @@ fn invalid_colon_declaration_names_are_rejected() {
     for source in [
         "(#fn :identity ((value #u64)) #u64 (#return value))",
         "(#fn identity:fn ((value #u64)) #u64 (#return value))",
-        "(#fn identity: ((value #u64)) #u64 (#return value))",
         "(#fn Pipeline:identity ((value #u64)) #u64 (#return value))",
         "(#fn Pipeline::identity ((task:value #u64)) #u64 (#return task:value))",
         "(#fn Pipeline::identity ((::value #u64)) #u64 (#return ::value))",

@@ -1,5 +1,8 @@
 // Surface notation lowers to the same explicit contracts and primitive calls.
-#generate #array { element = #u64; length = 4; name = Array4; }
+#generate #array:
+  element #u64;
+  length 4;
+  name Array4;
 
 #fn widen {
   #params = { index = #usize; };

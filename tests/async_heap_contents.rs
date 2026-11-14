@@ -137,8 +137,8 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
             "(#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))\n    (#unsafe (#ptr-write (#ptr-offset counts 1usize) (#u64::add-wrap (#ptr-read (#ptr-offset counts 1usize)) 1u64)))\n    (#return",
         )
         .replace(
-            "(waker #u64 : function)",
-            "(waker #u64 : cancel (work-cancel\n      ((owner destroy-counted)\n       (await-0 cancel-step)\n       (await-1 cancel-step)))\n    : function)",
+            "(waker #u64) (function",
+            "(waker #u64) (cancel (work-cancel\n      ((owner destroy-counted)\n       (await-0 cancel-step)\n       (await-1 cancel-step))))\n    (function",
         );
     let prefix = prefix
         .replace("(#let owner (#pin-own Holder) (#call make ((pointer pointer) (source source) (counts counts))))",

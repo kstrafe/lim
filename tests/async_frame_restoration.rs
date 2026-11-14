@@ -202,7 +202,7 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
         .replace("(access ((owner OwnerAccess)))", "")
         .replace(
             "(protocol WorkAwait)",
-            "(protocol WorkAwait : access ((owner OwnerAccess)))",
+            "(protocol WorkAwait) (access ((owner OwnerAccess)))",
         );
     let source = format!("{prefix}
       (#fn main () #u64

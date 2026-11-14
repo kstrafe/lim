@@ -56,6 +56,9 @@ impl<'a> SourceForms<'a> {
             };
             tokens.push(token);
             let kind = &tokens.last().unwrap().kind;
+            if !started && *kind == TokenKind::Colon && tokens.len() > 1 {
+                return self.read_colon_form(tokens).map(Some);
+            }
             if tokens.len() == 1
                 && (matches!(kind, TokenKind::Symbol(name) if crate::surface_syntax::record_declaration(name))
                     || *kind == TokenKind::Generate)
@@ -73,7 +76,21 @@ impl<'a> SourceForms<'a> {
                         continue;
                     }
                 }
-                return parse_one(&tokens, self.source).map(Some);
+            }
+            if tokens.len() == 1
+                && !matches!(
+                    kind,
+                    TokenKind::LParen
+                        | TokenKind::LBrace
+                        | TokenKind::LBracket
+                        | TokenKind::Quote
+                        | TokenKind::QuasiQuote
+                        | TokenKind::Unquote
+                        | TokenKind::UnquoteSplicing
+                )
+                && self.colon_header(tokens.first().unwrap())?
+            {
+                return self.read_colon_form(tokens).map(Some);
             }
             if !started {
                 match kind {
@@ -100,21 +117,6 @@ impl<'a> SourceForms<'a> {
                             ) {
                                 continue;
                             }
-                            if matches!(
-                                self.pending.as_ref().map(|token| &token.kind),
-                                Some(TokenKind::LParen)
-                            ) {
-                                let mut lookahead = self.lexer.clone();
-                                if matches!(
-                                    lookahead.next_token(),
-                                    Ok(Some(Token {
-                                        kind: TokenKind::Colon,
-                                        ..
-                                    }))
-                                ) {
-                                    continue;
-                                }
-                            }
                         }
                         return parse_one(&tokens, self.source).map(Some);
                     }
@@ -133,6 +135,85 @@ impl<'a> SourceForms<'a> {
             }
         }
     }
+
+    fn colon_header(&self, first: &Token) -> Result<bool, String> {
+        let colon = |token: &Token| {
+            token.kind == TokenKind::Colon
+                || matches!(&token.kind, TokenKind::Symbol(value) if value.ends_with(':') && !value.ends_with("::"))
+        };
+        if colon(first) {
+            return Ok(true);
+        }
+        let mut lexer = self.lexer.clone();
+        let mut depth = 0;
+        while let Ok(Some(token)) = lexer.next_token() {
+            if depth == 0
+                && (token.span.line != first.span.line || token.kind == TokenKind::Semicolon)
+            {
+                break;
+            }
+            if depth == 0 && colon(&token) {
+                return Ok(true);
+            }
+            match token.kind {
+                TokenKind::LParen | TokenKind::LBrace | TokenKind::LBracket => depth += 1,
+                TokenKind::RParen | TokenKind::RBrace | TokenKind::RBracket => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
+        Ok(false)
+    }
+
+    fn read_colon_form(&mut self, mut tokens: Vec<Token>) -> Result<SpannedExpr, String> {
+        let first = tokens[0].span;
+        let indentation = |start: usize| {
+            let line = self.source[..start]
+                .rfind('\n')
+                .map_or(0, |index| index + 1);
+            self.source[line..start]
+                .bytes()
+                .take_while(|byte| *byte == b' ' || *byte == b'\t')
+                .count()
+        };
+        let header = indentation(first.start);
+        let mut depth = 0;
+        let mut indented = matches!(&tokens.last().unwrap().kind, TokenKind::Colon)
+            || matches!(&tokens.last().unwrap().kind, TokenKind::Symbol(value) if value.ends_with(':') && !value.ends_with("::"));
+        while let Some(token) = self.lexer.next_token().map_err(|error| error.to_string())? {
+            if depth == 0
+                && token.span.line > first.line
+                && (!indented || indentation(token.span.start) <= header)
+            {
+                self.pending = Some(token);
+                break;
+            }
+            if token.span.line == first.line && depth == 0 {
+                indented = token.kind == TokenKind::Colon
+                    || matches!(&token.kind, TokenKind::Symbol(value) if value.ends_with(':') && !value.ends_with("::"));
+            }
+            let semicolon =
+                depth == 0 && token.kind == TokenKind::Semicolon && token.span.line == first.line;
+            match token.kind {
+                TokenKind::LParen | TokenKind::LBrace | TokenKind::LBracket => depth += 1,
+                TokenKind::RParen | TokenKind::RBrace | TokenKind::RBracket => {
+                    if depth > 0 {
+                        depth -= 1;
+                    }
+                }
+                _ => {}
+            }
+            tokens.push(token);
+            if semicolon {
+                break;
+            }
+        }
+        parse_one(&tokens, self.source)
+    }
 }
 
 fn parse_one(tokens: &[Token], source: &str) -> Result<SpannedExpr, String> {
@@ -149,6 +230,40 @@ fn parse_one(tokens: &[Token], source: &str) -> Result<SpannedExpr, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streams_inline_and_indented_colon_groups_locally() {
+        for source in [
+            "read (: value 42)\n",
+            "#generate make : (type #u64) (name Example)\n",
+            "#fn f { #params = {}; #returns = (); #body: #return (); } other : value\n",
+            "a : b : c\n: d e\n",
+            "a : b; c : d;\n",
+            "a:\n  b c;\n  d e;\nf : g\n",
+            "': a b\n`:\n  c d;\n: e\n",
+            "#fn main { #params = {}; #returns = #u64; #body: #return : #u64::add-wrap 20 22; }\n",
+        ] {
+            let expected = crate::parse(source).unwrap();
+            let mut reader = SourceForms::new(source);
+            let actual = std::iter::from_fn(|| reader.next().transpose())
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(actual, expected, "{source}");
+            let formatted = crate::format_source(source).unwrap();
+            assert_eq!(crate::format_source(&formatted).unwrap(), formatted);
+            assert_eq!(
+                crate::parse(&formatted)
+                    .unwrap()
+                    .into_iter()
+                    .map(|node| node.expr)
+                    .collect::<Vec<_>>(),
+                expected
+                    .into_iter()
+                    .map(|node| node.expr)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
 
     #[test]
     fn streams_marker_free_named_calls_with_the_same_spans_as_parse() {

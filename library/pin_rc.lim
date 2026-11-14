@@ -5,7 +5,7 @@
 //; -borrow-mut succeeds only with one strong owner. Destroy all borrowed
 //; views before dropping a handle; final destruction runs in place.
 //; The allocator adapter allocates the complete reference-counted block.
-//; destroy takes (: allocator (#ref ROOT::State) : pin (#pin-ref-mut Element)).
+//; destroy takes ((allocator (#ref ROOT::State)) (pin (#pin-ref-mut Element))).
 
 (#gn-fn pin-rc-name (name suffix) (#gn-symbol-append name suffix))
 (#gn-fn pin-rc-check (option)

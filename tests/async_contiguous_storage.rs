@@ -288,7 +288,7 @@ fn partial_exclusive_holder_lends_its_handle_before_a_later_await() {
         (#let answer #u64 (#call read
           ((view (#get owner kept))
            (amount (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start)))))
-        (#forget owner) (#return answer))))
+        (#forget owner) (#return answer)))))
         (#fn read ((view (#ref-mut #u64)) (amount ())) #u64
           (#deref-set view (#u64::add-wrap (#deref view) 2u64))
           (#return (#deref view)))\n{}",

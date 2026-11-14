@@ -1,6 +1,29 @@
 mod support;
 
 #[test]
+fn generic_colon_groups_keep_callees_labels_and_values_navigable() {
+    run(
+        "#fn [[function|identity]] {
+          #params = { [[parameter|value]] = #u64; };
+          #returns = #u64;
+          #body: #return [[parameter-use|value]];
+        }
+        #fn main {
+          #params = {}; #returns = #u64;
+          #body:
+            #let [[binding|input]] #u64 42;
+            #return [[outer-colon|:]] [[callee|identity]] [[args-colon|:]] [[pair-colon|:]] [[label|value]] [[argument|input]];
+        }",
+        &[
+            ("parameter-use", &["parameter"]),
+            ("outer-colon", &[]), ("args-colon", &[]), ("pair-colon", &[]),
+            ("callee", &["function"]), ("label", &["parameter"]),
+            ("argument", &["binding"]),
+        ],
+    );
+}
+
+#[test]
 fn indented_statement_headers_keep_loop_scopes_and_call_labels() {
     run(
         "#fn [[function|identity]] {

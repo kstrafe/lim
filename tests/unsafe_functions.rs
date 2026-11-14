@@ -131,13 +131,13 @@ fn unsafe_calls_normalize_named_arguments_and_preserve_error_spans() {
     let declaration = "(#unsafe-fn combine ((left #u64) (right #bool)) #u64 (#return left))";
     for (arguments, code, message, highlighted) in [
         (
-            "(right true : left 2u64 : left 3u64)",
+            "(right true) (left 2u64) (left 3u64)",
             "E4000",
             "more than once",
             "left",
         ),
         (
-            "(right true : other 2u64)",
+            "(right true) (other 2u64)",
             "E4000",
             "no parameter 'other'",
             "other",
@@ -148,9 +148,9 @@ fn unsafe_calls_normalize_named_arguments_and_preserve_error_spans() {
             "missing parameter 'left'",
             "#unsafe-call",
         ),
-        ("(right 1u64 : left 2u64)", "E4000", "expected Bool", "1u64"),
+        ("(right 1u64) (left 2u64)", "E4000", "expected Bool", "1u64"),
         (
-            "(right true : left false)",
+            "(right true) (left false)",
             "E4000",
             "expected U64",
             "false",

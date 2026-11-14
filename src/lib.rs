@@ -1061,7 +1061,7 @@ pub enum Expr {
         label: String,
         expression: Box<Expr>,
     },
-    /// The generated-code keyword, e.g. `(#generate #optional (: type T : name T?))`.
+    /// The generated-code keyword, e.g. `(#generate #optional ((type T) (name T?)))`.
     Generate,
     Quote(Box<Expr>),
     QuasiQuote(Box<Expr>),
@@ -1381,31 +1381,11 @@ fn pretty_spanned_expression(
     // Keep sugar visible instead of printing its expanded representation.
     // Comments inside sugar retain their original positions and spelling.
     if is_parser_sugar_source(expression, source) {
-        if has_comments {
-            return source[expression.span.start..expression.span.end].to_owned();
-        }
-        if !is_colon_list_source(expression, source) || indent + flat.chars().count() <= 100 {
-            return flat;
-        }
-        let mut output = String::from("(");
-        for (index, group) in expression.children.iter().enumerate() {
-            if index != 0 {
-                output.push('\n');
-                output.push_str(&" ".repeat(indent + 1));
-            }
-            output.push(':');
-            for child in &group.children {
-                output.push(' ');
-                output.push_str(&pretty_spanned_expression(
-                    child,
-                    source,
-                    comments,
-                    indent + 3,
-                ));
-            }
-        }
-        output.push(')');
-        return output;
+        return if has_comments {
+            source[expression.span.start..expression.span.end].to_owned()
+        } else {
+            flat
+        };
     }
     let header = expression_header_length(expression);
     if !has_comments && !contains_body_form(expression) && indent + flat.chars().count() <= 100 {
@@ -1521,30 +1501,12 @@ fn pretty_spanned_expression(
     }
 }
 
-fn is_colon_list_source(expression: &SpannedExpr, source: &str) -> bool {
-    if !matches!(expression.expr, Expr::List(_)) {
-        return false;
-    }
-    let inner = source[expression.span.start + 1..expression.span.end - 1].trim_start();
-    inner.strip_prefix(':').is_some_and(|rest| {
-        rest.is_empty()
-            || rest.as_bytes().first().is_some_and(|next| {
-                next.is_ascii_whitespace()
-                    || matches!(
-                        *next,
-                        b'(' | b')' | b'\'' | b'`' | b',' | b'"' | b'@' | b';'
-                    )
-            })
-    })
-}
-
-fn is_parser_sugar_source(expression: &SpannedExpr, source: &str) -> bool {
-    is_colon_list_source(expression, source)
-        // Dollar shorthand's label is sourced from within its value expression.
-        || (matches!(expression.expr, Expr::List(_))
-            && expression.children.len() == 2
-            && expression.children[0].span.start >= expression.children[1].span.start
-            && expression.children[0].span.end <= expression.children[1].span.end)
+fn is_parser_sugar_source(expression: &SpannedExpr, _source: &str) -> bool {
+    // Dollar shorthand's label is sourced from within its value expression.
+    matches!(expression.expr, Expr::List(_))
+        && expression.children.len() == 2
+        && expression.children[0].span.start >= expression.children[1].span.start
+        && expression.children[0].span.end <= expression.children[1].span.end
 }
 
 fn gap_is_comment_free(comments: &[SourceComment], start: usize, end: usize) -> bool {
@@ -1596,32 +1558,6 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
 }
 
 fn flat_spanned_expression(expression: &SpannedExpr, source: &str) -> String {
-    if is_colon_list_source(expression, source) {
-        // Empty argument lists have one canonical spelling, including `(:)`.
-        if expression.children.is_empty() {
-            return "()".into();
-        }
-        // Do not flatten away comments embedded in grouped syntax.
-        if !source_comments(&source[expression.span.start..expression.span.end]).is_empty() {
-            return source[expression.span.start..expression.span.end].to_owned();
-        }
-        return format!(
-            "(({}))",
-            expression
-                .children
-                .iter()
-                .map(|group| {
-                    group
-                        .children
-                        .iter()
-                        .map(|child| flat_spanned_expression(child, source))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .collect::<Vec<_>>()
-                .join(" : ")
-        );
-    }
     // Typed numeric tokens are represented as synthetic lists without children.
     if expression.children.is_empty() || is_parser_sugar_source(expression, source) {
         return source[expression.span.start..expression.span.end].to_owned();
@@ -3405,6 +3341,24 @@ fn normalize_call_expr(
 ) -> Result<(), String> {
     match expression {
         Expr::List(items) => {
+            if let Some(Expr::Symbol(function)) = items.first() {
+                let ordinary = signatures.contains_key(function) && !is_builtin_head(function);
+                let intrinsic = items.len() == 2
+                    && named_argument_list(&items[1])
+                    && function
+                        .split_once('.')
+                        .is_some_and(|(scalar, _)| is_primitive_type_name(scalar));
+                if (ordinary || intrinsic) && items.len() == 2 && matches!(items[1], Expr::List(_))
+                {
+                    let call = vec![
+                        Expr::Symbol("call".into()),
+                        Expr::Symbol(function.clone()),
+                        items[1].clone(),
+                    ];
+                    *expression = Expr::List(call.into());
+                    return normalize_call_expr(expression, signatures);
+                }
+            }
             if matches!(items.first(), Some(Expr::Symbol(name)) if name == "println") {
                 if items.len() != 2 {
                     return Err("#println requires exactly one shared String reference".into());
@@ -3544,6 +3498,12 @@ fn normalize_call_expr(
         _ => {}
     }
     Ok(())
+}
+
+pub(crate) fn named_argument_list(expression: &Expr) -> bool {
+    matches!(expression, Expr::List(entries) if entries.iter().all(|entry| {
+        matches!(entry, Expr::List(pair) if pair.len() == 2 && matches!(pair.first(), Some(Expr::Symbol(_))))
+    }))
 }
 
 /// Concrete declarations used to validate explicit aggregate construction.
@@ -9099,6 +9059,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::LParen) => self.list(),
             Some(TokenKind::LBrace) => self.record(),
             Some(TokenKind::LBracket) => self.infix(None),
+            Some(TokenKind::Colon) => self.colon_expression(),
             Some(
                 TokenKind::Quote
                 | TokenKind::QuasiQuote
@@ -9152,9 +9113,10 @@ impl<'a> Parser<'a> {
                     children: Vec::new().into(),
                 })
             }
-            TokenKind::Colon => {
-                Err(self.error("':' must be the first token inside its list", token.span))
-            }
+            TokenKind::Colon => Err(self.error(
+                "':' requires following syntax or an indented group",
+                token.span,
+            )),
             TokenKind::Generate => {
                 self.index += 1;
                 Ok(SpannedExpr {
@@ -9278,66 +9240,6 @@ impl<'a> Parser<'a> {
         items[0] = name.expr.clone();
         children[0] = name.clone();
         Ok(())
-    }
-
-    fn colon_list(&mut self, start: Span) -> Result<SpannedExpr, ParseError> {
-        let mut separator = self.tokens[self.index].span;
-        self.index += 1;
-        let mut groups = Vec::new();
-        let mut children = Vec::new();
-        let mut segment = Vec::new();
-        loop {
-            match self.tokens.get(self.index) {
-                Some(Token {
-                    kind: TokenKind::Colon,
-                    span,
-                }) => {
-                    if segment.is_empty() {
-                        return Err(self.error("empty ':' group", *span));
-                    }
-                    let group = Self::colon_group(separator, std::mem::take(&mut segment));
-                    groups.push(group.expr.clone());
-                    children.push(group);
-                    separator = *span;
-                    self.index += 1;
-                }
-                Some(Token {
-                    kind: TokenKind::RParen,
-                    span,
-                }) => {
-                    let end = span.end;
-                    if !segment.is_empty() {
-                        let group = Self::colon_group(separator, segment);
-                        groups.push(group.expr.clone());
-                        children.push(group);
-                    } else if !groups.is_empty() {
-                        return Err(self.error("trailing ':' group", separator));
-                    }
-                    self.index += 1;
-                    return Ok(SpannedExpr {
-                        expr: Expr::List(groups.into()),
-                        span: Span::new(start.start, end, start.line, start.column),
-                        children: children.into(),
-                    });
-                }
-                // The first item is the group's label, even when its value
-                // begins with another named list. Values may contain calls.
-                Some(_) => segment.push(self.expression_application(!segment.is_empty())?),
-                None => return Err(self.error("unterminated list; expected ')'", self.eof_span())),
-            }
-        }
-    }
-
-    fn colon_group(separator: Span, children: Vec<SpannedExpr>) -> SpannedExpr {
-        let end = children
-            .last()
-            .map_or(separator.end, |child| child.span.end);
-        let items = children.iter().map(|child| child.expr.clone()).collect();
-        SpannedExpr {
-            expr: Expr::List(items),
-            span: Span::new(separator.start, end, separator.line, separator.column),
-            children: children.into(),
-        }
     }
 
     fn eof_span(&self) -> Span {
@@ -9733,7 +9635,7 @@ mod tests {
                 .contains("(#let created PinU64Box::CreateResult\n    (#call PinU64Box::create"),
             "{formatted}"
         );
-        assert!(formatted.contains("(#call VeryLongConcreteOwner::create\n    ((allocator (#borrow allocator))\n     (first-argument 40u64)\n     (second-argument 2u64)\n     (third-argument 0u64)))"), "{formatted}");
+        assert!(formatted.contains("(#call VeryLongConcreteOwner::create\n    (\n      (allocator (#borrow allocator))\n      (first-argument 40u64)\n      (second-argument 2u64)\n      (third-argument 0u64)))"), "{formatted}");
         assert!(formatted.contains("(#call answer ())"), "{formatted}");
         assert_eq!(format_source(&formatted).unwrap(), formatted);
         let exprs = |text: &str| {
@@ -9854,7 +9756,7 @@ mod tests {
         let forms = parse(source).unwrap();
         let span = duplicate_call_parameter_span(&forms[1]).unwrap();
         assert_eq!(&source[span.start..span.end], "arg");
-        assert_eq!(source.rfind("(arg)").unwrap() + 2, span.start);
+        assert_eq!(source.rfind("(arg").unwrap() + 1, span.start);
     }
 
     #[test]
@@ -9894,7 +9796,7 @@ mod tests {
 
         let generated = lex("(#generate #optional ((type MyType) (name MyType?)))").unwrap();
         assert_eq!(generated[1].kind, TokenKind::Generate);
-        assert_eq!(generated[9].kind, TokenKind::Symbol("MyType?".into()));
+        assert_eq!(generated[10].kind, TokenKind::Symbol("MyType?".into()));
     }
 
     #[test]
@@ -11884,23 +11786,23 @@ mod tests {
     }
 
     #[test]
-    fn colon_groups_expand_to_lists_and_require_a_prefix() {
-        let shorthand = "((text (#slice #char)) (control #u32))";
+    fn colon_groups_wrap_the_tail_without_requiring_a_prefix() {
+        let shorthand = "(#tuple : text (#slice #char))";
         let parsed = parse(shorthand).unwrap();
         assert_eq!(
             parsed[0].expr,
-            parse("((text (#slice #char)) (control #u32))").unwrap()[0].expr
+            parse("(#tuple (text (#slice #char)))").unwrap()[0].expr
         );
         assert_eq!(parsed[0].children.len(), 2);
         assert_eq!(
             &shorthand[parsed[0].children[1].span.start..parsed[0].children[1].span.end],
-            "(control #u32)"
+            ": text (#slice #char)"
         );
         assert_eq!(parse("()").unwrap()[0].expr, Expr::List(vec![].into()));
-        for invalid in ["(name : value)", "(: x : : y)", "(: x :)", ":"] {
+        for invalid in ["(name :)", "(:)", "(: x :)", ":"] {
             assert!(parse(invalid).is_err(), "{invalid}");
         }
-        let invalid = "(name : value)";
+        let invalid = "(name :)";
         let error = Parser::new(&lex(invalid).unwrap()).run().unwrap_err();
         assert_eq!(&invalid[error.span.start..error.span.end], ":");
         assert!(parse("((outer ((inner value))) (other 1))").is_ok());
@@ -11908,7 +11810,7 @@ mod tests {
     }
 
     #[test]
-    fn colon_groups_work_in_signatures_and_named_calls() {
+    fn explicit_pairs_work_in_signatures_and_named_calls() {
         let source = "(#fn sum ((index #u32) (right #u32)) #u32
           (#return (#u32::add-wrap index right)))
           (#fn main () #u32
@@ -11954,7 +11856,7 @@ mod tests {
     }
 
     #[test]
-    fn formatter_keeps_colon_group_spelling() {
+    fn formatter_keeps_explicit_pair_groups() {
         let source = "(#fn take ((left #u32) (right #u32)) #u32 (#return left))
           (#fn main () #u32 (#return (#call take ((right 2u32) (left 40u32)))))";
         let formatted = format_source(source).unwrap();

@@ -674,7 +674,7 @@ mod tests {
         let source = PHASE_SOURCE
             .replace(
                 "((frame (#ref-mut Frame)))",
-                &format!("((frame (#ref-mut Frame){arguments}))"),
+                &format!("((frame (#ref-mut Frame)){arguments})"),
             )
             .replace(
                 "(#loop",
@@ -703,7 +703,7 @@ mod tests {
         let source = PHASE_SOURCE
             .replace(
                 "((frame (#ref-mut Frame)))",
-                &format!("((frame (#ref-mut Frame){arguments}))"),
+                &format!("((frame (#ref-mut Frame)){arguments})"),
             )
             .replace("(#array #u64 1)", "(#array #u64 6)")
             .replace("(#loop", &format!("{choices} (#loop"));
@@ -737,7 +737,7 @@ mod tests {
         let source = PHASE_SOURCE
             .replace(
                 "((frame (#ref-mut Frame)))",
-                &format!("((frame (#ref-mut Frame){arguments}))"),
+                &format!("((frame (#ref-mut Frame)){arguments})"),
             )
             .replace("(#array #u64 1)", "(#array #u64 6)")
             .replace("(#loop", &format!("{choices} (#loop"));

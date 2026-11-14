@@ -220,7 +220,7 @@ fn generated_optional_projection_preserves_loans_and_can_release_mismatched_owne
         .unwrap_err()
         .contains("missing key 'payload'"));
     let extra =
-        projection_source("Task.Idle").replace("(payload #u64)", "(payload #u64 : typo #u64)");
+        projection_source("Task.Idle").replace("(payload #u64)", "(payload #u64) (typo #u64)");
     assert!(check(&extra).unwrap_err().contains("requires exactly"));
     let duplicate = projection_source("Task.Idle").replace("(payload #u64)", "(enum #u64)");
     assert!(check(&duplicate)

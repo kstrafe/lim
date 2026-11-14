@@ -76,10 +76,10 @@ the cancellation boundaries and emitted tag assertions.
 Graph cancellation configuration uses these source slots:
 
 ```lim
-(#generate #async-fn-pinned (: protocol WorkAwait : waker Wake
-  : cancel (work-cancel
-    ((owner destroy-owner) (await-0 cancel-child)))
-  : function (#fn work (...) #u64 ...)))
+(#generate #async-fn-pinned ((protocol WorkAwait) (waker Wake)
+  (cancel (work-cancel
+    ((owner destroy-owner) (await-0 cancel-child))))
+  (function (#fn work (...) #u64 ...))))
 ```
 
 Each handler must safely consume exactly one value of the slot's declared type
@@ -130,9 +130,9 @@ Pinned graph functions can explicitly request access to reference-free Copy
 parameters after Ready or public cleanup:
 
 ```lim
-(#generate #async-fn-pinned (: protocol WorkAwait : waker #u64
-  : access (: amount AmountAccess)
-  : function (#fn work (: amount #u64) #u64 (#return amount))))
+(#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+  (access ((amount AmountAccess)))
+  (function (#fn work ((amount #u64)) #u64 (#return amount)))))
 ```
 
 This emits ordinary `AmountAccess::read` and `AmountAccess::replace` functions.
