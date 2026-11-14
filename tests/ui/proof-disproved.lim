@@ -1,5 +1,0 @@
-(#theorem wrong
-  (#proof-eq 1u64 2u64))
-
-(#fn main () #u64
-  (#return 0u64))

@@ -144,40 +144,30 @@ are compiler-owned implementation details and do not introduce source bindings
 or change navigation of the surrounding user function's declarations.
 
 
-## Program proof navigation
+## Predicate contract navigation
 
-Proof diagnostics retain the ordinary source ranges and related locations.
-Their `data.proof_outcome` value records the compiler's typed classification:
-counterexample, unsupported semantics, resource limit, invalid proposition,
-induction failure or checker error. Clients must use this field or the specific
-E4401–E4406 code rather than classify English message text. Generic E4400 and
-non-proof diagnostics do not provide a typed proof outcome.
+Contract errors use E4400 and the ordinary source ranges and related locations.
+JSON diagnostics classify them as `contract`; theorem outcome metadata has
+been removed with the symbolic engine.
 
-`(#theorem name proposition)` declares a procedural compile time obligation.
-The theorem name resolves as a declaration; supported proof operands use the
-ordinary runtime expression resolver for Lim functions, locals, fields, and
-named arguments. Labels and loop invariant bindings remain scoped to their
-function. Proof operators and metadata do not fall back to global name lookup.
+`#requires`, `#ensures`, `#preserves`, `#assume`, `#if-valid` and `#old` traverse
+ordinary function/value/field references. `#result` has the enclosing function's
+return type and no declaration target. Contract keywords never resolve to a
+same-spelled user function.
 
-`(#proof-using (name ...) proposition)` adds explicit,
-verified theorem dependencies to a proposition. Each listed name navigates to
-its `#theorem` declaration through canonical file and alias resolution. The
-body remains in the surrounding proposition scope; the list introduces no
-bindings.
+`#index-proven` has the same array-reference and index value roles as `#index`.
+The keyword has no definition target. Its element type supports subsequent
+field/member navigation, and both operands retain their lexical scopes.
+Typed comparisons in contracts traverse ordinary value operands.
 
-`#proof-unique` has one runtime collection-expression operand and introduces
-no bindings. Its keyword has no definition target, including when a user
-function has the same unprefixed spelling. Array and slice operands to
-`#proof-unique`, `#proof-permutation` and `#proof-sorted` retain ordinary value,
-projection and range-expression roles. The second `#proof-sorted` operand
-resolves only to a function declaration; it is not a lexical value use.
-Malformed forms must not make a builtin keyword navigate to a user symbol.
-These roles also apply inside loop invariant predicates. Collection operands
-and slice range bounds resolve in the selected function's scope at its label;
-the comparator resolves to a function even if a local has the same spelling.
-No collection predicate introduces a binding or leaks the loop's locals into
-the surrounding theorem.
+Callable scalar intrinsics keep the `#call` argument roles: operand expressions
+retain lexical scope, while the intrinsic callee and its generated parameter
+labels have no user-source declaration target. Their generated return types
+are available to value navigation. `#generate #array` has literal named inputs;
+its keyword opens the generated source, and uses of the emitted alias and
+accessors navigate to exact declarations in that source. No new lexical scope
+is introduced by the invocation.
 
-The supported proof forms and their current limits are documented in the
-[program verification checklist](program-verification.md). Navigation tests
-cover proof names, runtime operands, lexical scopes, and malformed forms.
+`#where` binds its value name only inside its predicates. Its base type uses
+ordinary type navigation. The binder does not escape into sibling types or the
+surrounding lexical scope. Malformed forms retain no speculative bindings.

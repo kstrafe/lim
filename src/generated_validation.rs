@@ -127,7 +127,10 @@ pub(crate) fn resolve(program: &Program) -> Result<crate::typed_ir::Declarations
             )
         }));
     let mut declarations = resolve_program_for_analysis(&analysis, true)
-        .and_then(|declarations| crate::typecheck::check_resolved_proofs(&analysis, declarations))
+        // Source witnesses add ordinary safety checks. Predicate contracts are
+        // attached to the actual runtime AST, whose identity must remain tied
+        // to the metadata captured before ghost erasure.
+        .and_then(|declarations| crate::typecheck::check_resolved_contracts(program, declarations))
         .map_err(|mut error| {
             if let Some(span) = error.2 {
                 if span.source_id as usize >= program.source_files.len() {

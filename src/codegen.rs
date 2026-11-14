@@ -1067,6 +1067,7 @@ fn monomorphize_program<'a>(
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
         syntax_bundle_uses: program.syntax_bundle_uses.clone(),
+        contracts: program.contracts.clone(),
         generator_validation: program.generator_validation.clone(),
     }))
 }
@@ -1248,6 +1249,7 @@ fn prepare_checked_program(
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
         syntax_bundle_uses: program.syntax_bundle_uses.clone(),
+        contracts: program.contracts.clone(),
         generator_validation: program.generator_validation.clone(),
     };
     for item in &mut result.items {
@@ -1741,9 +1743,7 @@ fn generate_checked_assembly_with_roots(
             Item::Enum { .. } => {}
             Item::TypeAlias { .. } => {}
             Item::Let { .. } | Item::Static { .. } => {}
-            Item::UnsafeThreadAnnotation { .. }
-            | Item::OpaqueAnnotation { .. }
-            | Item::Proof { .. } => {}
+            Item::UnsafeThreadAnnotation { .. } | Item::OpaqueAnnotation { .. } => {}
             Item::ThreadTask { name, worker, .. } => generate_thread_task(
                 name,
                 worker,
@@ -3074,7 +3074,7 @@ fn max_projection_depth_in_expression(expression: &Expr) -> usize {
                 return children + 1;
             }
             if items.len() == 3
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get" || operator == "index")
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get" || crate::is_array_index_head(operator))
             {
                 children.max(1 + max_projection_depth_in_expression(&items[1]))
             } else {
@@ -7630,7 +7630,7 @@ impl FunctionContext<'_> {
                             .get(name)
                             .cloned()
                             .or_else(|| self.global_types.get(name).cloned())?,
-                        Expr::List(place) if matches!(place.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "get" | "index" | "get-payload")) => {
+                        Expr::List(place) if matches!(place.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "get" | "index" | "index-proven" | "get-payload")) => {
                             self.expression_type(&items[1])?
                         }
                         _ => return None,
@@ -7748,7 +7748,9 @@ impl FunctionContext<'_> {
                 {
                     Some(Type::Usize)
                 }
-                Some(Expr::Symbol(operator)) if operator == "index" && items.len() == 3 => {
+                Some(Expr::Symbol(operator))
+                    if crate::is_array_index_head(operator) && items.len() == 3 =>
+                {
                     match self.expression_type(&items[1])? {
                         Type::Array(element, _) => Some(*element),
                         _ => None,
@@ -8028,7 +8030,7 @@ impl FunctionContext<'_> {
         if self.return_pointer_slot.is_some()
             && self.is_aggregate_type(&self.return_type)
             && matches!(value, Expr::List(items) if items.len() == 3
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get" || operator == "index"))
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get" || crate::is_array_index_head(operator)))
         {
             return self.return_indirect_projection(value);
         }
@@ -9904,7 +9906,11 @@ impl FunctionContext<'_> {
             // direction. Do not load or move the referenced value.
             return self.expression(&place[1]);
         }
-        if !matches!(head.as_str(), "get" | "index" | "get-payload") || place.len() < 3 {
+        if !matches!(
+            head.as_str(),
+            "get" | "index" | "index-proven" | "get-payload"
+        ) || place.len() < 3
+        {
             return Err("borrow requires a variable-rooted projection".into());
         }
         let base_type = self
@@ -9945,7 +9951,7 @@ impl FunctionContext<'_> {
                     .into_iter()
                     .sum()
             }
-            ("index", Type::Array(_, _)) if place.len() == 3 => 0,
+            ("index" | "index-proven", Type::Array(_, _)) if place.len() == 3 => 0,
             ("get-payload", Type::Named(name)) if place.len() == 4 => {
                 let Expr::Symbol(variant) = &place[2] else {
                     return Err("payload borrow requires a checked variant".into());
@@ -9977,7 +9983,7 @@ impl FunctionContext<'_> {
         } else {
             self.borrow_place_address(&place[1])?;
         }
-        if head == "index" {
+        if crate::is_array_index_head(head) {
             let Type::Array(element, length) = target else {
                 unreachable!()
             };
@@ -9987,15 +9993,21 @@ impl FunctionContext<'_> {
             self.expression(&place[2])?;
             self.output.push_str("    pop rcx\n");
             self.stack_depth -= 1;
-            let failure = self.label("borrow_array_bounds_failure");
-            let done = self.label("borrow_array_bounds_done");
-            self.output.push_str(&format!(
-                "    cmp rax, {length}\n    jae {failure}\n    imul rax, {stride}\n"
-            ));
-            self.offset_slice_pointer("rcx", "rax");
-            self.output.push_str(&format!(
-                "    mov rax, rcx\n    jmp {done}\n{failure}:\n    ud2\n{done}:\n"
-            ));
+            if head == "index-proven" {
+                self.output.push_str(&format!("    imul rax, {stride}\n"));
+                self.offset_slice_pointer("rcx", "rax");
+                self.output.push_str("    mov rax, rcx\n");
+            } else {
+                let failure = self.label("borrow_array_bounds_failure");
+                let done = self.label("borrow_array_bounds_done");
+                self.output.push_str(&format!(
+                    "    cmp rax, {length}\n    jae {failure}\n    imul rax, {stride}\n"
+                ));
+                self.offset_slice_pointer("rcx", "rax");
+                self.output.push_str(&format!(
+                    "    mov rax, rcx\n    jmp {done}\n{failure}:\n    ud2\n{done}:\n"
+                ));
+            }
         } else if head == "get-payload" {
             let Expr::Symbol(variant) = &place[2] else {
                 unreachable!()
@@ -11234,7 +11246,7 @@ impl FunctionContext<'_> {
             "align-of" => self.layout_size_expression("align-of", items),
             "offset-of" => self.layout_size_expression("offset-of", items),
             "match" => self.match_expression(items, None, None, None),
-            "index" => self.index_expression(items),
+            "index" | "index-proven" => self.index_expression(items),
             "get" => self.field_expression(items),
             "get-payload" => self.enum_payload_expression(items),
             "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut" => {
@@ -16091,7 +16103,7 @@ impl FunctionContext<'_> {
             return Ok(false);
         };
         if items.len() != 3
-            || !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "index")
+            || !matches!(items.first(), Some(Expr::Symbol(operator)) if crate::is_array_index_head(operator))
         {
             return Ok(false);
         }

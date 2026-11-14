@@ -1,5 +1,5 @@
 mod support;
-use std::{fs, process::Command, time::Duration};
+use std::{fs, os::unix::process::ExitStatusExt, process::Command, time::Duration};
 
 const TARGET: lim::TargetDescription = lim::TargetDescription::AARCH64_LINUX;
 
@@ -10,6 +10,10 @@ fn assembly(source: &str) -> String {
 }
 
 fn run(source: &str) -> std::process::ExitStatus {
+    run_assembly(assembly(source))
+}
+
+fn run_assembly(assembly: String) -> std::process::ExitStatus {
     // Required execution coverage: never silently skip an absent emulator.
     let version = Command::new("qemu-aarch64")
         .arg("--version")
@@ -18,7 +22,6 @@ fn run(source: &str) -> std::process::ExitStatus {
     assert!(version.status.success());
     let scratch = support::Scratch::new("aarch64-native");
     let binary = scratch.path().join("program");
-    let assembly = assembly(source);
     lim::link_native_binary(&assembly, &binary, &[], &[], TARGET).unwrap();
     let bytes = fs::read(&binary).unwrap();
     assert_eq!(u16::from_le_bytes(bytes[18..20].try_into().unwrap()), 183);
@@ -39,6 +42,34 @@ fn run(source: &str) -> std::process::ExitStatus {
 
 fn returns(source: &str, expected: i32) {
     assert_eq!(run(source).code(), Some(expected), "{source}");
+}
+
+#[test]
+fn explicitly_proven_index_executes_and_omits_bounds_traps() {
+    returns(include_str!("../examples/index_contracts.lim"), 42);
+    returns(include_str!("../examples/generated_array.lim"), 42);
+    let source = r#"
+      (#fn read ((values (#ref (#array #u64 4))) (index #usize)) #u64
+        (#requires (#usize::lt index 4usize)) (#return (#index-proven values index)))
+      (#fn main () #u64
+        (#let values (#array #u64 4) (#array (#array #u64 4) 1u64 42u64 3u64 4u64))
+        (#let index #usize 1usize) (#assume (#usize::lt index 4usize))
+        (#return (#call read (: values (#borrow values) : index index))))"#;
+    let proven = assembly(source);
+    let checked = assembly(&source.replace("#index-proven", "#index"));
+    assert!(proven.matches("brk").count() < checked.matches("brk").count());
+    let mut config = lim::CompileConfig::default();
+    config.set("contracts", "check");
+    let program = lim::parse_program_with_config(source, &config).unwrap();
+    let audited = lim::generate_assembly_for_target(&program, TARGET).unwrap();
+    assert!(audited.matches("brk").count() > proven.matches("brk").count());
+    assert_eq!(run_assembly(audited).code(), Some(42));
+    let invalid = source
+        .replace("#requires", "#assume")
+        .replace("#usize 1usize", "#usize 4usize");
+    let program = lim::parse_program_with_config(&invalid, &config).unwrap();
+    let audited = lim::generate_assembly_for_target(&program, TARGET).unwrap();
+    assert_eq!(run_assembly(audited).signal(), Some(5));
 }
 
 #[test]

@@ -1102,16 +1102,7 @@ fn diagnostic_json(
         crate::DiagnosticSeverity::Error => 1,
         crate::DiagnosticSeverity::Warning => 2,
     };
-    let proof = d
-        .proof_outcome()
-        .map(|outcome| {
-            format!(
-                ",\"data\":{{\"proof_outcome\":{}}}",
-                quoted(outcome.as_str())
-            )
-        })
-        .unwrap_or_default();
-    format!("{{\"range\":{location},\"severity\":{severity},\"code\":{},\"source\":\"lim\",\"message\":{},\"relatedInformation\":[{}]{proof}}}", quoted(&d.code_string()), quoted(&message), related.join(","))
+    format!("{{\"range\":{location},\"severity\":{severity},\"code\":{},\"source\":\"lim\",\"message\":{},\"relatedInformation\":[{}]}}", quoted(&d.code_string()), quoted(&message), related.join(","))
 }
 
 struct Declaration {

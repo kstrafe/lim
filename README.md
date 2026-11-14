@@ -29,8 +29,12 @@ ownership rules, and current limitations. The allocator design is described
 in [docs/allocator.md](docs/allocator.md).
 Cross-feature guarantees and their executable regression coverage are recorded
 in [the semantic contracts](docs/semantic-contracts.md).
-The symbolic program proof checker and its current limits are described in
+Predicate contracts, constrained types and their current limits are described in
 [the program verification checklist](docs/program-verification.md).
+Scalar intrinsics accept ordinary named calls such as
+`(#call #usize::lt (: left index : right bound))`. Generated fixed-array APIs
+expose explicit bounds contracts; see [generated_array.lim](examples/generated_array.lim)
+and the [array API reference](docs/language.md#fixed-array-apis).
 See [compiler limits and bounded benchmarks](docs/compiler-limits.md) for
 analysis budgets, fail-closed behavior, and resource-limited development commands.
 

@@ -12,12 +12,20 @@ mod tests {
         "alias",
         "align-of",
         "arch",
-        "array",
+        "array", // Also #generate #array: literal inputs and generated definitions.
         "array-of",
         "array-repeat",
         "as",
         "asm",
         "assert",
+        "assume",
+        "requires",
+        "ensures",
+        "preserves",
+        "if-valid",
+        "where",
+        "old",
+        "result",
         "atomic",
         "atomic-compare-exchange",
         "atomic-compare-exchange-weak",
@@ -35,7 +43,7 @@ mod tests {
         "borrow-slice-mut",
         "break",
         "break-to",
-        "call",
+        "call", // Scalar intrinsic callee/labels have no source target; values keep scope.
         "call-graph",
         "capability",
         "case",
@@ -101,6 +109,7 @@ mod tests {
         "if",
         "if-let",
         "index",
+        "index-proven",
         "isize",
         "label",
         "let",
@@ -148,41 +157,6 @@ mod tests {
         "pin-write",
         "platform",
         "println",
-        "proof",
-        "theorem",
-        "parameter-of",
-        "proof-allocation",
-        "proof-and",
-        "proof-asm",
-        "proof-calls-before",
-        "proof-calls-directly",
-        "proof-calls-transitively",
-        "proof-calls-when",
-        "proof-contract",
-        "proof-eq",
-        "proof-external",
-        "proof-for-all",
-        "proof-using",
-        "proof-global-write",
-        "proof-implies",
-        "proof-io",
-        "proof-loop-limit",
-        "proof-mutation",
-        "proof-no-effects",
-        "proof-no-overflow",
-        "proof-not",
-        "proof-old",
-        "proof-only-unsafe",
-        "proof-or",
-        "proof-permutation",
-        "proof-unique",
-        "proof-requires-validation",
-        "proof-result",
-        "proof-sorted",
-        "proof-stack-at-most",
-        "proof-unsafe",
-        "proof-validated",
-        "proof-with-invariants",
         "ptr",
         "ptr-address",
         "ptr-borrow",
@@ -254,57 +228,20 @@ mod tests {
     ];
 
     #[test]
-    fn canonical_proof_keywords_have_navigation_review() {
+    fn contract_keywords_have_navigation_review() {
         for name in [
-            "theorem",
-            "parameter-of",
-            "proof",
-            "proof-and",
-            "proof-or",
-            "proof-not",
-            "proof-implies",
-            "proof-calls-directly",
-            "proof-calls-transitively",
-            "proof-calls-before",
-            "proof-calls-when",
-            "proof-no-effects",
-            "proof-only-unsafe",
-            "proof-stack-at-most",
-            "proof-for-all",
-            "proof-using",
-            "proof-eq",
-            "proof-contract",
-            "proof-requires-validation",
-            "proof-validated",
-            "proof-result",
-            "proof-old",
-            "proof-no-overflow",
-            "proof-with-invariants",
-            "proof-loop-limit",
-            "proof-sorted",
-            "proof-permutation",
-            "proof-unique",
-            "proof-allocation",
-            "proof-io",
-            "proof-global-write",
-            "proof-unsafe",
-            "proof-external",
-            "proof-asm",
-            "proof-mutation",
+            "requires",
+            "ensures",
+            "preserves",
+            "assume",
+            "if-valid",
+            "where",
+            "old",
+            "result",
         ] {
             assert!(
                 REVIEWED.contains(&name),
-                "proof form #{name} needs navigation review"
-            );
-        }
-    }
-
-    #[test]
-    fn private_kernel_wrappers_are_not_public_syntax() {
-        for name in ["proof-definition", "proof-theorem", "proof-inductive"] {
-            assert!(
-                !REVIEWED.contains(&name),
-                "private wrapper #{name} is not public syntax"
+                "contract form #{name} needs navigation review"
             );
         }
     }

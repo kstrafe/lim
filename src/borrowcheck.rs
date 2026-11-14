@@ -2416,6 +2416,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     operator.as_str(),
                     "get"
                         | "index"
+                        | "index-proven"
                         | "get-payload"
                         | "pin-get-payload"
                         | "pin-get-payload-mut"
@@ -3072,11 +3073,10 @@ fn projection_path(expression: &Expr) -> Option<(&Expr, Vec<String>)> {
         }
         Expr::List(items)
             if items.len() == 3
-                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index") =>
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || crate::is_array_index_head(name)) =>
         {
             let (base, mut path) = projection_path(&items[1])?;
-            let is_index =
-                matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "index");
+            let is_index = matches!(items.first(), Some(Expr::Symbol(operator)) if crate::is_array_index_head(operator));
             let segment = if is_index {
                 static_index_segment(&items[2]).unwrap_or_else(|| "*".into())
             } else {
@@ -3833,7 +3833,7 @@ fn reference_origins(
             if operator == "as" && items.len() == 3 {
                 return reference_origins(&items[1], context, true);
             }
-            if operator == "index" && items.len() == 3 {
+            if crate::is_array_index_head(operator) && items.len() == 3 {
                 return reference_origins(&items[1], context, true);
             }
             if operator == "deref" && items.len() == 2 {

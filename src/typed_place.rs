@@ -109,7 +109,7 @@ impl Place {
                         let index = usize::try_from(literal_index(body, children[3])?).ok()?;
                         place.segments.push(Segment::Payload(variant, index));
                     }
-                    "index" if children.len() == 3 => {
+                    "index" | "index-proven" if children.len() == 3 => {
                         place.segments.push(index_segment(body, children[2]));
                     }
                     "borrow-slice" | "borrow-slice-mut" | "slice-mut-range"
@@ -260,7 +260,9 @@ pub(crate) fn owned_output_projection(body: &Body, value: NodeId) -> Option<(Nod
                 usize::try_from(literal_index(body, children[3])?).ok()?,
             )
         }
-        "index" if children.len() == 3 => Segment::Index(literal_index(body, children[2])?),
+        "index" | "index-proven" if children.len() == 3 => {
+            Segment::Index(literal_index(body, children[2])?)
+        }
         _ => return None,
     };
     Some((base, slot))
@@ -288,6 +290,7 @@ pub(crate) fn reads_through_reference(body: &Body, value: NodeId) -> bool {
                     | "pin-get-payload-unchecked"
                     | "pin-get-payload-unchecked-mut"
                     | "index"
+                    | "index-proven"
             ) =>
         {
             children

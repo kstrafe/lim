@@ -45,6 +45,10 @@ fn main() -> ExitCode {
 
 fn run_command() -> ExitCode {
     let mut arguments: Vec<String> = env::args().skip(1).collect();
+    if arguments.iter().any(|arg| arg == "--check-contracts") {
+        arguments.retain(|arg| arg != "--check-contracts");
+        arguments.extend(["--cfg".into(), "contracts=check".into()]);
+    }
     let timings = arguments.iter().any(|arg| arg == "--timings");
     arguments.retain(|arg| arg != "--timings");
     let json = arguments
@@ -56,12 +60,12 @@ fn run_command() -> ExitCode {
             .iter()
             .find(|arg| !arg.starts_with("--diagnostic-format="))
             .map(String::as_str);
-        let supported = matches!(command, Some("--check" | "--check-theorem" | "--emit-asm"))
+        let supported = matches!(command, Some("--check" | "--emit-asm"))
             || command.is_some_and(|command| {
                 !command.starts_with('-') && !matches!(command, "fmt" | "lsp")
             });
         if !supported {
-            eprintln!("lim: --timings is supported for compile, --check, --check-theorem, and --emit-asm commands");
+            eprintln!("lim: --timings is supported for compile, --check, and --emit-asm commands");
             return ExitCode::FAILURE;
         }
     }
@@ -202,7 +206,7 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
     arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default. Add --check-contracts to instrument contract assertions.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
         println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server. Distinct entries or settings accumulate in the same file; identical contexts are not rewritten.");
         println!("Locate generated sources: lim INPUT --locate-generated FILE:LINE[:COLUMN]\n                         lim INPUT --locate-generated FILE:STARTLINE:STARTCOL-ENDLINE:ENDCOL\n                         lim INPUT --locate-generated FILE:STARTLINE-ENDLINE\nColumns are one-based Unicode scalar positions; explicit range ends are exclusive. Prints direct/nested labels, generator names, and artifact paths without producing a binary.");
@@ -220,10 +224,7 @@ fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     ) {
         return stack_usage_command(&arguments);
     }
-    if matches!(
-        arguments.first().map(String::as_str),
-        Some("--check" | "--check-theorem")
-    ) {
+    if matches!(arguments.first().map(String::as_str), Some("--check")) {
         return check_command(&arguments);
     }
     if arguments.first().map(String::as_str) == Some("fmt") {
@@ -615,20 +616,9 @@ fn check_command(arguments: &[String]) -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
-    let theorem = if arguments[0] == "--check-theorem" {
-        match arguments.get(2) {
-            Some(name) if !name.is_empty() && !name.starts_with('-') => Some(name.as_str()),
-            _ => {
-                eprintln!("usage: lim --check-theorem INPUT NAME [--cfg KEY=VALUE]... [--module-path PATH]... [--target TARGET]");
-                return ExitCode::FAILURE;
-            }
-        }
-    } else {
-        None
-    };
     let mut config = lim::CompileConfig::default();
     let mut selected_target = None;
-    let mut index = if theorem.is_some() { 3 } else { 2 };
+    let mut index = 2;
     while index < arguments.len() {
         match arguments[index].as_str() {
             "--cfg" => {
@@ -695,30 +685,7 @@ fn check_command(arguments: &[String]) -> ExitCode {
     }
 
     let input_file = Path::new(input_path);
-    if let Some(name) = theorem {
-        return match lim::check_theorem_details_from_file_with_config(input_file, &config, name) {
-            Ok(checked) => {
-                if JSON_DIAGNOSTICS.load(std::sync::atomic::Ordering::Relaxed) {
-                    println!("{}", lim::render_checked_theorem_json(&checked));
-                } else {
-                    println!("checked theorem {name}");
-                }
-                ExitCode::SUCCESS
-            }
-            Err(error) => {
-                if let Some(diagnostic) = error.diagnostic() {
-                    if JSON_DIAGNOSTICS.load(std::sync::atomic::Ordering::Relaxed) {
-                        std::eprintln!("{}", lim::render_diagnostic_json(diagnostic, input_path));
-                    } else {
-                        std::eprintln!("{error}");
-                    }
-                } else {
-                    eprintln!("lim: {input_path}: {error}");
-                }
-                ExitCode::FAILURE
-            }
-        };
-    }
+
     let _input_timing = lim::timing_stage("input_read");
     let source = match fs::read_to_string(input_path) {
         Ok(source) => source,
@@ -940,7 +907,8 @@ fn collect_lim_files(directory: &Path, paths: &mut Vec<PathBuf>) -> std::io::Res
 
 fn check_example(path: &Path) -> Result<(), String> {
     let input = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let config = lim::CompileConfig::default();
+    let mut config = lim::CompileConfig::default();
+    config.set("contracts", "check");
     let generated_directory = path.parent().unwrap_or_else(|| Path::new(".")).join(".lim");
     let cache_directory = generated_directory.join("cache");
     lim::write_generated_sources_from_path_with_config_and_cache(

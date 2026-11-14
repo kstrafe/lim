@@ -177,6 +177,7 @@ fn every_native_example_has_its_declared_outcome() {
         };
         let mut compiler = Command::new(env!("CARGO_BIN_EXE_lim"));
         compiler.stdin(Stdio::null());
+        compiler.arg("--check-contracts");
         if *kind == "graph-exit" {
             compiler.arg("--cfg").arg("async-lowering=graph");
         }

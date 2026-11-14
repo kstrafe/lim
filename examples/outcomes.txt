@@ -3,6 +3,9 @@
 # A dash means empty output. Signals use Linux signal numbers (4 = SIGILL).
 # graph-exit selects --cfg async-lowering=graph during the route migration.
 # For module fragments, expected may name a complete entry importing the module.
+exit 42 contracts.lim - -
+exit 42 index_contracts.lim - -
+exit 42 generated_array.lim - -
 exit 42 aarch64_scalar.lim - -
 exit 42 aarch64_ownership.lim - -
 exit 42 aarch64_syscall.lim examples/aarch64_syscall.stdout -
@@ -27,14 +30,6 @@ exit 42 pin_projection_borrows.lim - -
 exit 42 internal_owner_reads.lim - -
 exit 42 internal_owner_entry_tags.lim - -
 exit 42 distributed_errors.lim - -
-exit 42 symbolic_slices.lim - -
-exit 42 proof_induction.lim - -
-exit 42 proof_contract_reuse.lim - -
-exit 42 proof_borrowed_contracts.lim - -
-exit 42 proof_reference_contracts.lim - -
-exit 42 proof_loop_contracts.lim - -
-exit 42 proof_borrowed_induction.lim - -
-exit 42 proof_slice_induction.lim - -
 exit 42 future_registration.lim - -
 exit 42 future_registration_box.lim - -
 exit 42 static_table.lim - -
@@ -465,16 +460,3 @@ module generator_contexts.lim generator_contexts/lib.lim - -
 module library_boundary.lim encapsulation/lib.lim - -
 module library_boundary.lim encapsulation/storage.lim - -
 exit 42 encapsulation/test.lim - -
-exit 42 proofs.lim - -
-exit 42 validated_user.lim - -
-exit 42 proof_reference_induction.lim - -
-exit 42 proof_trace_induction.lim - -
-exit 42 proof_cached_validation.lim - -
-exit 42 proof_distinct_validation.lim - -
-exit 42 proof_input_aliases.lim - -
-exit 9 proof_collection_views.lim - -
-exit 29 proof_collection_loop.lim - -
-exit 49 proof_guarded_returns.lim - -
-exit 42 proof_guarded_stores.lim - -
-exit 82 proof_dynamic_reference_arrays.lim - -
-exit 49 proof_projected_origins.lim - -

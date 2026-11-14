@@ -22,34 +22,6 @@ fn start() -> Vec<String> {
     vec![request(1, "initialize", "{}"), notify("initialized", "{}")]
 }
 
-#[test]
-fn proof_diagnostics_expose_typed_outcomes_to_editor_clients() {
-    for (source, code, outcome) in [
-        ("(#theorem wrong false)", "E4401", "counterexample"),
-        (
-            "(#theorem unsupported (#proof-for-all (: value #f32) true))",
-            "E4402",
-            "unsupported",
-        ),
-    ] {
-        let mut messages = start();
-        messages.push(open("file:///tmp/lim-proof-outcome-editor.lim", 1, source));
-        finish(&mut messages);
-        let (_, responses) = session(messages);
-        let reports = publications(&responses);
-        let diagnostic = &reports[0].get("diagnostics").unwrap().array().unwrap()[0];
-        assert_eq!(diagnostic.get("code").unwrap().string(), Some(code));
-        assert_eq!(
-            diagnostic
-                .get("data")
-                .unwrap()
-                .get("proof_outcome")
-                .unwrap()
-                .string(),
-            Some(outcome)
-        );
-    }
-}
 fn open(uri: &str, version: i64, text: &str) -> String {
     notify("textDocument/didOpen", &format!("{{\"textDocument\":{{\"uri\":{},\"languageId\":\"lim\",\"version\":{version},\"text\":{}}}}}", diagnostic_json::quoted(uri), diagnostic_json::quoted(text)))
 }
@@ -822,52 +794,6 @@ fn unused_type_warnings_have_warning_severity_and_clear_when_used() {
 }
 
 #[test]
-fn vacuous_proof_warning_has_expression_range_and_clears_after_edit() {
-    let uri = "file:///tmp/lim-lsp-proof-vacuous.lim";
-    let source = "(#fn identity (: value #u8) #u8 (#return value))\n(#theorem claim (#proof-contract identity (#u8::gt value 255u8) false))";
-    let updated = source.replace("(#u8::gt value 255u8) false", "(#u8::lt value 255u8) true");
-    let mut messages = start();
-    messages.push(open(uri, 1, source));
-    messages.push(change(uri, 2, &updated));
-    finish(&mut messages);
-    let (_, replies) = session(messages);
-    let reports = publications(&replies);
-    assert_eq!(reports.len(), 2);
-
-    let diagnostics = reports[0].get("diagnostics").unwrap().array().unwrap();
-    assert_eq!(diagnostics.len(), 1);
-    let diagnostic = &diagnostics[0];
-    assert_eq!(diagnostic.get("severity").and_then(Json::integer), Some(2));
-    assert_eq!(diagnostic.get("code").and_then(Json::string), Some("W8001"));
-    assert!(diagnostic
-        .get("message")
-        .and_then(Json::string)
-        .unwrap()
-        .contains("precondition"));
-    let expression = "(#u8::gt value 255u8)";
-    let start = source.find(expression).unwrap();
-    let end = start + expression.len();
-    for (edge, byte) in [("start", start), ("end", end)] {
-        let (line, character) = lsp::byte_position(source, byte);
-        let position = diagnostic.get("range").unwrap().get(edge).unwrap();
-        assert_eq!(
-            position.get("line").and_then(Json::integer),
-            Some(line as i64)
-        );
-        assert_eq!(
-            position.get("character").and_then(Json::integer),
-            Some(character as i64)
-        );
-    }
-    assert!(reports[1]
-        .get("diagnostics")
-        .unwrap()
-        .array()
-        .unwrap()
-        .is_empty());
-}
-
-#[test]
 fn macro_at_uses_current_artifacts_across_multiline_positions_and_warm_cache() {
     let base = std::env::temp_dir().join(format!("lim-lsp-macro-at-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
@@ -1550,6 +1476,62 @@ fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
     );
     for id in [3, 4, 5] {
         assert_eq!(reply(&replies, id).get("result"), Some(&Json::Null));
+    }
+}
+
+#[test]
+fn generated_array_type_and_accessor_navigate_to_exact_declarations() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-array-api-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
+    let source = "(#generate #array (: element #u64 : length 4 : name Array4))\n(#fn read ((values (#ref Array4)) (index #usize)) #u64 (#requires (#call #usize::lt (: left index : right 4usize))) (#return (#call Array4::get (: values values : index index))))";
+    for _ in 0..2 {
+        let mut messages = start();
+        messages.push(open(&uri, 1, source));
+        messages.push(definition_offset(
+            2,
+            &uri,
+            source,
+            "(#ref Array4)",
+            "(#ref ".len(),
+        ));
+        messages.push(definition(3, &uri, source, "Array4::get"));
+        messages.push(definition_offset(
+            4,
+            &uri,
+            source,
+            "Array4::get (: values",
+            "Array4::get (: ".len(),
+        ));
+        finish(&mut messages);
+        let (_, replies) = session(messages);
+        let accessor = reply(&replies, 3).get("result").unwrap();
+        let target_uri = accessor.get("uri").unwrap().string().unwrap();
+        let target = lsp::uri_to_path(target_uri).unwrap();
+        assert!(target.starts_with(base.join(".lim/generated")));
+        let generated = std::fs::read_to_string(&target).unwrap();
+        let declaration = generated.find("(#fn Array4::get").unwrap();
+        for (id, start, token) in [
+            (
+                2,
+                generated.find("(#type Array4").unwrap() + "(#type ".len(),
+                "Array4",
+            ),
+            (3, declaration + "(#fn ".len(), "Array4::get"),
+            (
+                4,
+                declaration + generated[declaration..].find("((values ").unwrap() + 2,
+                "values",
+            ),
+        ] {
+            assert_definition_token(
+                reply(&replies, id).get("result").unwrap(),
+                target_uri,
+                &generated,
+                start,
+                token,
+            );
+        }
     }
 }
 

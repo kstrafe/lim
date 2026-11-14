@@ -149,6 +149,34 @@ fn generated_aliases_resolve_definition_paths_and_cold_warm_outputs() {
 }
 
 #[test]
+fn exported_array_api_keeps_explicit_claims_across_aliases_and_cache_hits() {
+    let scratch = support::Scratch::new("file-array-contracts");
+    write(
+        scratch.path(),
+        "values/lib.lim",
+        "(#export Values Values::in-bounds Values::prove-in-bounds Values::get) (#generate #array (: element #u64 : length 4 : name Values))",
+    );
+    let source = "(#alias Quad = ./values/lib.lim::Values)
+      (#alias valid = ./values/lib.lim::Values::in-bounds)
+      (#alias prove = ./values/lib.lim::Values::prove-in-bounds)
+      (#alias get = ./values/lib.lim::Values::get)
+      (#fn main () #u64
+        (#let values Quad (#array-of 1 42 3 4)) (#let index #usize 1usize)
+        (#return (#if-valid (#call valid (: index index))
+          (#block (#call prove (: index index))
+            (#call get (: values (#borrow values) : index index))) 0u64)))";
+    for _ in 0..2 {
+        check(scratch.path(), source).unwrap();
+        let error = check(
+            scratch.path(),
+            &source.replace("(#call prove (: index index))", ""),
+        )
+        .unwrap_err();
+        assert!(error.contains("missing evidence"), "{error}");
+    }
+}
+
+#[test]
 fn builtin_generated_types_and_variants_have_file_identity() {
     let scratch = support::Scratch::new("file-builtin-alias");
     write(

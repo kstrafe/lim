@@ -1627,7 +1627,7 @@ impl Builder<'_> {
                     block,
                 )
             }
-            "get" | "get-payload" | "index" | "deref" | "pin-read" => {
+            "get" | "get-payload" | "index" | "index-proven" | "deref" | "pin-read" => {
                 let (end, place) = self.address(source, block)?;
                 if let Some(end) = end {
                     self.action(
@@ -1872,7 +1872,10 @@ impl Builder<'_> {
             }
             match &self.node(current)?.kind {
                 NodeKind::Form { head, children, .. }
-                    if matches!(head.as_str(), "get" | "get-payload" | "index") =>
+                    if matches!(
+                        head.as_str(),
+                        "get" | "get-payload" | "index" | "index-proven"
+                    ) =>
                 {
                     projected = true;
                     current = *children
@@ -1944,7 +1947,7 @@ impl Builder<'_> {
                 head, callee: None, ..
             } if matches!(
                 head.as_str(),
-                "get" | "get-payload" | "index" | "deref" | "pin-read"
+                "get" | "get-payload" | "index" | "index-proven" | "deref" | "pin-read"
             ) =>
             {
                 self.projected_address(source, block, ty)
@@ -2069,15 +2072,17 @@ impl Builder<'_> {
                 self.metadata(children[2])?;
                 self.metadata(children[3])?;
             }
-            "index" | "slice-idx" | "slice-mut-idx" if children.len() == 3 => {
+            "index" | "index-proven" | "slice-idx" | "slice-mut-idx" if children.len() == 3 => {
                 if let Some(current) = end {
                     let (next, index) = self.expression(children[2], current)?;
                     end = next;
-                    descriptor.projections.push(if head == "index" {
-                        AddressProjection::Index(index)
-                    } else {
-                        AddressProjection::SliceIndex(index)
-                    });
+                    descriptor
+                        .projections
+                        .push(if crate::is_array_index_head(&head) {
+                            AddressProjection::Index(index)
+                        } else {
+                            AddressProjection::SliceIndex(index)
+                        });
                 }
             }
             _ => return Err(error(Some(source), "unsupported checked projection arity")),

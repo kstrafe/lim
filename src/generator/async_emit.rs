@@ -7760,6 +7760,7 @@ pub(crate) fn program(
             program.items.push(item);
         }
     }
+    crate::contracts::restore_planning(&mut program);
     crate::let_else::normalize(
         &mut program.items,
         &mut program.statement_spans,
@@ -7785,6 +7786,8 @@ pub(crate) fn program(
         &program.declaration_expressions,
         &program.source_files,
     )?;
+    let contract_checks = program.contracts.instrumented;
+    crate::contracts::prepare(&mut program, contract_checks)?;
     // Full validation appends/checks original source witnesses with real
     // generated interfaces, before inspecting generated unsafe storage code.
     let sources = planning
@@ -7794,6 +7797,9 @@ pub(crate) fn program(
         .collect::<Vec<_>>();
     crate::generator::async_source::attach_validation(&mut program, &sources);
     crate::call_graph::lower(&mut program)?;
+    if !program.contracts.originals.is_empty() {
+        program.contracts.lowered_items = program.items.clone();
+    }
     Ok(program)
 }
 

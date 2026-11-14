@@ -548,6 +548,7 @@ impl Walker<'_> {
             | "pin-get-payload-unchecked"
             | "pin-get-payload-unchecked-mut"
             | "index"
+            | "index-proven"
                 if Place::from_expression(self.body, value).is_some() =>
             {
                 self.place(value, &mut held.to_vec(), true)
@@ -636,6 +637,7 @@ impl Walker<'_> {
                         | "pin-get-payload-unchecked"
                         | "pin-get-payload-unchecked-mut"
                         | "index"
+                        | "index-proven"
                         | "slice-idx"
                         | "slice-mut-idx"
                         | "deref"
@@ -658,7 +660,10 @@ impl Walker<'_> {
                     "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
                 );
                 self.place(children[1], pending, base_is_value)?;
-                if matches!(head.as_str(), "index" | "slice-idx" | "slice-mut-idx") {
+                if matches!(
+                    head.as_str(),
+                    "index" | "index-proven" | "slice-idx" | "slice-mut-idx"
+                ) {
                     self.expression(children[2], pending)?;
                     self.push_value(pending, children[2])?;
                 }
@@ -1148,7 +1153,7 @@ mod tests {
             .iter()
             .enumerate()
             .find_map(|(index, node)| {
-                (matches!(&node.kind, NodeKind::Form { head, .. } if head == "index")
+                (matches!(&node.kind, NodeKind::Form { head, .. } if crate::is_array_index_head(head))
                     && matches!(node.ty, Some(Type::Reference { .. })))
                 .then_some(NodeId(index))
             })

@@ -18,6 +18,7 @@ pub(crate) fn capitalized_type_name(name: &str) -> String {
 pub(crate) fn named_builtin_keys(kind: &str) -> Option<&'static [&'static str]> {
     Some(match kind {
         "#optional" => &["type", "name"],
+        "#array" => &["element", "length", "name"],
         "#result" => &["ok", "error", "name"],
         "#thread-spawn" => &["task", "worker"],
         "#vec" => &["element", "allocator", "name"],

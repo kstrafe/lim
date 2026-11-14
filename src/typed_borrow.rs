@@ -1359,8 +1359,10 @@ fn call_argument_slots(body: &Body, value: NodeId, output: &mut Vec<Place>) {
             }
         }
         NodeKind::Form { head, .. }
-            if matches!(head.as_str(), "get" | "get-payload" | "index")
-                && !reads_through_reference(body, value) =>
+            if matches!(
+                head.as_str(),
+                "get" | "get-payload" | "index" | "index-proven"
+            ) && !reads_through_reference(body, value) =>
         {
             if let Some(place) = Place::from_expression(body, value) {
                 output.push(place);
@@ -2149,6 +2151,7 @@ fn returned_borrows_with_bindings(
                     | "pin-get-payload-unchecked"
                     | "pin-get-payload-unchecked-mut"
                     | "index"
+                    | "index-proven"
             ) =>
         {
             let Some(slot) =

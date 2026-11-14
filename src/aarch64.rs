@@ -659,7 +659,7 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
             Projection::Array(index) => {
                 self.expression(*index)?;
                 self.address_slot(10, self.bindings[binding.0]);
-                self.array_offset(&ty, *index)?;
+                self.array_offset(&ty, *index, false)?;
             }
             Projection::Payload(_, _) => return Err(unsupported("enum payload assignment")),
         }
@@ -674,14 +674,16 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                 .three(0x8b000000, register, register, 16, "add");
         }
     }
-    fn array_offset(&mut self, ty: &Type, index: NodeId) -> Result<()> {
+    fn array_offset(&mut self, ty: &Type, index: NodeId, proven: bool) -> Result<()> {
         let Type::Array(element, length) = self.layout.resolve(ty)? else {
             return Err(unsupported("non-array indexing"));
         };
         self.load(11, self.nodes[index.0]);
-        self.encoder.constant(12, length as u64);
-        self.encoder.compare(11, 12);
-        self.require(C::Lo)?;
+        if !proven {
+            self.encoder.constant(12, length as u64);
+            self.encoder.compare(11, 12);
+            self.require(C::Lo)?;
+        }
         self.encoder
             .constant(12, (self.layout.words(&element)? * 8) as u64);
         self.encoder.three(0x9b007c00, 11, 11, 12, "mul");
@@ -704,7 +706,9 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                 self.expression(children[1])?;
                 self.load(10, self.nodes[children[1].0]);
             }
-            NodeKind::Form { head, children, .. } if head == "get" || head == "index" => {
+            NodeKind::Form { head, children, .. }
+                if head == "get" || crate::is_array_index_head(&head) =>
+            {
                 let owner_ty = self.ty(children[1])?;
                 let target = match owner_ty.clone() {
                     Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
@@ -717,13 +721,13 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                         owner_ty
                     }
                 };
-                if head == "index" {
+                if crate::is_array_index_head(&head) {
                     // Keep the place's base without reevaluating side effects.
                     let scratch = self.nodes[id.0] + self.words(id)?.max(1) * 8;
                     self.store(10, scratch);
                     self.expression(children[2])?;
                     self.load(10, scratch);
-                    self.array_offset(&target, children[2])?;
+                    self.array_offset(&target, children[2], head == "index-proven")?;
                 } else {
                     let index = match self.body.nodes[children[2].0].kind {
                         NodeKind::Declaration(DeclarationId::Field(field)) => field.index,
@@ -1018,7 +1022,7 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                 self.load(10, self.nodes[children[1].0]);
                 self.to_pointer(self.nodes[children[2].0], 10, self.words(children[2])?);
             }
-            "get" | "index" => {
+            "get" | "index" | "index-proven" => {
                 // Value projections may also target aggregate expressions.
                 self.expression(children[1])?;
                 let owner_ty = self.ty(children[1])?;
@@ -1048,10 +1052,11 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                     } else {
                         self.address_slot(10, self.nodes[children[1].0]);
                     }
-                    self.array_offset(&target, children[2])?;
+                    self.array_offset(&target, children[2], head == "index-proven")?;
                 }
                 self.from_pointer(10, destination, words);
             }
+            "panic" => self.encoder.trap(),
             "assert" => {
                 self.expression(children[1])?;
                 self.load(9, self.nodes[children[1].0]);
@@ -1082,8 +1087,14 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                 }
             }
             "tuple" | "array" | "array-of" => {
+                let arity = match &ty {
+                    Type::Array(_, length) => *length,
+                    Type::Tuple(fields) => fields.len(),
+                    _ => return Err("invalid checked aggregate constructor type".into()),
+                };
+                let start = if children.len() == arity + 1 { 1 } else { 2 };
                 let mut offset = 0;
-                for value in &children[2..] {
+                for value in &children[start..] {
                     self.expression(*value)?;
                     let count = self.words(*value)?;
                     self.copy(self.nodes[value.0], destination + offset, count);

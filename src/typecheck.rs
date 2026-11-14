@@ -903,12 +903,12 @@ pub(crate) fn check_types_with_span(
 
 fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
     let declarations = crate::generated_validation::resolve(program)?;
-    check_resolved_proofs(program, declarations)
+    check_resolved_contracts(program, declarations)
 }
 
-/// Check proof declarations only after ordinary semantic validation succeeds.
+/// Check predicate contracts only after ordinary semantic validation succeeds.
 /// Assembly emission borrows this checked state and never re-enters validation.
-pub(crate) fn check_resolved_proofs(
+pub(crate) fn check_resolved_contracts(
     program: &Program,
     declarations: Declarations,
 ) -> Result<Declarations, AnalysisError> {
@@ -916,7 +916,7 @@ pub(crate) fn check_resolved_proofs(
         program,
         declarations,
     };
-    crate::proof::check(&checked)?;
+    crate::contracts::check(&checked)?;
     Ok(checked.declarations)
 }
 
@@ -2113,7 +2113,6 @@ fn check_types_inner(
             | Item::Enum { .. }
             | Item::UnsafeThreadAnnotation { .. }
             | Item::OpaqueAnnotation { .. }
-            | Item::Proof { .. }
             | Item::ThreadTask { .. } => {}
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 if planning.is_some() {
@@ -3018,7 +3017,6 @@ fn check_thread_task_ownership(
             }
             Item::UnsafeThreadAnnotation { .. }
             | Item::OpaqueAnnotation { .. }
-            | Item::Proof { .. }
             | Item::ThreadTask { .. } => {}
         }
     }
@@ -7257,6 +7255,7 @@ fn list_expression(
                 | "pin-get-payload-unchecked"
                 | "pin-get-payload-unchecked-mut"
                 | "index"
+                | "index-proven"
                 | "match"
                 | "clone"
                 | "deref"
@@ -8134,7 +8133,7 @@ fn list_expression(
                         if (place.len() == 2
                             && matches!(place.first(), Some(Expr::Symbol(name)) if name == "deref"))
                             || (place.len() == 3
-                                && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index"))
+                                && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || crate::is_array_index_head(name)))
                             || (place.len() == 4
                                 && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")) =>
                     {
@@ -8194,7 +8193,7 @@ fn list_expression(
                 Expr::List(place)
                     if (place.len() == 2
                         && matches!(place.first(), Some(Expr::Symbol(name)) if name == "deref"))
-                        || (matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index")
+                        || (matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || crate::is_array_index_head(name))
                             && place.len() == 3)
                         || (matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")
                             && place.len() == 4) =>
@@ -8912,13 +8911,21 @@ fn list_expression(
             }
             Ok(Type::Tuple(fields))
         }
-        "index" => {
+        "index" | "index-proven" => {
             if items.len() != 3 {
                 return Err("index requires the form (index array index)".into());
             }
             let array_type = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
+            if operator == "index-proven"
+                && !matches!(
+                    array_type,
+                    Type::Reference { .. } | Type::PinnedReference { .. }
+                )
+            {
+                return Err("index-proven requires a reference to a fixed array".into());
+            }
             let array_type = match array_type {
                 Type::Reference { target, .. } | Type::PinnedReference { target, .. } => *target,
                 other => other,
@@ -8932,6 +8939,19 @@ fn list_expression(
             check_index(
                 &items[2], length, variables, functions, structs, enums, mutable, aliases,
             )?;
+            if operator == "index-proven" {
+                let index_type = expression(
+                    &items[2],
+                    variables,
+                    functions,
+                    structs,
+                    enums,
+                    mutable,
+                    aliases,
+                    Some(&Type::Usize),
+                )?;
+                require_type(&index_type, &Type::Usize, "index-proven index")?;
+            }
             Ok(*element)
         }
         "match" => {
@@ -9203,10 +9223,21 @@ fn list_expression(
         "!" => {
             require_arity(operator, items, 2)?;
             let operand = expression(
-                &items[1], variables, functions, structs, enums, mutable, aliases, expected,
+                &items[1],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                operator_type.as_ref().or(expected),
             )?;
             if !matches!(operand, Type::Bool) && !is_integer(&operand) {
                 return Err("! operand must be a boolean or integer".into());
+            }
+            if let Some(qualifier) = qualifier {
+                require_operator_type(qualifier, &operand, raw_operator)?;
+                require_arithmetic_mode(operator, mode, raw_operator, &operand)?;
             }
             Ok(operand)
         }
@@ -9628,7 +9659,7 @@ fn projection_root(expression: &Expr) -> Option<&Expr> {
             if (items.len() == 2
                 && matches!(items.first(), Some(Expr::Symbol(name)) if name == "deref"))
                 || (items.len() == 3
-                    && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index"))
+                    && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || crate::is_array_index_head(name)))
                 || (items.len() == 4
                     && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get-payload")) =>
         {
@@ -25846,4 +25877,58 @@ mod typed_ownership_tests {
             .unwrap();
         crate::check_types(&program).unwrap();
     }
+}
+
+/// Type-check a pure specification observation in its explicit local environment.
+pub(crate) fn contract_expression_type(
+    value: &Expr,
+    locals: &HashMap<String, Type>,
+    program: &Program,
+    declarations: &Declarations,
+) -> Result<Type, String> {
+    let mut functions = FunctionTable::default();
+    for item in &program.items {
+        if let Item::Function(function) = item {
+            functions.signatures.insert(
+                function.name.clone(),
+                Signature {
+                    type_parameters: function.type_parameters.clone(),
+                    parameters: function
+                        .parameters
+                        .iter()
+                        .map(|p| crate::typed_ir::resolve_type(&p.ty, &declarations.aliases))
+                        .collect::<Result<_, _>>()?,
+                    parameter_names: function.parameters.iter().map(|p| p.name.clone()).collect(),
+                    return_type: crate::typed_ir::resolve_type(
+                        &function.return_type,
+                        &declarations.aliases,
+                    )?,
+                },
+            );
+        }
+    }
+    let variables = VariableTypes {
+        globals: &declarations.globals,
+        locals: locals
+            .iter()
+            .map(|(name, ty)| {
+                Ok((
+                    name.clone(),
+                    crate::typed_ir::resolve_type(ty, &declarations.aliases)?,
+                ))
+            })
+            .collect::<Result<_, String>>()?,
+    };
+    let mutable = locals.keys().cloned().collect();
+    expression(
+        value,
+        &variables,
+        &functions,
+        &declarations.structs,
+        &declarations.enums,
+        &mutable,
+        &declarations.aliases,
+        None,
+    )
+    .map_err(|error| error.message)
 }

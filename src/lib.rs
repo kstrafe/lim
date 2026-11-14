@@ -20,6 +20,7 @@ mod call_graph;
 mod call_self_loans;
 mod capture_storage;
 mod codegen;
+mod contracts;
 mod diagnostic_json;
 mod distributed_enum;
 mod editor;
@@ -36,6 +37,7 @@ mod generator_authority;
 mod generator_provenance;
 mod gensym;
 mod instruction_encoder;
+mod intrinsics;
 mod let_else;
 mod library;
 mod linearcheck;
@@ -47,7 +49,6 @@ mod native_linker;
 mod output;
 mod pin_access;
 mod pin_ownership;
-mod proof;
 mod reachability;
 mod semantic_cache;
 pub use expr_list::ExprList;
@@ -63,12 +64,6 @@ mod syntax_bundle;
 #[cfg(test)]
 #[path = "../tests/support/process.rs"]
 mod test_process;
-mod theorem;
-pub use theorem::{
-    check_theorem_details_from_file_with_config, check_theorem_details_from_path_with_config,
-    check_theorem_from_path_with_config, render_checked_theorem_json, CheckedTheorem,
-    TheoremFileError,
-};
 mod thread_contract;
 mod timing;
 mod typecheck;
@@ -91,7 +86,6 @@ pub use diagnostic_json::render_diagnostic_json;
 pub use editor::check_source_for_editor;
 pub use generated_lookup::{locate_generated, locate_generated_details, GeneratedArtifact};
 pub use output::{reject_source_output_collision, write_output_atomic, write_output_atomic_with};
-pub use proof::ProofOutcome;
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
 pub use typecheck::{check_types, type_has_thread_property, CheckedProgram};
@@ -188,49 +182,11 @@ pub enum DiagnosticCode {
     Borrow = 4100,
     Linear = 4200,
     Unsafe = 4300,
-    Proof = 4400,
-    ProofCounterexample = 4401,
-    ProofUnsupported = 4402,
-    ProofResourceLimit = 4403,
-    ProofInvalid = 4404,
-    ProofInduction = 4405,
-    ProofInternal = 4406,
-    ProofContract = 4407,
+    Contract = 4400,
     Codegen = 5000,
     Link = 6000,
     Cli = 7000,
     UnusedType = 8000,
-    ProofVacuous = 8001,
-}
-
-impl DiagnosticCode {
-    pub fn is_proof(self) -> bool {
-        matches!(
-            self,
-            Self::Proof
-                | Self::ProofCounterexample
-                | Self::ProofUnsupported
-                | Self::ProofResourceLimit
-                | Self::ProofInvalid
-                | Self::ProofInduction
-                | Self::ProofInternal
-                | Self::ProofContract
-                | Self::ProofVacuous
-        )
-    }
-
-    pub fn proof_outcome(self) -> Option<ProofOutcome> {
-        match self {
-            Self::ProofCounterexample => Some(ProofOutcome::Counterexample),
-            Self::ProofUnsupported => Some(ProofOutcome::Unsupported),
-            Self::ProofResourceLimit => Some(ProofOutcome::ResourceLimit),
-            Self::ProofInvalid => Some(ProofOutcome::Invalid),
-            Self::ProofInduction => Some(ProofOutcome::InductionFailure),
-            Self::ProofInternal => Some(ProofOutcome::CheckerError),
-            Self::ProofContract => Some(ProofOutcome::ContractFailure),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -271,9 +227,6 @@ pub struct DiagnosticLabel {
 }
 
 impl Diagnostic {
-    pub fn proof_outcome(&self) -> Option<ProofOutcome> {
-        self.code.proof_outcome()
-    }
     pub fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
         Self {
             severity: DiagnosticSeverity::Error,
@@ -357,8 +310,8 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
             source,
             filename,
         );
-    } else if error.starts_with("theorem '") {
-        (DiagnosticCode::Proof, error.to_owned())
+    } else if error.starts_with("contract in '") {
+        (DiagnosticCode::Contract, error.to_owned())
     } else if error.starts_with("linear value ")
         || error.starts_with("assignment would destroy live linear")
     {
@@ -406,14 +359,7 @@ fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
         4100 => DiagnosticCode::Borrow,
         4200 => DiagnosticCode::Linear,
         4300 => DiagnosticCode::Unsafe,
-        4400 => DiagnosticCode::Proof,
-        4401 => DiagnosticCode::ProofCounterexample,
-        4402 => DiagnosticCode::ProofUnsupported,
-        4403 => DiagnosticCode::ProofResourceLimit,
-        4404 => DiagnosticCode::ProofInvalid,
-        4405 => DiagnosticCode::ProofInduction,
-        4406 => DiagnosticCode::ProofInternal,
-        4407 => DiagnosticCode::ProofContract,
+        4400 => DiagnosticCode::Contract,
         5000 => DiagnosticCode::Codegen,
         6000 => DiagnosticCode::Link,
         _ => DiagnosticCode::Type,
@@ -422,8 +368,8 @@ fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
 
 fn diagnostic_code_for_positioned_message(message: &str) -> DiagnosticCode {
     let lower = message.to_ascii_lowercase();
-    if message.starts_with("theorem '") {
-        DiagnosticCode::Proof
+    if message.starts_with("contract in '") {
+        DiagnosticCode::Contract
     } else if lower.contains("generator") {
         DiagnosticCode::Generator
     } else if lower.contains("string")
@@ -1582,10 +1528,9 @@ fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
     };
     match head.as_str() {
         "#fn" | "#unsafe-fn" => Some(4),
-        "#theorem" => Some(2),
         "#gn" | "#gn-fn" => Some(3),
         "#for" | "#for-range" => Some(4),
-        "#while" | "#if" | "#match" | "#gn-if" => Some(2),
+        "#while" | "#if" | "#if-valid" | "#match" | "#gn-if" => Some(2),
         "#case" | "#case-pin" | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => Some(
             if matches!(items.get(2), Some(Expr::List(guard))
             if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "#when"))
@@ -1881,10 +1826,6 @@ pub enum ThreadProperty {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
-    Proof {
-        name: String,
-        proposition: Expr,
-    },
     TypeAlias {
         name: String,
         type_parameters: Vec<String>,
@@ -1933,6 +1874,7 @@ pub enum Item {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Program {
     pub items: Vec<Item>,
+    pub(crate) contracts: contracts::Metadata,
     pub(crate) source: Option<String>,
     pub(crate) source_files: Vec<SourceFile>,
     pub(crate) statement_spans: HashMap<(String, usize), Span>,
@@ -2752,8 +2694,7 @@ fn item_declared_names(item: &Item) -> Vec<String> {
         | Item::TypeAlias { name, .. }
         | Item::ThreadTask { name, .. }
         | Item::Static { name, .. }
-        | Item::Let { name, .. }
-        | Item::Proof { name, .. } => vec![name.clone()],
+        | Item::Let { name, .. } => vec![name.clone()],
         Item::UnsafeThreadAnnotation {
             type_name,
             property,
@@ -3052,6 +2993,7 @@ fn set_source_id(expression: &mut SpannedExpr, source_id: u32) {
 struct CallSignature {
     parameters: Vec<String>,
     unsafe_call: bool,
+    intrinsic: Option<String>,
 }
 
 impl CallSignature {
@@ -3059,6 +3001,7 @@ impl CallSignature {
         Self {
             parameters: function.parameters.iter().map(|p| p.name.clone()).collect(),
             unsafe_call: function.external || function.unsafe_call,
+            intrinsic: None,
         }
     }
 }
@@ -3094,6 +3037,7 @@ fn normalize_function_calls(
                 CallSignature {
                     parameters: function.parameters.iter().map(|p| p.name.clone()).collect(),
                     unsafe_call: false,
+                    intrinsic: None,
                 },
             );
         }
@@ -3444,8 +3388,19 @@ fn normalize_call_expr(
                     return Err(format!("{keyword} requires a function name"));
                 };
                 let function = function.clone();
-                let signature = signatures
-                    .get(&function)
+                let intrinsic = intrinsics::declaration(&function)?;
+                let generated_signature = intrinsic.as_ref().map(|declaration| CallSignature {
+                    parameters: declaration
+                        .parameters
+                        .iter()
+                        .map(|parameter| parameter.name.clone())
+                        .collect(),
+                    unsafe_call: false,
+                    intrinsic: Some(declaration.operator.clone()),
+                });
+                let signature = generated_signature
+                    .as_ref()
+                    .or_else(|| signatures.get(&function))
                     .ok_or_else(|| format!("{keyword} refers to unknown function '{function}'"))?;
                 if signature.unsafe_call != unsafe_call {
                     return Err(if signature.unsafe_call {
@@ -3485,7 +3440,10 @@ fn normalize_call_expr(
                     }
                 }
                 let mut lowered = Vec::with_capacity(parameters.len() + 1);
-                lowered.push(Expr::Function(function.clone()));
+                lowered.push(match &signature.intrinsic {
+                    Some(operator) => Expr::Symbol(operator.clone()),
+                    None => Expr::Function(function.clone()),
+                });
                 for parameter in parameters {
                     lowered.push(arguments.remove(parameter).ok_or_else(|| {
                         format!("{keyword} to '{function}' is missing parameter '{parameter}'")
@@ -4598,9 +4556,7 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
     };
     match head {
         "#fn" | "#unsafe-fn" | "#struct" | "#enum" | "#type" | "#static" | "#const"
-        | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" | "#theorem" => {
-            name(items.get(1))?
-        }
+        | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" => name(items.get(1))?,
         "#extern-fn" => name(items.get(2))?,
         "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" | "#case-pin"
         | "#case-pin-mut" | "#case-ref" | "#case-ref-mut" => {
@@ -4702,6 +4658,35 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
         }
         for item in items.iter().skip(4) {
             validate_prefixed_forms_inner(item)?;
+        }
+        return Ok(());
+    }
+    if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(),"#struct"|"#struct-literal"|"#where"))
+    {
+        let declaration = matches!(items.first(),Some(Expr::Symbol(name))if name=="#struct");
+        let refinement = matches!(items.first(),Some(Expr::Symbol(name))if name=="#where");
+        if refinement {
+            if let Some(Expr::List(binding)) = items.get(1) {
+                if let Some(ty) = binding.get(1) {
+                    validate_prefixed_forms_inner(ty)?;
+                }
+            }
+            for predicate in items.iter().skip(2) {
+                validate_prefixed_forms_inner(predicate)?;
+            }
+        } else {
+            if let Some(ty) = items.get(1) {
+                validate_prefixed_forms_inner(ty)?;
+            }
+            if let Some(Expr::List(fields)) = items.get(if declaration { 3 } else { 2 }) {
+                for field in fields {
+                    if let Expr::List(pair) = field {
+                        if let Some(value) = pair.get(1) {
+                            validate_prefixed_forms_inner(value)?;
+                        }
+                    }
+                }
+            }
         }
         return Ok(());
     }
@@ -5062,40 +5047,14 @@ fn normalize_match_case_forms(expression: &mut SpannedExpr) -> Result<(), (Strin
 fn is_builtin_form(name: &str) -> bool {
     matches!(
         name,
-        "theorem"
-            | "parameter-of"
-            | "proof-and"
-            | "proof-or"
-            | "proof-not"
-            | "proof-implies"
-            | "proof-calls-directly"
-            | "proof-calls-transitively"
-            | "proof-calls-before"
-            | "proof-calls-when"
-            | "proof-requires-validation"
-            | "proof-validated"
-            | "proof-no-effects"
-            | "proof-only-unsafe"
-            | "proof-stack-at-most"
-            | "proof-for-all"
-            | "proof-using"
-            | "proof-eq"
-            | "proof-contract"
-            | "proof-result"
-            | "proof-old"
-            | "proof-no-overflow"
-            | "proof-with-invariants"
-            | "proof-loop-limit"
-            | "proof-sorted"
-            | "proof-permutation"
-            | "proof-unique"
-            | "proof-allocation"
-            | "proof-io"
-            | "proof-global-write"
-            | "proof-unsafe"
-            | "proof-external"
-            | "proof-asm"
-            | "proof-mutation"
+        "requires"
+            | "ensures"
+            | "preserves"
+            | "assume"
+            | "if-valid"
+            | "where"
+            | "old"
+            | "result"
             | "type"
             | "fn"
             | "unsafe-fn"
@@ -5177,6 +5136,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "memory-seq-cst"
             | "tuple"
             | "index"
+            | "index-proven"
             | "get"
             | "get-payload"
             | "variant-is"
@@ -5276,7 +5236,6 @@ fn is_builtin_form(name: &str) -> bool {
             | "gn-error"
     )
 }
-
 fn is_operator_symbol(name: &str) -> bool {
     matches!(
         name,
@@ -5299,6 +5258,10 @@ fn is_operator_symbol(name: &str) -> bool {
             | "&&"
             | "||"
     )
+}
+
+pub(crate) fn is_array_index_head(head: &str) -> bool {
+    matches!(head, "index" | "index-proven")
 }
 
 /// Classify builtin heads, never user-call targets. Qualified numeric spelling
@@ -5386,25 +5349,6 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
                                 item
                             } else {
                                 normalize_keywords(item)
-                            }
-                        })
-                        .collect(),
-                );
-            }
-            // Proof terms retain their written keyword markers. Unlike
-            // runtime bodies they are checked by the proof evaluator, which
-            // must distinguish keywords from ordinary identifiers and reject
-            // legacy operator spellings rather than accepting internal IR.
-            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#theorem") {
-                return Expr::List(
-                    items
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, item)| {
-                            if index < 2 {
-                                normalize_keywords(item)
-                            } else {
-                                item
                             }
                         })
                         .collect(),
@@ -6103,6 +6047,9 @@ fn materialize_builtin_generated_source(
     worker_functions: &HashMap<String, Function>,
     copy_types: &HashSet<String>,
 ) -> Result<String, String> {
+    if kind == "#array" {
+        return generator::array::source(forms, copy_types);
+    }
     if kind == "#thread-spawn" {
         let task = expect_symbol(forms.get(2), "thread task type name")?;
         let worker = expect_symbol(forms.get(3), "thread worker function")?;
@@ -7011,9 +6958,7 @@ fn specialize_generic_types(
                         &mut generated,
                     )?;
                 }
-                Item::UnsafeThreadAnnotation { .. }
-                | Item::OpaqueAnnotation { .. }
-                | Item::Proof { .. } => {}
+                Item::UnsafeThreadAnnotation { .. } | Item::OpaqueAnnotation { .. } => {}
                 Item::ThreadTask { .. } => {}
             }
             Ok(())
@@ -7053,15 +6998,10 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
     let keyword = expect_symbol(items.first(), "declaration keyword")?;
     match keyword {
         "theorem" => {
-            if items.len() != 3 {
-                return Err("#theorem requires a name and a program proposition".into());
-            }
-            let name = expect_symbol(items.get(1), "theorem name")?;
-            names::require(name, "value")?;
-            Ok(Item::Proof {
-                name: name.to_owned(),
-                proposition: items[2].clone(),
-            })
+            return Err(
+                "#theorem was removed; use #requires, #ensures, #preserves and #if-valid contracts"
+                    .into(),
+            )
         }
         "type" => {
             let (type_parameters, target_index) = parse_type_parameters(items, 2)?;
@@ -7226,6 +7166,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
     }
     let kind = expect_symbol(items.get(1), "generated declaration name")?;
     match kind {
+        "#array" => generator::array::type_alias(items),
         "#optional" => {
             if items.len() != 4 {
                 return Err(
@@ -7364,7 +7305,7 @@ fn parse_generated_items_with_copy_types(
     copy_types: &HashSet<String>,
 ) -> Result<Vec<Item>, String> {
     let kind = expect_symbol(items.get(1), "generated declaration name")?;
-    if matches!(kind, "#optional" | "#result") {
+    if matches!(kind, "#optional" | "#result" | "#array") {
         // The AST and inspectable materialization must expose exactly the same
         // API. Parse the shared source rather than independently choosing helpers.
         let source =
@@ -7376,6 +7317,9 @@ fn parse_generated_items_with_copy_types(
 
 fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
     let kind = expect_symbol(items.get(1), "generated declaration name")?;
+    if kind == "#array" {
+        return parse_generated_source_items(&generator::array::source(items, &HashSet::new())?);
+    }
     if kind == "#result" {
         return parse_generated_result_items(items);
     }
@@ -8939,6 +8883,9 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
         return Ok(Type::Unit);
     }
     if let Some(Expr::List(items)) = expression {
+        if matches!(items.first(), Some(Expr::Symbol(name)) if name == "where") {
+            return contracts::parse_refined_type(items);
+        }
         if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "pin-own") {
             return Ok(Type::PinOwned(Box::new(parse_type(items.get(1))?)));
         }

@@ -253,92 +253,6 @@ fn original_id(mut source: u32, origins: &HashMap<u32, Span>) -> u32 {
     source
 }
 
-fn proof_children(node: &mut Node) {
-    if node.children.is_empty() {
-        if let Expr::List(items) = &node.expr {
-            node.children = items
-                .iter()
-                .map(|expr| Node {
-                    expr: expr.clone(),
-                    span: node.span,
-                    children: Vec::new().into(),
-                })
-                .collect();
-        }
-    }
-    for child in &mut node.children {
-        proof_children(child);
-    }
-}
-
-#[derive(Default)]
-struct ProofFunctionScope {
-    parameters: HashSet<String>,
-    locals: HashSet<String>,
-}
-
-fn proof_pattern_names(expression: &Expr, names: &mut HashSet<String>) {
-    match expression {
-        Expr::Symbol(name)
-            if !name.starts_with('#')
-                && !name.contains('.')
-                && !matches!(name.as_str(), "true" | "false" | "_") =>
-        {
-            names.insert(name.clone());
-        }
-        Expr::List(parts) => {
-            if matches!(parts.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#literal" | "#range" | "#range-inclusive"))
-            {
-                return;
-            }
-            for part in parts.iter().skip(1) {
-                proof_pattern_names(part, names);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn proof_local_names(expression: &Expr, names: &mut HashSet<String>) {
-    match expression {
-        Expr::List(parts) => {
-            if let Some(Expr::Symbol(head)) = parts.first() {
-                if matches!(
-                    head.as_str(),
-                    "#let"
-                        | "#let-mut"
-                        | "#const"
-                        | "#let-else"
-                        | "#if-let"
-                        | "#while-let"
-                        | "#case"
-                        | "#case-ref"
-                        | "#case-ref-mut"
-                        | "#case-pin"
-                        | "#case-pin-mut"
-                ) {
-                    if let Some(pattern) = parts.get(1) {
-                        proof_pattern_names(pattern, names);
-                    }
-                }
-                if head == "#for-range" {
-                    if let Some(Expr::List(binding)) = parts.get(1) {
-                        if let Some(Expr::Symbol(name)) = binding.first() {
-                            names.insert(name.clone());
-                        }
-                    }
-                }
-            }
-            for part in parts {
-                proof_local_names(part, names);
-            }
-        }
-        Expr::Labeled { expression, .. } => proof_local_names(expression, names),
-        _ => {}
-    }
-}
-
 struct Resolver<'a> {
     files: &'a [SourceFile],
     names: Vec<HashMap<String, String>>,
@@ -348,28 +262,9 @@ struct Resolver<'a> {
     declared: Vec<HashSet<String>>,
     memo: RefCell<HashMap<(usize, String), Option<String>>>,
     root: PathBuf,
-    proof_functions: HashMap<String, ProofFunctionScope>,
 }
 
 impl Resolver<'_> {
-    fn theorem_source(
-        &self,
-        node: &mut Node,
-        file: usize,
-        locals: &HashSet<String>,
-    ) -> Result<(), SourceError> {
-        if node.children.len() != 3 {
-            return rebuild(node);
-        }
-        if let Some(name) = node.children.get_mut(1) {
-            self.rewrite(name, file, &HashSet::new())?;
-        }
-        if let Some(proposition) = node.children.get_mut(2) {
-            self.rewrite(proposition, file, locals)?;
-        }
-        rebuild(node)
-    }
-
     fn file(&self, from: usize, path: &str) -> Result<usize, String> {
         if let Some(id) = self
             .files
@@ -575,134 +470,19 @@ impl Resolver<'_> {
             return rebuild(node);
         }
         let kind = head(node).to_owned();
-        if kind == "#theorem" {
-            return self.theorem_source(node, file, locals);
-        }
-        if matches!(kind.as_str(), "#proof-for-all" | "#proof-with-invariants") {
-            proof_children(node);
-        }
-        if kind == "#proof-using" {
-            proof_children(node);
-            if let Some(list) = node.children.get_mut(1) {
-                proof_children(list);
-                for name in &mut list.children {
-                    if symbol(name).is_none() {
-                        return Err(SourceError::from(
-                            "#proof-using entries must name #theorem declarations",
-                        )
-                        .at(name.span));
-                    }
-                    // Use the ordinary resolver so aliases, canonical names,
-                    // and generated declaration provenance follow the same
-                    // access rules as references elsewhere in the program.
-                    // Leave unresolved spellings for the proof checker, which
-                    // reports unknown theorem names with its typed diagnostic.
-                    self.rewrite(name, file, &HashSet::new())?;
-                }
-                rebuild(list)?;
-            }
-            if let Some(proposition) = node.children.get_mut(2) {
-                self.rewrite(proposition, file, locals)?;
-            }
-            return rebuild(node);
-        }
         let mut inner = locals.clone();
-        if kind == "#proof-for-all" {
-            if let Some(parameters) = node.children.get_mut(1) {
-                for parameter in &mut parameters.children {
-                    if let Some(name) = parameter.children.first().and_then(symbol) {
-                        inner.insert(name.to_owned());
-                    }
-                    for ty in parameter.children.iter_mut().skip(1) {
-                        self.rewrite(ty, file, locals)?;
-                    }
-                    rebuild(parameter)?;
+        if kind == "#where" {
+            if let Some(binding) = node.children.get_mut(1) {
+                if let Some(ty) = binding.children.get_mut(1) {
+                    self.rewrite(ty, file, locals)?;
                 }
-                rebuild(parameters)?;
+                if let Some(name) = binding.children.first().and_then(symbol) {
+                    inner.insert(name.to_owned());
+                }
+                rebuild(binding)?;
             }
             for predicate in node.children.iter_mut().skip(2) {
                 self.rewrite(predicate, file, &inner)?;
-            }
-            return rebuild(node);
-        }
-        if kind == "#proof-requires-validation" {
-            if let Some(entry) = node.children.get_mut(1) {
-                self.rewrite(entry, file, &HashSet::new())?;
-            }
-            for descriptor in node.children.iter_mut().skip(2) {
-                proof_children(descriptor);
-                if head(descriptor) == "#parameter-of" {
-                    if let Some(function) = descriptor.children.get_mut(1) {
-                        self.rewrite(function, file, &HashSet::new())?;
-                    }
-                }
-                // The final operand is a label from this function's signature,
-                // not a reference in the theorem's file or lexical scope.
-                rebuild(descriptor)?;
-            }
-            return rebuild(node);
-        }
-        if kind == "#proof-validated" {
-            if let Some(descriptor) = node.children.get_mut(1) {
-                proof_children(descriptor);
-                if head(descriptor) == "#parameter-of" {
-                    if let Some(function) = descriptor.children.get_mut(1) {
-                        self.rewrite(function, file, &HashSet::new())?;
-                    }
-                }
-                // A parameter selector is metadata from the validator's
-                // signature, independent of the selected loop's local scope.
-                rebuild(descriptor)?;
-            }
-            for argument in node.children.iter_mut().skip(2) {
-                self.rewrite(argument, file, locals)?;
-            }
-            return rebuild(node);
-        }
-        if kind == "#proof-contract" {
-            if let Some(function) = node.children.get_mut(1) {
-                self.rewrite(function, file, locals)?;
-                if let Some(scope) =
-                    symbol(function).and_then(|name| self.proof_functions.get(name))
-                {
-                    inner.extend(scope.parameters.iter().cloned());
-                }
-            }
-            for predicate in node.children.iter_mut().skip(2) {
-                self.rewrite(predicate, file, &inner)?;
-            }
-            return rebuild(node);
-        }
-        if kind == "#proof-with-invariants" {
-            if let Some(descriptors) = node.children.get_mut(1) {
-                self.rewrite_proof_invariants(descriptors, file, locals)?;
-            }
-            for predicate in node.children.iter_mut().skip(2) {
-                self.rewrite(predicate, file, locals)?;
-            }
-            return rebuild(node);
-        }
-        if kind == "#proof-only-unsafe" {
-            if let Some(function) = node.children.get_mut(1) {
-                self.rewrite(function, file, locals)?;
-            }
-            if let Some(allowed) = node.children.get_mut(2) {
-                proof_children(allowed);
-                for operation in &mut allowed.children {
-                    // Builtins are literal operation names; user functions
-                    // retain the same canonical identities as checked calls.
-                    if !matches!(&operation.expr, Expr::Symbol(name) if name.starts_with('#')) {
-                        self.rewrite(operation, file, locals)?;
-                    }
-                }
-                rebuild(allowed)?;
-            }
-            return rebuild(node);
-        }
-        if kind == "#proof-no-overflow" {
-            // Its first operand names a builtin numeric operation.
-            for operand in node.children.iter_mut().skip(2) {
-                self.rewrite(operand, file, locals)?;
             }
             return rebuild(node);
         }
@@ -821,33 +601,6 @@ impl Resolver<'_> {
         rebuild(node)
     }
 
-    fn rewrite_proof_invariants(
-        &self,
-        node: &mut Node,
-        file: usize,
-        locals: &HashSet<String>,
-    ) -> Result<(), SourceError> {
-        // Each descriptor is (function label invariant rank). Labels belong
-        // to the function's lexical namespace, even if an alias shares one.
-        if node.children.len() == 4 && node.children.first().and_then(symbol).is_some() {
-            self.rewrite(&mut node.children[0], file, locals)?;
-            let mut inner = locals.clone();
-            if let Some(scope) =
-                symbol(&node.children[0]).and_then(|name| self.proof_functions.get(name))
-            {
-                inner.extend(scope.locals.iter().cloned());
-            }
-            for predicate in node.children.iter_mut().skip(2) {
-                self.rewrite(predicate, file, &inner)?;
-            }
-        } else {
-            for descriptor in &mut node.children {
-                self.rewrite_proof_invariants(descriptor, file, locals)?;
-            }
-        }
-        rebuild(node)
-    }
-
     fn marked(
         &self,
         node: &mut Node,
@@ -929,7 +682,6 @@ pub(crate) fn resolve(
         exports: vec![vec![]; files.len()],
         declared: vec![HashSet::new(); files.len()],
         memo: RefCell::new(HashMap::new()),
-        proof_functions: HashMap::new(),
         root: config
             .project_root
             .clone()
@@ -1238,44 +990,6 @@ pub(crate) fn resolve(
                     .map_err(|error| error.attach(files))?;
             }
         }
-    }
-    // Inventory function binders before rewriting any proof, so references
-    // work across files and regardless of declaration order.
-    for form in forms.iter() {
-        let kind = head(form);
-        if !matches!(kind, "#fn" | "#unsafe-fn" | "#extern-fn") {
-            continue;
-        }
-        let Expr::List(parts) = &form.expr else {
-            continue;
-        };
-        let id = original_id(form.span.source_id, origins) as usize;
-        let name_index = if kind == "#extern-fn" { 2 } else { 1 };
-        let Some(Expr::Symbol(name)) = parts.get(name_index) else {
-            continue;
-        };
-        let name = resolver
-            .lookup(id, name, &mut Vec::new())
-            .map_err(SourceError::from)?
-            .unwrap_or_else(|| name.clone());
-        let mut scope = ProofFunctionScope::default();
-        if let Some(Expr::List(parameters)) = parts.get(name_index + 1) {
-            for parameter in parameters {
-                if let Expr::List(pair) = parameter {
-                    let offset = usize::from(
-                        matches!(pair.first(), Some(Expr::Symbol(head)) if head == "#mut"),
-                    );
-                    if let Some(Expr::Symbol(name)) = pair.get(offset) {
-                        scope.parameters.insert(name.clone());
-                    }
-                }
-            }
-        }
-        scope.locals = scope.parameters.clone();
-        for body in parts.iter().skip(name_index + 3) {
-            proof_local_names(body, &mut scope.locals);
-        }
-        resolver.proof_functions.insert(name, scope);
     }
     for form in forms.iter_mut() {
         let id = original_id(form.span.source_id, origins) as usize;

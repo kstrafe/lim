@@ -41,6 +41,23 @@ even inside `#unsafe`. Use `#unsafe-call` for unsafe or external functions;
 it requires an enclosing `#unsafe` block and uses the same named arguments,
 evaluation order, signature checks, and ownership rules.
 
+Strict scalar intrinsics also accept `#call`. The compiler generates their
+typed signatures and lowers calls to the existing native operations. Binary
+parameters are `left` and `right`; unary `not` takes `value`. Integer arithmetic
+still requires `-wrap` or `-saturate`. Short-circuit `#bool::and` and `#bool::or`
+retain their direct control-flow forms. Callable subtraction is binary; direct
+subtraction also supports unary negation. Floating-point remainder is currently
+unsupported by the native backend and has no callable declaration.
+
+```lisp run=42
+(#fn main () #u64
+  (#let index #usize 1usize)
+  (#return
+    (#if-valid (#call #usize::lt (: left index : right 4usize))
+      (#call #u64::add-wrap (: right 22u64 : left 20u64))
+      0u64)))
+```
+
 For syntax, contextual examples, and semantics of every builtin, see the
 [alphabetical builtin reference](#complete--builtin-reference-alphabetical)
 and its [typed operator families](#typed-operator-families-alphabetical).
@@ -1739,377 +1756,141 @@ and [the runnable printing example](../examples/heap_string.lim).
 
 ## Top-level declarations
 
-### Compile-time proofs
+### Predicate contracts and constrained types
 
-`(#theorem name proposition)` declares a procedural compile-time obligation over the checked,
-expanded program. The name follows value-identifier rules. Validation rejects a
-false or unproved obligation; a procedural proof emits no runtime assertion and
-supplies no unchecked assumptions to other program obligations. Ordinary type,
-ownership, and unsafe checks still apply to the program. See the
-[program verification checklist](program-verification.md) for supported checks,
-bounds, and planned coverage.
-
-`(#proof-using (name ...) proposition)` lets a proposition
-depend on explicitly named `#theorem` declarations. Every dependency is
-resolved and verified; aliases and imported file definitions refer to their
-canonical declarations. The dependency list adds no assumptions or bindings,
-and the proposition body retains its existing scope. Reuse supports reference
-results and references inside owned aggregates using checked caller-storage
-origins. Reference-bearing writable targets use checked final store origins,
-validated against symbolic provider execution. Possible writes retain old and
-replacement alternatives; all replacement sources are read at call entry.
-Mutable argument targets define the writable frame; postconditions state their
-new contents and any unchanged parts that callers need. Implicit global access,
-unsafe operations and external effects are unsupported. Failed
-preconditions and insufficient postconditions remain unproved. No assumption
-is made when a dependency fails, is unsupported, or cannot be established.
+Lim tracks evidence for named, pure Boolean functions and typed scalar
+comparisons. It does not solve predicates, infer implications, or symbolically
+execute their bodies. Predicate
+identity and argument identity must match. Multiple requirements have AND
+semantics; a `#bool::and` conjunction supplies its individual facts.
 
 ```lisp library
-(#fn identity ((value #u8)) #u8 (#return value))
+(#fn below-100 ((value #u64)) #bool
+  (#return (#u64::lt value 100u64)))
 
-(#theorem identity-law
-  (#proof-for-all ((x #u8)) (#proof-eq (#call identity (: value x)) x)))
-
-(#theorem identity-effects
-  (#proof-no-effects identity (#proof-allocation #proof-io #proof-mutation)))
-```
-
-This is bounded symbolic universal bitvector solving, not testing selected
-inputs. `#proof-for-all` creates symbolic values for every supported value of
-each declared type. The engine symbolically evaluates modeled branches and
-asks its SAT solver whether a guarded counterexample exists. An unsatisfiable
-counterexample formula establishes the claim within the implemented model;
-a satisfying assignment makes the claim false and supplies counterexample inputs
-if the enclosing proof fails.
-Unsupported semantics, missing implementations, and exhausted resources produce
-an error, usually marked `unproved`. They never establish a theorem. A false
-precondition can make an implication or contract vacuous; these forms do not
-separately prove that their precondition is satisfiable.
-
-`#proof-for-all`, `#proof-contract`, and execution-trace claims discharge their
-own symbolic inputs and return a closed Boolean result to an enclosing logical
-combination. Their local bindings and path guards do not escape into sibling
-claims. Negating a closed universal claim negates the whole quantified result,
-not its predicate separately for each input. Nested `#proof-for-all` and
-`#proof-contract` claims are unsupported, including combinations of the two;
-combine universal bindings in a single `#proof-for-all` list instead. Trace
-claims quantify their own entry-function inputs and must also be outside these
-quantifiers. Independent closed claims can be combined with `#proof-and`,
-`#proof-or`, and the other logical forms.
-
-`#proof-and` and `#proof-or` combine one or more propositions; `#proof-not`
-negates one, and `#proof-implies` checks a consequence under its antecedent.
-These logical combinations do not suppress unsupported-operation errors in
-other operands. `#proof-eq` compares modeled scalar or aggregate values
-structurally. Reference identity equality is unsupported: compare explicit
-referent values with `#deref`. Integer operations use finite-width bitvectors,
-including signedness and the operation's wrap or saturate mode. Modeled traps,
-failed assertions, and invalid array indices must be unreachable under the
-current guard. `#proof-no-overflow` checks whether integer add, subtract, or
-multiply fits its type, even when the named operation wraps or saturates.
-Its operation identifier must name an existing native integer builtin with a
-valid mode, such as `#u8::add-wrap`, `#u8::sub-wrap`, or `#u8::mul-wrap` (or
-the corresponding supported `-saturate` form). Mode-free identifiers such as
-`#u8::add` are not native builtins and are rejected. Floating-point arithmetic
-is unsupported.
-
-`(#proof-contract function precondition postcondition)` universally quantifies
-the function's declared parameters using their parameter names, restricts the
-execution to the precondition, executes the checked implementation, and checks
-the postcondition, then returns the closed result. A contract creates its own
-parameter bindings; nested contracts and nesting with `#proof-for-all` are
-unsupported. `(#proof-result)` denotes the returned value in a
-postcondition. `(#proof-old expression)` evaluates against the saved contract
-entry state, including entry referent contents, rather than the post-call state.
-It is available only within a contract.
-
-```lisp library
-(#fn identity ((value #u8)) #u8 (#return value))
-
-(#theorem identity-contract
-  (#proof-contract identity true (#proof-eq (#proof-result) (#proof-old value))))
-
-(#theorem identity-caller
-  (#proof-using (identity-contract)
-    (#proof-contract identity true (#proof-eq (#proof-result) (#proof-old value)))))
-```
-
-The second theorem explicitly reuses the verified direct contract. Its dependency
-list creates no proposition binding; names in the body keep their ordinary
-proof scope.
-
-Calls in specifications evaluate actual checked function bodies, including
-nested calls and applicable clone hooks, unless `#proof-using` selects a verified
-contract for that call. Calls inside the selected contract's own pre/postconditions
-still execute their bodies. Function names resolve to actual declarations.
-A specification call's transitive checked graph must have no
-`global-write`, `io`, `allocation`, `external`, or `asm` effects. The engine also
-checks that the call preserves observable storage that existed before it;
-the graph restriction and the storage check both apply. Specification syntax
-accepts modeled expressions and qualifying function calls, but rejects statement
-blocks. This restriction does not forbid statements inside a qualifying checked
-function body. Calls executed as the subject of a contract or trace claim may
-mutate modeled storage. This is not a general IO, FFI, pointer-validity, or concurrency
-model. External functions have no executable symbolic implementation; assembly,
-syscalls, and other unmodeled operations fail when symbolic evaluation reaches
-them. Proof-side representation inspection respects opaque and library-private
-boundaries. Fresh reference inputs have separately allocated symbolic referents;
-this does not quantify every possible alias relationship between inputs.
-
-`#proof-sorted` takes a fixed array or modeled slice and a named, safe,
-two-argument Boolean comparator with a checked implementation.
-It checks that the comparator is false for each adjacent pair in reverse order
-`(later, earlier)`. It does not prove comparator transitivity, totality, or sort
-stability. `#proof-permutation` compares equal-length arrays or modeled slices by element
-multiplicities using modeled equality; an array and slice may be compared.
-`#proof-unique` checks that no two selected elements compare equal. These
-properties observe only a slice's selected range, including symbolic ranges,
-and read its current backing storage. Use `#proof-old` around the entire
-predicate to check an old-state property. For old/new permutation comparisons,
-read an owned array inside `#proof-old`; saving an old slice handle alone does
-not snapshot its referent. An empty range is sorted and
-unique. None of these forms implicitly runs a sorting algorithm.
-All reject backing arrays longer than 64 elements, including
-directly constructed literal arrays, not just quantified inputs. This keeps
-permutation multiplicities within the implementation's eight-bit counters.
-Permutation operands must have matching element types. Sortedness requires
-both comparator parameter types to match the collection element type and its return
-type to be Boolean. These type checks apply even to empty arrays; emptiness
-does not excuse an incompatible element type or comparator signature.
-Comparator execution retains ordinary checked-call, trap and budget rules;
-unsupported comparator execution remains unproved, including under negation.
-Unsafe and external comparator declarations are rejected even for empty ranges.
-Comparator specifications reject active call cycles and allow at most four
-simultaneously active comparator calls. Sequential comparisons reuse that
-allowance; recursive or deeper specifications report a resource-limit error,
-including under negation. Ordinary call, evaluation and solver limits also apply.
-Uniqueness and permutation require modeled equality for each comparison.
-
-Modeled guarded matches accept only supported pure builtin guard expressions.
-Guard expressions cannot call functions, contain blocks, or access globals
-(including global constants). A guard that produces multiple symbolic branches
-is unsupported, even if its operations are otherwise pure. Guard-expression
-nesting is limited to 64. These are symbolic-engine restrictions on proofs and
-on code evaluated by proofs, not additional runtime language rules.
-
-Structural graph claims use the checked call graph, including clone-hook edges
-and conservative generated thread spawn/join-to-worker edges.
-`#proof-calls-directly` requires one call edge;
-`#proof-calls-transitively` requires a nonempty path of one or more edges.
-Naming the same function at both ends does not establish a call by itself; it
-would require recursion, which checked runtime calls disallow. These are structural reachability claims: a positive path
-need not be a feasible execution. Unknown function names are errors. A missing
-path cannot establish call absence if reachable assembly, external code, or
-other opaque execution could hide additional calls; that query is unproved.
-`#proof-no-effects` requires an explicit nonempty list of effect tags and checks
-transitive absence of each effect. Tags are `#proof-allocation`, `#proof-io`,
-`#proof-global-write`, `#proof-unsafe`, `#proof-external`, `#proof-asm`, and
-`#proof-mutation`. Mutation includes externally observable reference, field,
-array, and global writes conservatively; local scalar reassignment is ignored.
-External calls, assembly, and hidden thread runtime execution carry conservative
-unknown effects, so a negative effect claim cannot silently treat them as safe.
-Effect predicates describe this conservative structural summary. Negating an
-absence claim establishes that the summary contains a classified effect; it
-never proves that a runtime effect actually occurs on a feasible execution.
-
-`(#proof-only-unsafe entry (allowed...))` inspects transitive unsafe primitives
-outside the listed function boundaries or allowed builtin spellings. Listing a
-function trusts that boundary and stops inspection beneath it. A known
-function's unsafe-call flag alone is not an unsafe primitive: its internals are
-inspected unless it is allowed. External functions and assembly require explicit
-allowance; they are not silently safe. This form does not discharge ordinary
-`#unsafe` requirements or establish memory safety.
-
-Execution-trace claims differ from graph claims. In
-`(#proof-calls-before entry required action)`, every modeled entry into `action`
-must follow a completed call to `required` on that execution. It does not require
-that either function be called, or a fresh required call before every action.
-In `(#proof-calls-when entry observed expected action)`, `observed` must return
-`#bool` and `expected` must be `true` or `false`. The claim forbids an `action`
-call and an observed result equal to `expected` from occurring in the same
-execution, in either order. It is not an obligation to call the action.
-The engine executes the observed function's checked body, including modeled
-nested calls and storage changes, and records its actual symbolic Boolean
-return value when it completes. It does not replace that body with an arbitrary
-result or an abstract validation boundary. Unmodeled operations still fail
-closed. Nested trace claims are unsupported, and trace claims require complete
-bounded loop exploration.
-
-The explicit selectors in
-`(#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user))`
-check a storage-specific validation protocol. Each descriptor must have the form
-`(#parameter-of FUNCTION PARAMETER-NAME)`: it references an existing parameter
-of that function, not a call expression or an argument expression. The selector
-introduces no theorem binding. It is accepted only in a validation descriptor
-position; old bare function/parameter pairs are rejected without compatibility.
-In contrast, `(#parameter name TYPE)` declares a new mathematical theorem
-parameter. The two selected validation parameters must be
-ordinary or pinned references with the same resolved referent type; the
-validator must return `#bool`. The descriptor names select parameter positions,
-so they need not have the same spelling in the two functions.
-
-The checker universally quantifies the explicit entry function's inputs and
-follows every reachable action entry, including calls through helpers. Before
-each action entry, a validator call must have completed with `true` for the same
-storage location as the action's selected argument. Equal data in a different
-object is insufficient. A missing validator call, a call that completes later,
-or a completed `false` result supplies no valid evidence. A later validator
-call returning `false` for the same object also revokes any earlier success.
-
-Validation is invalidated by writes overlapping the object or its transitive
-referenced dependencies. This includes writes through aliases and dependencies
-whose contents may affect validation, even if the outer object is unchanged.
-Primitive reference dependencies are tracked transitively as well.
-Fresh successful validation can restore evidence after a write or false result. The claim
-tracks storage and freshness, not just matching scalar values or function names.
-Only an enum's active payload contributes referenced dependencies. Merely
-checking a referenced child does not invalidate an unchanged parent's evidence.
-It checks the actual validator body's Boolean result; it does not establish
-that the body implements the intended business criterion.
-
-```lisp library
-(#struct User () ((age #u8)))
-
-(#fn validate ((user (#ref User))) #bool
-  (#return (#u8::ge (#get user age) 18u8)))
-
-(#fn perform ((user (#ref User))) ()
-  (#drop (#get user age))
+(#fn submit ((value #u64)) ()
+  (#requires (#call below-100 (: value value)))
   (#return ()))
 
-(#fn dispatch ((user (#ref User))) ()
-  (#call perform (: user user))
+(#fn validate-and-submit ((value #u64)) ()
+  (#if-valid (#call below-100 (: value value))
+    (#call submit (: value value)))
   (#return ()))
+```
 
-(#fn process ((user (#ref User))) ()
-  (#if (#call validate (: user user))
+`#if-valid` executes an ordinary Boolean expression and grants the evidence
+carried by its successful branch. An ordinary `#if` grants no new evidence.
+At a branch join, only evidence available on every continuing path survives.
+A saved predicate result can carry evidence, but a later write to a dependency
+revokes that evidence even if the saved Boolean remains true.
+
+Place contract clauses first in a function body:
+
+| Clause | Caller rule | Function rule |
+| --- | --- | --- |
+| `(#requires P)` | Must already have evidence for P | P is available on entry |
+| `(#ensures Q)` | Receives Q after normal return | Programmer promises Q; checked dynamically when instrumented |
+| `(#preserves P)` | P survives if it was available before the call | Conditional promise: entry P implies exit P |
+
+A validator is an ordinary function without the requirement it tests. Every
+intermediary must explicitly annotate the requirements and guarantees it
+exports. Only structural read/write footprints propagate through calls;
+semantic contracts are never inferred from callees. Consequently, writes to an
+unread sibling field need not revoke a predicate, but a wrapper that changes a
+predicate's inputs must declare its own `#preserves` or `#ensures`.
+
+`(#result)` names the result in `#ensures`. `(#old observation)` snapshots an
+entry observation for a postcondition. Snapshot scalar observations rather
+than reference/slice handles. These forms are unavailable in requirements,
+preservation clauses, validation bodies, or assumptions. A mutable value
+parameter is a local copy: postconditions must use scalar `#old` observations
+or the returned value instead of promising properties of its final binding.
+
+`(#assume P)` explicitly trusts P without evaluating the predicate or any of
+its arguments, including in instrumented builds. It still checks predicate
+purity, argument types, identity and dependencies. It grants no exception to
+ordinary type, ownership, initialization or borrowing rules. Assumptions do
+not suppress independent runtime checks of function contracts.
+
+A constrained type has the same runtime representation as its base type:
+
+```lisp library
+(#fn below-100 ((value #u64)) #bool
+  (#return (#u64::lt value 100u64)))
+(#type Small
+  (#where (value #u64) (#call below-100 (: value value))))
+(#struct Request () ((count Small) (tag #u64)))
+
+(#fn consume-small ((value Small)) ()
+  (#return ()))
+```
+
+`#where` can appear directly wherever a supported type is accepted, or behind
+a type alias. Its binder is local to its predicates. Construction and assignment
+require existing evidence; they do not silently rerun predicates. Explicitly
+constrained parameter/result types declare the corresponding entry/exit
+requirements. Plain base types declare none.
+
+A temporary branch fact may be discarded after mutation. Fixed constraints on
+storage must instead be restored before an exclusive borrow returns access to
+its owner. A raw mutable reference can temporarily violate an invariant inside
+its exclusive lifetime. The compiler requires fresh validation, a declared
+postcondition/preservation promise, or an explicit `#assume` before the owner
+becomes available again. After the mutable reference's last use, a base-input
+predicate can inspect the frozen owner to close this obligation. Aliases and
+returned mutable references retain the restoration obligation.
+
+`#index-proven` accesses a referenced fixed array using an explicit bounds
+claim. Its index must have type `#usize`, and the exact fact
+`(#usize::lt index N)` must be available for the array's length `N`. A smaller
+bound or a named predicate with the same body does not supply that fact.
+Programmer-written helpers connect claims through their declared contracts:
+
+```lisp library
+(#fn under-two ((index #usize)) #bool
+  (#return (#usize::lt index 2usize)))
+(#fn widen ((index #usize)) ()
+  (#requires (#call under-two (: index index)))
+  (#ensures (#usize::lt index 4usize))
+  (#return ()))
+(#type Index4 (#where (index #usize) (#usize::lt index 4usize)))
+(#fn read-four ((values (#ref (#array #u64 4))) (index Index4)) #u64
+  (#return (#index-proven values index)))
+(#fn use ((values (#ref (#array #u64 4))) (index #usize)) #u64
+  (#return (#if-valid (#call under-two (: index index))
     (#block
-      (#call dispatch (: user user))
-      ())
-    ())
-  (#return ()))
-
-(#theorem safe
-  (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user)))
-
-(#fn main () ()
-  (#let user User (#struct-literal User ((age 21u8))))
-  (#call process (: user (#borrow user)))
-  (#forget user)
-  (#return ()))
+      (#call widen (: index index))
+      (#let checked Index4 index)
+      (#call read-four (: values values : index checked)))
+    0u64)))
 ```
 
-Here the `process` claim covers all supported `User` inputs and sees the action
-inside `dispatch`. The `perform` body is a small modeled action for the example;
-replace it with other supported code when applying the protocol. Calling the
-validator for one local `User` and performing the action on a distinct local
-with the same fields would fail. Mutating the validated object or a referenced
-dependency before `perform` requires a new completed successful validation.
+Removing the helper call rejects the assignment and subsequent access.
+Helpers are ordinary functions; their `#ensures` remain programmer promises.
+Typed comparisons are opaque facts: operand order, scalar type and value
+identity must match. The checker performs no arithmetic implication search.
+`#if-valid` may validate the exact comparison directly, and `#assume` may
+explicitly supply it without evaluation.
 
-Claims begin at the specified root. Choosing `main` covers its synchronous call
-tree; other roots need separate claims. Every branch and complete bounded loop
-execution is considered. Unsupported semantics, unavailable or external
-implementations, and exhausted budgets are unproved rather than assumed safe.
-The theorem emits no runtime proof code and adds no runtime validation call.
-Unlike this claim, `#proof-calls-before` does not require a `true` result or track
-an object, and `#proof-calls-when` does not establish same-object freshness.
-Their existing call-order and observation semantics are unchanged.
+Production `#index-proven` emits no array bounds check. Instrumented builds
+retain an independent bounds check at the access, including after an assumption.
+Ordinary `#index` remains a checked operation. Both forms retain ordinary borrow,
+initialization and ownership checks; proven indexing also supports element
+borrows. Dynamic slices continue using their existing checked operations.
 
-Validation tracking allows at most 64 facts, 128 dependencies per fact, and
-256 dependencies total per symbolic state, with reference-dependency traversal
-depth limited to 32. The existing 100,000-step symbolic execution budget also
-applies. Exhausting these limits makes the obligation unproved.
+Compile tests with `lim --check-contracts ...` (equivalently
+`--cfg contracts=check`). Instrumentation checks requirements on entry,
+postconditions on each normal return and preservation only when the predicate
+was initially true. Production compilation omits these additional assertions,
+snapshots and proof objects. Actual `#if-valid` branches remain executable.
+Dynamic checks test implementations; they are not a universal proof of a
+programmer's promises.
 
-`(#proof-stack-at-most function "x86_64-sysv" bytes)` checks a literal byte bound
-against generated assembly for that explicit target. The current certificate
-supports only `x86_64-sysv`. It includes reachable generated callees and their
-call-stack costs, measured from the entry's incoming stack pointer. Unknown
-external or indirect callees, recursion, and unsupported stack behavior prevent
-a certificate. This is a generated-code stack bound, not a bound on process
-memory, kernel use, or a thread worker's separate stack merely because its spawn
-helper is called.
-
-Loops default to 32 symbolic iterations. `(#proof-loop-limit limit proposition)`
-scopes a literal limit in `1..=1024`; reaching a feasible continuation beyond it
-is unproved, rather than an assumption that the loop terminates. Alternatively,
-`(#proof-with-invariants ((function loop-label predicate unsigned-rank)...) proposition)`
-attaches induction obligations to labeled loops. Each function/label pair must
-identify exactly one checked loop; misspelled or ambiguous labels are errors. The engine checks entry and
-preservation of the predicate, and strict decrease of a same-width unsigned
-rank on continuing iterations. Invariants are checked obligations, not axioms.
-Induction supports modeled owned-variable updates and borrowed write frames
-whose reference graph remains stable. Numeric contents are abstracted while
-stored handles keep their original locations. Loop-local mutable borrows
-contribute their source roots to the frame. Every continuing step and forwarded
-exit must preserve existing reference identities and reference-bearing enum tags.
-Slice handles retain their backing location, start and length. Mutable views
-over bounded arrays contribute guarded element regions, preserving storage
-outside their ranges; references inside selected elements retain their actual
-locations. Empty end-boundary ranges permit no writes. Bounds obligations still
-apply to every access, including those used in invariants and ranks. Direct
-unbounded symbolic slice inputs remain unsupported; construct a bounded view in
-the proved wrapper or quantified call.
-Global write destinations and arbitrary allocation remain unsupported.
-Bounded changing reference graphs, slice geometry and execution-trace monitors
-have additional coverage and closure checks described in the
-[program verification model](program-verification.md). A valid invariant/rank
-can avoid fully unrolling a supported loop; it does not enable arbitrary hidden execution.
-Loop-body and for-step calls may use direct contracts explicitly selected by
-`#proof-using`, including contracts over borrowed state. The selected contracts
-retain their effect restrictions, and every helper precondition must follow
-from the loop-head invariant and current path guard. Call-argument writes
-contribute to the modified-variable set. Invariants, ranks and loop conditions
-remain pure; general user-call expressions, statement blocks and lazy global
-reads remain forbidden. Invariants can use `#proof-unique`,
-`#proof-permutation` and `#proof-sorted` over bounded arrays and slice views.
-Read-only range construction and explicit `#array-of` values are permitted;
-range/index bounds must hold wherever those expressions are evaluated.
-The named sortedness comparator uses ordinary specification-call checks,
-including observable-storage preservation, effect restrictions and resource
-limits. Its calls evaluate the specification and do not contribute program
-events to call-order or validation traces. Selecting a contract does not
-permit hidden global/environment access or unchecked changes to reference identity.
-Checked return and store summaries retain provider-derived origin and
-reference-bearing constructor conditions, including correlations across stored
-and returned slots and branches that leave an entry reference unchanged. Conditions
-bind to caller entry data before write-frame abstraction; numeric result fields
-still follow the selected postcondition. Mutating parents with possible typed
-in-place overlap against input referents and exclusive pinned inputs retain
-conservative origins. Checked conditions distinguish physical array choices
-within a return or store origin, retaining dynamic indices, nested projections
-and offsets through modeled slice ranges. The same projection sequence resolves
-against caller storage; equal referent data never establishes location identity.
-Projection choices count toward the existing condition and retained-memory
-limits. Array indexing splits reference-bearing and slice-bearing element
-types into feasible concrete indices after proving the original bounds obligation.
-This preserves physical identities for reads, writes and borrowed element targets;
-numeric arrays retain compact multiplexers. Nested indices and conditional
-stored-reference contracts retain the index guards. Handle-bearing arrays are
-limited to 64 elements, including directly constructed arrays.
-See the [verification model](program-verification.md)
-for the template, condition and retained-memory limits.
-
-Other current bounds include 100,000 symbolic evaluation steps, 4,096 paths at
-path-budget checks, 4,096 symbolic storage slots, call depth 128, combined
-expression/proposition evaluation nesting 32, and symbolic
-type nesting depth 32. Fresh fixed-array inputs are limited to 64 elements;
-`#proof-sorted`, `#proof-permutation` and `#proof-unique` also enforce that limit
-on directly constructed arrays and modeled slice backing arrays.
-The solver also has a 100,000-node circuit limit, a 2,000,000-work per-query
-SAT search budget and a cumulative 64,000,000-work budget for search and query preparation;
-solver errors and exhaustion remain errors on later queries. These are resource
-limits, not a statement that every program below them is modeled. Supported
-inputs include unit, Boolean and integer values, characters restricted to
-Unicode scalar values, tuples, small fixed arrays, modeled records and enums,
-and ordinary or pinned references. Raw pointers can be represented as address
-bitvectors, but raw memory operations are not thereby supported. Use explicitly
-typed literals and `#array-of`; context-dependent `#array-repeat`, arbitrary slice inputs,
-arbitrary ownership/runtime facilities, and unsupported operations are not
-made provable by increasing the loop limit.
-
-The former dependent mathematical proof subsystem is no longer part of Lim.
-Program-level symbolic obligations are described in the
-[program verification checklist](program-verification.md).
+Predicate functions must have stable reads and no effects or hidden mutable
+global dependencies. Unknown indirect reads/writes are handled conservatively.
+Unsupported constrained container shapes and exhausted analysis budgets are
+errors, never silently weakened guarantees. See
+[program verification](program-verification.md) for implementation boundaries.
 
 ### Functions
 
@@ -2842,6 +2623,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#as` | `(#as value TargetType)` | `(#let n #u64 (#as byte #u64))` (expression) | Explicit scalar/enum conversion; narrowing integers truncate, and float-to-integer conversions trap when out of range. |
 | `#asm` | `(#asm ResultType ((register value)...) "instructions")` | `(#unsafe (#asm #i64 ((rax 39usize)) "syscall"))` (expression) | Emits target assembly; unsafe, target-specific, and subject to the documented register/stack rules. |
 | `#assert` | `(#assert condition)` | `(#assert (#u64::eq count 3u64))` (statement) | Traps if the condition is false. |
+| `#assume` | `(#assume predicate)` | `(#assume (#call valid (: value value)))` (function body) | Trust predicate evidence without evaluating its operands. |
 | `#atomic` | `(#atomic ScalarType)` | `(#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64))` (type/binding) | Declares a supported atomic scalar wrapper type. |
 | `#atomic-compare-exchange` | `(#atomic-compare-exchange reference expected desired success-order failure-order)` | `(#atomic-compare-exchange (#borrow counter) 0u64 1u64 #memory-acq-rel #memory-acquire)` (expression) | Strong compare-exchange; returns `(success, observed-value)`. |
 | `#atomic-compare-exchange-weak` | `(#atomic-compare-exchange-weak reference expected desired success-order failure-order)` | `(#atomic-compare-exchange-weak (#borrow counter) 0u64 1u64 #memory-release #memory-relaxed)` (expression) | Weak compare-exchange; may fail spuriously and returns `(success, observed-value)`. |
@@ -2883,6 +2665,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
 | `#distributed-enum` | `(#distributed-enum Name (properties...))` | `(#distributed-enum Error ())` (top level) | Declares an enum whose variants are collected after generator expansion; the central declaration owns its properties. |
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly discards a value without calling user destruction code. Dropping a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. |
+| `#ensures` | `(#ensures predicate)` | `(#ensures (#call valid (: value (#result))))` (function header) | Promise evidence on normal return; instrumented builds assert it. |
 | `#enum` | `(#enum Name (properties...) ((Variant [discriminant] [PayloadType])...))` | `(#enum Maybe (#repr-c) ((Some #u64) None))` (top level) | Declares a concrete enum; each variant has zero or one payload, and properties may include `#linear` and `#repr-c`. Use a named struct for multiple fields. |
 | `#enum-contribute` | `(#enum-contribute EnumName (Variant [PayloadType]))` | `(#enum-contribute Error (ReadFailure #u32))` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
 | `#enum-literal` | `(#enum-literal Variant [payload])` | `(#let result Maybe (#enum-literal Some 42u64))` (function body, with `Some` declared as a `Maybe` variant carrying `#u64`) | Constructs a concrete enum value. Payload variants require exactly one correctly typed expression; fieldless variants omit it. Patterns retain `(Variant binding)` or the fieldless variant name, without this keyword. |
@@ -2923,7 +2706,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#i8` | `#i8` | `(#fn identity ((value #i8)) #i8 (#return value))` (function signature) | Signed 8-bit integer scalar type. |
 | `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |
 | `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
+| `#if-valid` | `(#if-valid condition success [failure])` | `(#if-valid (#call valid (: value value)) (#call submit (: value value)))` (function body) | Execute validation and grant evidence on success. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
+| `#index-proven` | `(#index-proven array-reference usize-index)` | `(#index-proven values position)` (expression) | Requires exact `#usize::lt` evidence for the fixed-array length; omits the production bounds check and audits the access in instrumented builds. |
 | `#isize` | `#isize` | `(#fn identity ((value #isize)) #isize (#return value))` (function signature) | Signed integer scalar type with the target's native pointer width. |
 | `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count #u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
@@ -2941,11 +2726,11 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#memory-seq-cst` | `#memory-seq-cst` | `(#atomic-load r #memory-seq-cst)` (ordering operand) | Selects sequentially consistent ordering. |
 | `#mut` | `(#mut parameter Type)` | `(#fn advance ((#mut count #u64)) #u64 (#set count 1u64) (#return count))` (parameter list) | Marks a function parameter mutable; local mutable bindings use `#let-mut`. |
 | `#offset-of` | `(#offset-of ReprCType field)` | `(#offset-of Header payload)` (expression) | Computes a field's offset in the declared C layout; requires a `#repr-c` struct. |
+| `#old` | `(#old observation)` | `(#old (#deref value))` (postcondition operand) | Snapshot an entry observation for a postcondition. |
 | `#opaque` | `(#opaque StructName)` | `(#struct Token () ((slot #u64))) (#opaque Token)` (top level) | Restricts construction, field access, and cloning of a linear struct to its defining source module; external code can use its public functions. The annotation must appear in the same source module as the concrete struct. |
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd #i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
-| `#parameter-of` | `(#parameter-of FUNCTION PARAMETER-NAME)` inside #proof-requires-validation | `(#theorem safe (#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user)))` (procedural theorem declaration) | Selects an existing parameter of the named function; introduces no theorem binding. Accepted only as a validation descriptor; old bare pairs are rejected. Unlike #parameter, this is a reference rather than a binder. |
 | `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. Pinning a linear local permanently prevents moving it, even after derived views end; Copy referents retain ordinary loan-duration restrictions. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
@@ -2971,39 +2756,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-shared-release` | `(#pin-shared-release shared-owner)` | `(#let pointer (#ptr-mut Node) (#unsafe (#pin-shared-release shared)))` (expression) | Consumes a shared owner and returns its allocation pointer; it does not check the strong count. Unsafe: the caller must prove this is the final owner, destroy all views, run final in-place cleanup, and deallocate only afterward. |
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd #i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
+| `#preserves` | `(#preserves predicate)` | `(#preserves (#call sorted (: values values)))` (function header) | Keep supplied evidence without imposing an entry requirement. |
 | `#println` | `(#println (#borrow string))` | `(#assert (#i64::eq (#println (#borrow message)) 0i64))` (expression) | Writes a borrowed `String`'s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level `(#std)`. |
-| `#proof-allocation` | `#proof-allocation in an effect list` | `(#proof-no-effects helper (#proof-allocation))` (proof proposition) | Conservative allocation effect; a tag for #proof-no-effects, not a standalone proposition. |
-| `#proof-and` | `(#proof-and proposition...)` | `(#proof-and true (#proof-eq 1u8 1u8))` (proof proposition) | Conjunction of one or more propositions; unsupported operands still fail. |
-| `#proof-asm` | `#proof-asm in an effect list` | `(#proof-no-effects helper (#proof-asm))` (proof proposition) | Inline assembly or conservatively unknown assembly effects; a tag for #proof-no-effects, not a standalone proposition. |
-| `#proof-calls-before` | `(#proof-calls-before entry required action)` | `(#proof-calls-before main validate commit)` (proof proposition) | Every modeled action entry must follow a completed required call on the same execution; does not require a call to occur. |
-| `#proof-calls-directly` | `(#proof-calls-directly caller callee)` | `(#proof-calls-directly main helper)` (proof proposition) | Checks one structural edge between actual function identities, independent of execution feasibility. |
-| `#proof-calls-transitively` | `(#proof-calls-transitively caller callee)` | `(#proof-calls-transitively main helper)` (proof proposition) | Checks a nonempty structural path of one or more call edges; equal endpoints require an actual cycle, and reachability does not establish execution feasibility. |
-| `#proof-calls-when` | `(#proof-calls-when entry observed expected action)` | `(#proof-calls-when main validate false commit)` (proof proposition) | Forbids an action call and the selected Boolean observation from co-occurring in either order; executes the observed function's checked body and uses its actual symbolic result. |
-| `#proof-contract` | `(#proof-contract function precondition postcondition)` | `(#proof-contract identity true (#proof-eq (#proof-result) value))` (proof proposition) | Quantifies declared parameters, runs the checked implementation under the precondition, checks the postcondition, and returns a closed Boolean; nested contracts or universal claims are unsupported. |
-| `#proof-eq` | `(#proof-eq left right)` | `(#proof-eq 1u8 1u8)` (proof proposition) | Modeled structural value equality; reference identity comparison is unsupported. |
-| `#proof-external` | `#proof-external in an effect list` | `(#proof-no-effects helper (#proof-external))` (proof proposition) | External or conservatively unknown execution effects; a tag for #proof-no-effects, not a standalone proposition. |
-| `#proof-for-all` | `(#proof-for-all ((name Type)...) proposition)` | `(#proof-for-all ((x #u8)) (#proof-eq x x))` (proof proposition) | Universally quantifies supported symbolic values without sampling and discharges them to a closed Boolean; nested universal or contract claims are unsupported. |
-| `#proof-global-write` | `#proof-global-write in an effect list` | `(#proof-no-effects helper (#proof-global-write))` (proof proposition) | Direct or possible indirect writes to global storage; a tag for #proof-no-effects, not a standalone proposition. |
-| `#proof-implies` | `(#proof-implies antecedent consequence)` | `(#proof-implies (#u8::lt x 255u8) (#proof-no-overflow #u8::add-wrap x 1u8))` (quantified proof proposition) | Checks the consequence under the antecedent; does not separately establish satisfiability of the antecedent. |
-| `#proof-io` | `#proof-io in an effect list` | `(#proof-no-effects helper (#proof-io))` (proof proposition) | IO or conservatively unknown IO effects; a tag for #proof-no-effects, not a standalone proposition. |
-| `#proof-loop-limit` | `(#proof-loop-limit literal-limit proposition)` | `(#proof-loop-limit 64 (#proof-contract count true true))` (proof proposition) | Scopes the symbolic loop bound to 1 through 1024; feasible execution beyond the limit fails closed. |
-| `#proof-mutation` | `#proof-mutation in an effect list` | `(#proof-no-effects helper (#proof-mutation))` (proof proposition) | Observable reference, aggregate, array, or global writes; local scalar reassignment is ignored; a tag for #proof-no-effects, not a standalone proposition. |
-| `#proof-no-effects` | `(#proof-no-effects function (effect-tag...))` | `(#proof-no-effects helper (#proof-io #proof-mutation))` (proof proposition) | Requires a nonempty effect-tag list and transitive conservative absence of each effect. |
-| `#proof-no-overflow` | `(#proof-no-overflow integer-builtin left right)` | `(#proof-no-overflow #u8::add-wrap 1u8 2u8)` (proof proposition) | Requires an existing native integer add/subtract/multiply builtin with a valid wrap or saturate mode; checks representability independently of that mode. |
-| `#proof-not` | `(#proof-not proposition)` | `(#proof-not false)` (proof proposition) | Logical negation; an unsupported or unproved operand remains an error. |
-| `#proof-old` | `(#proof-old expression)` | `(#proof-old (#deref value))` (contract expression) | Evaluates using the saved contract entry state, including entry referent contents; requires a contract. |
-| `#proof-only-unsafe` | `(#proof-only-unsafe entry (allowed...))` | `(#proof-only-unsafe main (trusted-helper #ptr-read))` (proof proposition) | Inspects unsafe primitives outside explicitly allowed function boundaries or builtin spellings; does not establish memory safety. |
-| `#proof-or` | `(#proof-or proposition...)` | `(#proof-or false true)` (proof proposition) | Disjunction of one or more propositions; unsupported operands still fail. |
-| `#proof-permutation` | `(#proof-permutation left right)` | `(#proof-permutation before after)` (proof proposition) | Checks equal length and selected element multiplicities of fixed arrays or modeled slices, including mixed array/slice operands. Backing arrays are limited to 64 elements; matching element types are required even for empty ranges, and equality must be modeled. |
-| `#proof-requires-validation` | `(#proof-requires-validation entry (#parameter-of validator parameter) (#parameter-of action parameter))` | `(#theorem safe (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user)))` (top-level procedural theorem) | Universally checks that every reachable action entry from the explicit root has an earlier completed true validation for the same referenced storage; overlapping object or transitive dependency writes invalidate it. Explicit #parameter-of selectors reference existing function parameters with matching resolved referent types and introduce no binding; unsupported execution and exhausted budgets are unproved. |
-| `#proof-result` | `(#proof-result)` | `(#proof-eq (#proof-result) value)` (contract postcondition) | Denotes the returned value of the contract subject; valid only in its postcondition. |
-| `#proof-sorted` | `(#proof-sorted collection comparator)` | `(#proof-sorted values less)` (proof proposition) | Accepts fixed arrays or modeled slices over backing arrays of at most 64 elements; requires a named, safe checked Boolean comparator with two parameters matching the element type even for empty ranges, and checks it is false on selected reversed adjacent pairs. Ordinary call, trap and budget checks still apply. Does not establish comparator laws or stability. |
-| `#proof-stack-at-most` | `(#proof-stack-at-most function target-string literal-bytes)` | `(#proof-stack-at-most main "x86_64-sysv" 4096)` (proof proposition) | Bounds reachable generated-code stack use for an explicit target; currently only x86_64-sysv, with unknown stack behavior rejected. |
-| `#proof-unique` | `(#proof-unique collection)` | `(#theorem distinct (#proof-unique (#array-of (#array #u8 2) 1u8 2u8)))` (top-level theorem) | Checks pairwise inequality of selected fixed-array or modeled-slice elements using modeled equality. Empty and singleton ranges are unique. Backing arrays are limited to 64 elements; this is proof-only and does not mutate or deduplicate the collection. |
-| `#proof-unsafe` | `#proof-unsafe in an effect list` | `(#proof-no-effects helper (#proof-unsafe))` (proof proposition) | Unsafe primitives or unknown unsafe execution; a known function unsafe-call flag alone is not a primitive; a tag for #proof-no-effects, not a standalone proposition. |
-| `#proof-using` | `(#proof-using (theorem-name...) proposition)` | `(#proof-using (identity-contract) (#proof-contract identity true (#proof-eq (#proof-result) (#proof-old value))))` (proof proposition) | Adds explicit verified direct contract theorem dependencies; names resolve to theorem declarations, the list introduces no bindings, and an empty list selects no dependencies. |
-| `#proof-validated` | `(#proof-validated (#parameter-of validator parameter) object)` inside a loop invariant predicate | `(#theorem safe (#proof-with-invariants ((process again (#proof-implies checked (#proof-validated (#parameter-of validate user) user)) remaining)) (#proof-requires-validation process (#parameter-of validate user) (#parameter-of perform user))))` (validation claim loop invariant) | Positively asserts lower-bound validation evidence for the current same-storage object. Accepted only in a positive loop-invariant predicate of `#proof-with-invariants` inside a `#proof-requires-validation` claim, and only for that claim's exact validator descriptor. Evidence must hold at loop entry and be preserved; writes to the object or its dependencies and a failing revalidation revoke it. This is proof-only metadata and has no runtime behavior. |
-| `#proof-with-invariants` | `(#proof-with-invariants ((function label predicate unsigned-rank)...) proposition)` | `(#proof-with-invariants ((count loop-body (#u8::le i n) (#u8::sub-wrap n i))) (#proof-contract count true true))` (proof proposition) | Checks labeled-loop invariant entry, preservation, and strictly decreasing unsigned rank under restricted induction semantics. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr #u8) (#ptr-null (#ptr #u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr #u8)))` (expression) | Converts a raw pointer to its machine address as `#usize` without dereferencing it; useful for checking syscall error-pointer results before access. |
 | `#ptr-borrow` | `(#ptr-borrow reference-anchor pointer)` | `(#unsafe (#ptr-borrow owner pointer))` (expression) | Creates a shared reference tied to an existing reference's inferred borrow lifetime; caller must uphold pointer validity. |
@@ -3020,6 +2774,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#ref-ptr` | `(#ref-ptr reference)` | `(#let p (#ptr-mut Node) (#ref-ptr pinned))` (expression) | Safely extracts a thin ordinary or pinned reference's raw pointer with the same pointee and mutability. Lends the input handle without moving or duplicating it; the pointer retains no loan and does not extend the pointee lifetime or pinning guarantee. Slices are rejected. Raw memory access and pointer-to-reference borrowing still require unsafe context and valid lifetime/aliasing proofs. Raw pointers do not automatically implement Send or Sync. |
 | `#repr-c` | Property in `(#struct Name (#repr-c) fields)` or `(#enum Name (#repr-c) variants)` | `(#struct Header (#repr-c) ((tag #u8) (length #u32)))` (top level) | Requests C layout metadata for layout queries; does not make arbitrary Lim values FFI-safe. |
 | `#require-generated` | `(#require-generated Name GeneratorName (CompanionName...))`; companions may be omitted | `(#require-generated Work::Frame #async-fn-pinned (Work::Poll Work::poll))` (top level) | Requires one actual invocation of the named generator to have produced all listed identifiers; checked after expansion with compiler-recorded ancestry. |
+| `#requires` | `(#requires predicate)` | `(#requires (#call valid (: value value)))` (function header) | Require caller evidence and grant it inside the function. |
+| `#result` | `(#result)` | `(#result)` (postcondition operand) | Name the normally returned value. |
 | `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
 | `#send` | `(#unsafe-impl #send Type)` | `(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #send Handle)` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
 | `#set` | `(#set name value)` | `(#set count (#u32::add-wrap count 1u32))` (statement) | Reassigns a mutable local. |
@@ -3046,7 +2802,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#syntax` | `(#syntax Name (syntax ...))` | `(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))` (top level) | Declares an immutable literal syntax bundle with a unique identifier; no values are evaluated and no types are inferred. |
 | `#syntax-splice` | `(#syntax-splice Name)` | `(#await (#syntax-splice StepAwait) step)` (inside an async function) | Inserts a named bundle's elements into the surrounding list before ordinary checking and async lowering; unknown names and cycles are errors. |
 | `#target` | `(#cfg-is #target literal)` | `(#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word #u64))` (top level) | Automatically populated canonical target triple cfg key; overridable with `--cfg target=VALUE`. |
-| `#theorem` | `(#theorem name proposition)` | `(#theorem add-zero (#proof-for-all ((value #u8)) (#proof-eq (#u8::add-wrap value 0u8) value)))` (top level) | Checks a symbolic program proposition after expansion and ordinary safety validation. Quantified claims cover every modeled input and feasible path; unsupported semantics and exhausted verification budgets fail. Emits no runtime code. |
 | `#thread-task` | `(#thread-task TaskType worker [spawn-signature join-signature])` | `(#thread-task ReadTask read-value)` (generated declaration) | Declares a concrete task type and its named worker; generated builtins are compiler-managed. |
 | `#thread-task-join` | `(#thread-task-join FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-join ReadTask::join ((task ReadTask)) ReadTask::JoinResult)` (generated signature) | Internal generated function signature for joining a task and retrieving its result. |
 | `#thread-task-spawn` | `(#thread-task-spawn FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-spawn ReadTask::spawn ((input #u64)) ReadTask::SpawnResult)` (generated signature) | Internal generated function signature for creating a worker task. |
@@ -3066,6 +2821,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#usize` | `#usize` | `(#fn identity ((value #usize)) #usize (#return value))` (function signature) | Unsigned integer scalar type with the target's native pointer width. |
 | `#variant-is` | `(#variant-is enum-reference Variant)` | `(#let is-some #bool (#variant-is value Some))` (expression) | Tests an enum reference's active variant without consuming the reference or enum; accepts ordinary or pinned shared/exclusive references. It does not statically refine later payload projections, which retain their runtime active-variant check. |
 | `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64::gt x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
+| `#where` | `(#where (value Type) predicate ...)` | `(#where (value #u64) (#call valid (: value value)))` (type expression) | Attach conjunctive fixed predicate requirements to a base type. |
 | `#while` | `(#while condition body...)` | `(#while (#u64::lt i 4u64) (#set i (#u64::add-wrap i 1u64)))` (statement) | Repeats while its boolean condition is true. |
 | `#while-let` | `(#while-let pattern value body...)` | `(#while-let (Some x) next (#set total x))` (statement) | Evaluates the value once per iteration, matches that same value, and runs the body while the pattern succeeds. A mismatch exits without running the body. Inside async functions, the scrutinee may remain synchronous while the body suspends. |
 | `#word-forget` | `(#word-forget LayoutType mutable-word-slice)` | `(#unsafe (#word-forget Pair words))` (statement) | Explicitly retires reference provenance in the flat words occupied by `LayoutType` without loading a typed value or reading, zeroing, or freeing its backing bytes. The numeric buffer stays initialized; a typed write is needed before recovering forgotten reference slots. Requires unsafe, sufficient capacity, and unique mutable access. The caller must have destroyed or deliberately forgotten any owned contents; separate escaped and neighboring loans remain checked. |
@@ -3413,6 +3169,47 @@ generators retain their own positional literal interface. For example:
 (#generate #optional (: type #u64 : name Maybe?))
 (#generate #result (: ok #u64 : error #u32 : name Result))
 ```
+
+### Fixed-array APIs
+
+`(#generate #array (: element T : length N : name Name))` emits an alias for
+`(#array T N)` and ordinary functions. `N` must be an unsuffixed nonnegative
+integer literal that fits `#usize`. The generated functions use the existing
+named-call syntax:
+
+| Function | Parameters | Result | Contract |
+| --- | --- | --- | --- |
+| `Name::in-bounds` | `index: #usize` | `#bool` | Runtime comparison `index < N`. |
+| `Name::prove-in-bounds` | `index: #usize` | `()` | Requires `Name::in-bounds(index)`; ensures the exact `#usize::lt index N` claim. |
+| `Name::get` | `values: (#ref Name)`, `index: #usize` | `T` | Requires `#usize::lt index N`; emitted only for Copy elements. |
+| `Name::borrow` | `values: (#ref Name)`, `index: #usize` | `(#ref T)` | Requires `#usize::lt index N`. |
+| `Name::borrow-mut` | `values: (#ref-mut Name)`, `index: #usize` | `(#ref-mut T)` | Requires `#usize::lt index N`. |
+
+```lisp run=42
+(#generate #array (: element #u64 : length 4 : name Array4))
+(#fn main () #u64
+  (#let values Array4 (#array-of 10 42 30 40))
+  (#let index #usize 1usize)
+  (#return
+    (#if-valid (#call Array4::in-bounds (: index index))
+      (#block
+        (#call Array4::prove-in-bounds (: index index))
+        (#call Array4::get (: values (#borrow values) : index index)))
+      0u64)))
+```
+
+The validator is an opaque named predicate. The explicit `prove-in-bounds` call
+connects its claim to the comparison required by the accessors. Checking the
+comparison directly with `#if-valid` supplies that exact claim without the
+helper. The checker never unfolds a predicate body or infers a different bound.
+The accessors use `#index-proven`: production omits the bounds check, while
+instrumented builds audit the access. Normal borrowing and ownership checks
+apply, including for linear elements. The generated helper is an ordinary
+function with the same audited `#ensures` promise as handwritten helpers.
+See [generated_array.lim](../examples/generated_array.lim) for an explicit
+conversion between two comparison bounds.
+
+### Optional and result APIs
 
 `(#generate #optional (: type T : name Name))` always creates an enum with `Name-some`
 and `Name-none`, plus the free-standing `Name-construct` constructor. When the

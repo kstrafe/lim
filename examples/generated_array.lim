@@ -1,0 +1,16 @@
+(#generate #array (: element #u64 : length 4 : name Array4))
+
+(#fn widen ((index #usize)) ()
+  (#requires (#call #usize::lt (: left index : right 2usize)))
+  (#ensures (#call #usize::lt (: left index : right 4usize)))
+  (#return ()))
+
+(#fn main () #u64
+  (#let values Array4 (#array-of 10 42 30 40))
+  (#let index #usize 1usize)
+  (#return
+    (#if-valid (#call #usize::lt (: left index : right 2usize))
+      (#block
+        (#call widen (: index index))
+        (#call Array4::get (: values (#borrow values) : index index)))
+      0u64)))

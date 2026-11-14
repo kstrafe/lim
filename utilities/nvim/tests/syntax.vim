@@ -58,65 +58,14 @@ for [s:token, s:group] in [
   endif
 endfor
 
-" Canonical proof forms use exact tokens; similar names remain generic keywords.
-call s:check('#theorem', 'limDeclaration')
-for s:proof in [
-      \ 'parameter-of',
-      \ 'proof-and',
-      \ 'proof-or',
-      \ 'proof-not',
-      \ 'proof-implies',
-      \ 'proof-calls-directly',
-      \ 'proof-calls-transitively',
-      \ 'proof-calls-before',
-      \ 'proof-calls-when',
-      \ 'proof-no-effects',
-      \ 'proof-only-unsafe',
-      \ 'proof-stack-at-most',
-      \ 'proof-for-all',
-      \ 'proof-eq',
-      \ 'proof-contract',
-      \ 'proof-requires-validation',
-      \ 'proof-result',
-      \ 'proof-old',
-      \ 'proof-no-overflow',
-      \ 'proof-with-invariants',
-      \ 'proof-loop-limit',
-      \ 'proof-sorted',
-      \ 'proof-permutation',
-      \ 'proof-unique',
-      \ 'proof-allocation',
-      \ 'proof-io',
-      \ 'proof-global-write',
-      \ 'proof-unsafe',
-      \ 'proof-external',
-      \ 'proof-asm',
-      \ 'proof-mutation']
-  call s:check('#' . s:proof, 'limProof')
-  call s:check(s:proof, '')
-  call s:check('#' . s:proof . '-custom', 'limKeyword')
+" Contract forms use exact tokens; keywords never consume identifier suffixes.
+for s:contract in ['requires', 'ensures', 'preserves', 'assume', 'if-valid', 'where', 'old', 'result', 'index-proven']
+  call s:check('#' . s:contract, 'limContract')
+  call s:check(s:contract, '')
+  call s:check('#' . s:contract . '-custom', 'limKeyword')
 endfor
-call s:check('#proof-custom', 'limKeyword')
-call s:check('proof', '')
-for s:legacy in ['proof-definition', 'proof-theorem', 'proof-inductive']
-  call s:check('#' . s:legacy, 'limKeyword')
-endfor
-for s:declaration in ['theorem']
-  call s:check(s:declaration, '')
-  call s:check('#' . s:declaration . '-custom', 'limKeyword')
-endfor
-
-" Selector heads are metadata; their function/parameter operands are identifiers.
-call setline(1, '(#theorem safe (#proof-requires-validation entry (#parameter-of validate user) (#parameter-of perform user)))')
-for [s:token, s:group] in [['#theorem', 'limDeclaration'],
-      \ ['#proof-requires-validation', 'limProof'], ['#parameter-of', 'limProof'],
-      \ ['safe', ''], ['entry', ''],
-      \ ['validate', ''], ['perform', ''], ['user', '']]
-  let s:column = stridx(getline(1), s:token) + 1
-  for s:byte in range(s:column, s:column + strlen(s:token) - 1)
-    call assert_equal(s:group, synIDattr(synID(1, s:byte, 1), 'name'), s:token)
-  endfor
-endfor
+call s:check('#theorem', 'limKeyword')
+call s:check('#proof-contract', 'limKeyword')
 call s:check('#proof-requires-validation-unknown', 'limKeyword')
 call s:check('#parameter-of-unknown', 'limKeyword')
 
@@ -128,6 +77,13 @@ for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],
 endfor
 call assert_equal('Type', synIDattr(synIDtrans(hlID('limType')), 'name'))
 call assert_equal('Operator', synIDattr(synIDtrans(hlID('limOperator')), 'name'))
+call setline(1, '(#generate #array (: element #u64 : length 4 : name Array4)) (#if-valid (#call #usize::lt (: left index : right 4usize)) (#call Array4::get (: values values : index index)) 0u64)')
+for [s:token, s:group] in [['#generate', 'limGenerated'], ['#array', 'limTypeForm'],
+      \ ['#u64', 'limType'], ['#if-valid', 'limContract'], ['#call', 'limKeyword'],
+      \ ['#usize::lt', 'limOperator']]
+  let s:column = stridx(getline(1), s:token) + 1
+  call assert_equal(s:group, synIDattr(synID(1, s:column, 1), 'name'))
+endfor
 call assert_equal(synIDattr(synIDtrans(hlID('Keyword')), 'name'),
       \ synIDattr(synIDtrans(hlID('limPin')), 'name'))
 

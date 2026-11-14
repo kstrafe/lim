@@ -21,36 +21,6 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
-            name: "proof-contract-precondition",
-            diagnostic_code: "E4407",
-            offending_line: "  (#proof-using (increment-contract)",
-            line_number: 7,
-        },
-        Case {
-            name: "proof-induction-negation",
-            diagnostic_code: "E4405",
-            offending_line: "  (#proof-with-invariants",
-            line_number: 11,
-        },
-        Case {
-            name: "proof-mutated-reference",
-            diagnostic_code: "E4401",
-            offending_line: "  (#proof-contract overwrite",
-            line_number: 6,
-        },
-        Case {
-            name: "validation-wrong-object",
-            diagnostic_code: "E4401",
-            offending_line: "  (#proof-requires-validation main",
-            line_number: 12,
-        },
-        Case {
-            name: "proof-disproved",
-            diagnostic_code: "E4401",
-            offending_line: "  (#proof-eq 1u64 2u64))",
-            line_number: 2,
-        },
-        Case {
             name: "call-graph-arity",
             diagnostic_code: "E4000",
             offending_line: "  (#let trace (#slice #char) (#call-graph 42u64))",
@@ -1310,11 +1280,6 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
-            "proof-contract-precondition" => Some("(#proof-using (increment-contract)"),
-            "proof-induction-negation" => Some("(#proof-with-invariants"),
-            "proof-mutated-reference" => Some("(#proof-contract overwrite"),
-            "proof-disproved" => Some("(#proof-eq 1u64 2u64)"),
-            "validation-wrong-object" => Some("(#proof-requires-validation main"),
             "reserved-generator-name" => Some("#future-generator"),
             "reserved-local-name" => Some("#local"),
             "println-missing-std" | "println-arity" => Some("#println"),

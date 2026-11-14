@@ -1159,8 +1159,8 @@ fn check_expr(
                 for arg in items.iter().skip(1) {
                     check_expr(arg, bindings, moved, globals, false, types)?;
                 }
-            } else if matches!(head, "get" | "get-payload" | "index") {
-                if head == "index" && items.len() == 3 {
+            } else if matches!(head, "get" | "get-payload" | "index" | "index-proven") {
+                if crate::is_array_index_head(head) && items.len() == 3 {
                     check_expr(&items[2], bindings, moved, globals, false, types)?;
                 }
                 if !place {
@@ -1522,7 +1522,7 @@ fn place_key(expr: &Expr) -> Option<Place> {
                     Expr::Integer(index) => Projection::Tuple((*index).try_into().ok()?),
                     _ => return None,
                 })),
-                "index" if items.len() == 3 => Some(
+                "index" | "index-proven" if items.len() == 3 => Some(
                     base.project(
                         literal_index(&items[2])
                             .map(Projection::Index)

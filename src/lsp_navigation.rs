@@ -73,9 +73,7 @@ impl<'a> Index<'a> {
                     || (program.is_none()
                         && matches!(
                             head(node),
-                            "theorem"
-                                | "fn"
-                                | "unsafe-fn"
+                            "fn" | "unsafe-fn"
                                 | "extern-fn"
                                 | "struct"
                                 | "enum"
@@ -273,6 +271,12 @@ impl<'a> Index<'a> {
         let at = |i| xs.get(i).and_then(|node| self.value_type(node, scope));
         let result = match head(node) {
             "call" | "unsafe-call" => {
+                if let Some(intrinsic) = crate::intrinsics::declaration(symbol(xs.get(1)?)?)
+                    .ok()
+                    .flatten()
+                {
+                    return Some(intrinsic.return_type);
+                }
                 let declaration = self.declaration(symbol(xs.get(1)?)?)?;
                 ty(declaration.children.get(name_index(declaration) + 2)?)
             }
@@ -298,8 +302,8 @@ impl<'a> Index<'a> {
             | "pin-get-payload-mut"
             | "pin-get-payload-unchecked"
             | "pin-get-payload-unchecked-mut" => self.variant_payload(symbol(xs.get(2)?)?),
-            "proof-result" => at(1).or_else(|| scope.get("\0proof-result")?.ty.clone()),
-            "proof-old"
+            "result" => scope.get("\0contract-result")?.ty.clone(),
+            "old"
             | "deref"
             | "pin-read"
             | "ptr-read"
@@ -332,12 +336,14 @@ impl<'a> Index<'a> {
                 Some(Type::Tuple(vec![kind.clone(), kind]))
             }
             "word-view" => ty(xs.get(1)?),
-            "index" | "slice-idx" | "slice-mut-idx" => match self.expanded(at(1)?)? {
-                Type::Array(element, _) | Type::Slice(element) | Type::MutableSlice(element) => {
-                    Some(*element)
+            "index" | "index-proven" | "slice-idx" | "slice-mut-idx" => {
+                match self.expanded(at(1)?)? {
+                    Type::Array(element, _)
+                    | Type::Slice(element)
+                    | Type::MutableSlice(element) => Some(*element),
+                    _ => None,
                 }
-                _ => None,
-            },
+            }
             "unsafe" | "block" => {
                 let mut inner = scope.clone();
                 for statement in xs.iter().skip(1).take(xs.len().saturating_sub(2)) {
@@ -345,7 +351,7 @@ impl<'a> Index<'a> {
                 }
                 self.value_type(xs.last()?, &inner)
             }
-            "if" => {
+            "if" | "if-valid" => {
                 let left = at(2);
                 let right = at(3);
                 match (left, right) {
@@ -555,6 +561,26 @@ impl<'a> Index<'a> {
         if let Some(name) = symbol(node) {
             return self.global(name);
         }
+        if head(node) == "where" {
+            let mut scope = Scope::new();
+            if let Some(binding) = node.children.get(1).filter(|b| b.children.len() == 2) {
+                if let Some(name) = binding.children.first() {
+                    if self.contains(name) {
+                        return vec![name.span];
+                    }
+                    if let Some(kind) = binding.children.get(1).filter(|k| self.contains(k)) {
+                        return self.type_reference(kind);
+                    }
+                    self.bind_pattern(name, binding.children.get(1).and_then(ty), &mut scope);
+                }
+                for predicate in node.children.iter().skip(2) {
+                    if self.contains(predicate) {
+                        return self.walk(predicate, &mut scope, &Scope::new());
+                    }
+                }
+            }
+            return vec![];
+        }
         for child in &node.children {
             if self.contains(child) {
                 return self.type_reference(child);
@@ -582,6 +608,13 @@ impl<'a> Index<'a> {
     fn function(&self, node: &Node) -> Vec<Span> {
         let ni = name_index(node);
         let mut scope = Scope::new();
+        scope.insert(
+            "\0contract-result".into(),
+            Binding {
+                spans: Vec::new(),
+                ty: node.children.get(ni + 2).and_then(ty),
+            },
+        );
         if let Some(name) = node.children.get(ni).filter(|node| self.contains(node)) {
             return vec![name.span];
         }
@@ -617,417 +650,6 @@ impl<'a> Index<'a> {
             &Scope::new(),
         )
     }
-    // Proof function operands use the canonical declaration table, never a
-    // same-spelled lexical value or an arbitrary global declaration.
-    fn proof_function(&self, node: &Node) -> Option<&'a Node> {
-        let name = symbol(node)?;
-        self.declaration(name.strip_prefix('@').unwrap_or(name))
-            .filter(|node| matches!(head(node), "fn" | "unsafe-fn" | "extern-fn"))
-    }
-    fn proof_parameters(&self, function: &Node) -> Scope {
-        let mut scope = Scope::new();
-        if let Some(args) = function.children.get(name_index(function) + 1) {
-            for arg in &args.children {
-                let index = usize::from(head(arg) == "mut");
-                if let Some(name) = arg.children.get(index) {
-                    self.explicit_locals.borrow_mut().insert(name.span);
-                    self.bind_pattern(name, arg.children.get(index + 1).and_then(ty), &mut scope);
-                }
-            }
-        }
-        // Result projections in contract predicates carry the function's
-        // declared return type; this key cannot be a source identifier.
-        scope.insert(
-            "\0proof-result".to_owned(),
-            Binding {
-                spans: vec![],
-                ty: function.children.get(name_index(function) + 2).and_then(ty),
-            },
-        );
-        scope
-    }
-    // Reconstruct the lexical environment at a label without using the proof
-    // cursor's byte offset: the function can live in another source file.
-    fn proof_loop_scopes(
-        &self,
-        nodes: &[Node],
-        mut scope: Scope,
-        label: &str,
-        found: &mut Vec<(Span, Scope)>,
-    ) {
-        for node in nodes {
-            let xs = &node.children;
-            match head(node) {
-                "label" => {
-                    if let Some(name) = xs.get(1).filter(|name| symbol(name) == Some(label)) {
-                        found.push((name.span, scope.clone()));
-                    }
-                    self.proof_loop_scopes(
-                        xs.get(2..).unwrap_or_default(),
-                        scope.clone(),
-                        label,
-                        found,
-                    );
-                }
-                "block" | "unsafe" | "loop" => {
-                    self.proof_loop_scopes(&xs[1..], scope.clone(), label, found);
-                }
-                "while" => {
-                    self.proof_loop_scopes(
-                        xs.get(2..).unwrap_or_default(),
-                        scope.clone(),
-                        label,
-                        found,
-                    );
-                }
-                "for" => {
-                    let mut inner = scope.clone();
-                    if let Some(initializer) = xs.get(1) {
-                        self.bind_statement(initializer, &mut inner);
-                    }
-                    self.proof_loop_scopes(xs.get(4..).unwrap_or_default(), inner, label, found);
-                }
-                "for-range" => {
-                    let mut inner = scope.clone();
-                    if let Some(binding) = xs.get(1) {
-                        if let Some(name) = binding.children.first() {
-                            self.explicit_locals.borrow_mut().insert(name.span);
-                            self.bind_pattern(
-                                name,
-                                binding.children.get(1).and_then(ty),
-                                &mut inner,
-                            );
-                        }
-                    }
-                    self.proof_loop_scopes(xs.get(4..).unwrap_or_default(), inner, label, found);
-                }
-                "if-let" | "while-let" => {
-                    let explicit = head(node) == "if-let";
-                    let mut inner = scope.clone();
-                    if let Some(pattern) = xs.get(1) {
-                        let kind = if explicit {
-                            xs.get(2).and_then(ty)
-                        } else {
-                            xs.get(2).and_then(|value| self.value_type(value, &scope))
-                        };
-                        self.bind_pattern(pattern, kind, &mut inner);
-                    }
-                    let start = if explicit { 4 } else { 3 };
-                    let end = if explicit { xs.len().min(5) } else { xs.len() };
-                    self.proof_loop_scopes(
-                        xs.get(start..end).unwrap_or_default(),
-                        inner,
-                        label,
-                        found,
-                    );
-                    if explicit {
-                        self.proof_loop_scopes(
-                            xs.get(5..).unwrap_or_default(),
-                            scope.clone(),
-                            label,
-                            found,
-                        );
-                    }
-                }
-                "match" => {
-                    for arm in xs.iter().skip(2) {
-                        let mut inner = scope.clone();
-                        if let Some(pattern) = arm.children.get(1) {
-                            let kind = xs.get(1).and_then(|value| self.value_type(value, &scope));
-                            if matches!(
-                                head(arm),
-                                "case-ref" | "case-ref-mut" | "case-pin" | "case-pin-mut"
-                            ) {
-                                let mut wrapper = arm.clone();
-                                wrapper.children =
-                                    vec![arm.children[0].clone(), pattern.clone()].into();
-                                self.bind_pattern(&wrapper, kind, &mut inner);
-                            } else {
-                                self.bind_pattern(pattern, kind, &mut inner);
-                            }
-                        }
-                        self.proof_loop_scopes(
-                            arm.children.get(2..).unwrap_or_default(),
-                            inner,
-                            label,
-                            found,
-                        );
-                    }
-                }
-                "fn" | "unsafe-fn" | "extern-fn" => {}
-                _ => {
-                    // Each expression operand gets a fresh scope. Its own
-                    // block/branch walker controls statement visibility.
-                    for child in xs.iter().skip(1) {
-                        self.proof_loop_scopes(
-                            std::slice::from_ref(child),
-                            scope.clone(),
-                            label,
-                            found,
-                        );
-                    }
-                }
-            }
-            self.bind_statement(node, &mut scope);
-        }
-    }
-    // Kernel terms have their own namespaces. Their types are terms, not
-    // runtime Types, and bare names never fall back to global declarations.
-    fn theorem(&self, node: &Node) -> Vec<Span> {
-        let xs = &node.children;
-        if let Some(name) = xs.get(1).filter(|name| self.contains(name)) {
-            return vec![name.span];
-        }
-        xs.get(2)
-            .map(|claim| self.walk(claim, &mut Scope::new(), &Scope::new()))
-            .unwrap_or_default()
-    }
-    fn proof(&self, node: &Node, scope: &Scope, labels: &Scope) -> Vec<Span> {
-        let xs = &node.children;
-        let form = head(node);
-        if form == "proof-for-all" {
-            let mut inner = scope.clone();
-            if let Some(bindings) = xs.get(1) {
-                for binding in &bindings.children {
-                    if let Some(kind) = binding.children.get(1).filter(|kind| self.contains(kind)) {
-                        return self.type_reference(kind);
-                    }
-                    if let Some(name) = binding.children.first() {
-                        self.explicit_locals.borrow_mut().insert(name.span);
-                        let target = self.bind_pattern(
-                            name,
-                            binding.children.get(1).and_then(ty),
-                            &mut inner,
-                        );
-                        if !target.is_empty() {
-                            return target;
-                        }
-                    }
-                }
-            }
-            return xs
-                .get(2)
-                .map(|body| self.walk(body, &mut inner, labels))
-                .unwrap_or_default();
-        }
-        if form == "proof-with-invariants" {
-            if let Some(entries) = xs.get(1).filter(|entries| self.contains(entries)) {
-                for entry in &entries.children {
-                    if !self.contains(entry) {
-                        continue;
-                    }
-                    let Some(function) = entry
-                        .children
-                        .first()
-                        .and_then(|name| self.proof_function(name))
-                    else {
-                        return vec![];
-                    };
-                    if self.contains(&entry.children[0]) {
-                        return vec![function.children[name_index(function)].span];
-                    }
-                    let Some(label) = entry.children.get(1).and_then(symbol) else {
-                        return vec![];
-                    };
-                    let mut found = Vec::new();
-                    self.proof_loop_scopes(
-                        function
-                            .children
-                            .get(name_index(function) + 3..)
-                            .unwrap_or_default(),
-                        self.proof_parameters(function),
-                        label,
-                        &mut found,
-                    );
-                    if found.len() != 1 {
-                        return vec![];
-                    }
-                    let (span, mut inner) = found.pop().unwrap();
-                    if self.contains(&entry.children[1]) {
-                        return vec![span];
-                    }
-                    for predicate in entry
-                        .children
-                        .iter()
-                        .skip(2)
-                        .filter(|node| self.contains(node))
-                    {
-                        return self.walk(predicate, &mut inner, &Scope::new());
-                    }
-                }
-                return vec![];
-            }
-            return xs
-                .get(2)
-                .map(|body| self.walk(body, &mut scope.clone(), labels))
-                .unwrap_or_default();
-        }
-        if form == "proof-using" {
-            if let Some(references) = xs.get(1) {
-                for reference in &references.children {
-                    if self.contains(reference) {
-                        let target = self.global(symbol(reference).unwrap_or_default());
-                        if !target.is_empty() {
-                            return target;
-                        }
-                    }
-                }
-            }
-            return xs
-                .get(2)
-                .map(|body| self.walk(body, &mut scope.clone(), labels))
-                .unwrap_or_default();
-        }
-        let functions = match form {
-            "proof-calls-directly" | "proof-calls-transitively" => 2,
-            "proof-calls-before" | "proof-calls-when" => 3,
-            "proof-no-effects" | "proof-only-unsafe" | "proof-stack-at-most" | "proof-contract" => {
-                1
-            }
-            _ => 0,
-        };
-        if form == "proof-requires-validation" {
-            if let Some(entry) = xs.get(1).filter(|node| self.contains(node)) {
-                return self
-                    .proof_function(entry)
-                    .map(|function| vec![function.children[name_index(function)].span])
-                    .unwrap_or_default();
-            }
-            for descriptor in xs.iter().skip(2).filter(|node| self.contains(node)) {
-                if descriptor.children.len() != 3
-                    || descriptor.children.first().and_then(symbol) != Some("#parameter-of")
-                {
-                    return vec![];
-                }
-                let Some(function) = descriptor
-                    .children
-                    .get(1)
-                    .and_then(|name| self.proof_function(name))
-                else {
-                    return vec![];
-                };
-                if self.contains(&descriptor.children[1]) {
-                    return vec![function.children[name_index(function)].span];
-                }
-                if self.contains(&descriptor.children[2]) {
-                    let parameters = self.proof_parameters(function);
-                    return symbol(&descriptor.children[2])
-                        .and_then(|name| parameters.get(name))
-                        .map(|binding| binding.spans.clone())
-                        .unwrap_or_default();
-                }
-            }
-            return vec![];
-        }
-        if form == "proof-validated" {
-            if let Some(object) = xs.get(2).filter(|node| self.contains(node)) {
-                return self.walk(object, &mut scope.clone(), labels);
-            }
-            let Some(descriptor) = xs.get(1) else {
-                return vec![];
-            };
-            if descriptor.children.len() != 3
-                || descriptor.children.first().and_then(symbol) != Some("#parameter-of")
-            {
-                return vec![];
-            }
-            let Some(function) = descriptor
-                .children
-                .get(1)
-                .and_then(|name| self.proof_function(name))
-            else {
-                return vec![];
-            };
-            if self.contains(&descriptor.children[1]) {
-                return vec![function.children[name_index(function)].span];
-            }
-            if self.contains(&descriptor.children[2]) {
-                let parameters = self.proof_parameters(function);
-                return symbol(&descriptor.children[2])
-                    .and_then(|name| parameters.get(name))
-                    .map(|binding| binding.spans.clone())
-                    .unwrap_or_default();
-            }
-            return vec![];
-        }
-        // calls-when's observed boolean is between its second and third functions.
-        for index in 1..=functions {
-            let index = if form == "proof-calls-when" && index == 3 {
-                4
-            } else {
-                index
-            };
-            if let Some(operand) = xs.get(index).filter(|node| self.contains(node)) {
-                return self
-                    .proof_function(operand)
-                    .map(|function| vec![function.children[name_index(function)].span])
-                    .unwrap_or_default();
-            }
-        }
-        match form {
-            "proof-only-unsafe" => {
-                if let Some(allowed) = xs.get(2).filter(|node| self.contains(node)) {
-                    for entry in allowed.children.iter().filter(|node| self.contains(node)) {
-                        // Builtin spellings are metadata. Unprefixed entries
-                        // are canonical function boundaries, not lexical values.
-                        if symbol(entry).is_some_and(|name| name.starts_with('#')) {
-                            return vec![];
-                        }
-                        return self
-                            .proof_function(entry)
-                            .map(|function| vec![function.children[name_index(function)].span])
-                            .unwrap_or_default();
-                    }
-                }
-            }
-            "proof-contract" => {
-                let Some(function) = xs.get(1).and_then(|name| self.proof_function(name)) else {
-                    return vec![];
-                };
-                let mut inner = self.proof_parameters(function);
-                for predicate in xs.iter().skip(2).filter(|node| self.contains(node)) {
-                    return self.walk(predicate, &mut inner, &Scope::new());
-                }
-            }
-            "proof-calls-directly"
-            | "proof-calls-transitively"
-            | "proof-calls-before"
-            | "proof-calls-when"
-            | "proof-requires-validation"
-            | "proof-validated"
-            | "proof-no-effects"
-            | "proof-stack-at-most"
-            | "proof-allocation"
-            | "proof-io"
-            | "proof-global-write"
-            | "proof-unsafe"
-            | "proof-external"
-            | "proof-asm"
-            | "proof-mutation" => {}
-            "proof-sorted" => {
-                if let Some(comparator) = xs.get(2).filter(|node| self.contains(node)) {
-                    return self
-                        .proof_function(comparator)
-                        .map(|function| vec![function.children[name_index(function)].span])
-                        .unwrap_or_default();
-                }
-                if let Some(array) = xs.get(1) {
-                    return self.walk(array, &mut scope.clone(), labels);
-                }
-            }
-            _ => {
-                let start = if matches!(form, "proof-no-overflow" | "proof-loop-limit") {
-                    2
-                } else {
-                    1
-                };
-                for operand in xs.iter().skip(start).filter(|node| self.contains(node)) {
-                    return self.walk(operand, &mut scope.clone(), labels);
-                }
-            }
-        }
-        vec![]
-    }
     fn walk(&self, node: &Node, scope: &mut Scope, labels: &Scope) -> Vec<Span> {
         if !self.contains(node) {
             return vec![];
@@ -1040,39 +662,12 @@ impl<'a> Index<'a> {
         }
         let xs = &node.children;
         match head(node) {
-            "theorem" => return self.theorem(node),
-            "proof-and"
-            | "proof-or"
-            | "proof-not"
-            | "proof-implies"
-            | "proof-calls-directly"
-            | "proof-calls-transitively"
-            | "proof-calls-before"
-            | "proof-calls-when"
-            | "proof-no-effects"
-            | "proof-only-unsafe"
-            | "proof-stack-at-most"
-            | "proof-for-all"
-            | "proof-using"
-            | "proof-eq"
-            | "proof-requires-validation"
-            | "proof-validated"
-            | "proof-contract"
-            | "proof-result"
-            | "proof-old"
-            | "proof-no-overflow"
-            | "proof-with-invariants"
-            | "proof-loop-limit"
-            | "proof-sorted"
-            | "proof-permutation"
-            | "proof-unique"
-            | "proof-allocation"
-            | "proof-io"
-            | "proof-global-write"
-            | "proof-unsafe"
-            | "proof-external"
-            | "proof-asm"
-            | "proof-mutation" => return self.proof(node, scope, labels),
+            "requires" | "ensures" | "preserves" | "assume" | "old" => {
+                return xs
+                    .get(1)
+                    .map_or_else(Vec::new, |inner| self.walk(inner, scope, labels));
+            }
+            "result" => return vec![],
             "fn" | "unsafe-fn" | "extern-fn" | "thread-task-spawn" | "thread-task-join" => {
                 return self.function(node)
             }
@@ -1261,7 +856,7 @@ impl<'a> Index<'a> {
                 }
                 return self.sequence(xs.get(4..).unwrap_or_default(), &mut inner, labels);
             }
-            "if" => {
+            "if" | "if-valid" => {
                 for child in xs.iter().skip(1).filter(|node| self.contains(node)) {
                     return self.walk(child, &mut scope.clone(), labels);
                 }
@@ -1773,11 +1368,6 @@ impl<'a> Index<'a> {
         // generator arguments and templates. Navigate the resolved identifier,
         // not a same-spelled generator parameter or runtime local.
         fn qualified(index: &Index<'_>, node: &Node) -> Option<Vec<Span>> {
-            if matches!(head(node), "proof-requires-validation" | "proof-validated") {
-                // Validation selectors have exact contextual roles too. An
-                // @name inside a malformed selector must not bypass them.
-                return None;
-            }
             if !index.contains(node) {
                 return None;
             }

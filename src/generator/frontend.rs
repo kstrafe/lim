@@ -111,6 +111,7 @@ pub(crate) fn copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
         generated_source_invocations: HashMap::new(),
         generated_definition_contexts: HashMap::new(),
         syntax_bundle_uses: HashMap::new(),
+        contracts: crate::contracts::Metadata::default(),
         generator_validation: None,
     };
     let linear_types = linearcheck::LinearTypes::from_program(&program);
@@ -135,7 +136,7 @@ pub(crate) fn copy_type_names(expressions: &[SpannedExpr]) -> HashSet<String> {
                 if matches!(head.as_str(), "#type" | "#struct" | "#enum")))
             || matches!(&expression.expr, Expr::List(items)
                 if matches!(items.first(), Some(Expr::Generate))
-                && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#optional" | "#result")))
+                && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#optional" | "#result" | "#array")))
         })
         .filter_map(|expression| {
             let invocation = normalize_builtin_generator_invocation(&expression.expr).ok()?;
@@ -527,6 +528,7 @@ pub(crate) fn expand_prepared_program(
 }
 
 pub(crate) struct PreparedProgramSyntax {
+    contract_checks: bool,
     graph_dependency_context: String,
     pub(crate) bundles: syntax_bundle::Bundles,
     pub(crate) capture_cache_directory: Option<PathBuf>,
@@ -852,7 +854,7 @@ pub(crate) fn prepare_program_syntax(
     let needs_copy_types = needs_async || expressions.iter().any(|expression| {
         matches!(&expression.expr, Expr::List(items)
             if matches!(items.first(), Some(Expr::Generate))
-            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#optional" | "#result")))
+            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#optional" | "#result" | "#array")))
     });
     let async_copy_types = if needs_copy_types {
         copy_type_names(&expressions)
@@ -878,6 +880,10 @@ pub(crate) fn prepare_program_syntax(
         })
         .collect();
     Ok(PreparedProgramSyntax {
+        contract_checks: config
+            .values
+            .get("contracts")
+            .is_some_and(|v| matches!(v.as_str(), "check" | "test")),
         graph_dependency_context: {
             // Current witnesses retain spans; artifact identity retains only
             // semantic dependencies and configuration, independent of location.
@@ -1065,6 +1071,7 @@ pub(crate) fn parse_prepared_program_items(
                     Some(
                         "#thread-spawn"
                             | "#optional"
+                            | "#array"
                             | "#result"
                             | "#vec"
                             | "#vec-alloc"
@@ -1218,6 +1225,9 @@ pub(crate) fn parse_prepared_program_items(
         &prepared.bundles.definitions,
     )?;
     synthesize_thread_join_results(&mut items, &declaration_spans, &source_files)?;
+    items.extend(crate::contracts::refinement_aliases(
+        &declaration_expressions,
+    )?);
     let mut items = specialize_generic_types(
         items,
         &statement_spans,
@@ -1256,8 +1266,15 @@ pub(crate) fn parse_prepared_program_items(
         generated_source_invocations,
         generated_definition_contexts,
         syntax_bundle_uses: prepared.bundles.uses.clone(),
+        contracts: crate::contracts::Metadata::default(),
         generator_validation: None,
     };
+    if expand_async {
+        crate::contracts::prepare(&mut program, prepared.contract_checks)?;
+    } else {
+        program.contracts.instrumented = prepared.contract_checks;
+        crate::contracts::erase_planning(&mut program)?;
+    }
     async_source::attach_validation(&mut program, &async_functions);
     if expand_async {
         crate::file_access::validate(&program)?;
@@ -1267,6 +1284,9 @@ pub(crate) fn parse_prepared_program_items(
     }
     if expand_async {
         validate_generation_requirements(prepared, &[])?;
+    }
+    if !program.contracts.originals.is_empty() {
+        program.contracts.lowered_items = program.items.clone();
     }
     Ok(program)
 }
@@ -1307,7 +1327,13 @@ fn validate_generation_requirements(
             let kind = expect_symbol(forms.get(1), "generated declaration name")?;
             if !matches!(
                 kind,
-                "#thread-spawn" | "#optional" | "#result" | "#vec" | "#vec-alloc" | "#vec-sort"
+                "#thread-spawn"
+                    | "#optional"
+                    | "#result"
+                    | "#array"
+                    | "#vec"
+                    | "#vec-alloc"
+                    | "#vec-sort"
             ) {
                 continue;
             }
@@ -1490,7 +1516,13 @@ fn write_prepared_generated_sources_reusing_graph(
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
         if !matches!(
             kind,
-            "#thread-spawn" | "#vec" | "#vec-alloc" | "#vec-sort" | "#optional" | "#result"
+            "#thread-spawn"
+                | "#vec"
+                | "#vec-alloc"
+                | "#vec-sort"
+                | "#optional"
+                | "#result"
+                | "#array"
         ) {
             continue;
         }

@@ -3799,6 +3799,7 @@ impl FlowGraph {
                     | "pin-get-payload-unchecked"
                     | "pin-get-payload-unchecked-mut"
                     | "index"
+                    | "index-proven"
                     | "borrow"
                     | "borrow-mut"
                     | "borrow-slice"
@@ -4575,6 +4576,7 @@ impl FlowGraph {
                                         | "get"
                                         | "get-payload"
                                         | "index"
+                                        | "index-proven"
                                         | "unsafe"
                                         | "borrow"
                                         | "borrow-mut"
@@ -8695,6 +8697,7 @@ impl FlowGraph {
                         | "pin-get-payload-unchecked"
                         | "pin-get-payload-unchecked-mut"
                         | "index"
+                        | "index-proven"
                         | "borrow"
                         | "borrow-mut"
                         | "pin-own-borrow"
@@ -13439,7 +13442,10 @@ fn released_reference_destinations(
     if head == "unsafe" && children.len() == 2 {
         return released_reference_destinations(body, flow, before, *base, state);
     }
-    if matches!(head.as_str(), "get" | "get-payload" | "index") {
+    if matches!(
+        head.as_str(),
+        "get" | "get-payload" | "index" | "index-proven"
+    ) {
         let Some(slot) = value_projection(body, value) else {
             return Vec::new();
         };
@@ -13472,13 +13478,15 @@ fn initialized_dereferenced_read_places(
     else {
         return (None, false);
     };
-    let projection = if matches!(head.as_str(), "get" | "get-payload" | "index")
-        && children.get(1).is_some_and(|source| {
-            matches!(
-                body.nodes[source.0].ty,
-                Some(Type::Reference { .. } | Type::PinnedReference { .. })
-            )
-        }) {
+    let projection = if matches!(
+        head.as_str(),
+        "get" | "get-payload" | "index" | "index-proven"
+    ) && children.get(1).is_some_and(|source| {
+        matches!(
+            body.nodes[source.0].ty,
+            Some(Type::Reference { .. } | Type::PinnedReference { .. })
+        )
+    }) {
         let Some(projection) = value_projection(body, value) else {
             return (None, false);
         };
@@ -16938,7 +16946,10 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             origins
         }
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "get" | "get-payload" | "index") =>
+            if matches!(
+                head.as_str(),
+                "get" | "get-payload" | "index" | "index-proven"
+            ) =>
         {
             let Some(base) = children.get(1) else {
                 return Vec::new();
@@ -17171,7 +17182,7 @@ fn value_projection(body: &Body, value: NodeId) -> Option<Segment> {
             };
             Some(Segment::Payload(variant, usize::try_from(*index).ok()?))
         }
-        "index" => Some(
+        "index" | "index-proven" => Some(
             crate::typed_place::literal_index(body, *children.get(2)?)
                 .map_or(Segment::DynamicIndex, Segment::Index),
         ),
@@ -17550,7 +17561,10 @@ fn value_loan_origins_at_events(
                 })
                 .collect();
         }
-        if matches!(head.as_str(), "get" | "get-payload" | "index") {
+        if matches!(
+            head.as_str(),
+            "get" | "get-payload" | "index" | "index-proven"
+        ) {
             let Some(base) = children.get(1) else {
                 return Vec::new();
             };
@@ -17776,6 +17790,7 @@ fn borrow_address_origins(
             "get"
                 | "get-payload"
                 | "index"
+                | "index-proven"
                 | "pin-get-payload"
                 | "pin-get-payload-mut"
                 | "pin-get-payload-unchecked"
@@ -18033,6 +18048,7 @@ fn tag_preserving_evaluation(
                         | "pin-get-payload-unchecked"
                         | "pin-get-payload-unchecked-mut"
                         | "index"
+                        | "index-proven"
                         | "assert"
                         | "borrow"
                         | "borrow-mut"

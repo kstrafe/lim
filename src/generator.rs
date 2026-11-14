@@ -64,6 +64,7 @@ enum TemplateValue {
     Splice(Vec<Syntax>),
 }
 
+pub(crate) mod array;
 pub(crate) mod async_addresses;
 pub(crate) mod async_aggregate;
 pub(crate) mod async_array_anchor;
@@ -279,9 +280,11 @@ impl Origins {
     }
 
     pub(crate) fn authority_signature(&self, form: &SpannedExpr) -> String {
-        crate::generator_authority::source_context(form.span, &self.definitions)
-            .map(|definition| self.expansion_context(definition))
-            .unwrap_or_default()
+        // Direct syntax has its own file's authority, just as a template
+        // authored in that file does. Keep other producers distinct.
+        let definition = crate::generator_authority::source_context(form.span, &self.definitions)
+            .unwrap_or(form.span);
+        self.expansion_context(definition)
     }
 }
 

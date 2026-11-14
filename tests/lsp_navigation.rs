@@ -1,6 +1,37 @@
 mod support;
 
 #[test]
+fn array_generator_inputs_are_literal_data() {
+    run(
+        "(#struct Row () (: value #u64))
+         (#generate #[[generator|array]]
+           (: [[element-label|element]] [[element|Row]] : [[length-label|length]] [[length|4]] : [[name-label|name]] [[name|Rows]]))",
+        &[("generator", &[]), ("element-label", &[]), ("element", &[]), ("length-label", &[]), ("length", &[]), ("name-label", &[]), ("name", &[])],
+    );
+}
+
+#[test]
+fn callable_intrinsic_operands_navigate_but_builtin_labels_do_not() {
+    run(
+        "(#fn use (([[left|index]] #usize) ([[right|bound]] #usize)) #bool
+          (#return (#[[call|call]] #[[intrinsic|usize::lt]]
+            (: [[label-left|left]] [[left-use|index]] : [[label-right|right]] [[right-use|bound]]))))",
+        &[("call", &[]), ("intrinsic", &[]), ("label-left", &[]), ("label-right", &[]), ("left-use", &["left"]), ("right-use", &["right"])],
+    );
+}
+
+#[test]
+fn proven_index_has_value_operands_and_no_keyword_definition() {
+    run(
+        "(#struct Item () (([[field|value]] #u64)))
+         (#fn read (([[array|values]] (#ref (#array Item 4))) ([[index|position]] #usize)) #u64
+           (#requires (#usize::lt [[bound-index|position]] 4usize))
+           (#return (#get (#[[keyword|index-proven]] [[array-use|values]] [[index-use|position]]) [[field-use|value]])))",
+        &[("keyword", &[]), ("bound-index", &["index"]), ("array-use", &["array"]), ("index-use", &["index"]), ("field-use", &["field"])],
+    );
+}
+
+#[test]
 fn call_graph_has_no_user_definition_or_arguments() {
     run(
         "(#fn [[entry|main]] () #u64
@@ -649,5 +680,53 @@ fn enum_literals_navigate_only_variants_and_runtime_payloads() {
             ("use", &["binding"]),
             ("member", &["field"]),
         ],
+    );
+}
+
+#[test]
+fn contracts_resolve_predicates_subjects_and_no_keyword_definitions() {
+    run(
+        "(#fn [[predicate|valid]] ((value #u64)) #bool (#return true))
+      (#fn example (([[parameter|input]] #u64)) ()
+        (#[[requires|requires]] (#call [[use-predicate|valid]] (: value [[subject|input]])))
+        (#[[ensures|ensures]] (#call valid (: value (#[[old|old]] [[old-subject|input]]))))
+        (#[[preserves|preserves]] (#call valid (: value [[preserved-subject|input]])))
+        (#[[assume|assume]] (#call valid (: value [[assumed-subject|input]])))
+        (#[[branch|if-valid]] (#call valid (: value [[validated-subject|input]])) ())
+        (#return ()))",
+        &[
+            ("use-predicate", &["predicate"]),
+            ("subject", &["parameter"]),
+            ("old-subject", &["parameter"]),
+            ("preserved-subject", &["parameter"]),
+            ("assumed-subject", &["parameter"]),
+            ("validated-subject", &["parameter"]),
+            ("requires", &[]),
+            ("ensures", &[]),
+            ("preserves", &[]),
+            ("assume", &[]),
+            ("branch", &[]),
+            ("old", &[]),
+        ],
+    );
+}
+#[test]
+fn refinement_binder_scope_is_local_to_the_type() {
+    run("(#fn [[predicate|valid]] ((value #u64)) #bool (#return true))
+      (#const [[global|value]] #u64 1u64)
+      (#type Small (#[[where|where]] ([[binder|value]] #u64) (#call [[use|valid]] (: value [[bound|value]]))))
+      (#fn example () #u64 (#return [[outside|value]]))", &[
+      ("where", &[]), ("use", &["predicate"]), ("bound", &["binder"]), ("outside", &["global"]),
+    ]);
+}
+#[test]
+fn postcondition_result_has_return_type_for_member_navigation() {
+    run(
+        "(#struct Packet () (([[field|count]] #u64)))
+      (#fn valid ((value #u64)) #bool (#return true))
+      (#fn make () Packet
+        (#ensures (#call valid (: value (#get (#[[result|result]]) [[projection|count]]))))
+        (#return (#struct-literal Packet ((count 1u64)))))",
+        &[("result", &[]), ("projection", &["field"])],
     );
 }
