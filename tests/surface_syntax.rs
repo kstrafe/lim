@@ -110,6 +110,10 @@ fn declaration_records_normalize_with_required_fields_and_empty_defaults() {
         "#fn missing { #params = {}; #returns = (); }",
         "#fn duplicate { #params = {}; #returns = (); #returns = #u64; #body = (); }",
         "#fn unknown { #params = {}; #returns = (); #body = (); #other = (); }",
+        "#fn bad { #params = {}; #returns = (); #requires = 0u64; #body = (#return ();); }",
+        "#fn bad { #params = {}; #returns = (); #ensures = 0u64; #body = (#return ();); }",
+        "#fn bad { #params = {}; #returns = (); #preserves = 0u64; #body = (#return ();); }",
+        "#fn bad { #params = {}; #returns = (); #body = 0u64; }",
         "{ key = value }",
         "{ key value; }",
         "{ key = ; }",
@@ -123,6 +127,32 @@ fn declaration_records_normalize_with_required_fields_and_empty_defaults() {
 fn generated_function_records_keep_unquoted_names_and_canonical_structure() {
     let source = "(#gn make (name) `((#fn ,name { #params = {}; #returns = #u64; #body = (#return 42u64;); }))) (#generate make read) #fn main { #params = {}; #returns = #u64; #body = (#return read {};); }";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
+    for keyword in ["#fn", "#static", "#const", "#unsafe-fn"] {
+        assert_eq!(trees(keyword), vec![lim::Expr::Symbol(keyword.into())]);
+    }
+}
+
+#[test]
+fn implicit_calls_use_aliases_of_quoted_file_targets() {
+    let scratch = support::Scratch::new("surface-file-call");
+    std::fs::write(
+        scratch.path().join("value with spaces.lim"),
+        "(#fn read ((value #u64)) #u64 (#return value))",
+    )
+    .unwrap();
+    for call in ["read { value = 42; }", "(read { value = 42; })"] {
+        let source = "(#alias read = \"./value with spaces.lim::read\")\n#fn main { #params = {}; #returns = #u64; #body = (#return CALL;); }"
+            .replace("CALL", call);
+        let program =
+            lim::parse_program_from_path(&source, &scratch.path().join("main.lim")).unwrap();
+        lim::check_types(&program).unwrap();
+        let formatted = lim::format_source(&source).unwrap();
+        assert_eq!(trees(&source), trees(&formatted));
+    }
+    assert_eq!(
+        trees("\"./value.lim::read\""),
+        vec![lim::Expr::String("./value.lim::read".into())]
+    );
 }
 
 #[test]
@@ -221,4 +251,52 @@ fn surface_program_executes_in_both_contract_modes_and_still_needs_evidence() {
     let invalid = PROGRAM.replace("(widen { index = index; })", "()");
     let error = lim::check_types(&lim::parse_program(&invalid).unwrap()).unwrap_err();
     assert!(error.contains("missing evidence"), "{error}");
+}
+
+#[test]
+fn surface_function_records_compose_with_async_generation() {
+    fn work(nodes: &[lim::SpannedExpr]) -> Option<&lim::SpannedExpr> {
+        for node in nodes {
+            if matches!(&node.expr, lim::Expr::List(parts) if matches!(parts.first(), Some(lim::Expr::Symbol(head)) if head == "#fn") && matches!(parts.get(1), Some(lim::Expr::Symbol(name)) if name == "work"))
+            {
+                return Some(node);
+            }
+            if let Some(found) = work(&node.children) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    let mut source = include_str!("../examples/async_fn.lim").to_owned();
+    let nodes = lim::parse(&source).unwrap();
+    let function = work(&nodes).unwrap();
+    let body = function.children[4..]
+        .iter()
+        .map(|node| &source[node.span.start..node.span.end])
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace(
+            "(#u64::add-wrap total offset)",
+            "[#u64 #wrap; total + offset]",
+        );
+    let replacement = format!(
+        "(#fn work {{ #params = {{ offset = #u64; }}; #returns = #u64; #body = ({body}); }})"
+    );
+    source.replace_range(function.span.start..function.span.end, &replacement);
+    let scratch = support::Scratch::new("surface-async");
+    let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_fn.lim");
+    for instrumented in [false, true] {
+        let mut config = lim::CompileConfig::default();
+        if instrumented {
+            config.set("contracts", "check");
+        }
+        lim::compile_source_to_assembly(
+            &source,
+            &entry,
+            &config,
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_or_else(|error| panic!("{}", error.message));
+    }
 }

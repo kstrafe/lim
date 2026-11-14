@@ -39,7 +39,6 @@ impl<'a> SourceForms<'a> {
         let mut tokens = Vec::new();
         let mut depth = 0usize;
         let mut started = false;
-        let mut declaration = false;
         loop {
             let token = match self.pending.take() {
                 Some(token) => Some(token),
@@ -57,6 +56,25 @@ impl<'a> SourceForms<'a> {
             };
             tokens.push(token);
             let kind = &tokens.last().unwrap().kind;
+            if tokens.len() == 1
+                && (matches!(kind, TokenKind::Symbol(name) if crate::surface_syntax::record_declaration(name))
+                    || *kind == TokenKind::Generate)
+            {
+                let mut lookahead = self.lexer.clone();
+                if let (Ok(Some(name)), Ok(Some(record))) =
+                    (lookahead.next_token(), lookahead.next_token())
+                {
+                    if record.kind == TokenKind::LBrace {
+                        tokens.push(name);
+                        tokens.push(record);
+                        self.lexer = lookahead;
+                        started = true;
+                        depth = 1;
+                        continue;
+                    }
+                }
+                return parse_one(&tokens, self.source).map(Some);
+            }
             if !started {
                 match kind {
                     TokenKind::Quote
@@ -67,16 +85,6 @@ impl<'a> SourceForms<'a> {
                         started = true;
                         depth = 1;
                     }
-                    TokenKind::Symbol(name)
-                        if tokens.len() == 1 && crate::surface_syntax::record_declaration(name) =>
-                    {
-                        declaration = true;
-                    }
-                    TokenKind::Generate if tokens.len() == 1 => {
-                        declaration = true;
-                    }
-                    _ if declaration && tokens.len() < 3 => {}
-                    _ if declaration => return parse_one(&tokens, self.source).map(Some),
                     _ => {
                         if tokens.len() == 1
                             && matches!(kind, TokenKind::Symbol(name) if crate::names::value_name(name))

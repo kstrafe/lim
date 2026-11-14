@@ -123,8 +123,12 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn top_expression(&mut self) -> Result<Node, ParseError> {
-        if matches!(self.kind(), Some(T::Symbol(value)) if record_declaration(value))
-            || self.kind() == Some(&T::Generate)
+        if (matches!(self.kind(), Some(T::Symbol(value)) if record_declaration(value))
+            || self.kind() == Some(&T::Generate))
+            && self
+                .tokens
+                .get(self.index + 2)
+                .is_some_and(|token| token.kind == T::LBrace)
         {
             let head = self.expression_application(false)?;
             let declared = self.expression_application(false)?;
@@ -483,7 +487,8 @@ impl<'a> Parser<'a> {
             output.push(require("#returns")?);
             for section in ["#requires", "#ensures", "#preserves"] {
                 if let Some((key, predicates)) = values.get(section) {
-                    if !matches!(predicates.expr, Expr::List(_)) {
+                    if !matches!(&predicates.expr, Expr::List(items) if items.len() == predicates.children.len())
+                    {
                         return Err(self.error(
                             "contract sections require a list of predicates",
                             predicates.span,
@@ -498,7 +503,7 @@ impl<'a> Parser<'a> {
                 }
             }
             let body = require("#body")?;
-            if !matches!(body.expr, Expr::List(_)) {
+            if !matches!(&body.expr, Expr::List(items) if items.len() == body.children.len()) {
                 return Err(self.error("#body requires a list of forms", body.span));
             }
             output.extend(body.children.iter().cloned());
