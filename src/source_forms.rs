@@ -15,6 +15,7 @@ pub(crate) fn validate_lexically(source: &str) -> Result<(), String> {
 pub(crate) struct SourceForms<'a> {
     lexer: Lexer<'a>,
     pending: Option<Token>,
+    source: &'a str,
 }
 
 impl<'a> SourceForms<'a> {
@@ -22,6 +23,7 @@ impl<'a> SourceForms<'a> {
         Self {
             lexer: Lexer::new(source),
             pending: None,
+            source,
         }
     }
 
@@ -37,6 +39,7 @@ impl<'a> SourceForms<'a> {
         let mut tokens = Vec::new();
         let mut depth = 0usize;
         let mut started = false;
+        let mut declaration = false;
         loop {
             let token = match self.pending.take() {
                 Some(token) => Some(token),
@@ -47,6 +50,7 @@ impl<'a> SourceForms<'a> {
                     return Ok(None);
                 }
                 return Parser::new(&tokens)
+                    .with_source(self.source)
                     .run()
                     .map(|mut forms| forms.pop())
                     .map_err(|e| e.to_string());
@@ -59,19 +63,46 @@ impl<'a> SourceForms<'a> {
                     | TokenKind::QuasiQuote
                     | TokenKind::Unquote
                     | TokenKind::UnquoteSplicing => {}
-                    TokenKind::LParen => {
+                    TokenKind::LParen | TokenKind::LBrace | TokenKind::LBracket => {
                         started = true;
                         depth = 1;
                     }
-                    _ => return parse_one(&tokens).map(Some),
+                    TokenKind::Symbol(name)
+                        if tokens.len() == 1 && crate::surface_syntax::record_declaration(name) =>
+                    {
+                        declaration = true;
+                    }
+                    TokenKind::Generate if tokens.len() == 1 => {
+                        declaration = true;
+                    }
+                    _ if declaration && tokens.len() < 3 => {}
+                    _ if declaration => return parse_one(&tokens, self.source).map(Some),
+                    _ => {
+                        if tokens.len() == 1
+                            && matches!(kind, TokenKind::Symbol(name) if crate::names::value_name(name))
+                        {
+                            let mut lookahead = self.lexer.clone();
+                            if let Ok(next) = lookahead.next_token() {
+                                self.pending = next;
+                                self.lexer = lookahead;
+                            }
+                            if matches!(
+                                self.pending.as_ref().map(|token| &token.kind),
+                                Some(TokenKind::LBrace)
+                            ) {
+                                continue;
+                            }
+                        }
+                        return parse_one(&tokens, self.source).map(Some);
+                    }
                 }
             } else {
                 match kind {
-                    TokenKind::LParen => depth += 1,
-                    TokenKind::RParen => {
+                    TokenKind::LParen | TokenKind::LBrace | TokenKind::LBracket => depth += 1,
+                    TokenKind::RParen | TokenKind::RBrace | TokenKind::RBracket => {
                         depth -= 1;
                         if depth == 0 {
-                            return parse_one(&tokens).map(Some);
+                            return parse_one(&tokens, self.source).map(Some);
                         }
                     }
                     _ => {}
@@ -81,8 +112,9 @@ impl<'a> SourceForms<'a> {
     }
 }
 
-fn parse_one(tokens: &[Token]) -> Result<SpannedExpr, String> {
+fn parse_one(tokens: &[Token], source: &str) -> Result<SpannedExpr, String> {
     let mut forms = Parser::new(tokens)
+        .with_source(source)
         .run()
         .map_err(|error| error.to_string())?;
     if forms.len() != 1 {

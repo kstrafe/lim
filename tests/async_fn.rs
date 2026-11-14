@@ -5168,7 +5168,7 @@ fn async_block_owned_labeled_loop_keeps_its_scope_across_suspension() {
     let source = include_str!("../examples/async_block_loop.lim");
     build_and_run(source, 42);
     let returned = source.replace("(#let result #u64", "(#return").replace(
-        "total))\n    ; The inner scope has ended; this is an independent declaration.\n    (#let index #u64 0u64)\n    (#return (#u64::add-wrap result index)))))",
+        "total))\n    // The inner scope has ended; this is an independent declaration.\n    (#let index #u64 0u64)\n    (#return (#u64::add-wrap result index)))))",
         "total)))))",
     );
     build_and_run(&returned, 42);

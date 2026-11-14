@@ -7,8 +7,8 @@ fn assert_formatted(source: &str, expected: &str) {
 #[test]
 fn top_level_comments_stay_with_their_expression_boundary() {
     assert_formatted(
-        "alpha ; same line\n; between\nbeta\n; after",
-        "alpha ; same line\n; between\nbeta\n; after\n",
+        "alpha // same line\n// between\nbeta\n// after",
+        "alpha // same line\n// between\nbeta\n// after\n",
     );
     assert_formatted(
         "// before\nalpha\n// after\n",

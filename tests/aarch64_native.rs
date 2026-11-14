@@ -48,6 +48,7 @@ fn returns(source: &str, expected: i32) {
 fn explicitly_proven_index_executes_and_omits_bounds_traps() {
     returns(include_str!("../examples/index_contracts.lim"), 42);
     returns(include_str!("../examples/generated_array.lim"), 42);
+    returns(include_str!("../examples/surface_syntax.lim"), 42);
     let source = r#"
       (#fn read ((values (#ref (#array #u64 4))) (index #usize)) #u64
         (#requires (#usize::lt index 4usize)) (#return (#index-proven values index)))

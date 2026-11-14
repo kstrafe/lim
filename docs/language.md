@@ -64,6 +64,76 @@ and its [typed operator families](#typed-operator-families-alphabetical).
 
 ## Design and scope
 
+### Surface notation
+
+Surface forms lower to the same explicit S-expression representation used by
+generators and the checker. Canonical parenthesized forms remain supported.
+The executable [surface example](../examples/surface_syntax.lim) combines
+generated arrays, contracts, infix expressions and local indentation lists.
+
+```lisp run=42
+#fn increment {
+  #params = { value = #u64; };
+  #returns = #u64;
+  #requires =:
+    [#u64; value < 99];
+  #ensures =:
+    [#u64; (#result) < 100];
+  #body =:
+    #return [#u64 #wrap; value + 1];
+}
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body =:
+    #let input #u64 41;
+    #return (#if-valid [#u64; input < 99]
+      (increment { value = input; })
+      0u64);
+}
+```
+
+- `{ key = form; ... }` is a named pair list. Keys are literal identifiers;
+  values are single forms. Each entry requires its final semicolon. Empty
+  records use `{}`. Duplicate argument keys are checked by their consumer.
+- `function { name = value; }` and `(function { name = value; })` are ordinary
+  named calls, including generated scalar intrinsics. They use the same safe
+  call checks and parameter-order evaluation as `#call`. Unsafe calls retain
+  `#unsafe-call` and an enclosing `#unsafe`.
+- In a parenthesized semicolon list, `#let x #u64 expression; #return x;`
+  groups into two forms. Existing parenthesized forms are retained. A nested
+  call and its argument record constitute one expression. Every group needs
+  a terminating semicolon; newlines alone do not terminate forms.
+- `[#u64 #wrap; a + b * c]` scopes the scalar operator type and integer
+  overflow mode. Integer arithmetic requires `#wrap` or `#saturate`;
+  comparisons and floating arithmetic omit the mode. Operators have fixed
+  precedence: unary, multiplication/division/remainder, addition/subtraction,
+  shifts, bitwise AND/XOR/OR, comparisons, Boolean AND, then Boolean OR.
+  Arithmetic associates left. Chained comparisons are rejected. Operators
+  require token separation; `start-offset` remains one identifier.
+- Nested square brackets group math and inherit its header. Parentheses retain
+  ordinary Lim syntax. Calls and argument records end header inheritance:
+  infix expressions inside them need explicit headers of their own.
+- A function record requires `#params`, `#returns` and `#body`. Contract fields
+  `#requires`, `#ensures` and `#preserves` contain lists of independent clauses
+  and default to empty. Unit results explicitly use `#returns = ();` and
+  `(#return ())`. Unknown and duplicate section keys are errors. Parenthesized
+  sections such as `(#params {...})` also normalize to canonical functions.
+- `key =:` followed by a newline opens an indented list value. Dedent closes
+  both the list and that record entry, so it needs no extra outer semicolon.
+  Only the colon activates layout; explicit nested delimiters contain their
+  own syntax. Blank/comment lines do not affect scope. Use spaces for layout
+  indentation and return to an enclosing indentation level when dedenting.
+- At module scope, `#fn`, `#unsafe-fn`, `#static`, `#const` and `#generate`
+  accept an unparenthesized name and record. Its closing brace ends the form.
+  Static and constant records require `#type` and `#value`.
+
+The formatter retains authored layout in forms using this notation and removes
+trailing horizontal whitespace. Its canonical S-expression formatting remains
+available for fully delimited sources. Reader nesting limits also bound trees
+created by flat infix chains. Surface syntax does not infer contracts or change
+the exact identity of comparison evidence.
+
 Lim currently provides:
 
 - strong static types and explicit types on bindings and parameters;
@@ -1478,6 +1548,9 @@ character literal.
 The lexer recognizes:
 
 - `(` and `)` for lists;
+- `{` and `}` for named pair lists;
+- `[` and `]` for typed infix expressions;
+- `=` for record assignments and `;` for entry/form termination;
 - `'form` quote syntax;
 - `#generate` as the generated-code keyword; `#generate` stays inside identifiers;
 - symbols;
@@ -2634,6 +2707,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#atomic-store` | `(#atomic-store reference value order)` | `(#atomic-store (#borrow counter) 4u64 #memory-release)` (statement) | Atomically stores a value using an allowed store ordering. |
 | `#await` | `(#await Protocol child-expression)`; explicit expanded forms can list the result/task types, variants and poll function | `(#let value #u64 (#await StepAwait child))` (inside `#generate #async-fn`, with a declared `StepAwait` bundle) | Marks a sequential suspension point for `#generate #async-fn` or `#generate #async-fn-pinned`; the protocol supplies concrete types and poll operations. Live captures are inferred from the continuation, and the form is not valid in an ordinary function. |
 | `#block` | `(#block statement... final-expression)` | `(#block (#let x #u64 2u64) (#u64::add-wrap x 1u64))` (expression) | Evaluates statements in order and yields the final expression, or unit for a side-effect-only block. |
+| `#body` | `#body = (forms...);` | `(#body (#return ()))` (function section) | Required function body as a form list or indentation list. |
 | `#bool` | `#bool` | `(#fn identity ((value #bool)) #bool (#return value))` (function signature) | Boolean scalar type; values are `true` and `false`. |
 | `#borrow` | `(#borrow place)` or `(#borrow place body)` | `(#let r (#ref #u64) (#borrow value))` (binding) | Creates a shared reference, or scopes a shared borrow around a body. |
 | `#borrow-mut` | `(#borrow-mut place)` or `(#borrow-mut place body)` | `(#let r (#ref-mut #u64) (#borrow-mut value))` (binding) | Creates an exclusive mutable reference, or scopes a mutable borrow around a body. |
@@ -2731,6 +2805,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd #i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
+| `#params` | `#params = { name = Type; };` | `(#params { value = #u64; })` (function section) | Required parameter list with function-local binders. |
 | `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. Pinning a linear local permanently prevents moving it, even after derived views end; Copy referents retain ordinary loan-duration restrictions. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
@@ -2777,6 +2852,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#requires` | `(#requires predicate)` | `(#requires (#call valid (: value value)))` (function header) | Require caller evidence and grant it inside the function. |
 | `#result` | `(#result)` | `(#result)` (postcondition operand) | Name the normally returned value. |
 | `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
+| `#returns` | `#returns = Type;` | `(#returns ())` (function section) | Required explicit return type; unit is `()`. |
+| `#saturate` | `[#I #saturate; expression]` | `[#u8 #saturate; 255 + 1]` (infix expression) | Saturating arithmetic in this expression and directly nested math groups. |
 | `#send` | `(#unsafe-impl #send Type)` | `(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #send Handle)` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
 | `#set` | `(#set name value)` | `(#set count (#u32::add-wrap count 1u32))` (statement) | Reassigns a mutable local. |
 | `#set-field` | `(#set-field aggregate field-or-index value)` | `(#set-field point x 4u64)` (statement) | Mutates a struct field or tuple slot; a linear member must first be consumed. |
@@ -2819,6 +2896,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#unsafe-impl` | `(#unsafe-impl property Type)` | `(#unsafe-impl #send NativeHandle)` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
 | `#unstable` | `(#unstable path.lim::declaration)` | `(#alias inspect = (#unstable ./library/private.lim::inspect))` (alias target) | Explicitly bypasses entry-point/export restrictions for the selected declaration. Does not grant struct field access or waive ordinary safety checking. |
 | `#usize` | `#usize` | `(#fn identity ((value #usize)) #usize (#return value))` (function signature) | Unsigned integer scalar type with the target's native pointer width. |
+| `#value` | `#value = expression;` | `#static answer { #type = #u64; #value = 42; }` (declaration section) | Required initializer in a static or constant record. |
 | `#variant-is` | `(#variant-is enum-reference Variant)` | `(#let is-some #bool (#variant-is value Some))` (expression) | Tests an enum reference's active variant without consuming the reference or enum; accepts ordinary or pinned shared/exclusive references. It does not statically refine later payload projections, which retain their runtime active-variant check. |
 | `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64::gt x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
 | `#where` | `(#where (value Type) predicate ...)` | `(#where (value #u64) (#call valid (: value value)))` (type expression) | Attach conjunctive fixed predicate requirements to a base type. |
@@ -2829,6 +2907,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#word-take` | `(#word-take ValueType mutable-word-slice)` | `(#let value Pair (#unsafe (#word-take Pair words)))` (expression) | Unsafe ownership transfer from flat `#u64` word storage. Requires a mutable slice and retires the selected backing words' reference provenance while preserving it in the returned value. Bytes are loaded without zeroing or runtime initialization flags. The caller proves capacity, valid initialized representation and unique ownership, as for `#word-read`; reference-bearing rereads require a new typed write. |
 | `#word-view` | `(#word-view ReferenceType word-slice)` or `(#word-view (#slice[-mut] #u64) reference)` | `(#let view (#ref Pair) (#unsafe (#word-view (#ref Pair) words)))`; `(#let words (#slice #u64) (#unsafe (#word-view (#slice #u64) view)))` (expressions) | Unsafe reinterpretation between flat value words and ordinary or pinned references. Exclusive results require exclusive sources. A reference-to-words view has exactly the referent's flat word count and requires flat-word backing, not packed native bytes. The caller proves capacity, initialized representation and, for a pinned view, permanent address stability. Source lifetime and alias anchors remain checked, but arbitrary numeric words do not establish provenance for stored references. |
 | `#word-write` | `(#word-write ValueType mutable-word-slice value)` | `(#unsafe (#word-write Pair words pair))` (statement) | Consumes a value into flat `#u64` word storage without initialization flags. The caller proves capacity and unique writable access and consumes any previously owned contents before overwriting them. Source slice borrowing is still checked. |
+| `#wrap` | `[#I #wrap; expression]` | `[#u8 #wrap; 255 + 1]` (infix expression) | Wrapping arithmetic in this expression and directly nested math groups. |
 
 #### Typed operator families (alphabetical)
 

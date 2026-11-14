@@ -88,6 +88,12 @@ fn builtin_reference_is_sorted_and_covers_parser_forms() {
         "#send",
         "#sync",
         "#target",
+        "#body",
+        "#params",
+        "#returns",
+        "#saturate",
+        "#value",
+        "#wrap",
     ] {
         assert!(
             documented.contains(&name),

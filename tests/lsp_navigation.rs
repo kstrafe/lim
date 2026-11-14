@@ -1,6 +1,39 @@
 mod support;
 
 #[test]
+fn function_records_layout_calls_and_infix_keep_exact_source_roles() {
+    run(
+        "#fn [[function|identity]] {
+          #[[params-key|params]] = { [[binding|value]] = #u64; };
+          #[[returns-key|returns]] = #u64;
+          #requires =:
+            [#u64; [[require-use|value]] [[operator|<]] 100];
+          #body =:
+            #return [[body-use|value]];
+        }
+        #fn main {
+          #params = {}; #returns = #u64;
+          #body = (
+            #let [[input|input]] #u64 42;
+            #assume [#u64; [[assume-use|input]] < 100];
+            #return [[call|identity]] { [[label|value]] = [[argument|input]]; };
+          );
+        }",
+        &[
+            ("params-key", &[]),
+            ("returns-key", &[]),
+            ("require-use", &["binding"]),
+            ("operator", &[]),
+            ("body-use", &["binding"]),
+            ("assume-use", &["input"]),
+            ("call", &["function"]),
+            ("label", &["binding"]),
+            ("argument", &["input"]),
+        ],
+    );
+}
+
+#[test]
 fn array_generator_inputs_are_literal_data() {
     run(
         "(#struct Row () (: value #u64))

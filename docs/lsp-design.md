@@ -146,6 +146,19 @@ or change navigation of the surrounding user function's declarations.
 
 ## Predicate contract navigation
 
+### Surface notation source roles
+
+The surface reader preserves the original spans while lowering records, implicit
+calls, semicolon groups, infix brackets and indentation lists. Function names,
+parameter binders, type operands and body references retain their canonical
+roles. Literal record keys become argument labels or declaration sections in
+their consuming form; argument labels navigate to the callee's parameters.
+Section markers, arithmetic mode markers, infix operators and punctuation have
+no user declaration target. Newlines and dedents introduce no bindings.
+Infix headers never cross ordinary calls or argument records. This local syntax
+context introduces no name-resolution or proof inference. Navigation tests
+cover exact positive and negative ranges in declaration records and layout.
+
 Contract errors use E4400 and the ordinary source ranges and related locations.
 JSON diagnostics classify them as `contract`; theorem outcome metadata has
 been removed with the symbolic engine.

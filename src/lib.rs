@@ -60,6 +60,7 @@ mod source_error;
 mod source_forms;
 mod stack_usage;
 mod standard_library;
+mod surface_syntax;
 mod syntax_bundle;
 #[cfg(test)]
 #[path = "../tests/support/process.rs"]
@@ -601,6 +602,12 @@ fn display_char_width(ch: char) -> usize {
 pub enum TokenKind {
     LParen,
     RParen,
+    LBrace,
+    RBrace,
+    LBracket,
+    RBracket,
+    Equal,
+    Semicolon,
     Colon,
     Quote,
     QuasiQuote,
@@ -643,6 +650,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     Lexer::new(source).run()
 }
 
+#[derive(Clone)]
 struct Lexer<'a> {
     source: &'a [u8],
     offset: usize,
@@ -677,9 +685,7 @@ impl<'a> Lexer<'a> {
                 b' ' | b'\t' | b'\r' | b'\n' => {
                     self.advance();
                 }
-                b';' => {
-                    self.skip_comment();
-                }
+                b';' => return Ok(Some(self.one(TokenKind::Semicolon))),
                 b'/' if self.source.get(self.offset + 1) == Some(&b'/') => {
                     self.skip_comment();
                 }
@@ -700,6 +706,23 @@ impl<'a> Lexer<'a> {
                 }
                 b'(' => return Ok(Some(self.one(TokenKind::LParen))),
                 b')' => return Ok(Some(self.one(TokenKind::RParen))),
+                b'{' => return Ok(Some(self.one(TokenKind::LBrace))),
+                b'}' => return Ok(Some(self.one(TokenKind::RBrace))),
+                b'[' => return Ok(Some(self.one(TokenKind::LBracket))),
+                b']' => return Ok(Some(self.one(TokenKind::RBracket))),
+                b'=' if self.source.get(self.offset + 1) != Some(&b'=') => {
+                    return Ok(Some(self.one(TokenKind::Equal)))
+                }
+                b'=' | b'!' | b'<' | b'>' if self.source.get(self.offset + 1) == Some(&b'=') => {
+                    let mut token = self.one(TokenKind::Symbol(String::new()));
+                    self.advance();
+                    token.span.end = self.offset;
+                    token.kind = TokenKind::Symbol(
+                        String::from_utf8_lossy(&self.source[token.span.start..token.span.end])
+                            .into_owned(),
+                    );
+                    return Ok(Some(token));
+                }
                 b'\'' => return Ok(Some(self.one(TokenKind::Quote))),
                 b'`' => return Ok(Some(self.one(TokenKind::QuasiQuote))),
                 b',' if self.source.get(self.offset + 1) == Some(&b'@') => {
@@ -757,7 +780,17 @@ impl<'a> Lexer<'a> {
         let column = self.column;
         while let Some(byte) = self.peek() {
             if byte.is_ascii_whitespace()
-                || matches!(byte, b'(' | b')' | b'\'' | b'`' | b',' | b'"' | b';')
+                || matches!(
+                    byte,
+                    b'(' | b')' | b'{' | b'}' | b'[' | b']' | b'\'' | b'`' | b',' | b'"' | b';'
+                )
+                || (byte == b'='
+                    && !(self.source.get(start) == Some(&b'#')
+                        && (self
+                            .source
+                            .get(start + 1)
+                            .is_some_and(|b| matches!(*b, b'=' | b'!' | b'<' | b'>'))
+                            || self.source[start..self.offset].contains(&b'.'))))
                 || (byte == b'/' && self.source.get(self.offset + 1) == Some(&b'/'))
             {
                 break;
@@ -1095,6 +1128,7 @@ impl std::error::Error for ParseError {}
 pub fn parse(source: &str) -> Result<Vec<SpannedExpr>, String> {
     let tokens = lex(source).map_err(|error| error.to_string())?;
     Parser::new(&tokens)
+        .with_source(source)
         .run()
         .map_err(|error| error.to_string())
 }
@@ -1136,12 +1170,16 @@ pub fn format_source(source: &str) -> Result<String, String> {
         {
             output.push('\n');
         }
-        output.push_str(&pretty_spanned_expression(
-            &expression,
-            source,
-            &comments,
-            0,
-        ));
+        if surface_syntax::has_surface_notation(&expression, source) {
+            output.push_str(&surface_syntax::format_surface(&expression, source));
+        } else {
+            output.push_str(&pretty_spanned_expression(
+                &expression,
+                source,
+                &comments,
+                0,
+            ));
+        }
         previous_declaration = Some(declaration);
         cursor = expression.span.end;
         // Nested comments were emitted by the expression renderer already.
@@ -1282,8 +1320,7 @@ fn source_comments(source: &str) -> Vec<SourceComment> {
             continue;
         } else if character == '"' {
             in_string = true;
-        } else if character == ';'
-            || (character == '/' && source.as_bytes().get(offset + 1) == Some(&b'/'))
+        } else if (character == '/' && source.as_bytes().get(offset + 1) == Some(&b'/'))
             || (character == '#' && !is_hash_atom_start(source, offset))
         {
             let start = offset;
@@ -5605,13 +5642,20 @@ fn load_imports_inner(
             ));
         }
     }
-    let mut expressions = Parser::new(&tokens).run().map_err(|error| {
-        let mut span = error.span;
-        span.source_id = source_id;
-        let error =
-            attach_span_to_source_error_kind(error.message, span, source_files, "parse error: ");
-        attach_generator_source(error, source_files)
-    })?;
+    let mut expressions = Parser::new(&tokens)
+        .with_source(source)
+        .run()
+        .map_err(|error| {
+            let mut span = error.span;
+            span.source_id = source_id;
+            let error = attach_span_to_source_error_kind(
+                error.message,
+                span,
+                source_files,
+                "parse error: ",
+            );
+            attach_generator_source(error, source_files)
+        })?;
     for expression in &mut expressions {
         set_source_id(expression, source_id);
     }
@@ -8993,6 +9037,8 @@ struct Parser<'a> {
     tokens: &'a [Token],
     index: usize,
     depth: usize,
+    source: Option<&'a str>,
+    records: HashSet<usize>,
 }
 
 const MAX_PARSE_NESTING: usize = 256;
@@ -9006,18 +9052,25 @@ impl<'a> Parser<'a> {
             tokens,
             index: 0,
             depth: 0,
+            source: None,
+            records: HashSet::new(),
         }
     }
 
     fn run(mut self) -> Result<Vec<SpannedExpr>, ParseError> {
         let mut expressions = Vec::new();
         while self.index < self.tokens.len() {
-            expressions.push(self.expression()?);
+            expressions.push(self.top_expression()?);
         }
         Ok(expressions)
     }
 
+    #[inline(always)]
     fn expression(&mut self) -> Result<SpannedExpr, ParseError> {
+        self.expression_application(true)
+    }
+
+    fn expression_application(&mut self, application: bool) -> Result<SpannedExpr, ParseError> {
         if self.depth >= MAX_PARSE_NESTING {
             let span = self
                 .tokens
@@ -9029,66 +9082,79 @@ impl<'a> Parser<'a> {
             ));
         }
         self.depth += 1;
-        let result = self.expression_inner();
+        let result = self.expression_inner(application).and_then(|node| {
+            if application {
+                self.postfix_call(node)
+            } else {
+                Ok(node)
+            }
+        });
         self.depth -= 1;
         result
     }
 
-    fn expression_inner(&mut self) -> Result<SpannedExpr, ParseError> {
+    // Recursive containers use a small dispatcher; literal decoding has a
+    // larger stack frame and is only entered for leaves.
+    fn expression_inner(&mut self, application: bool) -> Result<SpannedExpr, ParseError> {
+        match self.tokens.get(self.index).map(|token| &token.kind) {
+            Some(TokenKind::LParen) => self.list(),
+            Some(TokenKind::LBrace) => self.record(),
+            Some(TokenKind::LBracket) => self.infix(None),
+            Some(
+                TokenKind::Quote
+                | TokenKind::QuasiQuote
+                | TokenKind::Unquote
+                | TokenKind::UnquoteSplicing,
+            ) => self.quote_expression(application),
+            _ => self.atom_expression(),
+        }
+    }
+
+    fn quote_expression(&mut self, application: bool) -> Result<SpannedExpr, ParseError> {
+        let token = self.tokens[self.index].clone();
+        self.index += 1;
+        let message = if token.kind == TokenKind::Quote {
+            "expected expression after quote"
+        } else {
+            "expected expression after syntax template marker"
+        };
+        let nested = self
+            .expression_application(application)
+            .map_err(|_| self.error(message, token.span))?;
+        let value = Box::new(nested.expr.clone());
+        let expr = match token.kind {
+            TokenKind::Quote => Expr::Quote(value),
+            TokenKind::QuasiQuote => Expr::QuasiQuote(value),
+            TokenKind::Unquote => Expr::Unquote(value),
+            TokenKind::UnquoteSplicing => Expr::UnquoteSplicing(value),
+            _ => unreachable!(),
+        };
+        Ok(SpannedExpr {
+            expr,
+            span: Span {
+                end: nested.span.end,
+                ..token.span
+            },
+            children: vec![nested].into(),
+        })
+    }
+
+    fn atom_expression(&mut self) -> Result<SpannedExpr, ParseError> {
         let token = self
             .tokens
             .get(self.index)
             .ok_or_else(|| self.error("expected expression", self.eof_span()))?;
         match &token.kind {
-            TokenKind::LParen => self.list(),
-            TokenKind::RParen => {
-                Err(self.error("unexpected ')'; expected an expression", token.span))
+            TokenKind::Equal => {
+                self.index += 1;
+                Ok(SpannedExpr {
+                    expr: Expr::Symbol("=".into()),
+                    span: token.span,
+                    children: Vec::new().into(),
+                })
             }
             TokenKind::Colon => {
                 Err(self.error("':' must be the first token inside its list", token.span))
-            }
-            TokenKind::Quote => {
-                self.index += 1;
-                let quoted = self
-                    .expression()
-                    .map_err(|_| self.error("expected expression after quote", token.span))?;
-                let inner = quoted.expr.clone();
-                Ok(SpannedExpr {
-                    expr: Expr::Quote(Box::new(inner)),
-                    span: Span::new(
-                        token.span.start,
-                        quoted.span.end,
-                        token.span.line,
-                        token.span.column,
-                    ),
-                    children: vec![quoted].into(),
-                })
-            }
-            TokenKind::QuasiQuote | TokenKind::Unquote | TokenKind::UnquoteSplicing => {
-                self.index += 1;
-                let nested = self.expression().map_err(|_| {
-                    self.error(
-                        "expected expression after syntax template marker",
-                        token.span,
-                    )
-                })?;
-                let nested_expr = nested.expr.clone();
-                let expr = match token.kind {
-                    TokenKind::QuasiQuote => Expr::QuasiQuote(Box::new(nested_expr.clone())),
-                    TokenKind::Unquote => Expr::Unquote(Box::new(nested_expr.clone())),
-                    TokenKind::UnquoteSplicing => Expr::UnquoteSplicing(Box::new(nested_expr)),
-                    _ => unreachable!(),
-                };
-                Ok(SpannedExpr {
-                    expr,
-                    span: Span::new(
-                        token.span.start,
-                        nested.span.end,
-                        token.span.line,
-                        token.span.column,
-                    ),
-                    children: vec![nested].into(),
-                })
             }
             TokenKind::Generate => {
                 self.index += 1;
@@ -9174,45 +9240,13 @@ impl<'a> Parser<'a> {
                     children: Vec::new().into(),
                 })
             }
+            _ => Err(self.error("unexpected delimiter; expected an expression", token.span)),
         }
     }
 
+    #[inline(always)]
     fn list(&mut self) -> Result<SpannedExpr, ParseError> {
-        let start = self.tokens[self.index].span;
-        self.index += 1;
-        if matches!(
-            self.tokens.get(self.index).map(|token| &token.kind),
-            Some(TokenKind::Colon)
-        ) {
-            return self.colon_list(start);
-        }
-        let mut items = Vec::new();
-        let mut children: Vec<SpannedExpr> = Vec::new();
-        loop {
-            match self.tokens.get(self.index) {
-                Some(Token {
-                    kind: TokenKind::RParen,
-                    span,
-                }) => {
-                    let end = span.end;
-                    self.index += 1;
-                    if matches!(items.first(), Some(Expr::Symbol(name)) if name == "$") {
-                        self.expand_dollar_shorthand(&mut items, &mut children)?;
-                    }
-                    return Ok(SpannedExpr {
-                        expr: Expr::List(items.into()),
-                        span: Span::new(start.start, end, start.line, start.column),
-                        children: children.into(),
-                    });
-                }
-                Some(_) => {
-                    let child = self.expression()?;
-                    items.push(child.expr.clone());
-                    children.push(child);
-                }
-                None => return Err(self.error("unterminated list; expected ')'", self.eof_span())),
-            }
-        }
+        self.surface_list()
     }
 
     // Keep sugar handling off the recursive list reader's stack frame.
@@ -11667,7 +11701,7 @@ mod tests {
 
     #[test]
     fn parses_nested_lists_quotes_and_comments() {
-        let expressions = parse("# header\n'(#fn main () #i32 42) ; tail\n").unwrap();
+        let expressions = parse("# header\n'(#fn main () #i32 42) // tail\n").unwrap();
         assert!(matches!(expressions[0].expr, Expr::Quote(_)));
     }
 
