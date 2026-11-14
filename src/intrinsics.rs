@@ -62,9 +62,7 @@ pub(crate) fn declaration(name: &str) -> Result<Option<Declaration>, String> {
     }
     if arithmetic && integer {
         if !matches!(mode, Some("wrap" | "saturate")) {
-            return Err(format!(
-                "integer intrinsic '{name}' requires an explicit -wrap or -saturate mode"
-            ));
+            return Err(crate::names::arithmetic_mode_error(name));
         }
     } else if mode.is_some() {
         return Err(format!(

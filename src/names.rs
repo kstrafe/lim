@@ -54,6 +54,18 @@ pub(crate) fn numeric_source(internal: &str) -> Option<String> {
     Some(format!("#{scalar}::{word}{mode}"))
 }
 
+pub(crate) fn arithmetic_mode_error(operator: &str) -> String {
+    let source = numeric_source(operator).unwrap_or_else(|| operator.into());
+    let scalar = operator
+        .split('.')
+        .next()
+        .unwrap_or(operator)
+        .trim_start_matches('#');
+    format!(
+        "integer operation '{source}' requires -wrap or -saturate; use '{source}-wrap' or an infix header '[#{scalar} #wrap; ...]'"
+    )
+}
+
 pub(crate) fn type_name(name: &str) -> bool {
     let name = crate::file_access::local_name(name);
     if crate::gensym::reserved(name) {

@@ -9277,7 +9277,12 @@ fn list_expression(
             require_arity(operator, items, 1)?;
             Ok(Type::Never)
         }
-        "let" => Err("let is only valid as a statement".into()),
+        "let" | "let-mut" | "const" | "set" | "set-index" | "set-field"
+        | "set-payload" | "return" | "break" | "break-to" | "continue"
+        | "continue-to" | "while" | "for" => Err(semantic_at!(
+            ErrorSite::Operator(operator.into()),
+            "#{operator} is only valid as a statement; use (#block (#{operator} ...) ()) to place it in an expression"
+        )),
         "get" => {
             if items.len() != 3 {
                 return Err("get requires the form (get value field)".into());
@@ -11351,18 +11356,22 @@ fn require_arithmetic_mode(
     operator: &str,
     ty: &Type,
 ) -> Result<(), SemanticError> {
+    let source_operator =
+        || crate::names::numeric_source(operator).unwrap_or_else(|| operator.into());
     if !matches!(operation, "+" | "-" | "*" | "/" | "%") {
         if mode.is_some() {
+            let source_operator = source_operator();
             return Err(semantic_format!(
-                "non-arithmetic operator '{operator}' cannot have a wrapping mode"
+                "non-arithmetic operator '{source_operator}' cannot have a wrapping mode"
             ));
         }
         return Ok(());
     }
     if matches!(ty, Type::F32 | Type::F64) {
         if mode.is_some() {
+            let source_operator = source_operator();
             return Err(semantic_format!(
-                "floating-point operator '{operator}' cannot have a wrapping mode"
+                "floating-point operator '{source_operator}' cannot have a wrapping mode"
             ));
         }
         return Ok(());
@@ -11371,13 +11380,15 @@ fn require_arithmetic_mode(
         return Ok(());
     }
     let Some(mode) = mode else {
-        return Err(semantic_format!(
-            "arithmetic operator '{operator}' requires '.wrap' or '.saturate'"
-        ));
+        return Err(
+            SemanticError::from(crate::names::arithmetic_mode_error(operator))
+                .at(ErrorSite::Operator(operator.into())),
+        );
     };
     if !matches!(mode, "wrap" | "saturate") {
+        let source_operator = source_operator();
         return Err(semantic_format!(
-            "arithmetic operator '{operator}' has unknown mode '.{mode}'"
+            "arithmetic operator '{source_operator}' has unknown mode '{mode}'; use #wrap or #saturate"
         ));
     }
     Ok(())

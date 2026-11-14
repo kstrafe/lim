@@ -461,7 +461,11 @@ impl<'a> Parser<'a> {
         if self.kind().is_none() || first.line <= start.line || indent <= header {
             return Err(self.error(
                 "':' requires a nonempty indented group on the following line",
-                first,
+                if first.line <= start.line {
+                    start
+                } else {
+                    first
+                },
             ));
         }
         let mut groups = Vec::new();
@@ -824,7 +828,9 @@ impl<'a> Parser<'a> {
             format!(
                 "-{}",
                 context.mode.as_deref().ok_or_else(|| self.error(
-                    "integer infix arithmetic requires #wrap or #saturate in its header",
+                    &format!(
+                        "integer infix arithmetic requires #wrap or #saturate; write '[{scalar} #wrap; ...]' or '[{scalar} #saturate; ...]'"
+                    ),
                     operation.span
                 ))?
             )

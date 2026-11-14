@@ -2001,14 +2001,16 @@ is equivalent and avoids repeating parentheses around each pair:
 ```
 
 At one list depth, `(: left #u32 : right #u32)` expands to
-`((left #u32) (right #u32))`. A colon must be the first token after `(` at
-that depth; `(left : #u32)` is invalid. Nested lists have their own depth, so
+`((left #u32) (right #u32))`. This grouped-list notation starts with a colon
+immediately after `(`; `(left : #u32)` is invalid. Nested lists have their own depth, so
 their colons do not affect the enclosing list. Empty or adjacent groups and
 a trailing colon are rejected; `(:)` is an empty list. Only a standalone `:`
 token groups elements: embedded colons belong to the identifier, so
 `Pipeline::Pending`, `left:right`, and `:label` are flat names, not namespace
-lookups. This syntax works in other lists of groups too. Parameters may be
-marked mutable:
+lookups. This syntax works in other lists of groups too. Separately, a record
+key or statement header can end in `:` to open an indented group, as described
+under [surface notation](#surface-notation). A named-list label remains a label
+when its value is another named list. Parameters may be marked mutable:
 
 ```lisp library
 (#fn increment ((#mut value #u64)) #u64
@@ -2990,6 +2992,11 @@ conditionals require both branches:
 
 `#block` permits statements in an expression position.  Its final expression
 is its value; a block used only for side effects has unit type.
+Using `#break`, `#continue`, `#return` or another statement directly in an
+expression produces a diagnostic pointing to that keyword and suggesting
+`#block`. Integer arithmetic without a mode reports its public operation name
+and suggests `-wrap`/`-saturate` or a typed infix header such as
+`[#u64 #wrap; ...]`.
 
 ### Loops
 

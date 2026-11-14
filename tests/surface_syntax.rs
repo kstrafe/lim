@@ -177,6 +177,14 @@ fn implicit_calls_use_aliases_of_quoted_file_targets() {
 fn marker_free_calls_retain_function_identity_and_unsafe_requirements() {
     let source = "(#fn panic ((value #u64)) #u64 (#return value)) #fn main { #params = {}; #returns = #u64; #body: \n  #return panic (: value 42);\n}";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
+    assert_eq!(
+        trees("(: name Example : fields (: value #u64))"),
+        trees("((name Example) (fields ((value #u64))))")
+    );
+    assert_eq!(
+        trees("(: argument identity (: value 42))"),
+        trees("((argument (#call identity ((value 42)))))")
+    );
     for call in ["danger {}", "(danger (:))", "danger (:)"] {
         let source = format!("(#unsafe-fn danger () () (#return ())) #fn main {{ #params = {{}}; #returns = (); #body = (#unsafe ({call}); #return ();); }}");
         assert!(lim::parse_program(&source)
@@ -322,6 +330,61 @@ fn statement_headers_append_nested_indented_forms_and_end_on_dedent() {
 }
 
 const PROGRAM: &str = include_str!("../examples/surface_syntax.lim");
+
+#[test]
+fn surface_diagnostics_suggest_public_syntax_and_point_to_the_written_operation() {
+    let scratch = support::Scratch::new("surface-diagnostics");
+    for (expression, operation) in [
+        ("(#u64::div 10u64 2u64)", "#u64::div"),
+        ("#u64::div { left = 10u64; right = 2u64; }", "#u64::div"),
+        ("[#u64; 10 / 2]", "/"),
+    ] {
+        let source = format!(
+            "#fn main {{ #params = {{}}; #returns = #u64; #body = (#return {expression};); }}"
+        );
+        let error = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert!(
+            error.message.contains("[#u64 #wrap; ...]"),
+            "{}",
+            error.message
+        );
+        assert!(!error.message.contains("u64./"), "{}", error.message);
+        let span = error.span.unwrap();
+        assert_eq!(&source[span.start..span.end], operation);
+    }
+    let source =
+        "#fn main { #params = {}; #returns = #u64; #body = (#return (#if true (#break) 0u64);); }";
+    let error = lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("#block"), "{}", error.message);
+    assert!(
+        !error.message.contains("unknown function"),
+        "{}",
+        error.message
+    );
+    let span = error.span.unwrap();
+    assert_eq!(&source[span.start..span.end], "#break");
+    lim::check_types(
+        &lim::parse_program(
+            "(#fn main () #u64 (#loop (#if true (#block (#break)) ())) (#return 42u64))",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+}
 
 #[test]
 fn formatter_preserves_surface_layout_comments_and_canonical_trees() {

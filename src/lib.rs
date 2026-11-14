@@ -3288,6 +3288,8 @@ fn call_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
         expression,
         &["#call", "#unsafe-call", "call", "unsafe-call", "#println"],
     )
+    .filter(|span| span.start != span.end)
+    .or_else(|| source_form_child_span(expression, &["#call"], 1))
     .unwrap_or_else(|| source_value_span(expression))
 }
 
@@ -3422,7 +3424,7 @@ fn normalize_call_expr(
             if matches!(items.first(), Some(Expr::Symbol(name)) if name == "call" || name == "unsafe-call")
             {
                 let unsafe_call = matches!(&items[0], Expr::Symbol(name) if name == "unsafe-call");
-                let keyword = if unsafe_call { "#unsafe-call" } else { "#call" };
+                let keyword = if unsafe_call { "#unsafe-call" } else { "call" };
                 if items.len() != 3 {
                     return Err(format!(
                         "{keyword} requires a function name and named arguments"
@@ -3448,9 +3450,9 @@ fn normalize_call_expr(
                     .ok_or_else(|| format!("{keyword} refers to unknown function '{function}'"))?;
                 if signature.unsafe_call != unsafe_call {
                     return Err(if signature.unsafe_call {
-                        format!("unsafe function '{function}' must be called with #unsafe-call, not #call")
+                        format!("unsafe function '{function}' must be called with #unsafe-call inside #unsafe")
                     } else {
-                        format!("safe function '{function}' must be called with #call, not #unsafe-call")
+                        format!("safe function '{function}' requires an ordinary named call, not #unsafe-call")
                     });
                 }
                 let parameters = &signature.parameters;
@@ -3498,14 +3500,11 @@ fn normalize_call_expr(
             }
             if let Some(Expr::Symbol(name)) = items.first() {
                 if signatures.contains_key(name) && !is_builtin_head(name) {
-                    let keyword = if signatures[name].unsafe_call {
-                        "#unsafe-call"
+                    return Err(if signatures[name].unsafe_call {
+                        format!("unsafe function '{name}' must be called with (#unsafe (#unsafe-call {name} (: parameter value ...)))")
                     } else {
-                        "#call"
-                    };
-                    return Err(format!(
-                        "function '{name}' must be called with ({keyword} {name} (: parameter value ...))"
-                    ));
+                        format!("function '{name}' requires named arguments; use {name} {{ parameter = value; }}")
+                    });
                 }
                 if name == "match" {
                     if let Some(scrutinee) = items.get_mut(1) {
@@ -9321,7 +9320,9 @@ impl<'a> Parser<'a> {
                         children: children.into(),
                     });
                 }
-                Some(_) => segment.push(self.expression()?),
+                // The first item is the group's label, even when its value
+                // begins with another named list. Values may contain calls.
+                Some(_) => segment.push(self.expression_application(!segment.is_empty())?),
                 None => return Err(self.error("unterminated list; expected ')'", self.eof_span())),
             }
         }
