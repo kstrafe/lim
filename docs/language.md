@@ -3111,6 +3111,9 @@ See `examples/range_bounds_once.lim` and
   (#set total (#u64::add-wrap total i)))
 ```
 
+[examples/print_numbers.lim](../examples/print_numbers.lim) uses the surface
+syntax to print 1 through 10, one number per line, with a decimal output helper.
+
 Labels wrap statement loops with `#label`, and value-loop breaks can target an
 outer value loop:
 

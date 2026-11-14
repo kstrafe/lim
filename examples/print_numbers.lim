@@ -1,0 +1,29 @@
+(#alias write-byte = ../library/linux_x86_64.lim::linux-write-byte)
+
+// Print an unsigned integer in decimal, followed by a newline (Linux x86-64).
+#fn print-number {
+  #params = { value = #u64; };
+  #returns = ();
+  #body:
+    #let-mut divisor #u64 1;
+    #while [#u64 #wrap; [value / divisor] >= 10]
+      (#set divisor [#u64 #wrap; divisor * 10]);
+    #while [#u64; divisor > 0]
+      (#let digit #u8
+        (#as [#u64 #wrap; [value / divisor % 10] + 48] #u8))
+      (#assert [#i64; (write-byte { source = (#borrow digit); }) == 1])
+      (#set divisor [#u64 #wrap; divisor / 10]);
+    #let newline #u8 10;
+    #assert [#i64; (write-byte { source = (#borrow newline); }) == 1];
+    #return ();
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    // The end bound is exclusive: 1 through 10.
+    #for-range (number #u64) 1 11
+      (print-number { value = number; });
+    #return 0;
+}

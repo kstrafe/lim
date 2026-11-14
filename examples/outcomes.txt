@@ -8,6 +8,7 @@ exit 42 index_contracts.lim - -
 exit 42 generated_array.lim - -
 exit 42 surface_syntax.lim - -
 exit 42 surface_statics.lim - -
+exit 0 print_numbers.lim tests/fixtures/print_numbers.stdout -
 exit 42 aarch64_scalar.lim - -
 exit 42 aarch64_ownership.lim - -
 exit 42 aarch64_syscall.lim examples/aarch64_syscall.stdout -
