@@ -204,3 +204,52 @@ fn substitution_preserves_relational_argument_positions_and_named_call_order() {
     let error = check(&source.replace("(first a) (second b)", "(first b) (second a)")).unwrap_err();
     assert!(error.contains("missing evidence") && error.contains("before"), "{error}");
 }
+
+#[test]
+fn constrained_partial_predicates_require_domain_evidence_at_checked_boundaries() {
+    // Both predicates always return true: these are honest promises and
+    // assumptions. Their bodies cannot supply the separately required evidence.
+    let declarations = function("domain", "(value #u64)", "#bool", "(#return true)")
+        + &function("partial", "(subject #u64)", "#bool", "(#requires (#call domain ((value subject)))) (#return true)")
+        + "#type Accepted (#where (value #u64) (#call partial ((subject value))))\n"
+        + &function("promise", "(item #u64)", "()", "(#ensures (#call partial ((subject item)))) (#return ())")
+        + &function("domain-user", "(value #u64)", "()", "(#requires (#call domain ((value value)))) (#return ())");
+    check(&declarations).unwrap();
+    for evidence in [
+        "(#call promise ((item item)))",
+        "(#assume (#call partial ((subject item))))",
+    ] {
+        // Establishing only P remains permitted. It neither establishes Q nor
+        // creates a new caller obligation until a checked boundary consumes it.
+        check(&(declarations.clone() + &function("caller", "(item #u64)", "()", &format!("{evidence} (#return ())")))).unwrap();
+        let binding = format!("{evidence} (#let accepted Accepted item) (#forget accepted) (#return ())");
+        let error = check(&(declarations.clone() + &function("caller", "(item #u64)", "()", &binding))).unwrap_err();
+        assert!(error.contains("missing evidence") && error.contains("domain"), "{error}");
+        let valid = format!("(#requires (#call domain ((value item)))) {binding}");
+        check(&(declarations.clone() + &function("caller", "(item #u64)", "()", &valid))).unwrap();
+    }
+
+    // A parameter constraint already supplies Q at entry and checks Q at calls.
+    let forward = function("forward", "(item Accepted)", "()", "(#call domain-user ((value item))) (#return ())");
+    check(&(declarations.clone() + &forward)).unwrap();
+    let error = check(&(declarations.clone() + &forward + &function("caller", "(item #u64)", "()", "(#call promise ((item item))) (#call forward ((item item))) (#return ())"))).unwrap_err();
+    assert!(error.contains("missing evidence") && error.contains("domain"), "{error}");
+
+    // An explicit promise of P still cannot discharge a constrained return's Q.
+    let promised_result = function("create", "(item #u64)", "Accepted", "(#ensures (#call partial ((subject (#result))))) (#return item)");
+    let error = check(&(declarations.clone() + &promised_result)).unwrap_err();
+    assert!(error.contains("missing evidence") && error.contains("domain"), "{error}");
+
+    // Checked constrained results export their complete verified type contract.
+    let checked_result = function("create", "(item #u64)", "Accepted", "(#assume (#call domain ((value item)))) (#assume (#call partial ((subject item)))) (#return item)");
+    let use_result = function("caller", "(item #u64)", "()", "(#let accepted Accepted (#call create ((item item)))) (#call domain-user ((value accepted))) (#return ())");
+    check(&(declarations.clone() + &checked_result + &use_result)).unwrap();
+
+    // Restoration checks and exports the same closure after a real write.
+    let edit = function("edit", "(value (#ref-mut Accepted))", "()", "(#deref-set value 7u64) (#assume (#call domain ((value (#deref value))))) (#assume (#call partial ((subject (#deref value))))) (#return ())");
+    let use_edit = function("caller", "(value (#ref-mut Accepted))", "()", "(#call edit ((value value))) (#return ())");
+    check(&(declarations.clone() + &edit + &use_edit)).unwrap();
+    let missing_restore = edit.replace("(#assume (#call domain ((value (#deref value)))))", "");
+    let error = check(&(declarations + &missing_restore)).unwrap_err();
+    assert!(error.contains("missing evidence") && error.contains("domain"), "{error}");
+}

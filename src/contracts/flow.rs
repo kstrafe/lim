@@ -477,39 +477,70 @@ impl Engine<'_, '_> {
         )
         .map_err(|e| self.error(e))
     }
+    fn predicate_requirements(
+        &mut self,
+        e: &Expr,
+        s: &mut State,
+    ) -> Result<Option<(prerequisites::Requirements, State)>, AnalysisError> {
+        let Some(Expr::Function(name)) = parts(e).first() else {
+            return Ok(None);
+        };
+        let requirements = self.program().contracts.effective_requires[name].clone();
+        if requirements.nodes.is_empty() {
+            return Ok(None);
+        }
+        let f = self.program().contracts.originals[name].clone();
+        let mut interface = self.snapshot(s)?;
+        for (parameter, expression) in f.parameters.iter().zip(&parts(e)[1..]) {
+            let mut value = self.spec_value(expression, s)?;
+            if matches!(
+                expression,
+                Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Float(_)
+            ) {
+                value.ty = parameter.ty.clone();
+            }
+            interface.values.insert(parameter.name.clone(), value);
+        }
+        Ok(Some((requirements, interface)))
+    }
     fn predicate(&mut self, e: &Expr, s: &mut State, assumed: bool) -> Result<Fact, AnalysisError> {
         let mut fact = self.predicate_base(e, s, assumed)?;
-        if let Some(Expr::Function(name)) = parts(e).first() {
-            let requirements = self.program().contracts.effective_requires[name].clone();
-            if !requirements.nodes.is_empty() {
-                let f = self.program().contracts.originals[name].clone();
-                let mut interface = self.snapshot(s)?;
-                for (parameter, expression) in f.parameters.iter().zip(&parts(e)[1..]) {
-                    let mut value = self.spec_value(expression, s)?;
-                    if matches!(
-                        expression,
-                        Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Float(_)
-                    ) {
-                        value.ty = parameter.ty.clone();
-                    }
-                    interface.values.insert(parameter.name.clone(), value);
+        if let Some((requirements, mut interface)) = self.predicate_requirements(e, s)? {
+            // A predicate's validity also depends on the observations that
+            // keep its declared prerequisites valid. Never infer facts from
+            // predicate bodies, and never recursively enumerate DAG paths.
+            let mut dependencies = std::mem::take(&mut fact.dependencies)
+                .into_iter().collect::<BTreeSet<_>>();
+            for expression in requirements.ordered() {
+                let prerequisite = self.predicate_base(expression, &mut interface, assumed)?;
+                for dependency in prerequisite.dependencies {
+                    self.charge(location_weight(&dependency))?;
+                    dependencies.insert(dependency);
                 }
-                // A predicate's validity also depends on the observations that
-                // keep its declared prerequisites valid. Never infer facts from
-                // predicate bodies, and never recursively enumerate DAG paths.
-                let mut dependencies = std::mem::take(&mut fact.dependencies)
-                    .into_iter().collect::<BTreeSet<_>>();
-                for expression in requirements.ordered() {
-                    let prerequisite = self.predicate_base(expression, &mut interface, assumed)?;
-                    for dependency in prerequisite.dependencies {
-                        self.charge(location_weight(&dependency))?;
-                        dependencies.insert(dependency);
-                    }
-                }
-                fact.dependencies = dependencies.into_iter().collect();
             }
+            fact.dependencies = dependencies.into_iter().collect();
         }
         Ok(fact)
+    }
+    fn constraint_facts(&mut self, e: &Expr, s: &mut State) -> Result<Vec<Fact>, AnalysisError> {
+        let root = self.predicate(e, s, false)?;
+        let mut facts = Vec::new();
+        if let Some((requirements, mut interface)) = self.predicate_requirements(e, s)? {
+            for expression in requirements.ordered() {
+                facts.push(self.predicate(expression, &mut interface, false)?);
+            }
+        }
+        facts.push(root);
+        Ok(facts)
+    }
+    fn require_constraint(&mut self, e: &Expr, s: &mut State) -> Result<Vec<Fact>, AnalysisError> {
+        // #where is an implicit checked obligation. A promise/assumption of P
+        // remains only P; consuming it as a constraint also needs P's domain.
+        let facts = self.constraint_facts(e, s)?;
+        for fact in &facts {
+            self.require(s, fact)?;
+        }
+        Ok(facts)
     }
     fn predicate_base(&mut self, e: &Expr, s: &mut State, assumed: bool) -> Result<Fact, AnalysisError> {
         self.validate_spec(e)?;
@@ -1077,16 +1108,21 @@ impl Engine<'_, '_> {
                 | Type::PinnedReference { mutable: true, .. }
                 | Type::MutableSlice(_)
         );
-        for p in clauses
-            .ensures
-            .iter()
-            .chain(preserved.iter())
-            .chain(clauses.restores.iter().filter(|_| !lends_mutably))
-            .chain(&clauses.result_constraints)
-        {
+        for p in clauses.ensures.iter().chain(preserved.iter()) {
             let predicate = self.freeze_old(p, &entry, &mut interface)?;
             let fact = self.predicate(&predicate, &mut interface, true)?;
             self.add(s, fact)?;
+        }
+        // These are checked type guarantees, rather than explicit promises.
+        // Export the same closure that result/restoration checking requires.
+        for p in clauses.restores.iter().filter(|_| !lends_mutably)
+            .chain(&clauses.result_constraints)
+        {
+            let predicate = self.freeze_old(p, &entry, &mut interface)?;
+            for mut fact in self.constraint_facts(&predicate, &mut interface)? {
+                fact.assumed = true;
+                self.add(s, fact)?;
+            }
         }
         for (place, value) in interface.cells {
             s.cells.entry(place).or_insert(value);
@@ -1649,9 +1685,9 @@ impl Engine<'_, '_> {
         for predicate in lowering::predicates_for(ty, &symbol(name), self.program())
             .map_err(|e| self.error(e))?
         {
-            let fact = self.predicate(&predicate, s, false)?;
-            self.require(s, &fact)?;
-            fixed_evidence.insert(fact.key);
+            for fact in self.require_constraint(&predicate, s)? {
+                fixed_evidence.insert(fact.key);
+            }
             let root = s.values[name]
                 .targets
                 .first()
@@ -1734,8 +1770,10 @@ impl Engine<'_, '_> {
     fn restore(&mut self, s: &mut State, places: &[Location]) -> Result<(), AnalysisError> {
         for (predicate, root) in s.fixed.clone() {
             if places.is_empty() || places.iter().any(|p| Self::may_overlap(p, &root)) {
-                let fact = self.predicate(&predicate, s, false)?;
-                self.require(s,&fact).map_err(|mut e|{e.0.push_str("; fixed storage invariant must be restored before its owner is available again");e})?;
+                self.require_constraint(&predicate, s).map_err(|mut error| {
+                    error.0.push_str("; fixed storage invariant must be restored before its owner is available again");
+                    error
+                })?;
             }
         }
         Ok(())
@@ -1908,8 +1946,7 @@ impl Engine<'_, '_> {
                     self.add(s, fact)?;
                 }
                 for p in &clauses.result_constraints {
-                    let fact = self.predicate(p, s, false)?;
-                    self.require(s, &fact)?;
+                    self.require_constraint(p, s)?;
                 }
                 self.consume_owner(&value, s);
                 if !matches!(
