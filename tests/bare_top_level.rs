@@ -432,3 +432,29 @@ fn closed_colon_operands_cannot_hide_outdented_or_continued_declaration_heads() 
     let program = lim::parse_program_with_config(properly_separated, &config).unwrap();
     lim::check_types(&program).unwrap();
 }
+
+#[test]
+fn multiline_string_tokens_do_not_create_a_same_line_root_boundary() {
+    let mut config = CompileConfig::default();
+    config.set("feature", "selected");
+    let prefix = "#cfg-if (#cfg-is #feature inactive) \"line one\nline two\"";
+    let same_closing_line = format!(
+        "{prefix} #fn hidden () #u64 (#return 0u64)\n#fn main () #u64 (#return 42u64)\n"
+    );
+    let error = lim::parse_source_unit(&same_closing_line).unwrap_err();
+    assert!(error.contains("newline or semicolon separator"), "{error}");
+    assert!(lim::format_source(&same_closing_line).is_err());
+    assert!(lim::parse_program_with_config(&same_closing_line, &config).is_err());
+    let following_newline = format!("{prefix}\n#fn main () #u64 (#return 42u64)\n");
+    let nodes = lim::parse_source_unit(&following_newline).unwrap();
+    assert_eq!(nodes.len(), 2);
+    assert_eq!(
+        nodes[0].children[2].expr,
+        Expr::String("line one\nline two".into())
+    );
+    let formatted = lim::format_source(&following_newline).unwrap();
+    assert_eq!(trees(&following_newline), trees(&formatted));
+    assert_eq!(lim::format_source(&formatted).unwrap(), formatted);
+    let program = lim::parse_program_with_config(&following_newline, &config).unwrap();
+    lim::check_types(&program).unwrap();
+}

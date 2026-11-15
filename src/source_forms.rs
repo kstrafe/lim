@@ -83,7 +83,7 @@ impl<'a> SourceForms<'a> {
         let mut colon_operand = trailing_colon(&first.kind);
         let mut tokens = vec![first];
         let mut delimiters = Vec::new();
-        let mut last_line = header.line;
+        let mut previous_end = header.end;
         loop {
             let Some(token) = self.lexer.next_token().map_err(|e| crate::ParseError {
                 message: e.message,
@@ -98,7 +98,11 @@ impl<'a> SourceForms<'a> {
                 if token.kind == TokenKind::Semicolon && !nested_line {
                     break;
                 }
-                if token.span.line > last_line && indentation(token.span.start) <= baseline {
+                // Newlines inside a multiline token do not separate roots.
+                // Only whitespace/comments between complete tokens can do so.
+                if self.source[previous_end..token.span.start].contains('\n')
+                    && indentation(token.span.start) <= baseline
+                {
                     self.pending = Some(token);
                     break;
                 }
@@ -161,7 +165,7 @@ impl<'a> SourceForms<'a> {
                 }
                 _ => {}
             }
-            last_line = token.span.line;
+            previous_end = token.span.end;
             tokens.push(token);
         }
         // Read the root's contents directly. Adding synthetic explicit
