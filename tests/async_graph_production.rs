@@ -399,7 +399,7 @@ fn movable_dynamic_store_preserves_selection_in_cached_and_standalone_code() {
           (#return answer)\n"
     );
     let artifact = run(&source, "async-movable-dynamic-store");
-    assert!(artifact.contains("index."));
+    assert!(artifact.contains("index-"));
     assert!(!artifact.contains("select-address"));
     assert!(artifact.contains("(#usize::lt"));
 }
