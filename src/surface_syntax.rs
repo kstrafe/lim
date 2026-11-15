@@ -40,7 +40,8 @@ fn callable(node: &Node) -> bool {
 }
 
 pub(super) fn callable_name(value: &str) -> bool {
-    (!value.is_empty() && !value.starts_with('#') && crate::names::value_name(value))
+    crate::file_access::split(value).is_some()
+        || (!value.is_empty() && !value.starts_with('#') && crate::names::value_name(value))
         || crate::names::numeric_operation(value).is_some()
 }
 

@@ -112,7 +112,7 @@ fn positional_arguments_do_not_erase_unsafe_call_requirements() {
 #[test]
 fn generators_can_emit_positional_functions() {
     let source =
-        "#gn make (name) `((#fn ,name #u64 #u64 (#return #arg)))\n#generate make identity\n";
+        "#gn make { name; } `((#fn ,name #u64 #u64 (#return #arg)))\n#generate make { name = identity; }\n";
     check(&(source.to_owned() + &main("(#return (identity 42u64))"))).unwrap();
 }
 

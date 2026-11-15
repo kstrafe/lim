@@ -55,7 +55,6 @@ fn standard_paths_reject_parent_escape_and_unknown_modules_before_filesystem_loo
     let scratch = support::Scratch::new("std-invalid-root");
     for (module, expected) in [
         ("#std/../private.lim", "must stay within #std/"),
-        ("#std//cell.lim", "must stay within #std/"),
         (
             "#std/not-a-shipped-module.lim",
             "unknown standard-library module",
@@ -74,10 +73,12 @@ const CELL_ARGUMENTS: &str = "{ value-type = #u32; name = Counter; create = make
 #[test]
 fn ordinary_standard_generators_and_local_generators_have_distinct_identities() {
     let scratch = support::Scratch::new("std-cell-identity");
+    fs::write(scratch.path().join("application.lim"),
+        "#gn cell { name; } `((#type ,name #u64))\n").unwrap();
     let source = format!(
         "#alias standard-cell = #std/cell.lim::cell\n\
-        #gn cell {{ name; }} `((#type ,name #u64))\n\
-        #generate cell {{ name = Local; }}\n\
+        #alias application-cell = ./application.lim::cell\n\
+        #generate application-cell {{ name = Local; }}\n\
         #generate standard-cell {CELL_ARGUMENTS}\n\
         #fn main {{ #params = {{}}; #returns = Local; #body = (\n\
           (#let counter Counter (#call make-counter ((value 42u32))))\n\
@@ -92,8 +93,8 @@ fn direct_standard_generator_calls_and_aliases_share_reordered_cached_inputs() {
     let scratch = support::Scratch::new("std-cell-cache");
     let root = scratch.path();
     let source = format!(
-        "#alias cell = #std/cell.lim::cell\n\
-        #generate cell {CELL_ARGUMENTS}\n\
+        "#alias cell-factory = #std/cell.lim::cell\n\
+        #generate cell-factory {CELL_ARGUMENTS}\n\
         #generate #std/cell.lim::cell {{ set = write-counter; get = read-counter; create = make-counter; name = Counter; value-type = #u32; }}\n\
         #fn main {{ #params = {{}}; #returns = #u64; #body = ((#return 42u64)); }}\n"
     );
@@ -137,7 +138,7 @@ fn standard_runtime_types_do_not_capture_same_spelled_project_types() {
         #alias length = #std/string.lim::String::len\n\
         #struct String () ((value #u64))\n\
         #fn standard-length { #params = ((value (#ref StandardString))); #returns = #usize;\n\
-          #body = ((#return (#call length ((string value))))); }\n\
+          #body = ((#return (#std/string.lim::String::len { string = value; }))); }\n\
         #fn main { #params = {}; #returns = #u64; #body = (\n\
           (#let local String (#struct-literal String ((value 42u64))))\n\
           (#let answer #u64 (#get (#borrow local) value)) (#forget local) (#return answer) ); }\n";

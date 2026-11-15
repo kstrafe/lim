@@ -313,9 +313,26 @@ fn repeated_reordered_invocations_deduplicate_before_publication() {
 fn named_patterns_keep_labels_literal_and_renamed_bindings_local() {
     let scratch = support::Scratch::new("generator-record-binding-context");
     fs::write(scratch.path().join("types.lim"), "#type Number #u64\n").unwrap();
-    let source = "#alias label = ./types.lim::Number\n#gn make { label = value; } `((#type Alias ,value))\n#generate make { label = #u64; }\n";
+    let source = "#alias Label = ./types.lim::Number\n#gn make { Label = value; } `((#type Alias ,value))\n#generate make { Label = #u64; }\n";
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     lim::check_types(&program).unwrap();
+}
+
+#[test]
+fn template_parameters_use_the_emitted_scope_without_allowing_runtime_shadowing() {
+    let scratch = support::Scratch::new("generator-template-binding-scope");
+    fs::write(scratch.path().join("module.lim"),
+        "#fn value { #params = {}; #returns = #u64; #body = ((#return 0u64)); }\n\
+         #gn make { name; } `((#fn ,name ((value #u64)) #u64 (#return value)))\n").unwrap();
+    let source = "#alias build = ./module.lim::make\n\
+        #generate build { name = identity; }\n\
+        #fn main { #params = {}; #returns = #u64; #body = ((#return (#call identity ((value 42u64))))); }\n";
+    let path = scratch.path().join("main.lim");
+    let program = lim::parse_program_from_path(source, &path).unwrap();
+    lim::check_types(&program).unwrap();
+    let invalid = format!("#fn value {{ #params = {{}}; #returns = #u64; #body = ((#return 0u64)); }}\n{source}");
+    let error = lim::parse_program_from_path(&invalid, &path).unwrap_err();
+    assert!(error.contains("parameter 'value'") && error.contains("shadow"), "{error}");
 }
 
 #[test]

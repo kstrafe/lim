@@ -530,7 +530,7 @@ impl Resolver<'_> {
                         let pattern = if generator {
                             argument.children.get(1).unwrap_or(argument)
                         } else {
-                            argument
+                            &*argument
                         };
                         let binder_node = if pattern.children.is_empty() {
                             Some(&*pattern)
@@ -539,8 +539,9 @@ impl Resolver<'_> {
                         };
                         if let Some(name) = binder_node.and_then(symbol) {
                             inner.insert(name.into());
-                            if self.lookup(file, name, &mut Vec::new())
-                                .map_err(SourceError::from)?.is_some()
+                            if !locals.contains("#file-template")
+                                && self.lookup(file, name, &mut Vec::new())
+                                    .map_err(SourceError::from)?.is_some()
                             {
                                 return Err(SourceError::from(format!(
                                     "parameter '{name}' would shadow a file-local declaration or alias"
