@@ -1,9 +1,9 @@
-#alias SystemAllocationError = /<lim-std>/system_allocator.lim::SystemAllocationError
-#alias SystemAllocationResult = /<lim-std>/system_allocator.lim::SystemAllocationResult
-#alias lim-gen-cell = ../library/cell.lim::#cell
-#alias system-allocate = /<lim-std>/system_allocator.lim::system-allocate
-#alias system-deallocate = /<lim-std>/system_allocator.lim::system-deallocate
-#alias system-reallocate = /<lim-std>/system_allocator.lim::system-reallocate
+#alias SystemAllocationError = #std/system_allocator.lim::SystemAllocationError
+#alias SystemAllocationResult = #std/system_allocator.lim::SystemAllocationResult
+#alias lim-gen-cell = #std/cell.lim::cell
+#alias system-allocate = #std/system_allocator.lim::system-allocate
+#alias system-deallocate = #std/system_allocator.lim::system-deallocate
+#alias system-reallocate = #std/system_allocator.lim::system-reallocate
 
 #std
 

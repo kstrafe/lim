@@ -1,6 +1,6 @@
-#alias lim-gen-cell = ../library/cell.lim::#cell
-#alias lim-gen-task = ../library/tasks.lim::#task
-#alias lim-gen-task-cancel = ../library/tasks.lim::#task-cancel
+#alias lim-gen-cell = #std/cell.lim::cell
+#alias lim-gen-task = #std/tasks.lim::task
+#alias lim-gen-task-cancel = #std/tasks.lim::task-cancel
 
 #generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }
 #struct Flag () ((released CellU64))

@@ -15,7 +15,7 @@
     (#gn-call @task-sixth { values = (#gn-rest values); })
 #gn-fn task-eighth { values; }
     (#gn-call @task-seventh { values = (#gn-rest values); })
-#gn #task { names; result; states; }
+#gn task { names; result; states; }
     `((#enum ,(#gn-first names) (#linear) ,states)
 
       (#enum
@@ -57,7 +57,7 @@
           (#block
             (#forget lim-executor-task)
             (#unreachable)))))
-#gn #executor { run; result; jobs; }
+#gn executor { run; result; jobs; }
     `((#struct ,result () ,(#gn-for-each job jobs (#gn-call @executor-field { job = job; })))
       (#fn ,run ,(#gn-for-each job jobs (#gn-call @executor-parameter { job = job; })) ,result
         (#effects ((#effects-of ,(#gn-for-each job jobs (#gn-call @task-sixth { values = job; })))))
@@ -95,7 +95,7 @@
           2u32
           (#gn-if (#gn-equal (#gn-call @task-fifth { values = job; }) 3u32)
             3u32
-            (#gn-error "#generate #wake-executor task slot must be 0u32 through 3u32")))))
+            (#gn-error "#generate wake-executor task slot must be 0u32 through 3u32")))))
 #gn-fn wake-executor-slots-valid { jobs; }
     (#gn-if (#gn-equal (#gn-length jobs) 1)
       (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-first jobs); }) 0u32)
@@ -186,9 +186,9 @@
           (#set lim-wake-executor-lifecycle (,(#gn-call @task-sixth { values = outputs; }) lim-wake-executor-reason))
           (#set lim-wake-executor-waiting false)
           ())))
-#gn #wake-executor { run; outputs; task-spec; wait-spec; cancel-function; jobs; }
+#gn wake-executor { run; outputs; task-spec; wait-spec; cancel-function; jobs; }
     (#gn-if (#gn-equal (#gn-length jobs) 0)
-      (#gn-error "#generate #wake-executor requires one to four task jobs")
+      (#gn-error "#generate wake-executor requires one to four task jobs")
       (#gn-if (#gn-equal (#gn-length jobs) 1)
         (#gn-call @wake-executor-generate { run = run; outputs = outputs; task-spec = task-spec; wait-spec = wait-spec; cancel-function = cancel-function; jobs = jobs; })
         (#gn-if (#gn-equal (#gn-length jobs) 2)
@@ -197,7 +197,7 @@
             (#gn-call @wake-executor-generate { run = run; outputs = outputs; task-spec = task-spec; wait-spec = wait-spec; cancel-function = cancel-function; jobs = jobs; })
             (#gn-if (#gn-equal (#gn-length jobs) 4)
               (#gn-call @wake-executor-generate { run = run; outputs = outputs; task-spec = task-spec; wait-spec = wait-spec; cancel-function = cancel-function; jobs = jobs; })
-              (#gn-error "#generate #wake-executor supports at most four task jobs"))))))
+              (#gn-error "#generate wake-executor supports at most four task jobs"))))))
 #gn-fn wake-executor-generate { run; outputs; task-spec; wait-spec; cancel-function; jobs; }
     (#gn-if (#gn-equal (#gn-call @wake-executor-slots-valid { jobs = jobs; }) valid)
       `((#struct ,(#gn-first outputs) () ,(#gn-for-each job jobs (#gn-call @wake-executor-field { result-type = (#gn-call @task-fifth { values = task-spec; }); job = job; })))
@@ -263,7 +263,7 @@
                   ,@(#gn-for-each job jobs
                     (#gn-call @wake-executor-cancel-call { cancel-function = cancel-function; job = job; }))
                   (,(#gn-call @task-seventh { values = outputs; }) lim-wake-executor-reason)))))))
-      (#gn-error "#generate #wake-executor slots must be consecutive from 0u32"))
+      (#gn-error "#generate wake-executor slots must be consecutive from 0u32"))
 //; Explicit async composition. Names: (Task Poll Pending Ready poll-function).
 //; Each stage is (State (#await ChildTask Pending Ready poll) continuation).
 //; A continuation is (#then NextState start-next) or (#return).
@@ -293,8 +293,8 @@
     `(,(#gn-call @task-fifth { values = (#gn-call @task-second { values = stage; }); })
       ,(#gn-if (#gn-equal (#gn-first (#gn-call @task-third { values = stage; })) #then)
         (#gn-call @task-third { values = (#gn-call @task-third { values = stage; }); }) ()))
-#gn #async { names; result; stages; }
-    `((#generate #task { names = ,names; result = ,result; states = ,(#gn-for-each stage stages (#gn-call @async-state { stage = stage; })); })
+#gn async { names; result; stages; }
+    `((#generate task { names = ,names; result = ,result; states = ,(#gn-for-each stage stages (#gn-call @async-state { stage = stage; })); })
       (#fn ,(#gn-call @task-fifth { values = names; }) ((task ,(#gn-first names))) ,(#gn-call @task-second { values = names; })
         (#effects ((#effects-of ,(#gn-for-each stage stages (#gn-call @async-stage-effects { stage = stage; })))))
         (#return
@@ -313,8 +313,8 @@
           (#case (,(#gn-call @task-fourth { values = (#gn-call @task-second { values = stage; }); }) lim-async-value)
             ,(#gn-call @async-complete { names = names; continuation = (#gn-call @task-third { values = stage; }); }))))
       (#gn-error "async stage requires (#await Task Pending Ready poll-function)"))
-#gn #async-wake { names; result; stages; waker; }
-    `((#generate #task { names = ,names; result = ,result; states = ,(#gn-for-each stage stages (#gn-call @async-state { stage = stage; })); })
+#gn async-wake { names; result; stages; waker; }
+    `((#generate task { names = ,names; result = ,result; states = ,(#gn-for-each stage stages (#gn-call @async-state { stage = stage; })); })
       (#fn ,(#gn-call @task-fifth { values = names; }) ((task ,(#gn-first names)) (waker (#ref ,waker))) ,(#gn-call @task-second { values = names; })
         (#effects ((#effects-of ,(#gn-for-each stage stages (#gn-call @async-stage-effects { stage = stage; })))))
         (#return
@@ -343,11 +343,11 @@
                        (#gn-first field))))))))
         (#gn-error
           "task cancellation state requires (Variant handler) or (Variant handler ((field Type) ...))")))
-#gn #task-cancel { cancel; task; states; }
+#gn task-cancel { cancel; task; states; }
     `((#fn ,cancel ((task ,task)) ()
         (#effects ((#effects-of ,(#gn-for-each entry states (#gn-call @task-second { values = entry; })))))
         (#return (#match task ,@(#gn-for-each entry states (#gn-call @task-cancel-case { entry = entry; }))))))
 //; Choice.One explicit OS worker owns this executor and its fixed set of task slots.
 //; Existing #generate #thread-spawn Send checks, errors, and mandatory joining apply.
-#gn #threaded-executor { run; result; jobs; thread; }
-    `((#generate #executor { run = ,run; result = ,result; jobs = ,jobs; }) (#generate #thread-spawn ((task ,thread) (worker ,run))))
+#gn threaded-executor { run; result; jobs; thread; }
+    `((#generate executor { run = ,run; result = ,result; jobs = ,jobs; }) (#generate #thread-spawn ((task ,thread) (worker ,run))))

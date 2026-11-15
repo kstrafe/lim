@@ -1,7 +1,7 @@
-#alias String = /<lim-std>/string.lim::String
-#alias String::free = /<lim-std>/string.lim::String::free
-#alias String::from-chars = /<lim-std>/string.lim::String::from-chars
-#alias StringCreateResult = /<lim-std>/string.lim::StringCreateResult
+#alias String = #std/string.lim::String
+#alias String::free = #std/string.lim::String::free
+#alias String::from-chars = #std/string.lim::String::from-chars
+#alias StringCreateResult = #std/string.lim::StringCreateResult
 
 #std
 

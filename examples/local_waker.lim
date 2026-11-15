@@ -1,5 +1,5 @@
-#alias lim-gen-cell = ../library/cell.lim::#cell
-#alias lim-gen-local-waker = ../library/local_waker.lim::#local-waker
+#alias lim-gen-cell = #std/cell.lim::cell
+#alias lim-gen-local-waker = #std/local_waker.lim::local-waker
 
 #generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }
 

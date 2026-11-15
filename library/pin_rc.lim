@@ -1,4 +1,4 @@
-#alias lim-gen-allocator-for = /<lim-std>/allocator.lim::#allocator-for
+#alias lim-gen-allocator-for = #std/allocator.lim::allocator-for
 
 //; Concrete, single-threaded reference-counted pinned allocations.
 //; No weak handles or ordinary mutable pointee references are exposed.
@@ -14,8 +14,8 @@
         (#gn-for-each key (type allocator name destroy)
           (#gn-if (#gn-equal (#gn-first option) key) true false))
         (#gn-for-each key (type allocator name destroy) false))
-        (#gn-error "#generate #pin-rc has an unknown named argument") ())
-      (#gn-error "#generate #pin-rc requires named argument pairs"))
+        (#gn-error "#generate pin-rc has an unknown named argument") ())
+      (#gn-error "#generate pin-rc requires named argument pairs"))
 
 #gn-fn pin-rc-build { element; allocator; name; block; adapter; destroy; checked; }
       `((#struct ,block () ((value ,element) (strong (#atomic #usize))))
@@ -93,7 +93,7 @@
             (#forget pointer))
           (#return ())))
 
-#gn #pin-rc { options; }
+#gn pin-rc { options; }
     (#gn-call pin-rc-build
       { element = (#gn-get options type); allocator = (#gn-get options allocator); name = (#gn-get options name);
       block = (#gn-call pin-rc-name { name = (#gn-get options name); suffix = "Allocation"; });

@@ -1,4 +1,4 @@
-#alias lim-gen-ready-queue = ../library/ready_queue.lim::#ready-queue
+#alias lim-gen-ready-queue = #std/ready_queue.lim::ready-queue
 // Queue operations update Copy fields in place; main consumes the linear owner.
 
 #generate lim-gen-ready-queue { name = ReadyQueue; enqueue-result = ReadyQueueEnqueueResult; dequeue-result = ReadyQueueDequeueResult;

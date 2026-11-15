@@ -11,7 +11,7 @@
 #gn-fn pin-slot-eighth { values; } (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values))))))))
 #gn-fn pin-slot-ninth { values; } (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values)))))))))
 
-#gn #pin-slot { names; element; }
+#gn pin-slot { names; element; }
     (#gn-if (#gn-equal (#gn-length names) 9)
       `((#enum ,(#gn-first names) (#linear)
           ((,(#gn-call pin-slot-second { values = names; }))

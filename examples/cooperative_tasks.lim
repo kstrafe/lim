@@ -1,5 +1,5 @@
-#alias lim-gen-executor = ../library/tasks.lim::#executor
-#alias lim-gen-task = ../library/tasks.lim::#task
+#alias lim-gen-executor = #std/tasks.lim::executor
+#alias lim-gen-task = #std/tasks.lim::task
 
 #generate lim-gen-task { names = (CountTask CountPoll CountPoll.CountPending CountPoll.CountReady); result = #u64;
   states = ((CountTask.Counting #u64)); }

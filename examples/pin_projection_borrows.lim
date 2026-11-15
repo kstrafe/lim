@@ -1,5 +1,5 @@
-#alias lim-gen-pin = ../library/pin.lim::#pin
-#alias lim-gen-pin-scope = ../library/pin.lim::#pin-scope
+#alias lim-gen-pin = #std/pin.lim::pin
+#alias lim-gen-pin-scope = #std/pin.lim::pin-scope
 
 #struct Number (#linear) ((value #u64))
 

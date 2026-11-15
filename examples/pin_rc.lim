@@ -1,4 +1,4 @@
-#alias lim-gen-pin-rc = ../library/pin_rc.lim::#pin-rc
+#alias lim-gen-pin-rc = #std/pin_rc.lim::pin-rc
 
 #struct Arena () ((destroyed (#atomic #u64)) (deallocated (#atomic #u64)))
 #enum ArenaError () (ArenaError.OutOfMemory)

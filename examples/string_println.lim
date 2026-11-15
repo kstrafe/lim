@@ -1,10 +1,10 @@
-#alias String = /<lim-std>/string.lim::String
-#alias String::free = /<lim-std>/string.lim::String::free
-#alias String::from-chars = /<lim-std>/string.lim::String::from-chars
-#alias String::push-char = /<lim-std>/string.lim::String::push-char
-#alias String::push-string = /<lim-std>/string.lim::String::push-string
-#alias StringCreateResult = /<lim-std>/string.lim::StringCreateResult
-#alias StringStatus = /<lim-std>/string.lim::StringStatus
+#alias String = #std/string.lim::String
+#alias String::free = #std/string.lim::String::free
+#alias String::from-chars = #std/string.lim::String::from-chars
+#alias String::push-char = #std/string.lim::String::push-char
+#alias String::push-string = #std/string.lim::String::push-string
+#alias StringCreateResult = #std/string.lim::StringCreateResult
+#alias StringStatus = #std/string.lim::StringStatus
 
 #std
 

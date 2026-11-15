@@ -1,7 +1,7 @@
-#alias lim-gen-async-wake = ../library/tasks.lim::#async-wake
-#alias lim-gen-cell = ../library/cell.lim::#cell
-#alias lim-gen-local-waker = ../library/local_waker.lim::#local-waker
-#alias lim-gen-task = ../library/tasks.lim::#task
+#alias lim-gen-async-wake = #std/tasks.lim::async-wake
+#alias lim-gen-cell = #std/cell.lim::cell
+#alias lim-gen-local-waker = #std/local_waker.lim::local-waker
+#alias lim-gen-task = #std/tasks.lim::task
 
 #generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }
 

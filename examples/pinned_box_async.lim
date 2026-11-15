@@ -1,6 +1,6 @@
 #alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP
 #alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP
-#alias lim-gen-pin-box = ../library/pin_box.lim::#pin-box
+#alias lim-gen-pin-box = #std/pin_box.lim::pin-box
 
 #struct Arena () ()
 #enum ArenaError () (ArenaError.OutOfMemory)

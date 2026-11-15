@@ -1,7 +1,7 @@
-#alias lim-gen-async = ../library/tasks.lim::#async
-#alias lim-gen-executor = ../library/tasks.lim::#executor
-#alias lim-gen-task = ../library/tasks.lim::#task
-#alias lim-gen-task-cancel = ../library/tasks.lim::#task-cancel
+#alias lim-gen-async = #std/tasks.lim::async
+#alias lim-gen-executor = #std/tasks.lim::executor
+#alias lim-gen-task = #std/tasks.lim::task
+#alias lim-gen-task-cancel = #std/tasks.lim::task-cancel
 
 #generate lim-gen-task { names = (Count CountPoll CountPoll.CountPending CountPoll.CountReady); result = #u64;
   states = ((Count.Counting #u64)); }

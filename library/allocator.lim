@@ -14,8 +14,8 @@
       (#gn-if (#gn-equal
         (#gn-for-each key keys (#gn-if (#gn-equal (#gn-first option) key) true false))
         (#gn-for-each key keys false))
-        (#gn-error "#generate #allocator-for has an unknown named option") ())
-      (#gn-error "#generate #allocator-for options must be (key value) pairs"))
+        (#gn-error "#generate allocator-for has an unknown named option") ())
+      (#gn-error "#generate allocator-for options must be (key value) pairs"))
 
 #gn-fn allocator-for-result { root; value-type; name; allocation; }
     `(#match ,allocation
@@ -69,7 +69,7 @@
         (#gn-call allocator-for-grow { root = root; value-type = value-type; name = name; })
         (#gn-if (#gn-equal operation deallocate)
           (#gn-call allocator-for-deallocate { root = root; value-type = value-type; name = name; })
-          (#gn-error "#generate #allocator-for unknown operation; expected allocate, grow or deallocate"))))
+          (#gn-error "#generate allocator-for unknown operation; expected allocate, grow or deallocate"))))
 
 #gn-fn allocator-for-build { root; value-type; name; operations; checked; }
     `((#type ,(#gn-symbol-append name "State") ,(#gn-symbol-append root "State"))
@@ -80,7 +80,7 @@
       ,@(#gn-for-each operation operations
         (#gn-call allocator-for-operation { root = root; value-type = value-type; name = name; operation = operation; })))
 
-#gn #allocator-for { options; }
+#gn allocator-for { options; }
     (#gn-call allocator-for-build
       { root = (#gn-get options allocator); value-type = (#gn-get options type); name = (#gn-get options name);
       operations = (#gn-get options operations);

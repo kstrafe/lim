@@ -1,5 +1,5 @@
-#alias lim-gen-cell = ../library/cell.lim::#cell
-#alias lim-gen-task = ../library/tasks.lim::#task
+#alias lim-gen-cell = #std/cell.lim::cell
+#alias lim-gen-task = #std/tasks.lim::task
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
 #generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }

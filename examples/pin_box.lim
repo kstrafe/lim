@@ -1,6 +1,6 @@
-#alias SystemAllocationError = /<lim-std>/system_allocator.lim::SystemAllocationError
-#alias SystemAllocator = /<lim-std>/system_allocator.lim::SystemAllocator
-#alias lim-gen-pin-box = ../library/pin_box.lim::#pin-box
+#alias SystemAllocationError = #std/system_allocator.lim::SystemAllocationError
+#alias SystemAllocator = #std/system_allocator.lim::SystemAllocator
+#alias lim-gen-pin-box = #std/pin_box.lim::pin-box
 
 #std
 

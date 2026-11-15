@@ -1,5 +1,5 @@
-#alias lim-gen-task = ../library/tasks.lim::#task
-#alias lim-gen-threaded-executor = ../library/tasks.lim::#threaded-executor
+#alias lim-gen-task = #std/tasks.lim::task
+#alias lim-gen-threaded-executor = #std/tasks.lim::threaded-executor
 
 #generate lim-gen-task { names = (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady); result = #u64;
     states = ((NumberTask.Number #u64)); }
