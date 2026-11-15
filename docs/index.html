@@ -24,8 +24,10 @@
 <li><a href="#compile-time-generation" id="toc-compile-time-generation">Generate concrete code at compile time</a></li>
 <li><a href="#following-declarations" id="toc-following-declarations">Follow a name to its definition</a></li>
 <li><a href="#why-a-new-language" id="toc-why-a-new-language">Why a new language?</a></li>
+<li><a href="#testing-and-performance" id="toc-testing-and-performance">Keep testing and performance practical</a></li>
 <li><a href="#design-reasoning" id="toc-design-reasoning">Why these design choices?</a></li>
 <li><a href="#safety" id="toc-safety">What the compiler checks</a></li>
+<li><a href="#conditions-and-evidence" id="toc-conditions-and-evidence">State API conditions without multiplying types</a></li>
 <li><a href="#start" id="toc-start">Read, try, build</a></li>
 </ul></li>
 <li><a href="#tutorial" id="toc-tutorial">Tutorial</a>
@@ -132,8 +134,8 @@
 <p>Lim is an experimental, compiled <strong>Lisp with explicit, strong static types</strong>. It is meant for code that people and machines can both read. You can write it by hand, ask a language model to produce it, or generate it from other code. In each case, you should be able to open the result and follow what it does. This page explains the design, walks through examples, and keeps the full reference close at hand.</p>
 <section id="language" class="level2">
 <h2>Read what runs</h2>
-<p><strong>Explicitness is the guiding principle.</strong> Bindings state their types, functions return explicitly, and arithmetic names its type and overflow behavior. Ordinary function calls require named arguments: <code>left = 40</code> tells you which parameter receives the value. Builtin operations and special forms can also have positional operands, as the arithmetic and return forms below do.</p>
-<p>Before reading the example, one naming rule helps: <strong>the <code>#</code> prefix belongs to the language.</strong> Builtins, builtin types and operators use it, such as <code>#fn</code>, <code>#u64</code> and <code>#return</code>. User declarations cannot use that prefix. Adding a future builtin <code>#feature</code> therefore leaves your <code>feature</code> name available; this does not promise that every future language change is backward-compatible.</p>
+<p><strong>Explicitness is the guiding principle.</strong> Declarations and behavior are written out in source. Local variable declarations include a type instead of asking the compiler to infer one. A function returns through an explicit return statement; its final expression never silently becomes its return value. Arithmetic operations state the types they operate on and, where relevant, how overflow is handled. Ordinary function calls name their arguments, so you can see which parameter receives each value at the call site. Builtin operations and special forms can also have positional operands.</p>
+<p>Note: the <strong><code>#</code> prefix is reserved for language keywords, builtin types and operators</strong>, such as <code>#fn</code>, <code>#u64</code> and <code>#return</code>. User declarations cannot use that prefix. Adding a future builtin <code>#feature</code> therefore leaves your <code>feature</code> name available; this does not promise that every future language change is backward-compatible.</p>
 <p>A small surface notation makes handwritten code lighter: records, indentation, colon grouping and infix expressions reduce parentheses, verbosity and visual noise. This syntax sugar lowers to the same explicit parenthesized trees that code generators manipulate.</p>
 <pre class="lisp"><code>#fn add {
   #params = { left = #u64; right = #u64; };
@@ -164,8 +166,16 @@
 </section>
 <section id="why-a-new-language" class="level2">
 <h2>Why a new language?</h2>
-<p>Generated programs still need human review. Following a call becomes harder when its meaning depends on implicit conversions, receiver lookup, hidden cleanup, or distant generic instantiations. Lim explores a deliberately smaller design: make those decisions visible in source, give generators a simple tree to produce, and check ownership and API requirements before emitting code.</p>
+<p>Lim is an intermediate representation you can read and audit. A generator or language model can produce it, and you can open the result and follow what it does: the types, named calls, ownership operations, and generated implementations are available in source. That makes inspection practical; it is not a formal security guarantee.</p>
+<p>Generated programs still need human review. Following a call becomes harder when its meaning depends on implicit conversions, receiver lookup, hidden cleanup, or distant generic instantiations. Lim explores a deliberately smaller design: make those decisions visible, give generators a simple tree to produce, and check ownership and API requirements before emitting code.</p>
+<p>Lim also avoids hidden call indirection. Function-pointer values, recursive calls, and implicit or virtual dispatch are unavailable. Generators can produce explicit branches, state machines and direct calls, and you can inspect that emitted Lim source. The generated code still has to obey the same rules; code generation does not permit recursion or indirect calls. References and raw pointers exist: this restriction concerns how function call targets are chosen.</p>
+<p>For example, distributed enums collect a closed set of contributed variants at compile time. Fixed executors take an explicit list of tasks and emit direct calls. These building blocks allow runtime selection through visible generated branches with targets known for that build. See <a href="collections-and-tasks.md">collections and cooperative tasks</a> for their current scope and examples.</p>
 <p>The goal is to shorten the path from an idea to code you can understand and run. The name evokes a limit as time approaches zero: less waiting to build, less overhead to execute, less time reconstructing intent. These are engineering targets, not benchmark results or a claim that Lim replaces established languages for every project. Lim is experimental and unreleased; syntax, semantics, backend coverage, and tooling can still change.</p>
+</section>
+<section id="testing-and-performance" class="level2">
+<h2>Keep testing and performance practical</h2>
+<p>Testability is part of the design. Explicit inputs, control flow and cleanup make it easier to isolate a behavior, write a test for it, and understand a failure. Contract audits can check whether a function&#39;s promises hold on the paths your tests exercise. Generated implementations can be inspected and tested as ordinary Lim code.</p>
+<p>Very fast compilation is a first-class engineering goal, alongside excellent execution performance. Lim aims to produce efficient, predictable native machine code and minimize the work needed to build it. Cached generation, concrete implementations, and the internal encoder and linker support that direction. These choices do not establish a speed advantage or guarantee optimal assembly. The <a href="performance-baseline.md">performance baseline and benchmark harness</a> distinguish measured results from goals; representative workloads should guide optimization.</p>
 </section>
 <section id="design-reasoning" class="level2">
 <h2>Why these design choices?</h2>
@@ -211,7 +221,12 @@
 <section id="safety" class="level2">
 <h2>What the compiler checks</h2>
 <p>Ownership and borrowing checks track moves, exclusive access, returned references and retained loans across functions, without user-written lifetime annotations. Linear values need explicit consumption; destruction is visible rather than silently inserted. Raw pointers and unsafe operations have an explicit boundary and still need an audit. These checks target specific classes of mistakes; they do not establish that every program is correct.</p>
-<p>Predicate contracts let an API say what evidence a caller must supply. A <code>#if-valid</code> branch runs a predicate and makes that exact fact available in its true branch. <code>#requires</code>, <code>#ensures</code> and <code>#preserves</code> make function boundaries explicit; mutations invalidate facts that depend on changed storage. There is no automatic theorem search. Programmer-written promises in <code>#ensures</code> and <code>#preserves</code>, and assertions through <code>#assume</code>, are trust boundaries. Optional runtime contract audits check exercised paths; they are not mathematical proofs. See the <a href="#contracts-tutorial">contract tutorial</a> and <a href="#verification-notes">verification notes</a>.</p>
+</section>
+<section id="conditions-and-evidence" class="level2">
+<h2>State API conditions without multiplying types</h2>
+<p>Often an API needs an ordinary value under a particular condition. One function might accept a <code>#u64</code> only when it is positive; another might need that same type under a limit. Predicate contracts express those conditions without inventing a separate type for each one.</p>
+<p><code>#requires</code> says which exact evidence a caller must have. A <code>#if-valid</code> branch runs a predicate and supplies that fact in its successful branch. <code>#ensures</code> states facts subsequent code may rely on after a call; <code>#preserves</code> keeps a specified fact when the caller already had it, without requiring that fact to be supplied. Mutations can invalidate evidence about changed storage, so an earlier validation is not permission to use a later, altered value.</p>
+<p>The checker tracks explicit predicate evidence across these boundaries; it does not search for theorems. The truth of <code>#ensures</code> and <code>#preserves</code> remains a programmer promise. <code>--check-contracts</code> audits those promises on exercised paths, which helps test an API without turning tests into mathematical proofs. <code>#assume</code> is a separate, explicit trust point: it accepts a claim without running the predicate. See the <a href="#contracts-tutorial">contract tutorial</a> and <a href="#verification-notes">verification notes</a>.</p>
 </section>
 <section id="start" class="level2">
 <h2>Read, try, build</h2>

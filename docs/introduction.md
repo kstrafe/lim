@@ -9,20 +9,22 @@ reference close at hand.
 
 ## Read what runs {#language}
 
-**Explicitness is the guiding principle.** Bindings state their types, functions
-return explicitly, and arithmetic names its type and overflow behavior.
-Ordinary function calls require named arguments: `left = 40` tells you which
-parameter receives the value. Builtin operations and special forms can also
-have positional operands, as the arithmetic and return forms below do.
+**Explicitness is the guiding principle.** Declarations and behavior are written
+out in source. Local variable declarations include a type instead of asking the
+compiler to infer one. A function returns through an explicit return statement;
+its final expression never silently becomes its return value. Arithmetic
+operations state the types they operate on and, where relevant, how overflow is
+handled. Ordinary function calls name their arguments, so you can see which
+parameter receives each value at the call site. Builtin operations and special
+forms can also have positional operands.
 
-Before reading the example, one naming rule helps: **the `#` prefix belongs to
-the language.** Builtins, builtin types and operators use it, such as `#fn`,
-`#u64` and `#return`. User declarations cannot use that prefix. Adding a future
-builtin `#feature` therefore leaves your `feature` name available; this does
-not promise that every future language change is backward-compatible.
+Note: the **`#` prefix is reserved for language keywords, builtin types and
+operators**, such as `#fn`, `#u64` and `#return`. User declarations cannot use
+that prefix. Adding a future builtin `#feature` therefore leaves your `feature`
+name available; this does not promise that every future language change is
+backward-compatible.
 
-A small surface notation makes
-handwritten code lighter: records, indentation, colon grouping and infix
+A small surface notation makes handwritten code lighter: records, indentation, colon grouping and infix
 expressions reduce parentheses, verbosity and visual noise. This syntax sugar
 lowers to the same explicit parenthesized trees that code generators manipulate.
 
@@ -79,11 +81,31 @@ for path resolution and visibility rules.
 
 ## Why a new language? {#why-a-new-language}
 
+Lim is an intermediate representation you can read and audit. A generator or
+language model can produce it, and you can open the result and follow what it
+does: the types, named calls, ownership operations, and generated implementations
+are available in source. That makes inspection practical; it is not a formal
+security guarantee.
+
 Generated programs still need human review. Following a call becomes harder
 when its meaning depends on implicit conversions, receiver lookup, hidden
 cleanup, or distant generic instantiations. Lim explores a deliberately smaller
-design: make those decisions visible in source, give generators a simple tree
-to produce, and check ownership and API requirements before emitting code.
+design: make those decisions visible, give generators a simple tree to produce,
+and check ownership and API requirements before emitting code.
+
+Lim also avoids hidden call indirection. Function-pointer values, recursive
+calls, and implicit or virtual dispatch are unavailable. Generators can produce
+explicit branches, state machines and direct calls, and you can inspect that
+emitted Lim source. The generated code still has to obey the same rules; code
+generation does not permit recursion or indirect calls. References and raw
+pointers exist: this restriction concerns how function call targets are chosen.
+
+For example, distributed enums collect a closed set of contributed variants
+at compile time. Fixed executors take an explicit list of tasks and emit direct
+calls. These building blocks allow runtime selection through visible generated
+branches with targets known for that build. See
+[collections and cooperative tasks](collections-and-tasks.md) for their current
+scope and examples.
 
 The goal is to shorten the path from an idea to code you can understand and
 run. The name evokes a limit as time approaches zero: less waiting to build,
@@ -91,6 +113,23 @@ less overhead to execute, less time reconstructing intent. These are engineering
 targets, not benchmark results or a claim that Lim replaces established
 languages for every project. Lim is experimental and unreleased; syntax,
 semantics, backend coverage, and tooling can still change.
+
+## Keep testing and performance practical {#testing-and-performance}
+
+Testability is part of the design. Explicit inputs, control flow and cleanup
+make it easier to isolate a behavior, write a test for it, and understand a
+failure. Contract audits can check whether a function's promises hold on the
+paths your tests exercise. Generated implementations can be inspected and tested
+as ordinary Lim code.
+
+Very fast compilation is a first-class engineering goal, alongside excellent
+execution performance. Lim aims to produce efficient, predictable native machine
+code and minimize the work needed to build it. Cached generation, concrete
+implementations, and the internal encoder and linker support that direction.
+These choices do not establish a speed advantage or guarantee optimal assembly.
+The [performance baseline and benchmark harness](performance-baseline.md)
+distinguish measured results from goals; representative workloads should guide
+optimization.
 
 ## Why these design choices? {#design-reasoning}
 
@@ -112,14 +151,26 @@ silently inserted. Raw pointers and unsafe operations have an explicit boundary
 and still need an audit. These checks target specific classes of mistakes;
 they do not establish that every program is correct.
 
-Predicate contracts let an API say what evidence a caller must supply. A
-`#if-valid` branch runs a predicate and makes that exact fact available in its
-true branch. `#requires`, `#ensures` and `#preserves` make function boundaries
-explicit; mutations invalidate facts that depend on changed storage. There is
-no automatic theorem search. Programmer-written promises in `#ensures` and
-`#preserves`, and assertions through `#assume`, are trust boundaries. Optional
-runtime contract audits check exercised paths; they are not mathematical proofs.
-See the [contract tutorial](tutorial.md#contracts-tutorial) and
+## State API conditions without multiplying types {#conditions-and-evidence}
+
+Often an API needs an ordinary value under a particular condition. One function
+might accept a `#u64` only when it is positive; another might need that same type
+under a limit. Predicate contracts express those conditions without inventing
+a separate type for each one.
+
+`#requires` says which exact evidence a caller must have. A `#if-valid` branch
+runs a predicate and supplies that fact in its successful branch. `#ensures`
+states facts subsequent code may rely on after a call; `#preserves` keeps a
+specified fact when the caller already had it, without requiring that fact to
+be supplied. Mutations can invalidate evidence about changed storage, so an
+earlier validation is not permission to use a later, altered value.
+
+The checker tracks explicit predicate evidence across these boundaries; it does
+not search for theorems. The truth of `#ensures` and `#preserves` remains a
+programmer promise. `--check-contracts` audits those promises on exercised paths,
+which helps test an API without turning tests into mathematical proofs.
+`#assume` is a separate, explicit trust point: it accepts a claim without running
+the predicate. See the [contract tutorial](tutorial.md#contracts-tutorial) and
 [verification notes](program-verification.md).
 
 ## Read, try, build {#start}
