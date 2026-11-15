@@ -1,7 +1,12 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value (#tuple #i128 #u64)
       (#tuple (#tuple #i128 #u64) 42 7))
     (#return
       (#match value
         (#case (#tuple 42 7) 42)
         (#case _ 0)))
+  );
+}

@@ -1,4 +1,7 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let left #f64 5.5f64)
     (#let right #f64 2.0f64)
     (#let small-left #f32 5.5f32)
@@ -7,3 +10,5 @@
                             (#f32::eq (#f32::rem small-left small-right) 1.5f32))
                      42u64
                      0u64))
+  );
+}

@@ -1,21 +1,27 @@
 #fn
-    increment
-    (
+    increment {
+  #params = (
       (#mut value #u64)
-    )
-    #u64
+    );
+  #returns = #u64;
+  #body = (
     (
       #set
       value
       (#u64::add-wrap  value 1)
     )
     (#return value)
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (#call increment ((value 41)))
     )
+  );
+}

@@ -1,11 +1,21 @@
 // Build with --target aarch64-linux; run with qemu-aarch64.
-#fn sum ((limit #u64)) #u64
+#fn sum {
+  #params = ((limit #u64));
+  #returns = #u64;
+  #body = (
     (#let-mut value #u64 0u64)
     (#let-mut total #u64 0u64)
     (#while (#u64::lt value limit)
       (#set total (#u64::add-wrap total value))
       (#set value (#u64::add-wrap value 1u64)))
     (#return total)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#u64::mul-wrap (#call sum ((limit 7u64))) 2u64))
+  );
+}

@@ -6,9 +6,10 @@
     )
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let-mut
       point
@@ -23,3 +24,5 @@
         (#get point y)
       )
     )
+  );
+}

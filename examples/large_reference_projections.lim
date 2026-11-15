@@ -12,7 +12,10 @@
            (tag 8u16))))
        (tail 9u64)))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let outer Outer
       (#struct-literal Outer
         ((inner
@@ -40,3 +43,5 @@
       (#u64::add-wrap (#get struct-projection h) (#get enum-projection h))
       (#if (#u64::eq (#get global-projection h) (#clone (#get struct-projection h)))
         0u64 1u64)))
+  );
+}

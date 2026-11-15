@@ -1,5 +1,10 @@
-#fn main () ()
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
     (#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64))
     (#atomic-load (#borrow counter) #memory-release)
     (#forget counter)
     (#return ())
+  );
+}

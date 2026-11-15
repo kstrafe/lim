@@ -2,13 +2,21 @@
 #enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64)))
 #enum Outcome () ((Outcome.Ready) (Outcome.Pending))
 
-#fn step-choice ((target (#ref-mut Choice)) (value (#ref #u64)) (complete #bool)) Outcome
+#fn step-choice {
+  #params = ((target (#ref-mut Choice)) (value (#ref #u64)) (complete #bool));
+  #returns = Outcome;
+  #body = (
     (#return
       (#if complete
         (#block (#deref-set target (Choice.Empty)) (Outcome.Ready))
         (#block (#deref-set target (Choice.Full value)) (Outcome.Pending))))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let old #u64 7u64)
     (#let-mut value #u64 42u64)
     (#let-mut holder Choice (Choice.Full (#borrow old)))
@@ -33,3 +41,5 @@
         (#case (Outcome.Pending) (#unreachable))))
     (#forget holder)
     (#return output)
+  );
+}

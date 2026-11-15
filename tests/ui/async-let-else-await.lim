@@ -2,8 +2,13 @@
 #enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
 
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
     (#return (#match task (#case (Child.Waiting value) (ChildPoll.ChildReady value))))
+  );
+}
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work ((input Maybe)) #u64
       (#let-else (Maybe.Some value) Maybe input

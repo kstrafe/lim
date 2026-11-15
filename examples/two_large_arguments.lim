@@ -1,12 +1,18 @@
-#fn add-last
-    ((left (#array (#tuple #u128 #u64) 4))
-     (right (#array (#tuple #u128 #u64) 4)))
-    #u64
+#fn add-last {
+  #params = ((left (#array (#tuple #u128 #u64) 4))
+     (right (#array (#tuple #u128 #u64) 4)));
+  #returns = #u64;
+  #body = (
     (#let left-item (#tuple #u128 #u64) (#index left 3u64))
     (#let right-item (#tuple #u128 #u64) (#index right 3u64))
     (#return (#u64::add-wrap (#get left-item 1) (#get right-item 1)))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return
       (#call add-last ((left (#array (#array (#tuple #u128 #u64) 4)
           (#tuple 10u128 2u64)
@@ -17,3 +23,5 @@
           (#tuple 60u128 6u64)
           (#tuple 70u128 7u64)
           (#tuple 80u128 22u64))))))
+  );
+}

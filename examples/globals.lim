@@ -5,9 +5,10 @@
 #let letter #char #\a
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -23,3 +24,5 @@
         0
       )
     )
+  );
+}

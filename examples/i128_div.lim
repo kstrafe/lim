@@ -1,7 +1,12 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value #i128 100)
     (#let divisor #i128 7)
     (#return (#if (#bool::and (#i128::eq (#i128::div-wrap (#i128::sub-wrap (#clone value)) (#clone divisor)) -14i128)
                             (#i128::eq (#i128::rem-wrap (#i128::sub-wrap value) divisor) -2i128))
                      42u64
                      0u64))
+  );
+}

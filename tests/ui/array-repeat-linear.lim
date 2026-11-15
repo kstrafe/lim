@@ -1,6 +1,11 @@
 #struct Token (#linear) ((value #u64))
 
-#fn main () ()
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
     (#let values (#array Token 2) (#array-repeat (#struct-literal Token ((value 1u64)))))
     (#forget values)
     (#return ())
+  );
+}

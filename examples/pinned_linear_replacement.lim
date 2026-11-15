@@ -1,15 +1,25 @@
 #struct Resource (#linear) ((number #u64))
 
 
-#fn replace-resource ((target (#pin-ref-mut Resource))) ()
+#fn replace-resource {
+  #params = ((target (#pin-ref-mut Resource)));
+  #returns = ();
+  #body = (
     (#let old Resource (#unsafe (#pin-read target)))
     (#forget old)
     (#unsafe (#pin-write target (#struct-literal Resource ((number 42u64)))))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
     (#call replace-resource ((target (#pin-borrow-mut owner))))
     (#let result #u64 (#get owner number))
     (#forget owner)
     (#return result)
+  );
+}

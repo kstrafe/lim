@@ -10,22 +10,40 @@
 // This example is the native x86-64 ABI, not Lim's aggregate representation.
 // Loads/stores use assembly so the shared ring accesses and barriers remain
 // explicit. Choice.One issuer, no SQPOLL, standard 64-byte SQEs and 16-byte CQEs.
-#unsafe-fn ring-load ((base (#ptr-mut #u8)) (offset #usize)) #u32
+#unsafe-fn ring-load {
+  #params = ((base (#ptr-mut #u8)) (offset #usize));
+  #returns = #u32;
+  #body = (
     (#return (#unsafe (#asm #u32 ((rdi base) (rsi offset))
       "mov eax, DWORD PTR [rdi+rsi]\nlfence")))
+  );
+}
 
-#unsafe-fn ring-store ((base (#ptr-mut #u8)) (offset #usize) (value #u32)) ()
+#unsafe-fn ring-store {
+  #params = ((base (#ptr-mut #u8)) (offset #usize) (value #u32));
+  #returns = ();
+  #body = (
     (#unsafe (#asm () ((rdi base) (rsi offset) (rdx value))
       "mfence\nmov DWORD PTR [rdi+rsi], edx"))
     (#return ())
+  );
+}
 
-#fn ring-map ((fd #i64) (length #usize) (offset #i64)) (#ptr-mut #u8)
+#fn ring-map {
+  #params = ((fd #i64) (length #usize) (offset #i64));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length length) (protection 3u32) (flags 1u32) (fd fd) (offset offset)))))
     (#assert (#unsafe (#asm #bool ((rdi memory))
       "cmp rdi, -4095\nsetb al\nmovzx eax, al")))
     (#return memory)
+  );
+}
 
-#fn run-ring ((allow-shared #bool)) #u64
+#fn run-ring {
+  #params = ((allow-shared #bool));
+  #returns = #u64;
+  #body = (
     // This region owns every buffer and ring until all requests complete.
     (#return (#unsafe (#block
     (#let memory (#ptr-mut #u8) (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64))))
@@ -123,9 +141,16 @@
     (#assert (#i64::eq (#unsafe-call linux-io-uring-enter ((ring ring) (submit 0u32) (minimum 0u32) (flags 0u32) (argument (#ptr-null (#ptr-mut #u8))) (argument-size 0usize))) -9i64))
     (#assert (#i64::eq (#unsafe-call linux-munmap ((address memory) (length 4096usize))) 0i64))
     42u64)))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     // Cover both the advertised SINGLE_MMAP optimization and separate mappings.
     (#assert (#u64::eq (#call run-ring ((allow-shared true))) 42u64))
     (#assert (#u64::eq (#call run-ring ((allow-shared false))) 42u64))
     (#return 42u64)
+  );
+}

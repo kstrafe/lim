@@ -6,18 +6,22 @@
     )
 
 #fn
-    make
-    ()
-    Maybe
+    make {
+  #params = ();
+  #returns = Maybe;
+  #body = (
     (
       #return
       (Maybe.Some 42)
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       value
@@ -36,3 +40,5 @@
         (#case Maybe.None 7)
       )
     )
+  );
+}

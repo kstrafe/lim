@@ -53,10 +53,18 @@
 #alias linux-uname = ../library/linux_x86_64.lim::linux-uname
 #alias linux-unlinkat = ../library/linux_x86_64.lim::linux-unlinkat
 
-#fn is-ebadf ((status #i64)) #bool
+#fn is-ebadf {
+  #params = ((status #i64));
+  #returns = #bool;
+  #body = (
     (#return (#i64::eq status -9i64))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let pid #i64 (#call linux-getpid ()))
     (#let asm_pid #i64
       (#unsafe (#asm #i64 ((rax lINUX-SYS-GETPID)) "syscall")))
@@ -421,3 +429,5 @@
                       (#bool::and pipe-io-ok eventfd-io-ok))))))))))
         42u64
         1u64))
+  );
+}

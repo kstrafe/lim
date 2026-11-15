@@ -12,7 +12,10 @@
 #alias linux-statx = ../library/linux_x86_64.lim::linux-statx
 #alias linux-write = ../library/linux_x86_64.lim::linux-write
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u8)
       (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -104,3 +107,5 @@
                             (#bool::and (#i64::eq faccessat2-result 0i64)
                               (#i64::eq invalid-access-flags -22i64))))))))))))))
     (#return (#if (#bool::and statx-ok metadata-ok) 42u64 1u64))
+  );
+}

@@ -8,7 +8,10 @@
 #enum StdReadCharResult () ((StdReadCharResult.StdReadChar #u8) StdReadCharResult.StdReadCharEof (StdReadCharResult.StdReadCharFailed #i64))
 
 #cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
-    (#fn std-read-one-char () StdReadCharResult
+    (#fn std-read-one-char {
+      #params = ();
+      #returns = StdReadCharResult;
+      #body = (
       (#let-mut byte #u8 0u8)
       (#let-mut result StdReadCharResult StdReadCharResult.StdReadCharEof)
       (#let-mut done #bool false)
@@ -22,12 +25,22 @@
             (#if (#i64::eq count -4i64)
               ()
               (#block (#set result (StdReadCharResult.StdReadCharFailed count)) (#set done true) ())))))
-      (#return result))
+      (#return result)
+      );
+    })
 #cfg-if (#cfg-not (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64)))
-    (#fn std-read-one-char () StdReadCharResult
-      (#return (StdReadCharResult.StdReadCharFailed -38i64)))
+    (#fn std-read-one-char {
+      #params = ();
+      #returns = StdReadCharResult;
+      #body = (
+      (#return (StdReadCharResult.StdReadCharFailed -38i64))
+      );
+    })
 
-#fn std-read-line ((string (#ref-mut String))) StdReadResult
+#fn std-read-line {
+  #params = ((string (#ref-mut String)));
+  #returns = StdReadResult;
+  #body = (
     (#let-mut appended #usize 0usize)
     (#let-mut result StdReadResult StdReadResult.StdEndOfInput)
     (#let-mut finished #bool false)
@@ -105,3 +118,5 @@
                           (#set finished true)
                           ())))))))))))
     (#return (#if (#bool::eq finished true) result (StdReadResult.StdLineRead appended)))
+  );
+}

@@ -1,4 +1,9 @@
 #const remainder #f64 (#f64::rem 7.5 2.5)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#if (#f64::eq remainder 0.0) 42 0))
+  );
+}

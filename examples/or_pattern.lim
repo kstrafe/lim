@@ -1,4 +1,7 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value #u32 2)
     (#return
       (#u64::add-wrap
@@ -6,8 +9,15 @@
           (#case (#or 1 2 3) 42)
           (#case _ 0))
         (#call bool-or ((value true)))))
+  );
+}
 
-#fn bool-or ((value #bool)) #u64
+#fn bool-or {
+  #params = ((value #bool));
+  #returns = #u64;
+  #body = (
     (#return
       (#match value
         (#case (#or true false) 42)))
+  );
+}

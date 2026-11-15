@@ -1,2 +1,7 @@
-#fn main () (#array #u64 2)
+#fn main {
+  #params = ();
+  #returns = (#array #u64 2);
+  #body = (
     (#return (#array 1u64))
+  );
+}

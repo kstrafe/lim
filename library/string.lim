@@ -24,19 +24,23 @@
 // The raw pointer is mutable only because Lim has no raw mut-to-const cast;
 // writing through it from this shared borrow is forbidden.
 #unsafe-fn
-    String::data-pointer
-    ((string (#ref String)))
-    (#ptr-mut #u8)
+    String::data-pointer {
+  #params = ((string (#ref String)));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (
       #return
       (#get string pointer)
     )
+  );
+}
 // Append a complete validated UTF-8 String. The exclusive destination and
 // shared source loans must be disjoint; no implicit clone or source move occurs.
 #fn
-    String::push-string
-    ((string (#ref-mut String)) (text (#ref String)))
-    StringStatus
+    String::push-string {
+  #params = ((string (#ref-mut String)) (text (#ref String)));
+  #returns = StringStatus;
+  #body = (
     (
       #let
       additional
@@ -124,6 +128,8 @@
             StringStatus.StringOk
           )
         )    )  )
+  );
+}
 #enum
     StringError ()
     (StringError.StringOutOfMemory StringError.StringCapacityOverflow StringError.StringInvalidUtf8 StringError.StringInvalidChar)
@@ -152,35 +158,45 @@
       StringPopResult.StringEmpty
     )
 #fn
-    String::new
-    ()
-    String
+    String::new {
+  #params = ();
+  #returns = String;
+  #body = (
     (
       #return
       (
         #struct-literal
         String
         ((pointer (#ptr-null (#ptr-mut #u8))) (length 0usize) (capacity 0usize))    )  )
+  );
+}
 #fn
-    String::len
-    ((string (#ref String)))
-    #usize
+    String::len {
+  #params = ((string (#ref String)));
+  #returns = #usize;
+  #body = (
     (
       #return
       (#get string length)
     )
+  );
+}
 #fn
-    String::capacity
-    ((string (#ref String)))
-    #usize
+    String::capacity {
+  #params = ((string (#ref String)));
+  #returns = #usize;
+  #body = (
     (
       #return
       (#get string capacity)
     )
+  );
+}
 #fn
-    String::is-empty
-    ((string (#ref String)))
-    #bool
+    String::is-empty {
+  #params = ((string (#ref String)));
+  #returns = #bool;
+  #body = (
     (
       #return
       (
@@ -189,11 +205,14 @@
         (#literal #usize 0)
       )
     )
+  );
+}
 // Reserve once before a bulk append. Outcome.Failure changes neither allocation nor text.
 #fn
-    String::reserve
-    ((string (#ref-mut String)) (additional #usize))
-    StringStatus
+    String::reserve {
+  #params = ((string (#ref-mut String)) (additional #usize));
+  #returns = StringStatus;
+  #body = (
     (
       #let
       length
@@ -344,10 +363,13 @@
                   )
                 )
               )          )        )      )    )  )
+  );
+}
 #fn
-    String::with-capacity
-    ((capacity #usize))
-    StringCreateResult
+    String::with-capacity {
+  #params = ((capacity #usize));
+  #returns = StringCreateResult;
+  #body = (
     (
       #let-mut
       string
@@ -381,11 +403,14 @@
               String::free
               ((string string))          )
             (StringCreateResult.StringCreateFailed error)        )      )    )  )
+  );
+}
 // Zero is not a scalar width: reject surrogates and out-of-range #char casts.
 #fn
-    String::scalar-width
-    ((value #char))
-    #usize
+    String::scalar-width {
+  #params = ((value #char));
+  #returns = #usize;
+  #body = (
     (
       #let
       code
@@ -448,12 +473,15 @@
         )
       )
     )
+  );
+}
 // Caller proves room for a complete validated scalar at offset. This raw helper
 // is unsafe so outside callers cannot write through arbitrary pointers safely.
 #unsafe-fn
-    String::write-scalar
-    ((pointer (#ptr-mut #u8)) (offset #usize) (value #char) (width #usize))
-    ()
+    String::write-scalar {
+  #params = ((pointer (#ptr-mut #u8)) (offset #usize) (value #char) (width #usize));
+  #returns = ();
+  #body = (
     (
       #let
       code
@@ -612,10 +640,13 @@
       #return
       ()
     )
+  );
+}
 #fn
-    String::push-char
-    ((string (#ref-mut String)) (value #char))
-    StringStatus
+    String::push-char {
+  #params = ((string (#ref-mut String)) (value #char));
+  #returns = StringStatus;
+  #body = (
     (
       #let
       width
@@ -671,10 +702,13 @@
                 (#usize::add-wrap length width)
               )
               StringStatus.StringOk          )        )      )    )  )
+  );
+}
 #fn
-    String::push-chars
-    ((string (#ref-mut String)) (text (#slice #char)))
-    StringStatus
+    String::push-chars {
+  #params = ((string (#ref-mut String)) (text (#slice #char)));
+  #returns = StringStatus;
+  #body = (
     (
       #let
       count
@@ -829,12 +863,15 @@
               offset
             )
             StringStatus.StringOk        )      )    )  )
+  );
+}
 // Strict UTF-8: reject lone continuations, overlong encodings, surrogate code
 // points, scalars above U+10FFFF, and incomplete sequences, before allocating.
 #fn
-    String::utf8-valid
-    ((bytes (#slice #u8)))
-    #bool
+    String::utf8-valid {
+  #params = ((bytes (#slice #u8)));
+  #returns = #bool;
+  #body = (
     (
       #let
       count
@@ -1105,10 +1142,13 @@
       )
     )
     (#return true)
+  );
+}
 #fn
-    String::push-utf8
-    ((string (#ref-mut String)) (bytes (#slice #u8)))
-    StringStatus
+    String::push-utf8 {
+  #params = ((string (#ref-mut String)) (bytes (#slice #u8)));
+  #returns = StringStatus;
+  #body = (
     (
       #return
       (
@@ -1199,10 +1239,13 @@
               StringStatus.StringOk
             )
           )      )    )  )
+  );
+}
 #fn
-    String::from-chars
-    ((text (#slice #char)))
-    StringCreateResult
+    String::from-chars {
+  #params = ((text (#slice #char)));
+  #returns = StringCreateResult;
+  #body = (
     (
       #let-mut
       string
@@ -1236,10 +1279,13 @@
               String::free
               ((string string))          )
             (StringCreateResult.StringCreateFailed error)        )      )    )  )
+  );
+}
 #fn
-    String::from-utf8
-    ((bytes (#slice #u8)))
-    StringCreateResult
+    String::from-utf8 {
+  #params = ((bytes (#slice #u8)));
+  #returns = StringCreateResult;
+  #body = (
     (
       #let-mut
       string
@@ -1273,12 +1319,15 @@
               String::free
               ((string string))          )
             (StringCreateResult.StringCreateFailed error)        )      )    )  )
+  );
+}
 // Return a byte by value. Packed allocation addresses must not be converted to
 // Lim word-layout references. A StringBytes view retains the owner's borrow.
 #fn
-    String::byte-at
-    ((string (#ref String)) (index #usize))
-    StringByteResult
+    String::byte-at {
+  #params = ((string (#ref String)) (index #usize));
+  #returns = StringByteResult;
+  #body = (
     (
       #return
       (
@@ -1305,40 +1354,52 @@
         StringByteResult.StringByteOutOfBounds
       )
     )
+  );
+}
 #fn
-    String::bytes
-    ((string (#ref String)))
-    StringBytes
+    String::bytes {
+  #params = ((string (#ref String)));
+  #returns = StringBytes;
+  #body = (
     (
       #return
       (
         #struct-literal
         StringBytes
         ((owner string))    )  )
+  );
+}
 #fn
-    StringBytes::len
-    ((bytes StringBytes))
-    #usize
+    StringBytes::len {
+  #params = ((bytes StringBytes));
+  #returns = #usize;
+  #body = (
     (
       #return
       (
         #call
         String::len
         ((string (#get bytes owner)))    )  )
+  );
+}
 #fn
-    StringBytes::byte-at
-    ((bytes StringBytes) (index #usize))
-    StringByteResult
+    StringBytes::byte-at {
+  #params = ((bytes StringBytes) (index #usize));
+  #returns = StringByteResult;
+  #body = (
     (
       #return
       (
         #call
         String::byte-at
         ((string (#get bytes owner)) (index index))    )  )
+  );
+}
 #fn
-    String::pop-char
-    ((string (#ref-mut String)))
-    StringPopResult
+    String::pop-char {
+  #params = ((string (#ref-mut String)));
+  #returns = StringPopResult;
+  #body = (
     (
       #let
       length
@@ -1531,10 +1592,13 @@
         )
       )
     )
+  );
+}
 #fn
-    String::clear
-    ((string (#ref-mut String)))
-    ()
+    String::clear {
+  #params = ((string (#ref-mut String)));
+  #returns = ();
+  #body = (
     (
       #deref-set
       (
@@ -1547,10 +1611,13 @@
       #return
       ()
     )
+  );
+}
 #fn
-    String::try-clone
-    ((string (#ref String)))
-    StringCreateResult
+    String::try-clone {
+  #params = ((string (#ref String)));
+  #returns = StringCreateResult;
+  #body = (
     (
       #let
       length
@@ -1636,10 +1703,13 @@
             (StringCreateResult.StringCreated copy)
           )
         )    )  )
+  );
+}
 #fn
-    String::free
-    ((string String))
-    ()
+    String::free {
+  #params = ((string String));
+  #returns = ();
+  #body = (
     (
       #if
       (
@@ -1659,3 +1729,5 @@
       #return
       ()
     )
+  );
+}

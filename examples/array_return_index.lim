@@ -1,16 +1,20 @@
 #fn
-    make
-    ()
-    (#array #u64 3)
+    make {
+  #params = ();
+  #returns = (#array #u64 3);
+  #body = (
     (
       #return
       (#array 10 20 30)
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -19,3 +23,5 @@
         1
       )
     )
+  );
+}

@@ -3,17 +3,27 @@
 #enum OuterTask (#linear) ((OuterTask.Waiting #u64) (OuterTask.Resuming #u64))
 
 #enum OuterPoll () ((OuterPoll.OuterPending OuterTask) (OuterPoll.OuterReady #u64))
-#fn outer-poll ((task OuterTask) (waker (#ref #u64))) OuterPoll
+#fn outer-poll {
+  #params = ((task OuterTask) (waker (#ref #u64)));
+  #returns = OuterPoll;
+  #body = (
     (#return (#match task
       (#case (OuterTask.Waiting value) (OuterPoll.OuterPending (OuterTask.Resuming value)))
       (#case (OuterTask.Resuming value) (OuterPoll.OuterReady value))))
+  );
+}
 
 #enum InnerTask () (InnerTask.MakeOuter InnerTask.ResumeOuter)
 #enum InnerPoll () ((InnerPoll.InnerPending InnerTask) (InnerPoll.InnerReady OuterTask))
-#fn inner-poll ((task InnerTask) (waker (#ref #u64))) InnerPoll
+#fn inner-poll {
+  #params = ((task InnerTask) (waker (#ref #u64)));
+  #returns = InnerPoll;
+  #body = (
     (#return (#match task
       (#case InnerTask.MakeOuter (InnerPoll.InnerPending InnerTask.ResumeOuter))
       (#case InnerTask.ResumeOuter (InnerPoll.InnerReady (OuterTask.Waiting 42u64)))))
+  );
+}
 
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work () #u64
@@ -23,7 +33,10 @@
             (#await OuterTask InnerTask InnerPoll.InnerPending InnerPoll.InnerReady inner-poll InnerTask.MakeOuter))))
       (#return result))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let first Work::Poll
       (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
@@ -39,3 +52,5 @@
         (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
     (#forget waker)
     (#return result)
+  );
+}

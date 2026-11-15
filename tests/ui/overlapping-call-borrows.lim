@@ -1,5 +1,15 @@
-#fn inspect ((left (#ref-mut #u64)) (right (#ref #u64))) #u64
+#fn inspect {
+  #params = ((left (#ref-mut #u64)) (right (#ref #u64)));
+  #returns = #u64;
+  #body = (
     (#forget left) (#forget right) (#return 0u64)
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut value #u64 1u64)
     (#return (#call inspect ((left (#borrow-mut value)) (right (#borrow value)))))
+  );
+}

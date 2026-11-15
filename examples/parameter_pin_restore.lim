@@ -2,13 +2,21 @@
 #struct Holder (#linear) ((view (#ref #u64)))
 
 
-#fn replace ((target (#pin-ref-mut Holder)) (replacement (#ref #u64))) ()
+#fn replace {
+  #params = ((target (#pin-ref-mut Holder)) (replacement (#ref #u64)));
+  #returns = ();
+  #body = (
     (#let moved Holder (#unsafe (#pin-read target)))
     (#forget moved)
     (#unsafe (#pin-write target (#struct-literal Holder ((view replacement)))))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let old #u64 7u64)
     (#let replacement #u64 42u64)
     (#let-mut holder Holder (#struct-literal Holder ((view (#borrow old)))))
@@ -18,3 +26,5 @@
     (#let result #u64 (#deref (#get holder view)))
     (#forget holder)
     (#return result)
+  );
+}

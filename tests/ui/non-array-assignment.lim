@@ -1,4 +1,9 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut value #u64 1u64)
     (#set-index value 0usize 2u64)
     (#return 0u64)
+  );
+}

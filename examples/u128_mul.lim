@@ -1,5 +1,15 @@
-#fn multiply ((left #u128) (right #u128)) #u128
+#fn multiply {
+  #params = ((left #u128) (right #u128));
+  #returns = #u128;
+  #body = (
     (#return (#u128::mul-wrap left right))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#as (#call multiply ((left 6u128) (right 7u128))) #u64))
+  );
+}

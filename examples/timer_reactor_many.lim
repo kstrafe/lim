@@ -10,9 +10,10 @@
 // A bounded slice of borrowed timer owners can share one blocking poll call.
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       created-a
@@ -273,3 +274,5 @@
         (#literal #u64 0)
       )
     )
+  );
+}

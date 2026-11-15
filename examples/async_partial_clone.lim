@@ -4,21 +4,31 @@
 
 #struct Parts (#linear) ((first Part) (second Part))
 
-#fn Parts::clone ((original Parts)) Parts
+#fn Parts::clone {
+  #params = ((original Parts));
+  #returns = Parts;
+  #body = (
     (#let (Parts first second) Parts original)
     (#let value #u64 (#u64::add-wrap (#get first value) 1u64))
     (#forget first)
     (#return (#struct-literal Parts ((first (#struct-literal Part ((value value)))) (second second))))
+  );
+}
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ()))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return
       (#match task
         (#case Step.Start
           (StepPoll.Pending Step.Resume))
         (#case Step.Resume
           (StepPoll.Ready ()))))
+  );
+}
 #generate
     #async-fn-pinned
     ((protocol WorkAwait) (waker #u64) (function
@@ -34,7 +44,10 @@
       (#let duplicate Parts (#clone original))
       (#assert (#u64::eq (#get view value) 22u64))
       (#drop view) (#forget original) (#return duplicate))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work ()))
     (#let
@@ -61,3 +74,5 @@
             (#unreachable)))))
     (#forget frame)
     (#return result)
+  );
+}

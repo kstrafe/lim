@@ -21,7 +21,10 @@
 
 
 
-#fn main () #i32
+#fn main {
+  #params = ();
+  #returns = #i32;
+  #body = (
     (#let timer-created TimerCreate1
       (#call timer-reactor1-create ((nanoseconds 100000000u64))))
     (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
@@ -108,3 +111,5 @@
                      (#i64::eq timer-destroyed 0i64))
         42i32 1i32)
       2i32))
+  );
+}

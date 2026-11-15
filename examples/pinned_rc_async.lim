@@ -11,14 +11,24 @@
 #enum Step (#linear) ((Step.Step-waiting StepWaiting))
 
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task
       (#case (Step.Step-waiting state)
         (#if (#u64::eq (#get state remaining) 0u64) (StepPoll.StepReady (#get state value))
           (StepPoll.StepPending (Step.Step-waiting (#struct-literal StepWaiting
             ((value (#get state value)) (remaining (#u64::sub-wrap (#get state remaining) 1u64))))))))))
+  );
+}
 #syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll)
-#fn cancel-step ((task Step)) () (#forget task) (#return ())
+#fn cancel-step {
+  #params = ((task Step));
+  #returns = ();
+  #body = ( (#forget task) (#return ())
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
     (cancel (cancel-work ((await-0 cancel-step))))
     (function (#fn work () #u64
@@ -27,21 +37,39 @@
       (#return value))))
 
 #generate lim-gen-pin-rc ((type Work::Frame) (allocator Arena::Allocator) (name PinnedFrameRc) (destroy destroy-frame))
-#fn Arena::Allocator::allocate ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
+#fn Arena::Allocator::allocate {
+  #params = ((allocator (#ref Arena)) (layout #usize) (alignment #usize));
+  #returns = Arena::Allocator::Allocation;
+  #body = (
     (#let pointer (#ptr-mut #u8)
       (#unsafe (#linux-syscall (#ptr-mut #u8) 9usize
         (0usize layout 3usize 34usize -1i64 0usize))))
     (#return (#if (#usize::ge (#ptr-address pointer) 18446744073709547520usize)
       (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory) (Arena::Allocator::Allocation.Allocated pointer)))
-#unsafe-fn Arena::Allocator::deallocate ((allocator (#ref Arena)) (pointer (#ptr-mut #u8))
-    (layout #usize) (alignment #usize)) ()
+  );
+}
+#unsafe-fn Arena::Allocator::deallocate {
+  #params = ((allocator (#ref Arena)) (pointer (#ptr-mut #u8))
+    (layout #usize) (alignment #usize));
+  #returns = ();
+  #body = (
     (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer layout))) 0i64))
     (#return ())
-#fn destroy-frame ((allocator (#ref Arena)) (pin (#pin-ref-mut Work::Frame))) ()
+  );
+}
+#fn destroy-frame {
+  #params = ((allocator (#ref Arena)) (pin (#pin-ref-mut Work::Frame)));
+  #returns = ();
+  #body = (
     (#call cancel-work ((task (#call Work::Poll::cleanup ((task pin))))))
     (#forget pin) (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let arena Arena (#struct-literal Arena ()))
     (#let-mut owner PinnedFrameRc
       (#match (#call PinnedFrameRc::create ((allocator (#borrow arena)) (value (#call work ()))))
@@ -73,3 +101,5 @@
       (#case (Work::Poll.Pending unexpected-pending) (#block (#forget unexpected-pending) (#unreachable)))))
     (#call PinnedFrameRc::destroy ((owner moved)))
     (#forget arena) (#return answer)
+  );
+}

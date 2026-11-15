@@ -1,4 +1,9 @@
-#fn classify ((value #u8)) #u64
+#fn classify {
+  #params = ((value #u8));
+  #returns = #u64;
+  #body = (
     (#return (#match value
       (#case (#range 0u8 126u8) 0u64)
       (#case (#range 128u8 255u8) 1u64)))
+  );
+}

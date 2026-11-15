@@ -1,9 +1,10 @@
 #let vALUE #u128 42
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -13,3 +14,5 @@
         0
       )
     )
+  );
+}

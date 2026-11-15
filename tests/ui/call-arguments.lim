@@ -1,4 +1,14 @@
-#fn take ((value #u64)) #u64
+#fn take {
+  #params = ((value #u64));
+  #returns = #u64;
+  #body = (
     (#return value)
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call take ((other 42u64))))
+  );
+}

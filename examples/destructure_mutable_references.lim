@@ -1,7 +1,10 @@
 #struct InnerView () ((left (#ref-mut #u64)) (right (#ref-mut #u64)))
 #struct OuterView () ((inner InnerView))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut left-value #u64 20u64)
     (#let-mut right-value #u64 22u64)
     (#let outer OuterView
@@ -15,3 +18,5 @@
     (#deref-set left 21u64)
     (#deref-set right 23u64)
     (#return (#u64::add-wrap (#deref left) (#deref right)))
+  );
+}

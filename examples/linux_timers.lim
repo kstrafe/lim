@@ -12,7 +12,10 @@
 #alias linux-timerfd-gettime = ../library/linux_x86_64.lim::linux-timerfd-gettime
 #alias linux-timerfd-settime = ../library/linux_x86_64.lim::linux-timerfd-settime
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let event-memory (#ptr-mut #i64)
       (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -145,3 +148,5 @@
         (#bool::and (#i64::eq event-unmapped 0i64)
           (#bool::and (#i64::eq timer-unmapped 0i64)
             (#i64::eq time-unmapped 0i64)))) 42u64 1u64))
+  );
+}

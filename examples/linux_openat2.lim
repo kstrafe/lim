@@ -5,7 +5,10 @@
 #alias linux-openat2 = ../library/linux_x86_64.lim::linux-openat2
 #alias linux-unlinkat = ../library/linux_x86_64.lim::linux-unlinkat
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let paths (#ptr-mut #u8)
       (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -61,3 +64,5 @@
                     (#bool::and (#i64::eq how-unmapped 0i64)
                       (#i64::eq paths-unmapped 0i64))))))))))
     (#return (#if openat2-ok 42u64 1u64))
+  );
+}

@@ -1,2 +1,7 @@
-#fn main () #u128
+#fn main {
+  #params = ();
+  #returns = #u128;
+  #body = (
     (#return (#u128::div-wrap 1 0))
+  );
+}

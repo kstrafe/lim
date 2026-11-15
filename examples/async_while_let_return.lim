@@ -1,16 +1,26 @@
 #enum Choice () ((Choice.Chosen #u64) Choice.Empty)
 #enum ChoiceTask () ((ChoiceTask.ChoiceStart Choice) (ChoiceTask.ChoiceResume Choice))
 #enum ChoicePoll () ((ChoicePoll.ChoicePending ChoiceTask) (ChoicePoll.ChoiceReady Choice))
-#fn choice-poll ((task ChoiceTask) (waker (#ref #u64))) ChoicePoll
+#fn choice-poll {
+  #params = ((task ChoiceTask) (waker (#ref #u64)));
+  #returns = ChoicePoll;
+  #body = (
     (#return (#match task
       (#case (ChoiceTask.ChoiceStart value) (ChoicePoll.ChoicePending (ChoiceTask.ChoiceResume value)))
       (#case (ChoiceTask.ChoiceResume value) (ChoicePoll.ChoiceReady value))))
+  );
+}
 #enum Step () ((Step.Start #u64) (Step.Resume #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task
       (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
       (#case (Step.Resume value) (StepPoll.StepReady value))))
+  );
+}
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work ((choice Choice)) #u64
       (#while-let (Choice.Chosen value)
@@ -19,7 +29,10 @@
         (#let second #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start first)))
         (#return second))
       (#return 5u64))))
-#fn run ((choice Choice) (waker (#ref #u64))) #u64
+#fn run {
+  #params = ((choice Choice) (waker (#ref #u64)));
+  #returns = #u64;
+  #body = (
     (#let first Work::Poll (#call Work::poll ((task (#call work ((choice choice)))) (waker waker))))
     (#let-else (Work::Poll.Pending after-condition) Work::Poll first (#unreachable))
     (#let second Work::Poll (#call Work::poll ((task after-condition) (waker waker))))
@@ -33,8 +46,15 @@
           (#match fourth
             (#case (Work::Poll.Ready value) value)
             (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let chosen #u64 (#call run ((choice (Choice.Chosen 37u64)) (waker (#borrow waker)))))
     (#let empty #u64 (#call run ((choice Choice.Empty) (waker (#borrow waker)))))
     (#return (#u64::add-wrap chosen empty))
+  );
+}

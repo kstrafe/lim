@@ -1,4 +1,9 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#match true
       (true 1u64)
       (#case false 0u64)))
+  );
+}

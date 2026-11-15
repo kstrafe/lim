@@ -4,16 +4,34 @@
 #struct Token (#linear) ((value #u64))
 
 #struct Owner () ((kept #u64) (item Token))
-#fn consume-item ((item (#pin-ref-mut Token))) ()
+#fn consume-item {
+  #params = ((item (#pin-ref-mut Token)));
+  #returns = ();
+  #body = (
     (#let old Token (#unsafe (#pin-read item)))
     (#forget old)
     (#return ())
-#fn restore-item ((item (#pin-ref-mut Token))) ()
+  );
+}
+#fn restore-item {
+  #params = ((item (#pin-ref-mut Token)));
+  #returns = ();
+  #body = (
     (#unsafe (#pin-write item (#struct-literal Token ((value 2u64)))))
     (#return ())
-#fn inspect ((target (#pin-ref Owner))) #u64
+  );
+}
+#fn inspect {
+  #params = ((target (#pin-ref Owner)));
+  #returns = #u64;
+  #body = (
     (#return (#u64::add-wrap (#get target kept) (#get (#get target item) value)))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Owner
       (#struct-literal Owner ((kept 40u64) (item (#struct-literal Token ((value 1u64)))))))
     (#let slot (#pin-ref-mut Owner) (#pin-borrow-mut owner))
@@ -33,3 +51,5 @@
     (#forget kept)
     (#forget owner)
     (#return (#if equal answer 0u64))
+  );
+}

@@ -1,7 +1,10 @@
 #enum Wrapped ()
     ((Wrapped.Values (#array #u64 7)) Wrapped.Empty)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut value Wrapped
       (Wrapped.Values (#array (#array #u64 7)
         1u64 2u64 3u64 4u64 5u64 6u64 42u64)))
@@ -10,3 +13,5 @@
       (#set total (#index payload 6u64))
       (#set value Wrapped.Empty))
     (#return total)
+  );
+}

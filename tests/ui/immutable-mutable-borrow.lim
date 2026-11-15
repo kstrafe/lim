@@ -1,4 +1,9 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value #u64 1u64)
     (#let reference (#ref-mut #u64) (#borrow-mut value))
     (#return 0u64)
+  );
+}

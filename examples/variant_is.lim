@@ -1,7 +1,10 @@
 #enum Value (#linear) ((Value.Number #u64) Value.Empty)
 
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Value (Value.Number 42u64))
     (#let view (#pin-ref Value) (#pin-borrow value))
     (#assert (#variant-is view Value.Number))
@@ -10,3 +13,5 @@
     (#let result #u64 (#get-payload value Value.Number 0))
     (#forget value)
     (#return result)
+  );
+}

@@ -1,2 +1,7 @@
-#fn main () #u8
+#fn main {
+  #params = ();
+  #returns = #u8;
+  #body = (
     (#return (#u8::shl 1u8 8))
+  );
+}

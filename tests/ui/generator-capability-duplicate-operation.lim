@@ -1,3 +1,13 @@
-#fn compare ((left #u64) (right #u64)) #bool (#return true)
+#fn compare {
+  #params = ((left #u64) (right #u64));
+  #returns = #bool;
+  #body = ( (#return true)
+  );
+}
 #capability order #u64 ((compare (#u64 #u64) #bool) (compare (#u64 #u64) #bool))
-#fn main () #u64 (#return 0u64)
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)
+  );
+}

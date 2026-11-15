@@ -1,2 +1,7 @@
-#fn read-pointer ((pointer (#ptr #u64))) #u64
+#fn read-pointer {
+  #params = ((pointer (#ptr #u64)));
+  #returns = #u64;
+  #body = (
     (#return (#ptr-read pointer))
+  );
+}

@@ -1,5 +1,8 @@
 #struct Holder () ((view (#ref #u64)))
-#fn inspect ((external (#ref #u64))) #u64
+#fn inspect {
+  #params = ((external (#ref #u64)));
+  #returns = #u64;
+  #body = (
     (#let-mut holder Holder (#struct-literal Holder ((view external))))
     (#let done () (#block
       (#let local #u64 7u64)
@@ -9,3 +12,5 @@
     (#let result #u64 (#deref (#get holder view)))
     (#forget holder)
     (#return result)
+  );
+}

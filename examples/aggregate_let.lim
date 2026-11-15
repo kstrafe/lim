@@ -1,13 +1,23 @@
 #struct Point () ((x #u64) (y #u64))
 
-#fn point-value () #u64
+#fn point-value {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let point Point (#struct-literal Point ((x 40) (y 2))))
     (#return (#if-let (Point 40 y) point y 0))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut value (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 1 2))
     (#let-mut total #u64 0)
     (#while-let (#tuple 1 _) value
       (#set total (#u64::add-wrap total (#get value 1)))
       (#set-field value 0 0))
     (#return (#u64::add-wrap total (#call point-value ())))
+  );
+}

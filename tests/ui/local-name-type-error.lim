@@ -1,4 +1,14 @@
-#fn needs-value ((input #u64)) #u64 (#return input)
-#fn main () #u64
+#fn needs-value {
+  #params = ((input #u64));
+  #returns = #u64;
+  #body = ( (#return input)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let flag #bool true)
     (#return (#call needs-value ((input flag))))
+  );
+}

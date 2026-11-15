@@ -1,3 +1,13 @@
-#fn combine ((left #u64) (right #bool)) #u64 (#return left)
-#fn main () #u64
+#fn combine {
+  #params = ((left #u64) (right #bool));
+  #returns = #u64;
+  #body = ( (#return left)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call combine ((right 1u64) (left 2u64))))
+  );
+}

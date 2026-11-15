@@ -6,17 +6,21 @@
     )
 
 #fn
-    identity
-    (
+    identity {
+  #params = (
       (point Point)
-    )
-    Point
+    );
+  #returns = Point;
+  #body = (
     (#return point)
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       result
@@ -27,3 +31,5 @@
       #return
       (#get result y)
     )
+  );
+}

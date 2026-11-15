@@ -4,10 +4,15 @@
 #enum TickPoll () ((TickPoll.TickPending Tick) (TickPoll.TickReady #u64))
 #syntax TickAwait (#u64 Tick TickPoll.TickPending TickPoll.TickReady tick-poll)
 
-#fn tick-poll ((task Tick) (waker (#ref #u64))) TickPoll
+#fn tick-poll {
+  #params = ((task Tick) (waker (#ref #u64)));
+  #returns = TickPoll;
+  #body = (
     (#return (#match task
       (#case (Tick.TickStart amount) (TickPoll.TickPending (Tick.TickResume amount)))
       (#case (Tick.TickResume amount) (TickPoll.TickReady amount))))
+  );
+}
 
 #generate #async-fn
     ((protocol ParentAwait) (waker #u64)
@@ -20,7 +25,10 @@
      (function (#fn child ((amount #u64)) #u64
        (#return (#await TickAwait (Tick.TickStart amount))))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let first Parent::Poll
       (#call Parent::poll
@@ -33,3 +41,5 @@
       (#case (Parent::Poll.Ready value) value)
       (#case (Parent::Poll.Pending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
+  );
+}

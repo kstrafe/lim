@@ -13,7 +13,10 @@
 #alias StringView::subview = /<lim-std>/utf8_view.lim::StringView::subview
 
 #std
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let source (#array #char 4) "Aλ😀!")
     (#let text String
       (#match (#call String::from-chars ((text (#borrow-slice source))))
@@ -36,3 +39,5 @@
     (#forget whole)
     (#call String::free ((string text)))
     (#return 42u64)
+  );
+}

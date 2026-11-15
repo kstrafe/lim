@@ -4,7 +4,10 @@
 #alias api@handle-create = ./opaque_handle/lib.lim::handle-create
 #alias api@handle-status = ./opaque_handle/lib.lim::handle-status
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let handle api@Handle (#call api@handle-create ((value 42u64))))
     (#let status api@Status (#call api@handle-status ((handle (#borrow handle)))))
     (#let answer #u64
@@ -23,3 +26,5 @@
       (#case (api@Status.Open value) (#unreachable))
       (#case api@Status.Closed ()))
     (#return answer)
+  );
+}

@@ -3,7 +3,10 @@
 
 #struct Wrapper () ((item Resource) (copy #u64))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let wrapper Wrapper
       (#struct-literal Wrapper
         ((item (#struct-literal Resource ((value 1u64))))
@@ -12,3 +15,5 @@
     (#return (#if take-whole
       (#block (#forget wrapper) 10u64)
       (#block (#forget (#get wrapper item)) 42u64)))
+  );
+}

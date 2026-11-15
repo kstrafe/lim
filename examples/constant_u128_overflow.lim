@@ -1,5 +1,10 @@
 #const maximum #u128 0xffffffffffffffffffffffffffffffff
 #const saturated #u128 (#u128::add-saturate maximum 1)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#if (#u128::eq saturated maximum) 42 0))
+  );
+}

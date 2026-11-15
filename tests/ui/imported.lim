@@ -1,2 +1,7 @@
 #alias broken = ./imported/broken-module.lim::broken
-#fn main () #u64 (#return 0u64)
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)
+  );
+}

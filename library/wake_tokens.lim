@@ -11,25 +11,48 @@
     ((WakeRegister4.WakeRegistered4 WakeToken4) WakeRegister4.WakeBusy4 WakeRegister4.WakeInvalid4 WakeRegister4.WakeExhausted4)
 #enum WakeRetire4 () (WakeRetire4.WakeRetired4 WakeRetire4.WakeStale4)
 
-#fn wake-table4-create () WakeTable4
+#fn wake-table4-create {
+  #params = ();
+  #returns = WakeTable4;
+  #body = (
     (#return (#struct-literal WakeTable4
       ((generations (#array-repeat 1u64))
        (active (#array-repeat false)))))
+  );
+}
 
-#fn wake-token4-generation ((token WakeToken4)) #u64
+#fn wake-token4-generation {
+  #params = ((token WakeToken4));
+  #returns = #u64;
+  #body = (
     (#return (#get token generation))
+  );
+}
 
-#fn wake-token4-slot ((token WakeToken4)) #usize
+#fn wake-token4-slot {
+  #params = ((token WakeToken4));
+  #returns = #usize;
+  #body = (
     (#return (#get token slot))
+  );
+}
 
 // A valid but exhausted table for deterministic protocol tests.
-#fn wake-table4-create-exhausted () WakeTable4
+#fn wake-table4-create-exhausted {
+  #params = ();
+  #returns = WakeTable4;
+  #body = (
     (#return (#struct-literal WakeTable4
       ((generations (#array-of (#array #u64 4)
         1u64 18446744073709551615u64 1u64 1u64))
        (active (#array-repeat false)))))
+  );
+}
 
-#fn wake-table4-register ((table (#ref-mut WakeTable4)) (slot #usize)) WakeRegister4
+#fn wake-table4-register {
+  #params = ((table (#ref-mut WakeTable4)) (slot #usize));
+  #returns = WakeRegister4;
+  #body = (
     (#return
       (#if (#usize::ge slot 4usize)
         WakeRegister4.WakeInvalid4
@@ -45,8 +68,13 @@
               (WakeRegister4.WakeRegistered4 (#struct-literal WakeToken4
                 ((slot slot)
                  (generation (#index (#clone (#get table generations)) slot))))))))))
+  );
+}
 
-#fn wake-table4-valid ((table (#ref WakeTable4)) (token WakeToken4)) #bool
+#fn wake-table4-valid {
+  #params = ((table (#ref WakeTable4)) (token WakeToken4));
+  #returns = #bool;
+  #body = (
     (#let slot #usize (#get token slot))
     (#let generation #u64 (#get token generation))
     (#return
@@ -56,8 +84,13 @@
           (#u64::eq (#index (#clone (#get table generations)) slot)
             generation))
         false))
+  );
+}
 
-#fn wake-table4-retire ((table (#ref-mut WakeTable4)) (token WakeToken4)) WakeRetire4
+#fn wake-table4-retire {
+  #params = ((table (#ref-mut WakeTable4)) (token WakeToken4));
+  #returns = WakeRetire4;
+  #body = (
     (#let slot #usize (#get token slot))
     (#let generation #u64 (#get token generation))
     (#return
@@ -77,3 +110,5 @@
             (#deref-set (#borrow-mut (#get table generations)) generations)
             WakeRetire4.WakeRetired4)
           WakeRetire4.WakeStale4)))
+  );
+}

@@ -19,18 +19,31 @@
 #opaque WakeReady4
 
 
-#fn wake-ready4-create () WakeReady4
+#fn wake-ready4-create {
+  #params = ();
+  #returns = WakeReady4;
+  #body = (
     (#let table WakeTable4 (#call wake-table4-create ()))
     (#return (#struct-literal WakeReady4
       ((table table)
        (ready (#atomic-init #u64 0u64))
        (local-marker (#ptr-null (#ptr #u8))))))
+  );
+}
 
-#fn wake-ready4-register ((queue (#ref-mut WakeReady4)) (slot #usize)) WakeRegister4
+#fn wake-ready4-register {
+  #params = ((queue (#ref-mut WakeReady4)) (slot #usize));
+  #returns = WakeRegister4;
+  #body = (
     (#return (#call wake-table4-register
       ((table (#borrow-mut (#get queue table))) (slot slot))))
+  );
+}
 
-#fn wake-ready4-notify ((queue (#ref WakeReady4)) (token WakeToken4)) #bool
+#fn wake-ready4-notify {
+  #params = ((queue (#ref WakeReady4)) (token WakeToken4));
+  #returns = #bool;
+  #body = (
     (#return (#if (#call wake-table4-valid
             ((table (#borrow (#get queue table))) (token token)))
       (#block
@@ -41,8 +54,13 @@
           #memory-relaxed)
         true)
       false))
+  );
+}
 
-#fn wake-ready4-take ((queue (#ref WakeReady4)) (token WakeToken4)) #bool
+#fn wake-ready4-take {
+  #params = ((queue (#ref WakeReady4)) (token WakeToken4));
+  #returns = #bool;
+  #body = (
     (#return (#if (#call wake-table4-valid
             ((table (#borrow (#get queue table))) (token token)))
       (#block
@@ -55,8 +73,13 @@
             true)
           false))
       false))
+  );
+}
 
-#fn wake-ready4-retire ((queue (#ref-mut WakeReady4)) (token WakeToken4)) WakeRetire4
+#fn wake-ready4-retire {
+  #params = ((queue (#ref-mut WakeReady4)) (token WakeToken4));
+  #returns = WakeRetire4;
+  #body = (
     (#return (#if (#call wake-table4-valid
             ((table (#borrow (#get queue table))) (token token)))
       (#block
@@ -67,3 +90,5 @@
         (#call wake-table4-retire
           ((table (#borrow-mut (#get queue table))) (token token))))
       WakeRetire4.WakeStale4))
+  );
+}

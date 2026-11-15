@@ -1,4 +1,7 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut count #u64 0)
     (#let result #u64
       (#label outer
@@ -9,3 +12,5 @@
             ())
           (#break-to outer 42u64))))
     (#return result)
+  );
+}

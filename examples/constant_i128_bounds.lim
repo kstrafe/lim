@@ -1,5 +1,10 @@
 #const minimum #i128 -170141183460469231731687303715884105728
 #const saturated #i128 (#i128::sub-saturate minimum 1)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#if (#i128::eq saturated minimum) 42 0))
+  );
+}

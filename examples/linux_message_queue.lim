@@ -6,7 +6,10 @@
 #alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap
 #alias linux-write = ../library/linux_x86_64.lim::linux-write
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u8)
       (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     // Native message layout is an eight-byte positive type then the payload.
@@ -50,3 +53,5 @@
     (#assert (#i64::eq (#unsafe (#unsafe-call linux-write ((fd 1i64) (source (#ptr-offset received-second 8usize)) (count 2usize)))) 2i64))
     (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))) 0i64))
     (#return 42u64)
+  );
+}

@@ -2,13 +2,26 @@
 #struct Views () ((left (#ref #u64)) (right (#ref #u64)))
 #struct WrappedViews () ((views Views))
 
-#fn left-reference ((views (#ref Views))) (#ref #u64)
+#fn left-reference {
+  #params = ((views (#ref Views)));
+  #returns = (#ref #u64);
+  #body = (
     (#return (#get views left))
+  );
+}
 
-#fn left-reference-from-wrapper ((wrapper (#ref WrappedViews))) (#ref #u64)
+#fn left-reference-from-wrapper {
+  #params = ((wrapper (#ref WrappedViews)));
+  #returns = (#ref #u64);
+  #body = (
     (#return (#call left-reference ((views (#borrow (#get wrapper views))))))
+  );
+}
 
-#fn sum-views ((left (#ref-mut Owner)) (right (#ref-mut Owner))) #u64
+#fn sum-views {
+  #params = ((left (#ref-mut Owner)) (right (#ref-mut Owner)));
+  #returns = #u64;
+  #body = (
     (#let views Views
       (#struct-literal Views
         ((left (#borrow (#get left value)))
@@ -24,8 +37,13 @@
         (#deref (#get (#get wrapped views) right))))
     (#forget wrapped)
     (#return result)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut left Owner (#struct-literal Owner ((value 19u64))))
     (#let-mut right Owner (#struct-literal Owner ((value 23u64))))
     (#let result #u64
@@ -33,3 +51,5 @@
     (#forget left)
     (#forget right)
     (#return result)
+  );
+}

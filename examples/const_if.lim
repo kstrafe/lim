@@ -10,5 +10,10 @@
 #const namedScale #f32
     (#if enabled 1.5f32 2.5f32)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return answer)
+  );
+}

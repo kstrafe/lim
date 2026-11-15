@@ -6,7 +6,10 @@
 #alias timer-reactor1-poll = ../library/timer_reactor1.lim::timer-reactor1-poll
 #alias timer-reactor1-wait = ../library/timer_reactor1.lim::timer-reactor1-wait
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let invalid TimerCreate1
       (#call timer-reactor1-create ((nanoseconds 0u64))))
     (#assert (#match invalid
@@ -45,3 +48,5 @@
     (#return (#if (#bool::and ready
       (#bool::and (#i64::eq closed 0i64) (#i64::eq cancelled 0i64)))
       42u64 0u64))
+  );
+}

@@ -1,4 +1,7 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut i #u64 0)
     (#return
       (#loop
@@ -6,3 +9,5 @@
         (#if (#u64::eq (#clone i) 3)
           (#block (#break (#clone i)))
           (#u64::add-wrap (#clone i) 0))))
+  );
+}

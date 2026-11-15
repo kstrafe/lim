@@ -1,5 +1,10 @@
 #enum Outcome () ((Outcome.Success #u64) Outcome.Failure)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Outcome (#enum-literal Outcome.Success 41u64 2u64))
     (#forget value)
     (#return 0u64)
+  );
+}

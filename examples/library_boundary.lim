@@ -3,10 +3,15 @@
 #alias counters@counter-new = ./encapsulation/lib.lim::counter-new
 #alias counters@counter-read = ./encapsulation/lib.lim::counter-read
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let counter counters@Counter
       (#call counters@counter-new ((value 42u64))))
     (#let answer #u64
       (#call counters@counter-read ((counter (#borrow counter)))))
     (#call counters@counter-destroy ((counter counter)))
     (#return answer)
+  );
+}

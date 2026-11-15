@@ -1,4 +1,7 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return
       (#if
         (#bool::and
@@ -14,3 +17,5 @@
             0))
         42
         0))
+  );
+}

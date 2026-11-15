@@ -4,7 +4,10 @@
 #alias linux-sched-setaffinity = ../library/linux_x86_64.lim::linux-sched-setaffinity
 #alias linux-sched-yield = ../library/linux_x86_64.lim::linux-sched-yield
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let before (#ptr-mut #u64)
       (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -80,3 +83,5 @@
                 (#bool::and masks-match
                   (#bool::and (#i64::eq before-unmapped 0i64)
                     (#i64::eq after-unmapped 0i64)))))))) 42u64 1u64))
+  );
+}

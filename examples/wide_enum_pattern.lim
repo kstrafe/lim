@@ -1,8 +1,13 @@
 #enum Maybe () ((Maybe.Some #i128) Maybe.None)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Maybe (Maybe.Some 42))
     (#return
       (#match value
         (#case (Maybe.Some 42) 42)
         (#case _ 0)))
+  );
+}

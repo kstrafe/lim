@@ -1,22 +1,26 @@
 #fn
-    add
-    (
+    add {
+  #params = (
       (left #f64)
       (right #f64)
-    )
-    #f64
+    );
+  #returns = #f64;
+  #body = (
     (
       #return
       (#f64::add  left right)
     )
+  );
+}
 
 #fn
-    choose
-    (
+    choose {
+  #params = (
       (value #u64)
       (scale #f64)
-    )
-    #u64
+    );
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -26,11 +30,14 @@
         0
       )
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let left #f64 1.5)
     (#let right #f64 2.25)
     (
@@ -48,3 +55,5 @@
         0
       )
     )
+  );
+}

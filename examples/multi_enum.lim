@@ -8,9 +8,10 @@
     )
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       value
@@ -29,3 +30,5 @@
         (#case Pair.Empty 0u64)
       )
     )
+  );
+}

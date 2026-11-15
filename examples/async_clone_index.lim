@@ -2,22 +2,32 @@
 // The selected Holder keeps the caller's loan through suspension.
 #struct Holder (#linear) ((reference (#ref #u64)) (offset #u64))
 
-#fn make-array ((owner (#ref #u64))) (#array Holder 2)
+#fn make-array {
+  #params = ((owner (#ref #u64)));
+  #returns = (#array Holder 2);
+  #body = (
     (#return
       (#array-of
         (#array Holder 2)
         (#struct-literal Holder ((reference owner) (offset 0u64)))
         (#struct-literal Holder ((reference owner) (offset 1u64)))))
+  );
+}
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ()))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return
       (#match task
         (#case Step.Start
           (StepPoll.Pending Step.Resume))
         (#case Step.Resume
           (StepPoll.Ready ()))))
+  );
+}
 #generate
     #async-fn
     ((protocol WorkAwait) (waker #u64) (function
@@ -27,7 +37,10 @@
       (#let result #u64 (#u64::add-wrap
         (#deref (#get holder reference)) (#get holder offset)))
       (#forget holder) (#return result))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let owner #u64 42u64)
     (#let index #usize 1usize)
     (#let waker #u64 0u64)
@@ -48,3 +61,5 @@
           (#block
             (#forget unexpected)
             (#unreachable)))))
+  );
+}

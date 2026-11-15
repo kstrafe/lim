@@ -3,10 +3,15 @@
 #enum Choice () ((Choice.Chosen ChosenValues) Choice.Empty)
 #enum Step () ((Step.Start #u64) (Step.Resume #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task
       (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
       (#case (Step.Resume value) (StepPoll.StepReady value))))
+  );
+}
 
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work ((choice Choice)) #u64
@@ -17,7 +22,10 @@
             (#get values second)))
         (#case Choice.Empty 0u64))))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let-mut task Work::Task
       (#call work ((choice (Choice.Chosen
@@ -29,3 +37,5 @@
         (#case (Work::Poll.Ready value) (#block (#return value)))))
     (#forget task)
     (#return (#unreachable))
+  );
+}

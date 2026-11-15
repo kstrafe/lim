@@ -1,7 +1,15 @@
 #struct Owner () ((value #u64))
-#fn observe ((target (#ref-mut Owner))) #u64
+#fn observe {
+  #params = ((target (#ref-mut Owner)));
+  #returns = #u64;
+  #body = (
     (#return (#get target value))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Owner (#struct-literal Owner ((value 42u64))))
     (#let parent (#ref-mut Owner) (#borrow-mut owner))
     (#let child (#ref-mut #u64) (#borrow-mut (#get parent value)))
@@ -11,3 +19,5 @@
     (#drop parent)
     (#forget owner)
     (#return observed)
+  );
+}

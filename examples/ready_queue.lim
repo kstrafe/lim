@@ -7,7 +7,10 @@
     ReadyQueueEnqueueResult.QueueEnqueued ReadyQueueEnqueueResult.QueueFull ReadyQueueDequeueResult.QueueItem ReadyQueueDequeueResult.QueueEmpty
     (worker-a worker-b worker-c)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut queue ReadyQueue (#call ready-queue-create ()))
     (#let first ReadyQueueEnqueueResult
       (#call ready-queue-enqueue ((queue (#borrow-mut queue)) (task-id 11u64))))
@@ -43,3 +46,5 @@
       (#case (ReadyQueueDequeueResult.QueueItem _) false)))
     (#forget queue)
     (#return (#if (#bool::and (#bool::and full-ok first-ok) empty-ok) total 0u64))
+  );
+}

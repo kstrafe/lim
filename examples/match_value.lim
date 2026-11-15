@@ -6,9 +6,10 @@
     )
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -21,3 +22,5 @@
         (#case Maybe.None 0)
       )
     )
+  );
+}

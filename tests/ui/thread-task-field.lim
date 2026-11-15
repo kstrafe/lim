@@ -1,3 +1,8 @@
-#fn worker () #u64 (#return 1u64)
+#fn worker {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 1u64)
+  );
+}
 #thread-task Task worker
 #struct Container () ((task Task))

@@ -1,5 +1,8 @@
 // Replacing a reference changes which owner is borrowed.
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut left #u64 1u64)
     (#let-mut right #u64 42u64)
     (#let-mut view (#ref #u64) (#borrow left))
@@ -11,3 +14,5 @@
     (#drop next)
     (#set right 43u64)
     (#return result)
+  );
+}

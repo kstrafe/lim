@@ -1,13 +1,21 @@
 #enum Value () (Value.Empty (Value.Full #u64))
 #struct Link () ((value Value) (view (#pin-ref #u64)))
 
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install {
+  #params = ((target (#pin-ref-mut Link)));
+  #returns = (#pin-ref-mut Link);
+  #body = (
     (#match (#pin-borrow (#get target value))
       (#case-pin (Value.Full view) (#pin-set-field target view view))
       (#case-pin Value.Empty ()))
     (#return target)
+  );
+}
 
-#fn initialize-or-touch ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn initialize-or-touch {
+  #params = ((target (#pin-ref-mut Link)));
+  #returns = (#pin-ref-mut Link);
+  #body = (
     //; A later Value.Full tag is not evidence that the owner was Value.Full at entry.
     (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
       (#block
@@ -16,8 +24,13 @@
           (#case-pin-mut (Value.Full payload) (#unsafe (#pin-write payload 42u64)))
           (#case-pin-mut Value.Empty ()))) ())
     (#return target)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let outside #u64 0u64)
     (#let-mut link Link (#struct-literal Link
       ((value Value.Empty) (view (#pin-borrow outside)))))
@@ -29,3 +42,5 @@
     (#pin-set-field updated view (#pin-borrow outside))
     (#drop updated) (#forget link)
     (#return answer)
+  );
+}

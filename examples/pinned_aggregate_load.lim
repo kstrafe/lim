@@ -4,7 +4,10 @@
 #struct Views (#linear) ((left (#ref Resource)) (right (#ref Resource)))
 
 
-#fn sum-values ((owner (#ref-mut Container))) #u64
+#fn sum-values {
+  #params = ((owner (#ref-mut Container)));
+  #returns = #u64;
+  #body = (
     (#let-mut holder Views
       (#struct-literal Views
         ((left (#borrow (#get owner item)))
@@ -18,8 +21,13 @@
         (#get (#get loaded right) number)))
     (#forget loaded)
     (#return result)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Container
       (#struct-literal Container
         ((item (#struct-literal Resource ((number 19u64))))
@@ -27,3 +35,5 @@
     (#let result #u64 (#call sum-values ((owner (#borrow-mut owner)))))
     (#forget owner)
     (#return result)
+  );
+}

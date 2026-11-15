@@ -4,7 +4,10 @@
 #enum Step (#linear) ((Step.Waiting #u64))
 #enum StepPoll (#linear) ((StepPoll.Pending Step) (StepPoll.Ready #u64))
 
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return
       (#match task
         (#case (Step.Waiting count)
@@ -12,10 +15,17 @@
             (#enum-literal StepPoll.Ready 2u64)
             (#enum-literal StepPoll.Pending
               (#enum-literal Step.Waiting (#u64::sub-wrap count 1u64)))))))
+  );
+}
 
-#fn cancel-step ((task Step)) ()
+#fn cancel-step {
+  #params = ((task Step));
+  #returns = ();
+  #body = (
     (#forget task)
     (#return ())
+  );
+}
 
 #generate #async-fn-pinned
     ((protocol WorkAwait)
@@ -33,7 +43,10 @@
          (#forget local)
          (#return answer))))
 
-#fn run ((choose-local #bool)) #u64
+#fn run {
+  #params = ((choose-local #bool));
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work (($ choose-local))))
     (#let-else (Work::Poll.Pending pending)
@@ -50,8 +63,15 @@
     (#call Work::Poll::destroy ((task (#pin-borrow-mut frame))))
     (#forget frame)
     (#return answer)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#assert (#u64::eq (#call run ((choose-local true))) 52u64))
     (#assert (#u64::eq (#call run ((choose-local false))) 42u64))
     (#return 42u64)
+  );
+}

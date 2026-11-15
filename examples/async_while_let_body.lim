@@ -1,22 +1,32 @@
 // A synchronous scrutinee runs once per iteration; only the body suspends.
 #enum Value () ((Value.Some #u64) Value.None)
 
-#fn next-value ((counter (#ref-mut #u64))) Value
+#fn next-value {
+  #params = ((counter (#ref-mut #u64)));
+  #returns = Value;
+  #body = (
     (#let index #u64 (#deref counter))
     (#deref-set counter (#u64::add-wrap index 1u64))
     (#return (#match index
       (#case 0u64 (Value.Some 20u64))
       (#case 1u64 (Value.Some 22u64))
       (#case _ Value.None)))
+  );
+}
 
 #enum BodyTask (#linear) ((BodyTask.Start #u64) (BodyTask.Resume #u64))
 
 #enum BodyPoll () ((BodyPoll.BodyPending BodyTask) (BodyPoll.BodyReady #u64))
 
-#fn body-poll ((task BodyTask) (waker (#ref #u64))) BodyPoll
+#fn body-poll {
+  #params = ((task BodyTask) (waker (#ref #u64)));
+  #returns = BodyPoll;
+  #body = (
     (#return (#match task
       (#case (BodyTask.Start value) (BodyPoll.BodyPending (BodyTask.Resume value)))
       (#case (BodyTask.Resume value) (BodyPoll.BodyReady value))))
+  );
+}
 
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work () #u64
@@ -28,7 +38,10 @@
       (#assert (#u64::eq counter 3u64))
       (#return total))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending first-task) Work::Poll first (#unreachable))
@@ -38,3 +51,5 @@
     (#return (#match third
       (#case (Work::Poll.Ready value) value)
       (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+  );
+}

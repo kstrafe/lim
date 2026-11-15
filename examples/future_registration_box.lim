@@ -31,12 +31,17 @@
      (function (#fn work () #u64
          (#return 42u64))))
 
-#fn destroy-executor-task ((allocator (#ref SystemAllocator)) (pin (#pin-ref-mut ExecutorTask))) ()
+#fn destroy-executor-task {
+  #params = ((allocator (#ref SystemAllocator)) (pin (#pin-ref-mut ExecutorTask)));
+  #returns = ();
+  #body = (
     (#match pin
       (#case-pin-mut (ExecutorTask.Work frame)
         (#call cancel-work ((task (#call Work::Poll::cleanup ((task frame))))))))
     (#forget pin)
     (#return ())
+  );
+}
 
 #generate lim-gen-pin-box
     ((type ExecutorTask)
@@ -44,20 +49,33 @@
      (name PinnedExecutorTaskBox)
      (destroy destroy-executor-task))
 
-#fn poll-executor-task ((pin (#pin-ref-mut ExecutorTask)) (waker (#ref #u64))) Work::Poll
+#fn poll-executor-task {
+  #params = ((pin (#pin-ref-mut ExecutorTask)) (waker (#ref #u64)));
+  #returns = Work::Poll;
+  #body = (
     (#return
       (#match pin
         (#case-pin-mut (ExecutorTask.Work frame) (#call Work::poll ((task frame) ($ waker))))))
+  );
+}
 
-#fn dispose-executor-task ((allocator (#ref SystemAllocator)) (task ExecutorTask)) ()
+#fn dispose-executor-task {
+  #params = ((allocator (#ref SystemAllocator)) (task ExecutorTask));
+  #returns = ();
+  #body = (
     (#let-mut local ExecutorTask task)
     (#let pin (#pin-ref-mut ExecutorTask) (#pin local))
     (#call destroy-executor-task (($ allocator) ($ pin)))
     (#forget pin)
     (#forget local)
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let arena SystemAllocator (#struct-literal SystemAllocator ()))
     // Build the registered task and move its enum owner into stable heap storage.
     (#let task ExecutorTask (ExecutorTask.Work (#call work ())))
@@ -87,3 +105,5 @@
     (#call PinnedExecutorTaskBox::destroy (($ owner)))
     (#forget arena)
     (#return answer)
+  );
+}

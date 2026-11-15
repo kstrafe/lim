@@ -1,10 +1,11 @@
 #fn
-    blend
-    (
+    blend {
+  #params = (
       (small #f32)
       (large #f64)
-    )
-    #f64
+    );
+  #returns = #f64;
+  #body = (
     (
       #return
       (#f64::add
@@ -12,11 +13,14 @@
         large
       )
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -29,3 +33,5 @@
         0
       )
     )
+  );
+}

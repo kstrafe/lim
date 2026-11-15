@@ -15,9 +15,10 @@
     // call. Partial writes and EINTR are retried; zero progress becomes -EIO.
     (
       #unsafe-fn
-      std-write-all
-      ((pointer (#ptr-mut #u8)) (length #usize))
-      #i64
+      std-write-all {
+        #params = ((pointer (#ptr-mut #u8)) (length #usize));
+        #returns = #i64;
+        #body = (
       (
         #let-mut
         offset
@@ -133,12 +134,15 @@
           )
         )
       )
-      (#return error)  )
+      (#return error)
+        );
+      })
     (
       #fn
-      std-print
-      ((text (#ref String)))
-      #i64
+      std-print {
+        #params = ((text (#ref String)));
+        #returns = #i64;
+        #body = (
       // String::data-pointer is unsafe: text's shared borrow keeps both the
       // owner and its allocation live and immutable until the write completes.
       (
@@ -149,12 +153,15 @@
             #unsafe-call
             std-write-all
             ((pointer (#unsafe-call String::data-pointer ((string text))))
-         (length (#call String::len ((string text)))))        )      )    )  )
+         (length (#call String::len ((string text)))))        )      )    )
+        );
+      })
     (
       #fn
-      std-println
-      ((text (#ref String)))
-      #i64
+      std-println {
+        #params = ((text (#ref String)));
+        #returns = #i64;
+        #body = (
       (
         #let
         result
@@ -184,24 +191,32 @@
               #unsafe-call
               std-write-all
               ((pointer (#addr-of-mut newline)) (length 1usize))          )        )
-          result      )    )  )
+          result      )    )
+        );
+      })
     (
       #cfg-else
       (
         #fn
-        std-print
-        ((text (#ref String)))
-        #i64
+        std-print {
+          #params = ((text (#ref String)));
+          #returns = #i64;
+          #body = (
         (
           #return
           (#literal #i64 -38)
-        )    )
+        )
+          );
+        })
       (
         #fn
-        std-println
-        ((text (#ref String)))
-        #i64
+        std-println {
+          #params = ((text (#ref String)));
+          #returns = #i64;
+          #body = (
         (
           #return
           (#literal #i64 -38)
-        )    )  )
+        )
+          );
+        })  )

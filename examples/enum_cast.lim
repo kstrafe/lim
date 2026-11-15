@@ -1,8 +1,18 @@
 #enum Color () (Color.Red Color.Green)
 
-#fn discriminant ((value Color)) #u64
+#fn discriminant {
+  #params = ((value Color));
+  #returns = #u64;
+  #body = (
     (#return (#as value #u64))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let selected Color Color.Green)
     (#return (#u64::add-wrap (#call discriminant ((value selected))) 41))
+  );
+}

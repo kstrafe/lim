@@ -12,8 +12,10 @@
      (Arena::Allocator::Allocation.AllocationFailed ArenaError))
 #generate lim-gen-pin-box ((type #u64) (allocator Arena::Allocator) (name PinU64Box) (destroy destroy-u64))
 
-#fn Arena::Allocator::allocate
-    ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
+#fn Arena::Allocator::allocate {
+  #params = ((allocator (#ref Arena)) (layout #usize) (alignment #usize));
+  #returns = Arena::Allocator::Allocation;
+  #body = (
     (#let result Arena::Allocator::Allocation
       (#if (#get allocator fail)
         (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory)
@@ -25,22 +27,41 @@
             (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory)
             (Arena::Allocator::Allocation.Allocated pointer)))))
     (#return result)
+  );
+}
 
-#unsafe-fn Arena::Allocator::deallocate
-    ((allocator (#ref Arena)) (pointer (#ptr-mut #u8)) (layout #usize) (alignment #usize)) ()
+#unsafe-fn Arena::Allocator::deallocate {
+  #params = ((allocator (#ref Arena)) (pointer (#ptr-mut #u8)) (layout #usize) (alignment #usize));
+  #returns = ();
+  #body = (
     (#let status #i64
       (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (pointer layout))))
     (#assert (#i64::eq status 0i64))
     (#return ())
+  );
+}
 
-#fn destroy-u64 ((allocator (#ref Arena)) (pin (#pin-ref-mut #u64))) ()
+#fn destroy-u64 {
+  #params = ((allocator (#ref Arena)) (pin (#pin-ref-mut #u64)));
+  #returns = ();
+  #body = (
     (#forget pin)
     (#return ())
+  );
+}
 
-#fn forward-owner ((owner PinU64Box)) PinU64Box
+#fn forward-owner {
+  #params = ((owner PinU64Box));
+  #returns = PinU64Box;
+  #body = (
     (#return owner)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let failed-arena Arena (#struct-literal Arena ((identity 0u64) (fail true))))
     (#let failed PinU64Box::CreateResult
       (#call PinU64Box::create ((allocator (#borrow failed-arena)) (value 99u64))))
@@ -76,3 +97,5 @@
             (#let (#tuple error value) (#tuple ArenaError #u64) failure)
             (#forget value)
             (#match error (#case ArenaError.OutOfMemory 0u64))))))
+  );
+}

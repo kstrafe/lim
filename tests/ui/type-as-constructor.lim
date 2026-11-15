@@ -1,3 +1,8 @@
 #struct Point () ((x #u64) (y #u64))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#get (Point 20u64 22u64) x))
+  );
+}

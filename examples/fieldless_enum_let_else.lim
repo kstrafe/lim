@@ -1,9 +1,19 @@
 #enum Color () (Color.Red Color.Green Color.Blue)
 
-#fn classify ((value Color)) #u64
+#fn classify {
+  #params = ((value Color));
+  #returns = #u64;
+  #body = (
     (#let-else (#or Color.Green Color.Blue) Color value
       (#return 0u64))
     (#return 42u64)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call classify ((value Color.Green))))
+  );
+}

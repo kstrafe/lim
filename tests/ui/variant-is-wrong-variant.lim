@@ -1,5 +1,10 @@
 #enum Choice () (Choice.Ready Choice.Stop)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Choice Choice.Ready)
     (#variant-is (#borrow value) missing)
     (#return 0u64)
+  );
+}

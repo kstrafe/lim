@@ -1,3 +1,8 @@
 #static vALUE #u64 1u64
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return vALUE)
+  );
+}

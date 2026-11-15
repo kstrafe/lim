@@ -18,8 +18,11 @@
 // peer address, and data transfer. All socket IO is nonblocking.
 // SAFETY: address belongs to the example's exclusive 4096-byte allocation;
 // it contains the initialized socket address and writable scratch regions.
-#unsafe-fn exchange ((listener #i64) (address (#ptr-mut #u8))
-      (address-length #u32) (with-flags #bool)) ()
+#unsafe-fn exchange {
+  #params = ((listener #i64) (address (#ptr-mut #u8))
+      (address-length #u32) (with-flags #bool));
+  #returns = ();
+  #body = (
     (#let client #i64
       (#call linux-socket ((domain 1i32) (socket-type 2049i32) (protocol 0i32))))
     (#assert (#i64::ge client 0i64))
@@ -54,8 +57,13 @@
     (#assert (#i64::eq (#call linux-close ((fd accepted))) 0i64))
     (#assert (#i64::eq (#call linux-close ((fd client))) 0i64))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let address (#ptr-mut #u8)
       (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     // sockaddr_un starts with the two-byte AF_UNIX family. Length two asks
@@ -93,3 +101,5 @@
     (#assert (#i64::eq
       (#call linux-write-byte ((source (#borrow newline)))) 1i64))
     (#return 42u64)
+  );
+}

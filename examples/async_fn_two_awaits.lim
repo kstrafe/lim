@@ -4,19 +4,27 @@
 
 #generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set
 
-#fn print-text ((text (#slice #char))) ()
+#fn print-text {
+  #params = ((text (#slice #char)));
+  #returns = ();
+  #body = (
     (#for-range (offset #usize) 0usize (#slice-len text)
       (#let byte #u8 (#as (#deref (#slice-idx text offset)) #u8))
       (#assert (#i64::eq
         (#call linux-write-byte ((source (#borrow byte)))) 1i64)))
     (#return ())
+  );
+}
 
 // A small wake context: the child records each time it asks to be polled again.
 #struct Wake () ((notifications CellU64))
 
 #generate lim-gen-task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64))
 
-#fn step-poll ((task Step) (waker (#ref Wake))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref Wake)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task
       (#case (Step.Waiting remaining)
         (#if (#u64::eq (#clone remaining) 0u64)
@@ -26,6 +34,8 @@
                 (#call CellU64::get ((cell (#borrow (#get waker notifications)))))
                 1u64))))
             (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap remaining 1u64))))))))
+  );
+}
 
 // #generate #async-fn generates Two-steps::Task, Two-steps::Poll, and the start/poll functions.
 // #async-fn infers which locals must live across each suspension point.
@@ -38,7 +48,10 @@
         (#await Step StepPoll.StepPending StepPoll.StepReady step-poll second))
       (#return (#u64::add-wrap (#u64::add-wrap left right) extra)))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let start (#array #char 6) "start\n")
     (#call print-text ((text (#borrow-slice start))))
     (#let wake Wake (#struct-literal Wake ((notifications
@@ -67,3 +80,5 @@
     (#drop wake-ref)
     (#forget wake)
     (#return (#u64::add-wrap result notifications))
+  );
+}

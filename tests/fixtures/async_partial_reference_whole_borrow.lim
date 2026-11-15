@@ -3,13 +3,23 @@
 #struct Token (#linear) ((value #u64))
 
 #struct Owner () ((kept (#ref #u64)) (item Token))
-#fn inspect ((owner (#ref Owner))) #u64
+#fn inspect {
+  #params = ((owner (#ref Owner)));
+  #returns = #u64;
+  #body = (
     (#return (#u64::add-wrap (#deref (#get owner kept)) (#get (#get owner item) value)))
+  );
+}
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ()))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task (#case Step.Start (StepPoll.Pending Step.Resume)) (#case Step.Resume (StepPoll.Ready ()))))
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (function
     (#fn work ((seed (#ref #u64))) #u64
       (#let-mut owner Owner
@@ -27,7 +37,10 @@
       (#let answer #u64 (#call inspect ((owner whole))))
       (#forget selected) (#forget whole) (#forget kept) (#forget owner)
       (#return (#if equal answer 0u64)))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let seed #u64 40u64)
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work ((seed (#borrow seed)))))
@@ -40,3 +53,5 @@
         (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
     (#forget frame)
     (#return result)
+  );
+}

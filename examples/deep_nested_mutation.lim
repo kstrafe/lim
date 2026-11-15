@@ -1,4 +1,7 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut values (#array (#array #u64 7) 2)
       (#array (#array (#array #u64 7) 2)
         (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)
@@ -7,3 +10,5 @@
       (#array (#array #u64 7) 11u64 22u64 33u64 44u64 55u64 66u64 42u64))
     (#let item (#array #u64 7) (#index values 1u64))
     (#return (#index item 6u64))
+  );
+}

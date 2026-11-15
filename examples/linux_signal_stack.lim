@@ -6,7 +6,10 @@
 #alias linux-tkill = ../library/linux_x86_64.lim::linux-tkill
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 69632usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     // Native stack_t: pointer at 0, int flags at 8, size_t size at 16.
     (#let original (#ptr-mut #u8) memory)
@@ -55,3 +58,5 @@
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
     (#return 42u64)
+  );
+}

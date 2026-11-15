@@ -1,4 +1,9 @@
 #enum Choice () ((Choice.Full #u64))
-#fn inspect ((choice (#pin-ref Choice))) #u64
+#fn inspect {
+  #params = ((choice (#pin-ref Choice)));
+  #returns = #u64;
+  #body = (
     (#return (#match choice
       (#case-pin-mut (Choice.Full value) (#deref value))))
+  );
+}

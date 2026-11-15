@@ -14,12 +14,20 @@
 // The Linux x86-64 iovec ABI is a pointer followed by an 8-byte length.
 // SAFETY: slot supplies 16 exclusively writable bytes. The eventual syscall
 // caller must separately prove validity of the stored base/length region.
-#unsafe-fn set-iovec ((slot (#ptr-mut #u8)) (base (#ptr-mut #u8)) (length #usize)) ()
+#unsafe-fn set-iovec {
+  #params = ((slot (#ptr-mut #u8)) (base (#ptr-mut #u8)) (length #usize));
+  #returns = ();
+  #body = (
     (#unsafe (#asm () ((rdi slot) (rsi base) (rdx length))
       "mov QWORD PTR [rdi], rsi\nmov QWORD PTR [rdi+8], rdx"))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let data (#ptr-mut #u8)
       (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -122,3 +130,5 @@
         (#if (#bool::and (#i64::eq first 1i64) (#i64::eq second 1i64))
           42u64 1u64))
       1u64))
+  );
+}

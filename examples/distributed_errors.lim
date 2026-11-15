@@ -2,11 +2,21 @@
 #alias ApplicationError.ParseFailure = ./modules/parse_errors.lim::ApplicationError.ParseFailure
 #alias ApplicationError = ./modules/error_collection.lim::ApplicationError
 
-#fn code ((error ApplicationError)) #u64
+#fn code {
+  #params = ((error ApplicationError));
+  #returns = #u64;
+  #body = (
     (#return
       (#match error
         (#case (ApplicationError.FileFailure number) (#as number #u64))
         (#case (ApplicationError.ParseFailure number) number)))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call code ((error (ApplicationError.FileFailure 42u32)))))
+  );
+}

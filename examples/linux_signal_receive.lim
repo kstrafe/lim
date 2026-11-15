@@ -15,7 +15,10 @@
 #alias linux-signalfd4 = ../library/linux_x86_64.lim::linux-signalfd4
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let pid #i64 (#call linux-getpid ()))
     (#let-mut mask #i64 512i64)
     (#let-mut original #i64 0i64)
@@ -97,3 +100,5 @@
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
     (#return 42u64)
+  );
+}

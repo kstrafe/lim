@@ -1,3 +1,8 @@
 #type First Second
 #type Second First
-#fn main () First (#return 0u64)
+#fn main {
+  #params = ();
+  #returns = First;
+  #body = ( (#return 0u64)
+  );
+}

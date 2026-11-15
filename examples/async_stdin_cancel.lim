@@ -10,7 +10,10 @@
 // leaving any kernel operation that could still access the destination.
 
 
-#fn main () #i32
+#fn main {
+  #params = ();
+  #returns = #i32;
+  #body = (
     (#let-mut byte #u8 0u8)
     (#assert (#i64::ge
       (#call async-byte-read1-enable-nonblocking ((fd 0i64))) 0i64))
@@ -28,3 +31,5 @@
       (#match first
         (#case AsyncByteReadPoll1.AsyncByteReadPending1 true)
         (#case _ false))) 42i32 1i32))
+  );
+}

@@ -35,13 +35,21 @@
 #enum TimerManyWait () ((TimerManyWait.TimerManyReady #u64) (TimerManyWait.TimerManyFailed #i64))
 #enum TimerPoll1 () (TimerPoll1.TimerPending1 (TimerPoll1.TimerReady1 #u64) (TimerPoll1.TimerPollFailed1 #i64))
 
-#fn timer-reactor1-source ((timer (#ref TimerReactor1))) AsyncPollSource4
+#fn timer-reactor1-source {
+  #params = ((timer (#ref TimerReactor1)));
+  #returns = AsyncPollSource4;
+  #body = (
     (#return (#call async-poll4-source
       ((fd (#get timer fd))
        (queue (#borrow (#get timer queue)))
        (token (#get timer token)))))
+  );
+}
 
-#fn timer-reactor1-create ((nanoseconds #u64)) TimerCreate1
+#fn timer-reactor1-create {
+  #params = ((nanoseconds #u64));
+  #returns = TimerCreate1;
+  #body = (
     (#return (#if (#bool::or (#u64::eq nanoseconds 0u64)
                             (#u64::ge nanoseconds 1000000000u64))
       (TimerCreate1.TimerCreateFailed1 -22i64)
@@ -99,8 +107,13 @@
                       (#case _ (#unreachable))))
                     (TimerCreate1.TimerCreated1 (#struct-literal TimerReactor1
                       ((fd fd) (memory memory) (queue queue) (token token)))))))))))))
+  );
+}
 
-#fn timer-reactor1-wait ((timer (#ref TimerReactor1))) TimerWait1
+#fn timer-reactor1-wait {
+  #params = ((timer (#ref TimerReactor1)));
+  #returns = TimerWait1;
+  #body = (
     (#let result #i64 (#unsafe (#unsafe-call linux-poll
       ((pollfds (#get timer memory)) (count 1usize) (timeout-ms -1i32)))))
     (#return (#if (#i64::eq result 1i64)
@@ -109,12 +122,16 @@
         TimerWait1.TimerWoken1
         (TimerWait1.TimerWaitFailed1 -22i64))
       (TimerWait1.TimerWaitFailed1 result)))
+  );
+}
 
 //; Borrow two distinct timer owners. The first owner's 4096-byte mapping has
 //; spare space at offsets 8..15 for the second pollfd. No pointer escapes the
 //; synchronous kernel wait, and each notification checks its own generation.
-#fn timer-reactor2-wait
-    ((first (#ref TimerReactor1)) (second (#ref TimerReactor1))) TimerWait2
+#fn timer-reactor2-wait {
+  #params = ((first (#ref TimerReactor1)) (second (#ref TimerReactor1)));
+  #returns = TimerWait2;
+  #body = (
     (#let second-fd #i64 (#get second fd))
     (#return (#if (#i64::eq (#get first fd) second-fd)
       (TimerWait2.TimerPairFailed1 -22i64)
@@ -162,8 +179,13 @@
                   (TimerWait2.TimerPairWoken1 (#struct-literal TimerPairReady1
                     ((first first-ready) (second second-ready))))
                   (TimerWait2.TimerPairFailed1 -22i64)))))))))
+  );
+}
 
-#fn timer-reactor1-poll ((timer (#ref TimerReactor1))) TimerPoll1
+#fn timer-reactor1-poll {
+  #params = ((timer (#ref TimerReactor1)));
+  #returns = TimerPoll1;
+  #body = (
     (#return (#if (#call wake-ready4-take
                   ((queue (#borrow (#get timer queue))) (token (#get timer token))))
       (#block
@@ -175,8 +197,13 @@
           (TimerPoll1.TimerReady1 1u64)
           (TimerPoll1.TimerPollFailed1 count)))
       TimerPoll1.TimerPending1))
+  );
+}
 
-#fn timer-reactor1-cancel ((timer TimerReactor1)) #i64
+#fn timer-reactor1-cancel {
+  #params = ((timer TimerReactor1));
+  #returns = #i64;
+  #body = (
     (#let (TimerReactor1 fd memory queue token) TimerReactor1 timer)
     (#let-mut queue-mut WakeReady4 queue)
     (#let retired WakeRetire4
@@ -187,11 +214,16 @@
     (#let unmapped #i64 (#unsafe (#unsafe-call linux-munmap
       ((address memory) (length 4096usize)))))
     (#return (#if (#i64::lt closed 0i64) closed unmapped))
+  );
+}
 
 //; Bounded, runtime-sized blocking waits over borrowed timer owners. pollfd
 //; records use the first owner's scratch mapping only for this synchronous
 //; call. Result bits identify timers whose registered wake was notified.
-#fn timer-reactor-many-wait ((timers (#slice (#ref TimerReactor1)))) TimerManyWait
+#fn timer-reactor-many-wait {
+  #params = ((timers (#slice (#ref TimerReactor1))));
+  #returns = TimerManyWait;
+  #body = (
     (#let count #usize (#slice-len timers))
     (#let-mut error #i64 -22i64)
     (#let-mut ready-mask #u64 0u64)
@@ -265,3 +297,5 @@
     (#return (#if (#i64::lt error 0i64)
       (TimerManyWait.TimerManyFailed error)
       (TimerManyWait.TimerManyReady ready-mask)))
+  );
+}

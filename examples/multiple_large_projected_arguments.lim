@@ -4,13 +4,23 @@
 #struct Outer ()
     ((inner Inner))
 
-#fn consume ((left (#array #u64 7)) (right (#array #u64 7))) #u64
+#fn consume {
+  #params = ((left (#array #u64 7)) (right (#array #u64 7)));
+  #returns = #u64;
+  #body = (
     (#return (#index right 6u64))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Outer
       (#struct-literal Outer ((inner (#struct-literal Inner ((payload (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))))))))
     (#let duplicate Outer
       (#struct-literal Outer ((inner (#struct-literal Inner ((payload (#array (#array #u64 7) 8u64 9u64 10u64 11u64 12u64 13u64 42u64))))))))
     (#return (#call consume
       ((left (#get (#get value inner) payload)) (right (#get (#get duplicate inner) payload)))))
+  );
+}

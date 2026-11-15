@@ -12,17 +12,30 @@
 // in a 64-byte mmsghdr. Each message here uses one 16-byte iovec.
 // SAFETY: header and vector are exclusive writable regions of those sizes.
 // payload must stay valid for the later send/receive using this descriptor.
-#unsafe-fn initialize-message ((header (#ptr-mut #u8)) (vector (#ptr-mut #u8))
-      (payload (#ptr-mut #u8))) ()
+#unsafe-fn initialize-message {
+  #params = ((header (#ptr-mut #u8)) (vector (#ptr-mut #u8))
+      (payload (#ptr-mut #u8)));
+  #returns = ();
+  #body = (
     (#unsafe (#asm () ((rdi header) (rsi vector) (rdx payload))
       "mov QWORD PTR [rdi], 0\nmov QWORD PTR [rdi+8], 0\nmov QWORD PTR [rdi+16], rsi\nmov QWORD PTR [rdi+24], 1\nmov QWORD PTR [rdi+32], 0\nmov QWORD PTR [rdi+40], 0\nmov QWORD PTR [rdi+48], 0\nmov QWORD PTR [rdi+56], 0\nmov QWORD PTR [rsi], rdx\nmov QWORD PTR [rsi+8], 1"))
     (#return ())
+  );
+}
 
 // SAFETY: header points to an initialized, readable 64-byte mmsghdr.
-#unsafe-fn message-length ((header (#ptr-mut #u8))) #u32
+#unsafe-fn message-length {
+  #params = ((header (#ptr-mut #u8)));
+  #returns = #u32;
+  #body = (
     (#return (#unsafe (#asm #u32 ((rdi header)) "mov eax, DWORD PTR [rdi+56]")))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u8)
       (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     (#let descriptors (#ptr-mut #i32)
@@ -77,3 +90,5 @@
     (#assert (#i64::eq
       (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))) 0i64))
     (#return 42u64)
+  );
+}

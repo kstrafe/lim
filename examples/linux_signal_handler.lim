@@ -18,7 +18,10 @@
 // SAFETY: memory is this example's live 69632-byte mapping. The first page
 // contains records; the following 64 KiB is the installed alternate stack.
 // Call only after synchronous completion of a delivered SIGUSR1 handler.
-#unsafe-fn check-handler ((memory (#ptr-mut #u8)) (count #u64)) ()
+#unsafe-fn check-handler {
+  #params = ((memory (#ptr-mut #u8)) (count #u64));
+  #returns = ();
+  #body = (
     (#assert (#unsafe (#asm #bool ((rdi memory) (rsi count))
       "cmp QWORD PTR [rdi+272], rsi\nsete al\nmovzx eax, al")))
     // The actual entry RSP must be inside the alternate stack, not merely a
@@ -35,8 +38,13 @@
     (#assert (#unsafe (#asm #bool ((rdi memory))
       "cmp QWORD PTR [rdi+392], 0\nsete al\nmov rdx, QWORD PTR [rdi+384]\nand edx, 2560\ncmp edx, 2560\nsete dl\nand al, dl\nmovzx eax, al")))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 69632usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     (#assert (#unsafe (#asm #bool ((rdi memory))
       "cmp rdi, -4095\nsetb al\nmovzx eax, al")))
@@ -128,3 +136,5 @@
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
     (#return 42u64)
+  );
+}

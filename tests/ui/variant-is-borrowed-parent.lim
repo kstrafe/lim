@@ -1,7 +1,10 @@
 #alias enum-project = /<lim-std>/enum_project.lim::#enum-project
 #enum Choice () ((Choice.Number #u64) Choice.Empty)
 #generate enum-project ((enum Choice) (variant Choice.Number) (payload #u64) (mode #pin-ref-mut) (name NumberView))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut value Choice (Choice.Number 42u64))
     (#let parent (#pin-ref-mut Choice) (#pin-borrow-mut value))
     (#let-else (NumberView.Some child)
@@ -13,3 +16,5 @@
     (#drop parent)
     (#forget value)
     (#return result)
+  );
+}

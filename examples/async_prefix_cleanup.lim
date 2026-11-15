@@ -2,17 +2,27 @@
 #struct Token (#linear) ((value #u64))
 
 #struct Values () ((z (#tuple #u16 #u16)) (a Token))
-#fn destroy-token ((token Token)) #u64
+#fn destroy-token {
+  #params = ((token Token));
+  #returns = #u64;
+  #body = (
     (#let value #u64 (#get token value))
     (#forget token)
     (#return value)
+  );
+}
 
 #enum Step () ((Step.Start #u64) (Step.Resume #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task
       (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
       (#case (Step.Resume value) (StepPoll.StepReady value))))
+  );
+}
 
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work ((choose #bool) (values Values)) #u64
@@ -28,7 +38,10 @@
         (#block (#forget values) 5u64)))
       (#return result))))
 
-#fn run ((choose #bool) (waker (#ref #u64))) #u64
+#fn run {
+  #params = ((choose #bool) (waker (#ref #u64)));
+  #returns = #u64;
+  #body = (
     (#let-mut task Work::Task
       (#call work ((choose choose) (values
         (#struct-literal Values
@@ -41,9 +54,16 @@
         (#case (Work::Poll.Ready value) (#block (#return value)))))
     (#forget task)
     (#return (#unreachable))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let selected #u64 (#call run ((choose true) (waker (#borrow waker)))))
     (#let skipped #u64 (#call run ((choose false) (waker (#borrow waker)))))
     (#return (#u64::add-wrap selected skipped))
+  );
+}

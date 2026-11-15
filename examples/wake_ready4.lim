@@ -8,7 +8,10 @@
 #alias wake-ready4-retire = ../library/wake_ready4.lim::wake-ready4-retire
 #alias wake-ready4-take = ../library/wake_ready4.lim::wake-ready4-take
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut queue WakeReady4 (#call wake-ready4-create ()))
     (#let invalid WakeRegister4
       (#call wake-ready4-register ((queue (#borrow-mut queue)) (slot 4usize))))
@@ -41,3 +44,5 @@
     (#assert (#call wake-ready4-take ((queue (#borrow queue)) (token new-token))))
     (#forget queue)
     (#return 42u64)
+  );
+}

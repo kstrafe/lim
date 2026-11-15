@@ -1,9 +1,10 @@
 #generate #optional ((type #u64) (name Maybe?))
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       value
@@ -20,3 +21,5 @@
         0
       )
     )
+  );
+}

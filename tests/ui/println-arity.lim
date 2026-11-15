@@ -1,4 +1,9 @@
 #std
-#fn main () ()
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
     (#println)
     (#return ())
+  );
+}

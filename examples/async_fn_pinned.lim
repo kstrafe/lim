@@ -8,13 +8,23 @@
 #enum Child (#linear) ((Child.Waiting #u64))
 
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
     (#return (#match task
       (#case (Child.Waiting value)
         (#if (#u64::eq value 0u64)
           (ChildPoll.ChildPending (Child.Waiting 1u64))
           (ChildPoll.ChildReady value)))))
-#fn cancel-child ((task Child)) () (#forget task) (#return ())
+  );
+}
+#fn cancel-child {
+  #params = ((task Child));
+  #returns = ();
+  #body = ( (#forget task) (#return ())
+  );
+}
 
 #generate #async-fn-pinned ( (protocol WorkAwait) (waker #u64)
     (cancel (cancel-frame ((await-0 cancel-child)))) (function
@@ -23,7 +33,10 @@
         (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
       (#return (#u64::add-wrap value offset)))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut frame Work::Frame (#call work ((offset 40u64))))
     (#let waker #u64 0u64)
     (#let first Work::Poll
@@ -47,3 +60,5 @@
     (#forget cancelled-frame)
     (#forget waker)
     (#return result)
+  );
+}

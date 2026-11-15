@@ -1,18 +1,36 @@
 // Claims are connected by an explicit helper call.
-#fn under-two ((index #usize)) #bool
+#fn under-two {
+  #params = ((index #usize));
+  #returns = #bool;
+  #body = (
     (#return (#usize::lt index 2usize))
+  );
+}
 
-#fn widen-to-four ((index #usize)) ()
+#fn widen-to-four {
+  #params = ((index #usize));
+  #returns = ();
+  #body = (
     (#requires (#call under-two ((index index))))
     (#ensures (#usize::lt index 4usize))
     (#return ())
+  );
+}
 
 #type Index4 (#where (index #usize) (#usize::lt index 4usize))
 
-#fn read-four ((values (#ref (#array #u64 4))) (index Index4)) #u64
+#fn read-four {
+  #params = ((values (#ref (#array #u64 4))) (index Index4));
+  #returns = #u64;
+  #body = (
     (#return (#index-proven values index))
+  );
+}
 
-#fn read-first-two ((values (#ref (#array #u64 4))) (index #usize)) #u64
+#fn read-first-two {
+  #params = ((values (#ref (#array #u64 4))) (index #usize));
+  #returns = #u64;
+  #body = (
     (#return
       (#if-valid (#call under-two ((index index)))
         (#block
@@ -20,8 +38,15 @@
           (#let checked Index4 index)
           (#call read-four ((values values) (index checked))))
         0u64))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let values (#array #u64 4)
       (#array (#array #u64 4) 10u64 42u64 30u64 40u64))
     (#return (#call read-first-two ((values (#borrow values)) (index 1usize))))
+  );
+}

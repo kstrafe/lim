@@ -1,4 +1,9 @@
-#fn classify ((value #bool)) #u64
+#fn classify {
+  #params = ((value #bool));
+  #returns = #u64;
+  #body = (
     (#return (#match value
       (#case true (#when false) 0u64)
       (#case false (#when false) 1u64)))
+  );
+}

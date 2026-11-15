@@ -10,18 +10,33 @@
 #generate lim-gen-pin-scope ((type Frame) (pin PinnedFrame) (name with-pinned-frame)
     (run drive-frame) (destroy destroy-frame) (result #u64))
 
-#fn drive-frame ((pin PinnedFrame)) #u64
+#fn drive-frame {
+  #params = ((pin PinnedFrame));
+  #returns = #u64;
+  #body = (
     (#let-mut handle PinnedFrame pin)
     (#call PinnedFrame::Write::value ((pin (#borrow-mut handle)) (value 42u64)))
     (#let result #u64 (#call PinnedFrame::Read::value ((pin (#borrow handle)))))
     (#forget handle)
     (#return result)
+  );
+}
 
-#fn destroy-frame ((pin PinnedFrame)) ()
+#fn destroy-frame {
+  #params = ((pin PinnedFrame));
+  #returns = ();
+  #body = (
     //; Release any resources in place here, before the scope retires storage.
     (#forget pin)
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call with-pinned-frame
       ((value (#struct-literal Frame ((value 0u64)))))))
+  );
+}

@@ -14,7 +14,10 @@
 #alias linux-write = ../library/linux_x86_64.lim::linux-write
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let path (#ptr-mut #u8)
       (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -96,3 +99,5 @@
         (#if (#bool::and (#i64::eq first 1i64) (#i64::eq second 1i64))
           42u64 1u64))
       1u64))
+  );
+}

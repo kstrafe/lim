@@ -1,4 +1,13 @@
-#extern-fn #abi-c external-value ((value #i32)) #i32
-#fn main () #u64
+#extern-fn  external-value {
+  #abi = #abi-c;
+  #params = ((value #i32));
+  #returns = #i32;
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let result #i32 (#unsafe-call external-value ((value 1i32))))
     (#return 0u64)
+  );
+}

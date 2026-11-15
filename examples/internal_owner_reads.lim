@@ -2,19 +2,32 @@
 //; either path are valid; an exclusive reborrow through the owner is not.
 #struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64)))
 
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install {
+  #params = ((target (#pin-ref-mut Link)));
+  #returns = (#pin-ref-mut Link);
+  #body = (
     (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
     (#pin-set-field target view view)
     (#return target)
+  );
+}
 
-#fn inspect ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn inspect {
+  #params = ((target (#pin-ref-mut Link)));
+  #returns = (#pin-ref-mut Link);
+  #body = (
     (#let through-owner #u64 (#get target value))
     (#let through-child #u64 (#deref (#get target view)))
     (#assert (#u64::eq through-owner through-child))
     (#pin-set-field target state 1u32)
     (#return target)
+  );
+}
 
-#fn run ((outside (#pin-ref #u64))) #u64
+#fn run {
+  #params = ((outside (#pin-ref #u64)));
+  #returns = #u64;
+  #body = (
     (#let-mut link Link
       (#struct-literal Link ((value 42u64) (state 0u32) (view outside))))
     (#let initialized (#pin-ref-mut Link)
@@ -26,7 +39,14 @@
     (#drop inspected)
     (#forget link)
     (#return answer)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let outside #u64 0u64)
     (#return (#call run ((outside (#pin-borrow outside)))))
+  );
+}

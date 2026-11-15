@@ -16,20 +16,30 @@
 #opaque AsyncPollSource4
 #enum AsyncPoll4Result () ((AsyncPoll4Result.AsyncPoll4Ready #u32) (AsyncPoll4Result.AsyncPoll4Failed #i64))
 
-#fn async-poll4-source
-    ((fd #i64) (queue (#ref WakeReady4)) (token WakeToken4)) AsyncPollSource4
+#fn async-poll4-source {
+  #params = ((fd #i64) (queue (#ref WakeReady4)) (token WakeToken4));
+  #returns = AsyncPollSource4;
+  #body = (
     (#return (#struct-literal AsyncPollSource4
       ((fd fd) (queue queue) (token token))))
+  );
+}
 
-#fn async-poll4-disable-source
-    ((source AsyncPollSource4)) AsyncPollSource4
+#fn async-poll4-disable-source {
+  #params = ((source AsyncPollSource4));
+  #returns = AsyncPollSource4;
+  #body = (
     (#let (AsyncPollSource4 fd queue token) AsyncPollSource4 source)
     (#forget fd)
     (#return (#struct-literal AsyncPollSource4
       ((fd -1i64) (queue queue) (token token))))
+  );
+}
 
-#fn async-poll4-wait
-    ((sources (#slice AsyncPollSource4)) (timeout-ms #i32)) AsyncPoll4Result
+#fn async-poll4-wait {
+  #params = ((sources (#slice AsyncPollSource4)) (timeout-ms #i32));
+  #returns = AsyncPoll4Result;
+  #body = (
     (#let count #usize (#slice-len sources))
     (#return (#if (#bool::or (#usize::eq count 0usize) (#usize::gt count 4usize))
       (AsyncPoll4Result.AsyncPoll4Failed -22i64)
@@ -108,3 +118,5 @@
               (#if (#i64::lt unmapped 0i64)
                 (AsyncPoll4Result.AsyncPoll4Failed unmapped)
                 (AsyncPoll4Result.AsyncPoll4Ready ready-mask))))))))
+  );
+}

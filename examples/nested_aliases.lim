@@ -2,15 +2,30 @@
 #type WordRef (#ref Word)
 #type Words (#slice Word)
 
-#fn read-word ((value WordRef)) Word
+#fn read-word {
+  #params = ((value WordRef));
+  #returns = Word;
+  #body = (
     (#return (#deref value))
+  );
+}
 
-#fn first-word ((values Words)) Word
+#fn first-word {
+  #params = ((values Words));
+  #returns = Word;
+  #body = (
     (#return (#call read-word
       ((value (#slice-idx values 0usize)))))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let values (#array Word 2)
       (#array-of (#array Word 2) 42u64 7u64))
     (#let view Words (#borrow-slice values))
     (#return (#call first-word ((values view))))
+  );
+}

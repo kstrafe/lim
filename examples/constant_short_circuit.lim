@@ -6,8 +6,13 @@
     (#bool::or true
       (#u64::eq (#u64::div-wrap 1 0) 0))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return
       (#if (#bool::and (#bool::not falseAnd) trueOr)
         42
         0))
+  );
+}

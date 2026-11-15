@@ -1,8 +1,18 @@
-#fn classify ((value (#array #u64 3))) #u64
+#fn classify {
+  #params = ((value (#array #u64 3)));
+  #returns = #u64;
+  #body = (
     (#return
       (#match value
         (#case (#array 10 middle _) middle)
         (#case _ 0)))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call classify ((value (#array (#array #u64 3) 10 32 12)))))
+  );
+}

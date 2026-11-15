@@ -1,8 +1,23 @@
-#fn abort () !
+#fn abort {
+  #params = ();
+  #returns = !;
+  #body = (
     (#return (#unreachable))
+  );
+}
 
-#fn choose ((condition #bool)) #u64
+#fn choose {
+  #params = ((condition #bool));
+  #returns = #u64;
+  #body = (
     (#return (#if condition 42 (#call abort ())))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call choose ((condition false))))
+  );
+}

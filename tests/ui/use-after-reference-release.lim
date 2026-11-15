@@ -1,5 +1,10 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner #u64 1u64)
     (#let view (#ref #u64) (#borrow owner))
     (#forget view)
     (#return (#deref view))
+  );
+}

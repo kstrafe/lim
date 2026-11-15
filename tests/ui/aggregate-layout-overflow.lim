@@ -1,1 +1,6 @@
-#fn main ((values (#array (#array #u64 18446744073709551615) 2))) () (#return ())
+#fn main {
+  #params = ((values (#array (#array #u64 18446744073709551615) 2)));
+  #returns = ();
+  #body = ( (#return ())
+  );
+}

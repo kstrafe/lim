@@ -2,7 +2,12 @@
 #const quotient #i128 (#i128::div-wrap minimum -1)
 #const remainder #i128 (#i128::rem-wrap minimum -1)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#if (#i128::eq quotient minimum)
       (#if (#i128::eq remainder 0) 42 0)
       0))
+  );
+}

@@ -1,4 +1,9 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let (#array first second third) (#array #u64 3)
       (#array (#array #u64 3) 10 20 12))
     (#return (#u64::add-wrap first (#u64::add-wrap second third)))
+  );
+}

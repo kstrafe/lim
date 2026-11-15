@@ -1,10 +1,20 @@
 #enum Choice () ((Choice.Full #u64))
-#fn touch ((input (#pin-ref-mut Choice))) #u64
+#fn touch {
+  #params = ((input (#pin-ref-mut Choice)));
+  #returns = #u64;
+  #body = (
     (#return (#match input
       (#case-pin-mut (Choice.Full value) (#deref value))))
-#fn inspect ((choice (#pin-ref-mut Choice))) #u64
+  );
+}
+#fn inspect {
+  #params = ((choice (#pin-ref-mut Choice)));
+  #returns = #u64;
+  #body = (
     (#return (#match choice
       (#case-pin-mut (Choice.Full value)
         (#block
           (#call touch ((input choice)))
           (#deref value)))))
+  );
+}

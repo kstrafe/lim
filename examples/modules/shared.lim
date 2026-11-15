@@ -1,4 +1,9 @@
 #struct Widget () ((value #u64))
 
-#fn widget-value ((widget Widget)) #u64
+#fn widget-value {
+  #params = ((widget Widget));
+  #returns = #u64;
+  #body = (
     (#return (#get widget value))
+  );
+}

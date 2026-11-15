@@ -1,2 +1,7 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#match #\a (#case #\b 0u64) (#case #\b 1u64)))
+  );
+}

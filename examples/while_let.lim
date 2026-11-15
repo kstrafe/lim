@@ -1,9 +1,10 @@
 #generate #optional ((type #u64) (name Maybe?))
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let-mut
       value
@@ -23,3 +24,5 @@
       (#set value Maybe?.None)
     )
     (#return total)
+  );
+}

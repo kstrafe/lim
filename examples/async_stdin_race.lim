@@ -13,7 +13,10 @@
 // asynchronous read must see EAGAIN/Pending rather than block inside poll.
 
 
-#fn main () #i32
+#fn main {
+  #params = ();
+  #returns = #i32;
+  #body = (
     (#let-mut byte #u8 0u8)
     (#let-mut stolen #u8 0u8)
     (#assert (#i64::ge
@@ -57,3 +60,5 @@
         (#bool::and (#match second-wait
           (#case AsyncByteReadWait1.AsyncByteReadWoken1 true) (#case _ false))
           (#bool::and race-ok (#i64::eq destroyed 0i64))))) 42i32 1i32))
+  );
+}

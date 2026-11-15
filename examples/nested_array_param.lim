@@ -1,9 +1,19 @@
-#fn consume ((values (#array (#tuple #u64 #u64) 2))) #u64
+#fn consume {
+  #params = ((values (#array (#tuple #u64 #u64) 2)));
+  #returns = #u64;
+  #body = (
     (#return (#get (#index values 1) 0))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let values (#array (#tuple #u64 #u64) 2)
       (#array (#array (#tuple #u64 #u64) 2)
         (#tuple (#tuple #u64 #u64) 10 20)
         (#tuple (#tuple #u64 #u64) 30 12)))
     (#return (#call consume ((values values))))
+  );
+}

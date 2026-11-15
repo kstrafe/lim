@@ -1,9 +1,19 @@
-#fn nested-values () (#array (#array #u64 2) 2)
+#fn nested-values {
+  #params = ();
+  #returns = (#array (#array #u64 2) 2);
+  #body = (
     (#let value (#array (#array #u64 2) 2)
       (#array (#array (#array #u64 2) 2)
         (#array (#array #u64 2) 10 20)
         (#array (#array #u64 2) 30 40)))
     (#return value)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#index (#index (#call nested-values ()) 1) 0))
+  );
+}

@@ -1,6 +1,9 @@
 #enum Maybe () ((Maybe.Some #u64) Maybe.None)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Maybe (Maybe.Some 42))
     (#return
       (#match value
@@ -8,3 +11,5 @@
           (#u64::add-wrap payload 8))
         (#case (Maybe.Some _) 0)
         (#case Maybe.None 0)))
+  );
+}

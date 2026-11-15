@@ -7,7 +7,10 @@
 
 #std
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut line String (#call String::new ()))
     (#let-mut finished #bool false)
     (#while (#bool::eq finished false)
@@ -21,3 +24,5 @@
         (#case (StdReadResult.StdReadFailed error) (#block (#set finished true) ()))))
     (#call String::free ((string line)))
     (#return 42u64)
+  );
+}

@@ -2,10 +2,15 @@
 #enum Child (#linear) ((Child.Waiting #u64) (Child.Resume #u64))
 
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
     (#return (#match task
       (#case (Child.Waiting value) (ChildPoll.ChildPending (Child.Resume value)))
       (#case (Child.Resume value) (ChildPoll.ChildReady value))))
+  );
+}
 
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work ((early #bool)) #u64
@@ -17,16 +22,26 @@
       (#let result #u64 (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 42u64)))
       (#return result))))
 
-#fn run ((early #bool) (waker (#ref #u64))) #u64
+#fn run {
+  #params = ((early #bool) (waker (#ref #u64)));
+  #returns = #u64;
+  #body = (
     (#let first Work::Poll (#call Work::poll ((task (#call work ((early early)))) (waker waker))))
     (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
     (#let second Work::Poll (#call Work::poll ((task task) (waker waker))))
     (#return (#match second
       (#case (Work::Poll.Ready value) value)
       (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let early #u64 (#call run ((early true) (waker (#borrow waker)))))
     (#let later #u64 (#call run ((early false) (waker (#borrow waker)))))
     (#return (#u64::add-wrap early later))
+  );
+}

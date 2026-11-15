@@ -5,7 +5,10 @@
 #alias linux-msync = ../library/linux_x86_64.lim::linux-msync
 #alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u8)
       (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     (#let memory-initialized ()
@@ -47,3 +50,5 @@
                               (#i64::eq unmapped 0i64)))))))))))
         42u64
         1u64))
+  );
+}

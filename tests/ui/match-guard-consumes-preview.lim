@@ -1,7 +1,10 @@
 #struct Token (#linear) ((value #u64))
 
 #enum Choice () ((Choice.Owned Token) Choice.Empty)
-#fn main () ()
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
     (#let choice Choice (Choice.Owned (#struct-literal Token ((value 1u64)))))
     (#match choice
       (#case (Choice.Owned first) (#when (#block
@@ -10,3 +13,5 @@
       (#case (Choice.Owned second) (#forget second))
       (#case Choice.Empty ()))
     (#return ())
+  );
+}

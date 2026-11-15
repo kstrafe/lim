@@ -1,4 +1,9 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let values (#array #u64 3)
       (#array-of (#array #u64 3) 10u64 20u64 30u64))
     (#return (#index values 2usize))
+  );
+}

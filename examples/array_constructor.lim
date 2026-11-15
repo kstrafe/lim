@@ -1,5 +1,10 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return
       (#index
         (#array (#array #u64 3) 10 20 42)
         2))
+  );
+}

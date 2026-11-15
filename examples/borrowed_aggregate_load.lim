@@ -6,33 +6,71 @@
 #struct Outer () ((nested Nested))
 #struct ReferenceTable () ((refs (#array (#ref Resource) 2)))
 
-#fn load ((outer (#ref Outer))) Nested
+#fn load {
+  #params = ((outer (#ref Outer)));
+  #returns = Nested;
+  #body = (
     (#return (#get outer nested))
+  );
+}
 
-#fn forward ((outer (#ref Outer))) Views
+#fn forward {
+  #params = ((outer (#ref Outer)));
+  #returns = Views;
+  #body = (
     (#let nested Nested (#call load ((outer outer))))
     (#return (#get nested views))
+  );
+}
 
-#fn load-table ((table (#ref ReferenceTable))) (#array (#ref Resource) 2)
+#fn load-table {
+  #params = ((table (#ref ReferenceTable)));
+  #returns = (#array (#ref Resource) 2);
+  #body = (
     (#return (#get table refs))
+  );
+}
 
-#fn select-second ((table (#ref ReferenceTable))) (#ref Resource)
+#fn select-second {
+  #params = ((table (#ref ReferenceTable)));
+  #returns = (#ref Resource);
+  #body = (
     (#let refs (#array (#ref Resource) 2) (#call load-table ((table table))))
     (#return (#index refs 1usize))
+  );
+}
 
-#fn read-left ((views Views)) #u64
+#fn read-left {
+  #params = ((views Views));
+  #returns = #u64;
+  #body = (
     (#return (#get (#get views left) number))
+  );
+}
 
-#fn choose-value ((first (#ref Resource)) (second (#ref Resource)) (selected #bool)) #u64
+#fn choose-value {
+  #params = ((first (#ref Resource)) (second (#ref Resource)) (selected #bool));
+  #returns = #u64;
+  #body = (
     (#return
       (#call read-left
         ((views (#struct-literal Views
           ((left (#if selected first second)) (right second)))))))
+  );
+}
 
-#fn read-repeated ((values (#array (#ref Resource) 2))) #u64
+#fn read-repeated {
+  #params = ((values (#array (#ref Resource) 2)));
+  #returns = #u64;
+  #body = (
     (#return (#get (#index values 1usize) number))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Container
       (#struct-literal Container
         ((item (#struct-literal Resource ((number 19u64))))
@@ -68,3 +106,5 @@
     (#drop owner-view)
     (#forget owner)
     (#return result)
+  );
+}

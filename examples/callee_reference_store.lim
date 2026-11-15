@@ -2,11 +2,19 @@
 // The compiler retains that loan across the call until holder is released.
 #struct Holder () ((view (#ref #u64)))
 
-#fn replace ((target (#ref-mut Holder)) (value (#ref #u64))) ()
+#fn replace {
+  #params = ((target (#ref-mut Holder)) (value (#ref #u64)));
+  #returns = ();
+  #body = (
     (#deref-set target (#struct-literal Holder ((view value))))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let old #u64 7u64)
     (#let-mut value #u64 42u64)
     (#let-mut holder Holder (#struct-literal Holder ((view (#borrow old)))))
@@ -18,3 +26,5 @@
     (#forget holder)
     (#set value 1u64)
     (#return result)
+  );
+}

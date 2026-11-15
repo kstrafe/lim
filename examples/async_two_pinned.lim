@@ -6,7 +6,10 @@
     ((protocol WriteAwait) (waker #u64)
      (function (#fn write-value () #u64 (#return 7u64))))
 
-#fn select ((choose-reader #bool)) #u64
+#fn select {
+  #params = ((choose-reader #bool));
+  #returns = #u64;
+  #body = (
     (#let-mut reader Read-value::Frame (#call read-value ()))
     (#let-mut writer Write-value::Frame (#call write-value ()))
     (#let reader-pin (#pin-ref-mut Read-value::Frame) (#pin reader))
@@ -36,7 +39,14 @@
     (#forget reader)
     (#forget writer)
     (#return answer)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#assert (#u64::eq (#call select ((choose-reader false))) 7u64))
     (#return (#call select ((choose-reader true))))
+  );
+}

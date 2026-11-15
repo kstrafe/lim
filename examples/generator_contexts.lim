@@ -1,11 +1,21 @@
 #alias library@make-reader = ./generator_contexts/lib.lim::make-reader
 
-#fn read-input () #u64
+#fn read-input {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return 40u64)
+  );
+}
 
 // The generated function can call both library@private-base and read-input.
 // Its .lim/generated artifact records both module contexts explicitly.
 #generate library@make-reader read-value @read-input
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call read-value ()))
+  );
+}

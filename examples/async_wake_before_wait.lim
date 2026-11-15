@@ -16,7 +16,10 @@
 
 
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut queue WakeReady4 (#call wake-ready4-create ()))
     (#let registration WakeRegister4
       (#call wake-ready4-register ((queue (#borrow-mut queue)) (slot 0usize))))
@@ -41,3 +44,5 @@
       (#case WakeRetire4.WakeStale4 false)))
     (#forget queue)
     (#return (#if ready 42u64 1u64))
+  );
+}

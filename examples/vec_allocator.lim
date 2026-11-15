@@ -18,36 +18,59 @@
 #generate #vec-sort ((element #u64) (vector VecU64) (comparator compare-u64))
 #generate #vec-alloc ((element #u64) (allocator CountingAllocator::Allocator) (vector VecU64) (destroy drop-u64))
 
-#fn compare-u64 ((left (#ref #u64)) (right (#ref #u64))) #bool
+#fn compare-u64 {
+  #params = ((left (#ref #u64)) (right (#ref #u64)));
+  #returns = #bool;
+  #body = (
     (#return (#u64::lt (#deref left) (#deref right)))
+  );
+}
 
-#fn CountingAllocator::Allocator::allocate
-    ((allocator (#ref CountingAllocator)) (layout #usize) (alignment #usize))
-    CountingAllocator::Allocator::Allocation
+#fn CountingAllocator::Allocator::allocate {
+  #params = ((allocator (#ref CountingAllocator)) (layout #usize) (alignment #usize));
+  #returns = CountingAllocator::Allocator::Allocation;
+  #body = (
     (#return (#match (#call system-allocate ((size layout)))
       (#case (SystemAllocationResult.SystemAllocated pointer) (CountingAllocator::Allocator::Allocation.Allocated pointer))
       (#case (SystemAllocationResult.SystemAllocationFailed error) (CountingAllocator::Allocator::Allocation.AllocationFailed error))))
+  );
+}
 
-#unsafe-fn CountingAllocator::Allocator::grow
-    ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
-     (old-layout #usize) (layout #usize) (alignment #usize))
-    CountingAllocator::Allocator::Allocation
+#unsafe-fn CountingAllocator::Allocator::grow {
+  #params = ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
+     (old-layout #usize) (layout #usize) (alignment #usize));
+  #returns = CountingAllocator::Allocator::Allocation;
+  #body = (
     (#return (#match (#unsafe (#unsafe-call system-reallocate ((pointer pointer) (size layout))))
       (#case (SystemAllocationResult.SystemAllocated grown) (CountingAllocator::Allocator::Allocation.Allocated grown))
       (#case (SystemAllocationResult.SystemAllocationFailed error) (CountingAllocator::Allocator::Allocation.AllocationFailed error))))
+  );
+}
 
-#unsafe-fn CountingAllocator::Allocator::deallocate
-    ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
-     (layout #usize) (alignment #usize)) ()
+#unsafe-fn CountingAllocator::Allocator::deallocate {
+  #params = ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
+     (layout #usize) (alignment #usize));
+  #returns = ();
+  #body = (
     (#unsafe (#unsafe-call system-deallocate ((pointer pointer))))
     (#return ())
+  );
+}
 
-#fn drop-u64 ((allocator (#ref CountingAllocator)) (value #u64)) ()
+#fn drop-u64 {
+  #params = ((allocator (#ref CountingAllocator)) (value #u64));
+  #returns = ();
+  #body = (
     (#let cell (#ref CellU64) (#borrow (#get allocator destructions)))
     (#call CellU64::set ((cell (#clone cell)) (value (#u64::add-wrap (#call CellU64::get ((cell cell))) 1u64))))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut allocator CountingAllocator (#struct-literal CountingAllocator
       ((identity 0u64) (destructions
         (#call CellU64::create ((value 0u64)))))))
@@ -80,3 +103,5 @@
     (#drop allocator-ref)
     (#forget allocator)
     (#return destruction-count)
+  );
+}

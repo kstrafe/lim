@@ -21,18 +21,32 @@
 #struct WakeWaitContext () ((sources (#slice AsyncPollSource4)) (waits #u64))
 
 
-#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref WakeMetadata))) ()
+#fn notify {
+  #params = ((executor (#ref WakeExecutor)) (metadata (#ref WakeMetadata)));
+  #returns = ();
+  #body = (
     (#assert (#call wake-ready4-notify
       ((queue (#borrow (#get executor queue))) (token (#get metadata token)))))
     (#return ())
+  );
+}
 
-#fn clone-metadata ((metadata (#ref WakeMetadata))) WakeMetadata
+#fn clone-metadata {
+  #params = ((metadata (#ref WakeMetadata)));
+  #returns = WakeMetadata;
+  #body = (
     (#return (#struct-literal WakeMetadata ((token (#get metadata token)))))
+  );
+}
 
-#fn destroy-metadata
-    ((executor (#ref WakeExecutor)) (metadata WakeMetadata)) ()
+#fn destroy-metadata {
+  #params = ((executor (#ref WakeExecutor)) (metadata WakeMetadata));
+  #returns = ();
+  #body = (
     (#forget metadata)
     (#return ())
+  );
+}
 
 #generate lim-gen-local-waker
     (LocalWaker local-waker-create local-waker-wake
@@ -43,7 +57,10 @@
 #generate lim-gen-task (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady) #u64
     ((JobTask.First #u64) (JobTask.Second #u64))
 
-#fn job-poll ((task JobTask) (waker (#ref LocalWaker))) JobPoll
+#fn job-poll {
+  #params = ((task JobTask) (waker (#ref LocalWaker)));
+  #returns = JobPoll;
+  #body = (
     (#return (#match task
       (#case (JobTask.First remaining)
         (#if (#u64::eq remaining 0u64)
@@ -56,8 +73,13 @@
         (#if (#u64::eq remaining 0u64)
           (JobPoll.JobReady 2u64)
           (JobPoll.JobPending (JobTask.Second (#u64::sub-wrap remaining 1u64)))))))
+  );
+}
 
-#fn wait-ready ((context (#ref-mut WakeWaitContext))) WaitResult
+#fn wait-ready {
+  #params = ((context (#ref-mut WakeWaitContext)));
+  #returns = WaitResult;
+  #body = (
     (#let waits (#ref-mut #u64) (#borrow-mut (#get context waits)))
     (#deref-set waits (#u64::add-wrap (#deref waits) 1u64))
     (#drop waits)
@@ -67,8 +89,13 @@
     (#return (#match waited
       (#case (AsyncPoll4Result.AsyncPoll4Ready mask) (WaitResult.WaitReady mask))
       (#case (AsyncPoll4Result.AsyncPoll4Failed error) (WaitResult.WaitStopped error))))
+  );
+}
 
-#fn cancel-job-poll ((state JobPoll)) ()
+#fn cancel-job-poll {
+  #params = ((state JobPoll));
+  #returns = ();
+  #body = (
     (#match state
       (#case (JobPoll.JobPending task)
         (#match task
@@ -76,6 +103,8 @@
           (#case (JobTask.Second remaining) (#forget remaining))))
       (#case (JobPoll.JobReady result) (#forget result)))
     (#return ())
+  );
+}
 
 #generate lim-gen-wake-executor run-jobs
     (JobResults JobOutcome JobLifecycle JobLifecycle.JobRunning
@@ -87,7 +116,10 @@
     ((first-state first-task first-waker first 0u32)
      (second-state second-task second-waker second 1u32))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let timer-created TimerCreate1
       (#call timer-reactor1-create ((nanoseconds 20000000u64))))
     (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
@@ -148,3 +180,5 @@
     (#let timer-closed #i64 (#call timer-reactor1-cancel ((timer timer))))
     (#forget executor)
     (#return (#if (#i64::eq timer-closed 0i64) total 0u64))
+  );
+}

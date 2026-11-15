@@ -2,7 +2,12 @@
 #const wrapped #u8 (#u8::add-wrap max 1)
 #const clamped #u8 (#u8::add-saturate max 1)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#u64::add-wrap
       (#as wrapped #u64)
       (#as clamped #u64)))
+  );
+}

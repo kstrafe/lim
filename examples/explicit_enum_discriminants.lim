@@ -1,7 +1,12 @@
 #enum Result () ((Result.Ok 7 #u64) (Result.Err 99 #u64))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Result (Result.Ok 42))
     (#return (#match value
       (#case (Result.Ok payload) payload)
       (#case (Result.Err _) 0)))
+  );
+}

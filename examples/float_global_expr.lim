@@ -11,9 +11,10 @@
     (#f64::add  3.0 0.25)
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -26,3 +27,5 @@
         0
       )
     )
+  );
+}

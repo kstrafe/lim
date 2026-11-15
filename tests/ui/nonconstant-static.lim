@@ -1,3 +1,13 @@
-#fn get-value () #u64 (#return 1u64)
+#fn get-value {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 1u64)
+  );
+}
 #static vALUE #u64 (#call get-value ())
-#fn main () #u64 (#return (#unsafe vALUE))
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#unsafe vALUE))
+  );
+}

@@ -1,6 +1,11 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut value #u64 1u64)
     (#let shared (#ref #u64) (#borrow value))
     (#set value 2u64)
     (#drop shared)
     (#return 0u64)
+  );
+}

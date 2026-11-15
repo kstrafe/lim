@@ -7,14 +7,27 @@
 #generate lim-gen-pin-box
     ((type #u64) (allocator SystemAllocator::Allocator) (name PinU64Box) (destroy destroy-u64))
 
-#fn destroy-u64 ((allocator (#ref SystemAllocator)) (pin (#pin-ref-mut #u64))) ()
+#fn destroy-u64 {
+  #params = ((allocator (#ref SystemAllocator)) (pin (#pin-ref-mut #u64)));
+  #returns = ();
+  #body = (
     (#forget pin)
     (#return ())
+  );
+}
 
-#fn forward-owner ((owner PinU64Box)) PinU64Box
+#fn forward-owner {
+  #params = ((owner PinU64Box));
+  #returns = PinU64Box;
+  #body = (
     (#return owner)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
     (#let-else (PinU64Box::CreateResult.Created owner) PinU64Box::CreateResult
       (#call PinU64Box::create (($ (#borrow allocator)) (value 42u64)))
@@ -29,3 +42,5 @@
     (#drop value-reference)
     (#call PinU64Box::destroy ((owner moved-owner)))
     (#return value)
+  );
+}

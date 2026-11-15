@@ -14,7 +14,10 @@
 // destination only while it is pending; poll never leaves the buffer in flight.
 
 
-#fn main () #i32
+#fn main {
+  #params = ();
+  #returns = #i32;
+  #body = (
     (#let-mut byte #u8 0u8)
     (#let blocking AsyncByteReadCreate1
       (#call async-byte-read1-create
@@ -71,3 +74,5 @@
           result 8i32)
         9i32)
       10i32))
+  );
+}

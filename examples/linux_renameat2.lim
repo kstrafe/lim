@@ -20,7 +20,10 @@
 #alias linux-unlinkat = ../library/linux_x86_64.lim::linux-unlinkat
 #alias linux-utimensat = ../library/linux_x86_64.lim::linux-utimensat
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let paths (#ptr-mut #u8)
       (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -195,3 +198,5 @@
         (#bool::and legacy-path-ok
           (#bool::and at-path-ok (#i64::eq paths-unmapped 0i64))))
         42u64 1u64))
+  );
+}

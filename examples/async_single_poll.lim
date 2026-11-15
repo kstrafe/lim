@@ -9,18 +9,28 @@
 #enum Step (#linear) ((Step.Step-waiting StepWaiting))
 
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task
       (#case (Step.Step-waiting state)
         (#if (#u64::eq (#get state remaining) 0u64)
           (StepPoll.StepReady (#get state value))
           (StepPoll.StepPending (Step.Step-waiting (#struct-literal StepWaiting
             ((value (#get state value)) (remaining (#u64::sub-wrap (#get state remaining) 1u64))))))))))
+  );
+}
 
 #syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll)
-#fn cancel-step ((task Step)) ()
+#fn cancel-step {
+  #params = ((task Step));
+  #returns = ();
+  #body = (
     (#forget task)
     (#return ())
+  );
+}
 
 #generate #async-fn-pinned ( (protocol WorkAwait) (waker #u64)
     (cancel (cancel-work ((await-0 cancel-step) (await-1 cancel-step))))
@@ -38,7 +48,10 @@
 #generate lim-gen-pin-scope ((type Work::Frame) (pin PinnedFrame) (name with-pinned-frame)
     (run drive-frame) (destroy destroy-frame) (result #u64))
 
-#fn drive-frame ((pin PinnedFrame)) #u64
+#fn drive-frame {
+  #params = ((pin PinnedFrame));
+  #returns = #u64;
+  #body = (
     //; The adapter is unsafe because it exposes a low-level pin view. The
     //; generated scope still owns the storage until cleanup has completed.
     (#let view (#pin-ref-mut Work::Frame)
@@ -51,14 +64,26 @@
     (#let third Work::Poll (#call Work::poll ((task after-second) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Ready answer) Work::Poll third (#unreachable))
     (#return answer)
+  );
+}
 
-#fn destroy-frame ((pin PinnedFrame)) ()
+#fn destroy-frame {
+  #params = ((pin PinnedFrame));
+  #returns = ();
+  #body = (
     (#let view (#pin-ref-mut Work::Frame)
       (#unsafe (#unsafe-call PinnedFrame::into-view ((pin pin)))))
     //; Source::named cleanup handles entry, Pending and completed frames without
     //; exposing private program counters or generated state variants.
     (#call cancel-work ((task (#call Work::Poll::cleanup ((task view))))))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call with-pinned-frame ((value (#call work ())))))
+  );
+}

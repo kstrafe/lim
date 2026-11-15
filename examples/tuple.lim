@@ -1,21 +1,25 @@
 #fn
-    make
-    ()
-    (#tuple #u64 #f32)
+    make {
+  #params = ();
+  #returns = (#tuple #u64 #f32);
+  #body = (
     (
       #return
       (#tuple 40 2.5)
     )
+  );
+}
 
 #fn
-    consume
-    (
+    consume {
+  #params = (
       (
         value
         (#tuple #u64 #f32)
       )
-    )
-    #u64
+    );
+  #returns = #u64;
+  #body = (
     (
       #return
       (#u64::add-wrap
@@ -27,11 +31,14 @@
         )
       )
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       value
@@ -42,3 +49,5 @@
       #return
       (#call consume ((value value)))
     )
+  );
+}

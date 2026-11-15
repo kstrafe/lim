@@ -1,8 +1,18 @@
-#fn make ((last #u64)) (#array #u64 8)
+#fn make {
+  #params = ((last #u64));
+  #returns = (#array #u64 8);
+  #body = (
     (#return
       (#array (#array #u64 8)
         1u64 2u64 3u64 4u64 5u64 6u64 7u64 last))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let values (#array #u64 8) (#call make ((last 42u64))))
     (#return (#index values 7u64))
+  );
+}

@@ -1,6 +1,16 @@
-#fn consume ((input (#ref #u64))) ()
+#fn consume {
+  #params = ((input (#ref #u64)));
+  #returns = ();
+  #body = (
     (#forget input)
     (#return ())
-#fn main () ()
+  );
+}
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
     (#call consume ((input (#block (#let local #u64 7u64) (#borrow local)))))
     (#return ())
+  );
+}

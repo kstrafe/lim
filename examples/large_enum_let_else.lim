@@ -1,7 +1,10 @@
 #enum Wrapped ()
     ((Wrapped.Values (#array #u64 7)) Wrapped.Empty)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Wrapped
       (Wrapped.Values
         (#array (#array #u64 7)
@@ -9,3 +12,5 @@
     (#let-else (Wrapped.Values payload) Wrapped value
       (#return 0u64))
     (#return (#index payload 6u64))
+  );
+}

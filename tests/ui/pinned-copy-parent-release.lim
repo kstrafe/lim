@@ -1,6 +1,9 @@
 #struct Owner () ((number #u64))
 #struct Views () ((item (#ref #u64)))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Owner (#struct-literal Owner ((number 42u64))))
     (#let parent (#ref-mut Owner) (#borrow-mut owner))
     (#let-mut holder Views (#struct-literal Views ((item (#borrow (#get parent number))))))
@@ -12,3 +15,5 @@
     (#drop parent)
     (#forget owner)
     (#return result)
+  );
+}

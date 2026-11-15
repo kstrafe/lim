@@ -1,5 +1,10 @@
 #enum State () (State.Ready)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value State State.Ready)
     (#let-else missing State value (#return 1u64))
     (#return 0u64)
+  );
+}

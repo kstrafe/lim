@@ -5,7 +5,10 @@
 #alias string-clear = (#unstable ../../library/string.lim::String::clear)
 #alias bytes-len = (#unstable ../../library/string.lim::StringBytes::len)
 #alias string-free = (#unstable ../../library/string.lim::String::free)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut text String (#call new-string ()))
     (#let bytes StringBytes
       (#call string-bytes ((string (#borrow text)))))
@@ -14,3 +17,5 @@
     (#drop bytes)
     (#call string-free ((string text)))
     (#return (#as value #u64))
+  );
+}

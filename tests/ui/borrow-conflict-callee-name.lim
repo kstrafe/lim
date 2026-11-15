@@ -1,5 +1,15 @@
-#fn owner ((arg #u64)) #u64 (#return arg)
-#fn main () #u64
+#fn owner {
+  #params = ((arg #u64));
+  #returns = #u64;
+  #body = ( (#return arg)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner #u64 1u64)
     (#let reference (#ref-mut #u64) (#borrow-mut owner))
     (#return (#call owner ((arg owner))))
+  );
+}

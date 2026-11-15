@@ -1,4 +1,9 @@
 #enum Inner () (Inner.Ready)
 #enum Outer () ((Outer.Nested Inner) Outer.Stop)
-#fn main ((value Outer)) #u64
+#fn main {
+  #params = ((value Outer));
+  #returns = #u64;
+  #body = (
     (#return (#match value (#case (Outer.Nested Inner.Ready) false) (#case Outer.Stop 0u64)))
+  );
+}

@@ -12,5 +12,10 @@
 
 #generate aliases ((Byte #u8) (Word #u16))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return 42)
+  );
+}

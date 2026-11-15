@@ -1,16 +1,20 @@
 #fn
-    widen
-    ()
-    #u128
+    widen {
+  #params = ();
+  #returns = #u128;
+  #body = (
     (
       #return
       (#as 42 #u128)
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       value
@@ -21,3 +25,5 @@
       #return
       (#as value #u64)
     )
+  );
+}

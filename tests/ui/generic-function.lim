@@ -1,2 +1,7 @@
-#fn identity (T) ((value T)) T
+#fn identity {
+  #params = (T);
+  #returns = ((value T));
+  #body = ( T
     (#return value)
+  );
+}

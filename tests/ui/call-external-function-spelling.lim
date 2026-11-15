@@ -1,3 +1,12 @@
-#extern-fn #abi-c external-value () #u64
-#fn main () #u64
+#extern-fn  external-value {
+  #abi = #abi-c;
+  #params = ();
+  #returns = #u64;
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#unsafe (#call external-value ())))
+  );
+}

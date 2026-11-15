@@ -1,1 +1,6 @@
-#cfg-if (#cfg-is #platfrom linux) (#fn main () #u64 (#return 0u64))
+#cfg-if (#cfg-is #platfrom linux) (#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)
+  );
+})

@@ -2,23 +2,53 @@
 #struct Pair () ((left #u64) (right #u64))
 #struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))
 
-#fn read-value ((value (#ref SharedValue))) #u64
+#fn read-value {
+  #params = ((value (#ref SharedValue)));
+  #returns = #u64;
+  #body = (
     (#return (#get value value))
+  );
+}
 
-#fn scale ((value #f64)) #f64
+#fn scale {
+  #params = ((value #f64));
+  #returns = #f64;
+  #body = (
     (#return (#f64::mul value 2.0f64))
+  );
+}
 
-#fn noop () ()
+#fn noop {
+  #params = ();
+  #returns = ();
+  #body = (
     (#return ())
+  );
+}
 
-#fn add-pair ((pair Pair)) Pair
+#fn add-pair {
+  #params = ((pair Pair));
+  #returns = Pair;
+  #body = (
     (#return (#struct-literal Pair ((left (#u64::add-wrap (#get pair left) 1)) (right (#u64::add-wrap (#get pair right) 1)))))
+  );
+}
 
-#fn pass-large ((value Large)) Large
+#fn pass-large {
+  #params = ((value Large));
+  #returns = Large;
+  #body = (
     (#return value)
+  );
+}
 
-#fn sum-seven ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64)) #u64
+#fn sum-seven {
+  #params = ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64));
+  #returns = #u64;
+  #body = (
     (#return (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap a b) c) d) e) f) g))
+  );
+}
 
 #generate #thread-spawn ((task ReadValueTask) (worker read-value))
 #generate #thread-spawn ((task ScaleTask) (worker scale))
@@ -27,7 +57,10 @@
 #generate #thread-spawn ((task LargeTask) (worker pass-large))
 #generate #thread-spawn ((task SumSevenTask) (worker sum-seven))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut shared SharedValue (#struct-literal SharedValue ((value 42))))
     (#return
       (#match (#call ReadValueTask::spawn ((value (#borrow shared))))
@@ -36,3 +69,5 @@
             (#case (ReadValueTask::JoinResult.Ok result) result)
             (#case (ReadValueTask::JoinResult.Error (#tuple retry-task error-code)) (#panic))))
         (#case (ReadValueTask::SpawnResult.Error error) (#panic))))
+  );
+}

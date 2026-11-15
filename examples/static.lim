@@ -1,10 +1,13 @@
 #static buildId #u64 7
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (#u64::add-wrap  (#unsafe buildId) 35)
     )
+  );
+}

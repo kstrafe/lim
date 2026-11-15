@@ -1,20 +1,30 @@
 // References ending before an await do not require a stationary future.
 #struct Counter (#linear) ((value #u64))
 
-#fn increment ((target (#ref-mut #u64))) ()
+#fn increment {
+  #params = ((target (#ref-mut #u64)));
+  #returns = ();
+  #body = (
     (#deref-set target (#u64::add-wrap (#deref target) 1u64))
     (#return ())
+  );
+}
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
 #syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll)
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return
       (#match task
         (#case Step.Start
           (StepPoll.StepPending Step.Resume))
         (#case Step.Resume
           (StepPoll.StepReady 0u64))))
+  );
+}
 #generate
     #async-fn
     ((protocol WorkAwait) (waker #u64) (function
@@ -28,7 +38,10 @@
       (#forget counter)
       (#let extra #u64 (#await StepAwait Step.Start))
       (#return (#u64::add-wrap answer extra)))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
@@ -42,3 +55,5 @@
           (#block
             (#forget unexpected)
             (#unreachable)))))
+  );
+}

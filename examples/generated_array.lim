@@ -1,11 +1,19 @@
 #generate #array ((element #u64) (length 4) (name Array4))
 
-#fn widen ((index #usize)) ()
+#fn widen {
+  #params = ((index #usize));
+  #returns = ();
+  #body = (
     (#requires (#call #usize::lt ((left index) (right 2usize))))
     (#ensures (#call #usize::lt ((left index) (right 4usize))))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let values Array4 (#array-of 10 42 30 40))
     (#let index #usize 1usize)
     (#return
@@ -14,3 +22,5 @@
           (#call widen ((index index)))
           (#call Array4::get ((values (#borrow values)) (index index))))
         0u64))
+  );
+}

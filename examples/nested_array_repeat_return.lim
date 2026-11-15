@@ -1,5 +1,15 @@
-#fn values () (#array (#tuple #u64 #u64) 2)
+#fn values {
+  #params = ();
+  #returns = (#array (#tuple #u64 #u64) 2);
+  #body = (
     (#return (#array-repeat (#tuple 30 12)))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#get (#index (#call values ()) 1) 0))
+  );
+}

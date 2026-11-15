@@ -1,1 +1,6 @@
-#fn main () #u64 (#return (#call ./cycle-b.lim::cycle ()))
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call ./cycle-b.lim::cycle ()))
+  );
+}

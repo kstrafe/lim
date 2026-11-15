@@ -3,30 +3,50 @@
 //; This does not demonstrate a self-reference into the async frame itself.
 #struct Holder () ((link (#ref #u64)))
 
-#fn make-holder ((pointer (#ptr-mut Holder)) (source (#ref #u64))) (#pin-own Holder)
+#fn make-holder {
+  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)));
+  #returns = (#pin-own Holder);
+  #body = (
     (#return (#unsafe
       (#pin-own-of pointer (#struct-literal Holder ((link source))))))
+  );
+}
 
-#fn holder-source ((owner (#ref (#pin-own Holder)))) (#ref #u64)
+#fn holder-source {
+  #params = ((owner (#ref (#pin-own Holder))));
+  #returns = (#ref #u64);
+  #body = (
     (#let view (#pin-ref Holder) (#pin-own-borrow owner))
     (#return (#get view link))
+  );
+}
 
-#fn destroy-holder ((owner (#pin-own Holder))) ()
+#fn destroy-holder {
+  #params = ((owner (#pin-own Holder)));
+  #returns = ();
+  #body = (
     (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
     (#assert (#i64::eq
       (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
     (#return ())
+  );
+}
 
 #enum Step (#linear) ((Step.Waiting #u64))
 
 #enum StepPoll (#linear) ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
 
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task
       (#case (Step.Waiting count)
         (#if (#u64::eq count 0u64)
           (StepPoll.StepReady 0u64)
           (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap count 1u64)))))))
+  );
+}
 
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work ((pointer (#ptr-mut Holder)) (source (#ref #u64))) #u64
@@ -39,7 +59,10 @@
       (#call destroy-holder ((owner owner)))
       (#return answer))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut source #u64 42u64)
     (#let pointer (#ptr-mut Holder)
       (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
@@ -56,3 +79,5 @@
     (#return (#match third
       (#case (Work::Poll.Ready answer) answer)
       (#case (Work::Poll.Pending unfinished) (#block (#forget unfinished) (#unreachable)))))
+  );
+}

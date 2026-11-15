@@ -12,7 +12,10 @@
 #alias linux-read = ../library/linux_x86_64.lim::linux-read
 #alias linux-write = ../library/linux_x86_64.lim::linux-write
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let event-memory (#ptr-mut #u8)
       (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     (#let epoll-fd #i64
@@ -158,3 +161,5 @@
               (#if (#i64::ne invalid-pwait -22i64) 6u64
                 (#if (#i64::ne invalid-pwait2 -22i64) 7u64
                   (#if (#bool::and epoll-ok wait-variants-ok) 42u64 1u64))))))))
+  );
+}

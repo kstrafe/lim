@@ -1,4 +1,9 @@
 #enum Value () ((Value.Number #u64))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Value (Value.Number 1u64))
     (#return (#get-payload value MissingVariant 0))
+  );
+}

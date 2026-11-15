@@ -2,25 +2,40 @@
 #enum ConditionTask (#linear) ((ConditionTask.Check #u64) (ConditionTask.Recheck #u64))
 
 #enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool))
-#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
+#fn condition-poll {
+  #params = ((task ConditionTask) (waker (#ref #u64)));
+  #returns = ConditionPoll;
+  #body = (
     (#return (#match task
       (#case (ConditionTask.Check index) (ConditionPoll.ConditionPending (ConditionTask.Recheck index)))
       (#case (ConditionTask.Recheck index) (ConditionPoll.ConditionReady (#u64::lt index 2u64)))))
+  );
+}
 
 #struct StepState () ((position #u64) (body-ran #bool))
 #enum StepTask (#linear) ((StepTask.Start StepState) (StepTask.Resume StepState))
 
 #enum StepPoll () ((StepPoll.StepPending StepTask) (StepPoll.StepReady #u64))
-#fn step-poll ((task StepTask) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task StepTask) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task
       (#case (StepTask.Start state)
         (#block (#assert (#get state body-ran)) (StepPoll.StepPending (StepTask.Resume state))))
       (#case (StepTask.Resume state)
         (#block (#assert (#get state body-ran)) (StepPoll.StepReady (#u64::add-wrap (#get state position) 1u64))))))
+  );
+}
 
-#fn touch ((counter (#ref-mut #u64))) #u64
+#fn touch {
+  #params = ((counter (#ref-mut #u64)));
+  #returns = #u64;
+  #body = (
     (#deref-set counter (#u64::add-wrap (#deref counter) 1u64))
     (#return 1u64)
+  );
+}
 
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work () #u64
@@ -37,7 +52,10 @@
       (#assert (#u64::eq touches 1u64))
       (#return 42u64))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending condition-task) Work::Poll first (#unreachable))
@@ -49,3 +67,5 @@
     (#return (#match fourth
       (#case (Work::Poll.Ready value) value)
       (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+  );
+}

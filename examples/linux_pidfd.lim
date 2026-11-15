@@ -6,7 +6,10 @@
 #alias linux-pidfd-send-signal = ../library/linux_x86_64.lim::linux-pidfd-send-signal
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let pid #i64 (#call linux-getpid ()))
     (#let invalid-pid #i64
       (#call linux-pidfd-open ((pid 0i64) (flags 0u32))))
@@ -66,3 +69,5 @@
           (#if (#bool::and (#i64::eq first-write 1i64)
               (#i64::eq second-write 1i64)) 42u64 1u64))
         1u64))
+  );
+}

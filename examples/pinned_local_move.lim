@@ -5,7 +5,10 @@
 #struct Resource (#linear) ((number #u64))
 
 
-#fn choose-view ((input (#ref #u64)) (alternative (#ref #u64)) (first #bool)) View
+#fn choose-view {
+  #params = ((input (#ref #u64)) (alternative (#ref #u64)) (first #bool));
+  #returns = View;
+  #body = (
     (#return
       (#if first
         (#block
@@ -14,8 +17,13 @@
         (#block
           (#let-mut other View (#struct-literal View ((item alternative))))
           (#unsafe (#pin-read (#pin-borrow-mut other))))))
+  );
+}
 
-#fn replace-local () #u64
+#fn replace-local {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
     (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
     (#let first Resource (#unsafe (#pin-read target)))
@@ -26,8 +34,13 @@
     (#let result #u64 (#get second number))
     (#forget second)
     (#return result)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Owner (#struct-literal Owner ((number 40u64))))
     (#let parent (#ref-mut Owner) (#borrow-mut owner))
     (#let-mut holder View
@@ -48,3 +61,5 @@
     (#forget owner)
     (#assert (#u64::eq result (#call replace-local ())))
     (#return result)
+  );
+}

@@ -12,7 +12,10 @@
 #alias linux-sysinfo = ../library/linux_x86_64.lim::linux-sysinfo
 #alias linux-tgkill = ../library/linux_x86_64.lim::linux-tgkill
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let pid #i64 (#call linux-getpid ()))
     (#let tid #i64 (#call linux-gettid ()))
     (#let max-fifo-priority #i64
@@ -91,3 +94,5 @@
     (#return
       (#if (#bool::and process-queries-ok
           (#bool::and resource-queries-ok scheduler-queries-ok)) 42u64 1u64))
+  );
+}

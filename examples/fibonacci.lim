@@ -1,4 +1,7 @@
-#fn fib ((n #u64)) #u64
+#fn fib {
+  #params = ((n #u64));
+  #returns = #u64;
+  #body = (
     (#let-mut a #u64 0)
     (#let-mut b #u64 1)
     (#let-mut i #u64 0)
@@ -9,5 +12,12 @@
       (#set b next)
       (#set i (#u64::add-wrap (#clone i) 1)))
     (#return a)
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call fib ((n 10))))
+  );
+}

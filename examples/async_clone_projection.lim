@@ -3,18 +3,28 @@
 #struct Holder (#linear) ((reference (#ref #u64)))
 
 #struct Envelope () ((item Holder))
-#fn make-envelope ((reference (#ref #u64))) Envelope
+#fn make-envelope {
+  #params = ((reference (#ref #u64)));
+  #returns = Envelope;
+  #body = (
     (#return (#struct-literal Envelope ((item (#struct-literal Holder ((reference reference)))))))
+  );
+}
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ()))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return
       (#match task
         (#case Step.Start
           (StepPoll.Pending Step.Resume))
         (#case Step.Resume
           (StepPoll.Ready ()))))
+  );
+}
 #generate
     #async-fn
     ((protocol WorkAwait) (waker #u64) (function
@@ -25,7 +35,10 @@
       (#let result #u64 (#deref (#get holder reference)))
       (#forget holder)
       (#return result))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let owner #u64 42u64)
     (#let waker #u64 0u64)
     (#let
@@ -42,3 +55,5 @@
           (#block
             (#forget unexpected)
             (#unreachable)))))
+  );
+}

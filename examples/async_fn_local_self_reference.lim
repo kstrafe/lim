@@ -2,12 +2,17 @@
 #enum LocalChild (#linear) ((LocalChild.Waiting #u64))
 
 #enum LocalChildPoll () ((LocalChildPoll.LocalChildPending LocalChild) (LocalChildPoll.LocalChildReady #u64))
-#fn local-child-poll ((task LocalChild) (waker (#ref #u64))) LocalChildPoll
+#fn local-child-poll {
+  #params = ((task LocalChild) (waker (#ref #u64)));
+  #returns = LocalChildPoll;
+  #body = (
     (#return (#match task
       (#case (LocalChild.Waiting count)
         (#if (#u64::eq count 0u64)
           (LocalChildPoll.LocalChildPending (LocalChild.Waiting 1u64))
           (LocalChildPoll.LocalChildReady 2u64)))))
+  );
+}
 #struct LocalPayload () ((left #u64) (right #u64))
 #struct LocalOwner () ((payload LocalPayload))
 
@@ -22,7 +27,10 @@
         (#await LocalChild LocalChildPoll.LocalChildPending LocalChildPoll.LocalChildReady local-child-poll (LocalChild.Waiting 0u64)))
       (#return (#u64::add-wrap (#deref view) result)))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut frame Local-self-ref::Frame (#call local-self-ref ((seed 40u64))))
     (#let waker #u64 0u64)
     (#let first Local-self-ref::Poll
@@ -39,3 +47,5 @@
     (#forget frame)
     (#forget waker)
     (#return result)
+  );
+}

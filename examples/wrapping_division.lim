@@ -1,4 +1,7 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return
       (#if
         (#i64::eq
@@ -9,3 +12,5 @@
           42
           0)
         0))
+  );
+}

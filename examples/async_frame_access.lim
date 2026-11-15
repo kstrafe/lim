@@ -7,7 +7,10 @@
     (access ((amount AmountAccess)))
     (function (#fn work ((amount #u64)) #u64
       (#return amount))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work ((amount 40u64))))
     (#let
@@ -25,3 +28,5 @@
     (#let restored #u64 (#call AmountAccess::read ((task (#pin-borrow frame)))))
     (#forget frame)
     (#return restored)
+  );
+}

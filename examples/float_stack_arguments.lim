@@ -1,9 +1,17 @@
-#fn ninth
-    ((first #f64) (second #f64) (third #f64) (fourth #f64)
-     (fifth #f64) (sixth #f64) (seventh #f64) (eighth #f64) (ninth #f64))
-    #u64
+#fn ninth {
+  #params = ((first #f64) (second #f64) (third #f64) (fourth #f64)
+     (fifth #f64) (sixth #f64) (seventh #f64) (eighth #f64) (ninth #f64));
+  #returns = #u64;
+  #body = (
     (#return (#as ninth #u64))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return
       (#call ninth ((first 1.0f64) (second 2.0f64) (third 3.0f64) (fourth 4.0f64) (fifth 5.0f64) (sixth 6.0f64) (seventh 7.0f64) (eighth 8.0f64) (ninth 9.0f64))))
+  );
+}

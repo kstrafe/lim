@@ -5,7 +5,10 @@
 #struct View (#linear) ((item (#ref-mut #u64)))
 
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Owner (#struct-literal Owner ((number 1u64))))
     (#let parent (#ref-mut Owner) (#borrow-mut owner))
     (#let-mut view View
@@ -20,3 +23,5 @@
     (#let result #u64 (#get owner number))
     (#forget owner)
     (#return result)
+  );
+}

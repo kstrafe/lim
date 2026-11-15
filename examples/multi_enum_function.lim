@@ -8,9 +8,10 @@
     )
 
 #fn
-    make
-    ()
-    Pair
+    make {
+  #params = ();
+  #returns = Pair;
+  #body = (
     (
       #let
       value
@@ -18,13 +19,16 @@
       (#enum-literal Pair.Value (#struct-literal PairValues ((left 20u64) (right 22u64))))
     )
     (#return value)
+  );
+}
 
 #fn
-    sum
-    (
+    sum {
+  #params = (
       (value Pair)
-    )
-    #u64
+    );
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -37,12 +41,17 @@
         (#case Pair.Empty 0u64)
       )
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (#call sum ((value (#call make ()))))
     )
+  );
+}

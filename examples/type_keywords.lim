@@ -1,6 +1,11 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let number #u64 40)
     (#return
       (#u64::add-wrap
         (#get (#tuple (#tuple #u64 #u64) number 2) 0)
         2))
+  );
+}

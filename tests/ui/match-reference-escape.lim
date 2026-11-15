@@ -1,5 +1,10 @@
 #enum Holder () ((Holder.Has (#ref #u64)))
-#fn escape () (#ref #u64)
+#fn escape {
+  #params = ();
+  #returns = (#ref #u64);
+  #body = (
     (#let owner #u64 7u64)
     (#let holder Holder (Holder.Has (#borrow owner)))
     (#return (#match holder (#case (Holder.Has view) view)))
+  );
+}

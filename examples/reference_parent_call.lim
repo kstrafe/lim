@@ -2,14 +2,27 @@
 #struct Owner () ((value #u64))
 #struct View () ((child (#ref-mut #u64)))
 
-#fn increment ((target (#ref-mut #u64))) #u64
+#fn increment {
+  #params = ((target (#ref-mut #u64)));
+  #returns = #u64;
+  #body = (
     (#deref-set target (#u64::add-wrap (#deref target) 1u64))
     (#return (#deref target))
+  );
+}
 
-#fn observe ((target (#ref-mut Owner))) #u64
+#fn observe {
+  #params = ((target (#ref-mut Owner)));
+  #returns = #u64;
+  #body = (
     (#return (#get target value))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Owner (#struct-literal Owner ((value 41u64))))
     (#let parent (#ref-mut Owner) (#borrow-mut owner))
     (#let view View
@@ -20,3 +33,5 @@
     (#drop parent)
     (#forget owner)
     (#return answer)
+  );
+}

@@ -1,7 +1,8 @@
 #fn
-    main
-    ()
-    #u32
+    main {
+  #params = ();
+  #returns = #u32;
+  #body = (
     (
       #return
       (#u32::bit-and
@@ -9,3 +10,5 @@
         42
       )
     )
+  );
+}

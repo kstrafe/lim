@@ -4,8 +4,13 @@
 // A separately compiled white-box test belongs to the same library.
 
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let counter Counter (#struct-literal Counter ((value 42u64))))
     (#let answer #u64 (#get counter value))
     (#call counter-destroy ((counter counter)))
     (#return answer)
+  );
+}

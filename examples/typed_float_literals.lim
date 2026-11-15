@@ -1,9 +1,14 @@
 #const sCALE #f32 1.5f32
 #const oFFSET #f64 0.25f64
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#if (#bool::and
                     (#f32::eq sCALE 1.5f32)
                     (#f64::eq oFFSET 0.25f64))
                  42
                  0))
+  );
+}

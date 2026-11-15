@@ -4,7 +4,10 @@
 #enum Envelope ()
     ((Envelope.Values (#array #u64 7)) Envelope.Empty)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut tuple (#tuple #u64 (#array #u64 7))
       (#tuple (#tuple #u64 (#array #u64 7))
         1u64
@@ -23,3 +26,5 @@
       (#u64::add-wrap
         (#index (#get tuple 1) 6u64)
         (#index (#get structure payload) 6u64)))
+  );
+}

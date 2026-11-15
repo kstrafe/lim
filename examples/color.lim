@@ -3,9 +3,10 @@
     (Color.Red Color.Green Color.Blue)
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -16,3 +17,5 @@
         (#case _ 30)
       )
     )
+  );
+}

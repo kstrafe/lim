@@ -1,5 +1,10 @@
 #struct Point () ((x #u64))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value #u64 1u64)
     (#let (Point x) Point value)
     (#return 0u64)
+  );
+}

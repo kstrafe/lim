@@ -1,9 +1,22 @@
 #struct Owner () ((value #u64))
-#fn child-of ((owner (#ref-mut Owner))) (#ref-mut #u64)
+#fn child-of {
+  #params = ((owner (#ref-mut Owner)));
+  #returns = (#ref-mut #u64);
+  #body = (
     (#return (#borrow-mut (#get owner value)))
-#fn overwrite ((owner (#ref-mut Owner))) ()
+  );
+}
+#fn overwrite {
+  #params = ((owner (#ref-mut Owner)));
+  #returns = ();
+  #body = (
     (#deref-set owner (#struct-literal Owner ((value 99u64)))) (#return ())
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Owner (#struct-literal Owner ((value 42u64))))
     (#let parent (#ref-mut Owner) (#borrow-mut owner))
     (#let child (#ref-mut #u64) (#call child-of ((owner parent))))
@@ -13,3 +26,5 @@
     (#drop parent)
     (#forget owner)
     (#return answer)
+  );
+}

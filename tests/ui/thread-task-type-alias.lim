@@ -1,4 +1,14 @@
-#fn worker ((value #u64)) #u64 (#return value)
+#fn worker {
+  #params = ((value #u64));
+  #returns = #u64;
+  #body = ( (#return value)
+  );
+}
 #generate #thread-spawn ((task Task) (worker worker))
 #type TaskAlias Task
-#fn main () #u64 (#return 0u64)
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)
+  );
+}

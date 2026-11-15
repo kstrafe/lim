@@ -38,7 +38,10 @@
     ((AioOwnedCancel.AioOwnedCancelFinished AioOwnedCompleted)
      (AioOwnedCancel.AioOwnedCancelFailed (#tuple AioOwnedPending #i64)))
 
-#fn aio-owned-context-create () AioOwnedContextCreate
+#fn aio-owned-context-create {
+  #params = ();
+  #returns = AioOwnedContextCreate;
+  #body = (
     (#let-mut id #usize 0usize)
     (#let result #i64
       (#unsafe (#unsafe-call linux-io-setup ((capacity 8u32) (context (#addr-of-mut id))))))
@@ -47,18 +50,26 @@
         (#struct-literal AioOwnedContext
           ((id id) (local-marker (#ptr-null (#ptr #u8))))))
       (AioOwnedContextCreate.AioOwnedContextCreateFailed result)))
+  );
+}
 
-#fn aio-owned-context-destroy ((context AioOwnedContext)) #i64
+#fn aio-owned-context-destroy {
+  #params = ((context AioOwnedContext));
+  #returns = #i64;
+  #body = (
     (#let (AioOwnedContext id local-marker) AioOwnedContext context)
     (#forget local-marker)
     (#return (#unsafe (#unsafe-call linux-io-destroy ((context id)))))
+  );
+}
 
 //; The request and its read buffer share a private mapping:
 //; iocb at 0, pointer list at 64, io_event at 128, read bytes at 256.
 //; The kernel may access this mapping until a completion is reaped.
-#fn aio-owned-read-submit
-    ((context (#ref AioOwnedContext)) (fd #i64) (length #usize) (offset #i64))
-    AioOwnedSubmit
+#fn aio-owned-read-submit {
+  #params = ((context (#ref AioOwnedContext)) (fd #i64) (length #usize) (offset #i64));
+  #returns = AioOwnedSubmit;
+  #body = (
     (#return (#if (#bool::or (#usize::eq length 0usize) (#usize::gt length 512usize))
       (AioOwnedSubmit.AioOwnedSubmitFailed -22i64)
       (#block
@@ -90,12 +101,16 @@
                 (#unsafe (#unsafe-call linux-munmap
                   ((address memory) (length 4096usize))))
                 (AioOwnedSubmit.AioOwnedSubmitFailed submitted))))))))
+  );
+}
 
 //; IOCB_CMD_POLL provides a cancellable operation for which the kernel retains
 //; the iocb mapping while waiting for readiness. Its completion result is the
 //; returned poll mask, or zero for an acknowledged cancellation.
-#fn aio-owned-poll-submit
-    ((context (#ref AioOwnedContext)) (fd #i64) (events #u16)) AioOwnedSubmit
+#fn aio-owned-poll-submit {
+  #params = ((context (#ref AioOwnedContext)) (fd #i64) (events #u16));
+  #returns = AioOwnedSubmit;
+  #body = (
     (#let memory (#ptr-mut #u8)
       (#unsafe (#unsafe-call linux-mmap
         ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)
@@ -121,12 +136,17 @@
             (#unsafe (#unsafe-call linux-munmap
               ((address memory) (length 4096usize))))
             (AioOwnedSubmit.AioOwnedSubmitFailed submitted))))))
+  );
+}
 
 //; Wait for this request. The kernel may return a different request first;
 //; aio_data points at that request's still-owned event slot, so route its full
 //; event there and continue waiting. A later wait observes the saved event and
 //; does not issue another kernel wait for it.
-#fn aio-owned-wait ((operation AioOwnedPending)) AioOwnedWait
+#fn aio-owned-wait {
+  #params = ((operation AioOwnedPending));
+  #returns = AioOwnedWait;
+  #body = (
     (#let (AioOwnedPending context memory length) AioOwnedPending operation)
     (#let events (#ptr-mut #u8) (#unsafe (#ptr-offset memory 128usize)))
     (#let expected-data #u64 (#as (#ptr-address events) #u64))
@@ -168,10 +188,15 @@
       (AioOwnedWait.AioOwnedFinished
         (#struct-literal AioOwnedCompleted
           ((context context) (memory memory) (length length) (result result))))))
+  );
+}
 
 //; On accepted asynchronous cancellation, keep the iocb and read mapping until
 //; its completion event arrives. Any failure returns the still-owned request.
-#fn aio-owned-cancel-wait ((operation AioOwnedPending)) AioOwnedCancel
+#fn aio-owned-cancel-wait {
+  #params = ((operation AioOwnedPending));
+  #returns = AioOwnedCancel;
+  #body = (
     (#let (AioOwnedPending context memory length) AioOwnedPending operation)
     (#let request (#ptr-mut #u8) memory)
     (#let events (#ptr-mut #u8) (#unsafe (#ptr-offset memory 128usize)))
@@ -193,20 +218,34 @@
           (#tuple (#tuple AioOwnedPending #i64)
             (#struct-literal AioOwnedPending
               ((context context) (memory memory) (length length))) cancelled)))))
+  );
+}
 
-#fn aio-owned-completed-byte
-    ((operation (#ref AioOwnedCompleted)) (index #usize)) #u8
+#fn aio-owned-completed-byte {
+  #params = ((operation (#ref AioOwnedCompleted)) (index #usize));
+  #returns = #u8;
+  #body = (
     (#assert (#i64::ge (#get operation result) 0i64))
     (#assert (#usize::lt index (#as (#get operation result) #usize)))
     (#assert (#usize::lt index (#get operation length)))
     (#let memory (#ptr-mut #u8) (#get operation memory))
     (#let buffer (#ptr-mut #u8) (#unsafe (#ptr-offset memory 256usize)))
     (#return (#unsafe (#ptr-read (#ptr-offset buffer index))))
+  );
+}
 
-#fn aio-owned-completed-result ((operation (#ref AioOwnedCompleted))) #i64
+#fn aio-owned-completed-result {
+  #params = ((operation (#ref AioOwnedCompleted)));
+  #returns = #i64;
+  #body = (
     (#return (#get operation result))
+  );
+}
 
-#fn aio-owned-completed-destroy ((operation AioOwnedCompleted)) #i64
+#fn aio-owned-completed-destroy {
+  #params = ((operation AioOwnedCompleted));
+  #returns = #i64;
+  #body = (
     (#let (AioOwnedCompleted context memory length result)
       AioOwnedCompleted operation)
     (#drop context)
@@ -214,3 +253,5 @@
     (#forget result)
     (#return (#unsafe (#unsafe-call linux-munmap
       ((address memory) (length 4096usize)))))
+  );
+}

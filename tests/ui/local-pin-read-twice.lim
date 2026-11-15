@@ -1,6 +1,9 @@
 #struct Resource (#linear) ((number #u64))
 
-#fn main () ()
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
     (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
     (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
     (#let first Resource (#unsafe (#pin-read target)))
@@ -9,3 +12,5 @@
     (#forget second)
     (#drop target)
     (#return ())
+  );
+}

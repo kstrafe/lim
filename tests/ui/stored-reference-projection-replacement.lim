@@ -1,10 +1,20 @@
 #struct Holder () ((view (#pin-ref (#tuple #u64 #u64))))
-#fn project ((holder (#pin-ref Holder))) (#pin-ref #u64)
+#fn project {
+  #params = ((holder (#pin-ref Holder)));
+  #returns = (#pin-ref #u64);
+  #body = (
     (#return (#pin-borrow (#get (#get holder view) 1)))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut values (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 40u64 42u64))
     (#let holder Holder (#struct-literal Holder ((view (#pin-borrow values)))))
     (#let selected (#pin-ref #u64) (#call project ((holder (#pin-borrow holder)))))
     (#forget holder)
     (#set values (#tuple (#tuple #u64 #u64) 99u64 100u64))
     (#return (#deref selected))
+  );
+}

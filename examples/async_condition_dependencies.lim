@@ -3,26 +3,41 @@
 #enum ConditionTask (#linear) ((ConditionTask.Check #u64) (ConditionTask.Recheck #u64))
 
 #enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool))
-#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
+#fn condition-poll {
+  #params = ((task ConditionTask) (waker (#ref #u64)));
+  #returns = ConditionPoll;
+  #body = (
     (#return (#match task
       (#case (ConditionTask.Check index) (ConditionPoll.ConditionPending (ConditionTask.Recheck index)))
       (#case (ConditionTask.Recheck index) (ConditionPoll.ConditionReady (#u64::lt index 2u64)))))
+  );
+}
 
 #enum Factory (#linear) ((Factory.MakeCondition #u64) (Factory.ResumeCondition #u64))
 
 #enum FactoryPoll () ((FactoryPoll.FactoryPending Factory) (FactoryPoll.FactoryReady ConditionTask))
-#fn factory-poll ((task Factory) (waker (#ref #u64))) FactoryPoll
+#fn factory-poll {
+  #params = ((task Factory) (waker (#ref #u64)));
+  #returns = FactoryPoll;
+  #body = (
     (#return (#match task
       (#case (Factory.MakeCondition index) (FactoryPoll.FactoryPending (Factory.ResumeCondition index)))
       (#case (Factory.ResumeCondition index) (FactoryPoll.FactoryReady (ConditionTask.Check index)))))
+  );
+}
 
 #enum BodyTask (#linear) ((BodyTask.Start #u64) (BodyTask.Resume #u64))
 
 #enum BodyPoll () ((BodyPoll.BodyPending BodyTask) (BodyPoll.BodyReady #u64))
-#fn body-poll ((task BodyTask) (waker (#ref #u64))) BodyPoll
+#fn body-poll {
+  #params = ((task BodyTask) (waker (#ref #u64)));
+  #returns = BodyPoll;
+  #body = (
     (#return (#match task
       (#case (BodyTask.Start value) (BodyPoll.BodyPending (BodyTask.Resume value)))
       (#case (BodyTask.Resume value) (BodyPoll.BodyReady value))))
+  );
+}
 
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work () #u64
@@ -39,7 +54,10 @@
         (#set total (#u64::add-wrap total value)))
       (#return total))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let-mut task Work::Task (#call work ()))
     (#for-range (attempt #u64) 0u64 10u64
@@ -49,3 +67,5 @@
         (#case (Work::Poll.Ready result) (#block (#return result)))))
     (#forget task)
     (#return 0u64)
+  );
+}

@@ -1,12 +1,20 @@
-#fn claim ((state (#ref (#atomic #u64)))) #u64
+#fn claim {
+  #params = ((state (#ref (#atomic #u64))));
+  #returns = #u64;
+  #body = (
     (#let (#tuple won observed) (#tuple #bool #u64)
       (#atomic-compare-exchange state 0u64 42u64 #memory-acq-rel #memory-acquire))
     (#return (#if won 1u64 0u64))
+  );
+}
 
 #generate #thread-spawn ((task FirstClaim) (worker claim))
 #generate #thread-spawn ((task SecondClaim) (worker claim))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut state (#atomic #u64) (#atomic-init #u64 0u64))
     (#let winners #u64
       (#match (#call FirstClaim::spawn ((state (#borrow state))))
@@ -32,3 +40,5 @@
     (#let value #u64 (#atomic-load (#borrow state) #memory-acquire))
     (#forget state)
     (#return value)
+  );
+}

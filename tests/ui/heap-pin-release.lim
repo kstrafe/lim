@@ -1,4 +1,7 @@
-#fn main () ()
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
     (#let owner (#pin-own #u64)
       (#unsafe (#pin-own-of (#ptr-null (#ptr-mut #u64)) 42u64)))
     (#let view (#pin-ref #u64) (#pin-own-borrow owner))
@@ -6,3 +9,5 @@
     (#forget pointer)
     (#forget view)
     (#return ())
+  );
+}

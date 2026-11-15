@@ -1,2 +1,7 @@
 #alias fail = ./generator-imported/module.lim::fail
-#fn main () #u64 (#return 0u64)
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)
+  );
+}

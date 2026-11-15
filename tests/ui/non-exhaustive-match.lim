@@ -1,4 +1,9 @@
 #enum State () (State.Ready State.Done)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value State State.Ready)
     (#return (#match value (#case State.Ready 1u64)))
+  );
+}

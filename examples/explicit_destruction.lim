@@ -6,29 +6,52 @@
 #struct Bundle () ((left Resource) (right Resource))
 #struct Counter () ((total CellU64))
 
-#fn Resource::destroy ((counter (#ref Counter)) (value Resource)) ()
+#fn Resource::destroy {
+  #params = ((counter (#ref Counter)) (value Resource));
+  #returns = ();
+  #body = (
     (#let (Resource owned) Resource value)
     (#let cell (#ref CellU64) (#borrow (#get counter total)))
     (#call CellU64::set ((cell (#clone cell)) (value (#u64::add-wrap (#call CellU64::get ((cell cell))) 1u64))))
     (#forget owned)
     (#return ())
+  );
+}
 
-#fn Bundle::destroy ((counter (#ref Counter)) (value Bundle)) ()
+#fn Bundle::destroy {
+  #params = ((counter (#ref Counter)) (value Bundle));
+  #returns = ();
+  #body = (
     (#let (Bundle left right) Bundle value)
     (#call Resource::destroy ((counter (#clone counter)) (value left)))
     (#call Resource::destroy ((counter (#clone counter)) (value right)))
     (#return ())
+  );
+}
 
-#fn make-bundle () Bundle
+#fn make-bundle {
+  #params = ();
+  #returns = Bundle;
+  #body = (
     (#return
       (#struct-literal Bundle
         ((left (#struct-literal Resource ((owned 0u64))))
          (right (#struct-literal Resource ((owned 0u64)))))))
+  );
+}
 
-#fn pass-through ((value Bundle)) Bundle
+#fn pass-through {
+  #params = ((value Bundle));
+  #returns = Bundle;
+  #body = (
     (#return value)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut counter Counter (#struct-literal Counter ((total
       (#call CellU64::create ((value 0u64)))))))
     (#let bundle Bundle (#call make-bundle ()))
@@ -39,3 +62,5 @@
     (#drop counter-ref)
     (#forget counter)
     (#return destroyed)
+  );
+}

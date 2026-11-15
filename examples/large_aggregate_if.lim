@@ -6,7 +6,10 @@
     (fifth #u64) (sixth #u64) (seventh #u64))
 #enum LargePayload () ((LargePayload.Big BigValues) LargePayload.Empty)
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let tuple-value (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
       (#if true
         (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
@@ -28,3 +31,5 @@
         (#match enum-value
           (#case (LargePayload.Big values) (#get values seventh))
           (#case LargePayload.Empty 0u64))))
+  );
+}

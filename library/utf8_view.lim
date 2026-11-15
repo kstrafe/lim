@@ -7,16 +7,36 @@
 // distinct: String uses packed allocation bytes; (#slice #u8) is word-backed.
 // Shared String/slice borrows make safe source mutation impossible while live.
 
-#fn Utf8Source::string-len ((owner (#ref String))) #usize
+#fn Utf8Source::string-len {
+  #params = ((owner (#ref String)));
+  #returns = #usize;
+  #body = (
     (#return (#call String::len ((string owner))))
-#fn Utf8Source::string-byte ((owner (#ref String)) (index #usize)) #u8
+  );
+}
+#fn Utf8Source::string-byte {
+  #params = ((owner (#ref String)) (index #usize));
+  #returns = #u8;
+  #body = (
     (#return (#match (#call String::byte-at ((string owner) (index index)))
       (#case (StringByteResult.StringByte byte) byte)
       (#case StringByteResult.StringByteOutOfBounds (#panic))))
-#fn Utf8Source::slice-len ((owner (#slice #u8))) #usize
+  );
+}
+#fn Utf8Source::slice-len {
+  #params = ((owner (#slice #u8)));
+  #returns = #usize;
+  #body = (
     (#return (#slice-len owner))
-#fn Utf8Source::slice-byte ((owner (#slice #u8)) (index #usize)) #u8
+  );
+}
+#fn Utf8Source::slice-byte {
+  #params = ((owner (#slice #u8)) (index #usize));
+  #returns = #u8;
+  #body = (
     (#return (#deref (#slice-idx owner index)))
+  );
+}
 #enum Utf8ByteResult () ((Utf8ByteResult.Utf8Byte #u8) Utf8ByteResult.Utf8ByteOutOfBounds)
 
 // Pipeline.Only these immutable, borrow-checked sources are supported. Arbitrary reader
@@ -145,5 +165,10 @@
 #generate #utf8-view ((name StringView) (owner (#ref String)))
 #generate #utf8-view ((name Utf8Slice) (owner (#slice #u8)))
 // String already guarantees UTF-8, so borrowing its complete contents is O(1).
-#fn String::view ((string (#ref String))) StringView
+#fn String::view {
+  #params = ((string (#ref String)));
+  #returns = StringView;
+  #body = (
     (#return (#unsafe (#unsafe-call StringView::assume-valid ((owner string)))))
+  );
+}

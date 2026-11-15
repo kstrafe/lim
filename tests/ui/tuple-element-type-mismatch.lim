@@ -1,2 +1,7 @@
-#fn main () (#tuple #u64 #bool)
+#fn main {
+  #params = ();
+  #returns = (#tuple #u64 #bool);
+  #body = (
     (#return (#tuple 1u64 2u64))
+  );
+}

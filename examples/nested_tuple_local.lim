@@ -1,4 +1,9 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value (#tuple (#tuple #u64 #u64) #u64)
       (#tuple (#tuple (#tuple #u64 #u64) 10 20) 32))
     (#return (#get value 1))
+  );
+}

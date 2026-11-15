@@ -1,3 +1,13 @@
-#fn trace () (#slice #char)
+#fn trace {
+  #params = ();
+  #returns = (#slice #char);
+  #body = (
     (#return (#call-graph))
-#fn main () #u64 (#return 42u64)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)
+  );
+}

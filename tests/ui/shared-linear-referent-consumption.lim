@@ -1,5 +1,10 @@
 #struct Resource (#linear) ((number #u64))
 
-#fn inspect ((reference (#ref Resource))) ()
+#fn inspect {
+  #params = ((reference (#ref Resource)));
+  #returns = ();
+  #body = (
     (#forget (#deref reference))
     (#return ())
+  );
+}

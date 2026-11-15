@@ -5,15 +5,28 @@
 #struct CellState () ((prefix #u64) (counter CellU64))
 #static origin Point (#struct-literal Point ((x 19) (y 23)))
 
-#fn origin-y () #u64
+#fn origin-y {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let origin-ref (#ref Point) (#unsafe (#borrow origin)))
     (#let y-ref (#ref #u64) (#borrow (#get origin-ref y)))
     (#return (#deref y-ref))
+  );
+}
 
-#fn point-y ((point (#ref Point))) #u64
+#fn point-y {
+  #params = ((point (#ref Point)));
+  #returns = #u64;
+  #body = (
     (#return (#get point y))
+  );
+}
 
-#fn mutate-cell-through-reference () #u64
+#fn mutate-cell-through-reference {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut state CellState (#struct-literal CellState ((prefix 5) (counter
       (#call CellU64::create ((value 1u64)))))))
     (#let state-ref (#ref CellState) (#borrow state))
@@ -23,8 +36,13 @@
     (#drop state-ref)
     (#forget state)
     (#return result)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
     (#let original-y #u64 (#call point-y ((point (#borrow point)))))
     (#let point-ref (#ref-mut Point) (#borrow-mut point))
@@ -33,3 +51,5 @@
     (#return (#u64::add-wrap
       (#u64::add-wrap (#u64::add-wrap (#deref y-ref) original-y) (#call origin-y ()))
       (#call mutate-cell-through-reference ())))
+  );
+}

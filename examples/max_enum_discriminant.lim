@@ -1,4 +1,9 @@
 #enum Code () ((Code.Maximum 18446744073709551615))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#if (#u64::eq (#as Code.Maximum #u64) 18446744073709551615) 42 0))
+  );
+}

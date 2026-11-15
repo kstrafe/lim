@@ -1,22 +1,42 @@
 // Oversized enum values use the native ABI's indirect return storage.
 #enum LargeChoice () ((LargeChoice.Values (#array #u64 8)) (LargeChoice.Empty))
 
-#fn make-large-choice () LargeChoice
+#fn make-large-choice {
+  #params = ();
+  #returns = LargeChoice;
+  #body = (
     (#return (LargeChoice.Values
       (#array-of (#array #u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 42u64)))
+  );
+}
 
-#fn read-large-choice ((choice LargeChoice)) #u64
+#fn read-large-choice {
+  #params = ((choice LargeChoice));
+  #returns = #u64;
+  #body = (
     (#return (#match choice
       (#case (LargeChoice.Values values) (#index values 7usize))
       (#case LargeChoice.Empty 0u64)))
+  );
+}
 
-#fn bounce-large-choice ((choice LargeChoice)) LargeChoice
+#fn bounce-large-choice {
+  #params = ((choice LargeChoice));
+  #returns = LargeChoice;
+  #body = (
     (#return (#match choice
       (#case (LargeChoice.Values values) (LargeChoice.Values values))
       (#case LargeChoice.Empty LargeChoice.Empty)))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let result LargeChoice
       (#call bounce-large-choice
         ((choice (#call make-large-choice ())))))
     (#return (#call read-large-choice ((choice result))))
+  );
+}

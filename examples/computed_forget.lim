@@ -6,17 +6,27 @@
 #enum Envelope (#linear) ((Envelope.Wrapped Holder))
 
 
-#fn release ((owner Envelope)) ()
+#fn release {
+  #params = ((owner Envelope));
+  #returns = ();
+  #body = (
     (#forget
       (#block
         (#match owner
           (#case (Envelope.Wrapped held) held))))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut resource Resource (#struct-literal Resource ((value 42u64))))
     (#call release
       ((owner (Envelope.Wrapped (#struct-literal Holder ((view (#borrow-mut resource))))))))
     (#let answer #u64 (#get resource value))
     (#forget resource)
     (#return answer)
+  );
+}

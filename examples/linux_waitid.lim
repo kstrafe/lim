@@ -13,7 +13,10 @@
 
 // SAFETY: run only in the isolated, single-threaded fork child; this routine
 // changes process-group state and exits without returning to its caller.
-#unsafe-fn child-work ((iteration #u32)) ()
+#unsafe-fn child-work {
+  #params = ((iteration #u32));
+  #returns = ();
+  #body = (
     (#let pid #i64 (#call linux-getpid ()))
     (#if (#u32::eq iteration 0u32)
       (#block
@@ -27,8 +30,13 @@
         (#assert (#i64::eq (#call linux-getpgid ((pid 0i64))) pid))
         (#call linux-exit-group ((status 38i32)))))
     (#return (#unreachable))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let info (#ptr-mut #u8)
       (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     (#let usage (#ptr-mut #i64)
@@ -59,3 +67,5 @@
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
     (#return 42u64)
+  );
+}

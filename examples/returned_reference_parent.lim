@@ -2,17 +2,35 @@
 #struct Owner (#linear) ((value #u64))
 
 
-#fn child-of ((owner (#ref-mut Owner))) (#ref-mut #u64)
+#fn child-of {
+  #params = ((owner (#ref-mut Owner)));
+  #returns = (#ref-mut #u64);
+  #body = (
     (#return (#borrow-mut (#get owner value)))
+  );
+}
 
-#fn view-of ((owner (#ref-mut Owner))) (#ref #u64)
+#fn view-of {
+  #params = ((owner (#ref-mut Owner)));
+  #returns = (#ref #u64);
+  #body = (
     (#return (#borrow (#get owner value)))
+  );
+}
 
-#fn increment ((target (#ref-mut #u64))) #u64
+#fn increment {
+  #params = ((target (#ref-mut #u64)));
+  #returns = #u64;
+  #body = (
     (#deref-set target (#u64::add-wrap (#deref target) 1u64))
     (#return (#deref target))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Owner (#struct-literal Owner ((value 41u64))))
     (#let parent (#ref-mut Owner) (#borrow-mut owner))
     // Transparent argument expressions retain the same parent permissions.
@@ -32,3 +50,5 @@
     (#drop child)
     (#forget owner)
     (#return answer)
+  );
+}

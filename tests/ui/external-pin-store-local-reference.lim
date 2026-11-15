@@ -1,7 +1,12 @@
 #struct Holder () ((view (#ref #u64)))
-#fn bad ((target (#pin-ref-mut Holder))) ()
+#fn bad {
+  #params = ((target (#pin-ref-mut Holder)));
+  #returns = ();
+  #body = (
     (#let local #u64 7u64)
     (#let temporary Holder (#struct-literal Holder ((view (#borrow local)))))
     (#unsafe (#pin-write target temporary))
     (#forget temporary)
     (#return ())
+  );
+}

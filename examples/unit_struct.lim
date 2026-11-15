@@ -1,11 +1,26 @@
 #struct Marker () ()
 
-#fn make () Marker
+#fn make {
+  #params = ();
+  #returns = Marker;
+  #body = (
     (#return (#struct-literal Marker ()))
+  );
+}
 
-#fn consume ((marker Marker)) #u64
+#fn consume {
+  #params = ((marker Marker));
+  #returns = #u64;
+  #body = (
     (#return 41)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let marker Marker (#call make ()))
     (#return (#call consume ((marker marker))))
+  );
+}

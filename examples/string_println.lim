@@ -8,9 +8,10 @@
 
 #std
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       greeting
@@ -106,3 +107,5 @@
       #return
       (#literal #u64 42)
     )
+  );
+}

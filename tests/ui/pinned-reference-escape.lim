@@ -1,3 +1,8 @@
-#fn make-pin () (#pin-ref #u64)
+#fn make-pin {
+  #params = ();
+  #returns = (#pin-ref #u64);
+  #body = (
     (#let owner #u64 7u64)
     (#return (#pin-borrow owner))
+  );
+}

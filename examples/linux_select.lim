@@ -10,7 +10,10 @@
 #alias linux-select = ../library/linux_x86_64.lim::linux-select
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let event #i64 (#call linux-eventfd ((initial-value 7u32))))
     (#assert (#bool::and (#i64::ge event 0i64) (#i64::lt event 64i64)))
     (#let epoll #i64 (#call linux-epoll-create ((size 1i32))))
@@ -64,3 +67,5 @@
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
     (#return 42u64)
+  );
+}

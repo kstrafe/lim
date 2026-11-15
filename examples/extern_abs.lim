@@ -1,4 +1,13 @@
-#extern-fn #abi-c abs ((value #i32)) #i32
+#extern-fn  abs {
+  #abi = #abi-c;
+  #params = ((value #i32));
+  #returns = #i32;
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#as (#unsafe (#unsafe-call abs ((value -42)))) #u64))
+  );
+}

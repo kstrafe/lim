@@ -1,8 +1,18 @@
 #struct Resource (#linear) ((number #u64))
 
-#fn raw ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) (#ref-mut Resource)
+#fn raw {
+  #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)));
+  #returns = (#ref-mut Resource);
+  #body = (
     (#return (#unsafe (#ptr-borrow-mut anchor pointer)))
-#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) ()
+  );
+}
+#fn inspect {
+  #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)));
+  #returns = ();
+  #body = (
     (#let target (#ref-mut Resource) (#call raw ((anchor anchor) (pointer pointer))))
     (#forget (#deref target))
     (#return ())
+  );
+}

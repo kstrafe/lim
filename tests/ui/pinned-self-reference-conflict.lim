@@ -1,5 +1,8 @@
 #struct Link () ((value #u64) (view (#pin-ref #u64)))
-#fn main () ()
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
     (#let-mut outside #u64 3u64)
     (#let external (#pin-ref #u64) (#pin-borrow outside))
     (#let-mut link Link (#struct-literal Link ((value 42u64) (view external))))
@@ -12,3 +15,5 @@
     (#drop external)
     (#forget outside)
     (#return ())
+  );
+}

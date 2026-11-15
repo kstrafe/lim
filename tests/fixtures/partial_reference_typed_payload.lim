@@ -6,14 +6,27 @@
 #enum Storage () (Storage.Empty (Storage.Full Owner))
 #generate lim-gen-enum-project
     ((enum Storage) (variant Storage.Full) (payload Owner) (mode #pin-ref-mut) (name OwnerView))
-#unsafe-fn take-item ((item (#pin-ref-mut Token))) ()
+#unsafe-fn take-item {
+  #params = ((item (#pin-ref-mut Token)));
+  #returns = ();
+  #body = (
     (#let moved Token (#unsafe (#pin-read item)))
     (#forget moved)
     (#return ())
-#unsafe-fn restore-item ((item (#pin-ref-mut Token))) ()
+  );
+}
+#unsafe-fn restore-item {
+  #params = ((item (#pin-ref-mut Token)));
+  #returns = ();
+  #body = (
     (#unsafe (#pin-write item (#struct-literal Token ((value 2u64)))))
     (#return ())
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut seed #u64 40u64)
     (#let-mut storage Storage
       (Storage.Full (#struct-literal Owner
@@ -37,3 +50,5 @@
     (#forget storage)
     (#set seed 0u64)
     (#return answer)
+  );
+}

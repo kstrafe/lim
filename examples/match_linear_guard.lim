@@ -2,10 +2,18 @@
 
 #enum Choice () ((Choice.Owned Token) Choice.Empty)
 
-#fn exceeds ((token (#ref Token)) (limit #u64)) #bool
+#fn exceeds {
+  #params = ((token (#ref Token)) (limit #u64));
+  #returns = #bool;
+  #body = (
     (#return (#u64::gt (#get token value) limit))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let choice Choice (Choice.Owned (#struct-literal Token ((value 7u64)))))
     (#return
       (#match choice
@@ -21,3 +29,5 @@
             (#forget second)
             second-value))
         (#case Choice.Empty 0u64)))
+  );
+}

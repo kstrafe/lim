@@ -2,8 +2,13 @@
 #alias first = ./file_access/v1.lim::read
 #alias second = ./file_access/v2.lim::read
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return
       (#u64::add-wrap
         (#call first ((offset 0u64)))
         (#call second ((offset 0u64)))))
+  );
+}

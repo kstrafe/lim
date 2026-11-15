@@ -1,10 +1,18 @@
 // A whole borrowed load retains the fields' pointees, not the holder address.
 #struct Views () ((left (#ref #u64)) (right (#ref #u64)))
 
-#fn load ((source (#ref Views))) Views
+#fn load {
+  #params = ((source (#ref Views)));
+  #returns = Views;
+  #body = (
     (#return (#deref source))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let left #u64 19u64)
     (#let right #u64 23u64)
     (#let holder Views
@@ -18,3 +26,5 @@
       (#u64::add-wrap (#deref (#get loaded left)) (#deref (#get loaded right))))
     (#forget loaded)
     (#return result)
+  );
+}

@@ -9,12 +9,20 @@
 #enum Status ()
     ((Status.Open #u64) (Status.Closed))
 
-#fn handle-create ((value #u64)) Handle
+#fn handle-create {
+  #params = ((value #u64));
+  #returns = Handle;
+  #body = (
     (#return
       (#struct-literal Handle
         ((state (#enum-literal InternalState.Open value)))))
+  );
+}
 
-#fn handle-status ((handle (#ref Handle))) Status
+#fn handle-status {
+  #params = ((handle (#ref Handle)));
+  #returns = Status;
+  #body = (
     (#let state (#ref InternalState) (#borrow (#get handle state)))
     (#return
       (#match state
@@ -22,7 +30,14 @@
           (#enum-literal Status.Open (#deref value)))
         (#case-ref InternalState.Closed
           (#enum-literal Status.Closed))))
+  );
+}
 
-#fn handle-close ((handle Handle)) ()
+#fn handle-close {
+  #params = ((handle Handle));
+  #returns = ();
+  #body = (
     (#forget handle)
     (#return ())
+  );
+}

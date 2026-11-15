@@ -2,13 +2,28 @@
 #enum Child (#linear) ((Child.Waiting #u64))
 
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
     (#return (ChildPoll.ChildPending task))
-#fn child-cancel ((task Child)) () (#forget task) (#return ())
+  );
+}
+#fn child-cancel {
+  #params = ((task Child));
+  #returns = ();
+  #body = ( (#forget task) (#return ())
+  );
+}
 
 #enum Token (#linear) ((Token.TokenValue #u64))
 
-#fn destroy-token ((task Token)) () (#forget task) (#return ())
+#fn destroy-token {
+  #params = ((task Token));
+  #returns = ();
+  #body = ( (#forget task) (#return ())
+  );
+}
 
 #generate #async-fn
     ( (protocol WorkAwait)
@@ -23,7 +38,10 @@
        (#call destroy-token ((task token)))
        (#return 42u64))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     // Cancel a task before its first poll.
     (#call cancel-work ((task (#call Work::Poll::cleanup
@@ -36,3 +54,5 @@
     (#call cancel-work ((task (#call Work::Poll::cleanup ((task pending))))))
     (#forget waker)
     (#return 42u64)
+  );
+}

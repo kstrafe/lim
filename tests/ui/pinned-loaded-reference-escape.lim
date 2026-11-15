@@ -1,6 +1,11 @@
 #struct Views () ((item (#ref #u64)))
-#fn leak () Views
+#fn leak {
+  #params = ();
+  #returns = Views;
+  #body = (
     (#return (#block
       (#let owner #u64 42u64)
       (#let-mut holder Views (#struct-literal Views ((item (#borrow owner)))))
       (#unsafe (#pin-read (#pin-borrow-mut holder)))))
+  );
+}

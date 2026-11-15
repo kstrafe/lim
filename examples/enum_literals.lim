@@ -2,14 +2,24 @@
 #struct Reading () ((value #u64))
 #enum Measurement () ((Measurement.Present Reading) Measurement.Absent)
 
-#fn read-value ((available #bool)) Measurement
+#fn read-value {
+  #params = ((available #bool));
+  #returns = Measurement;
+  #body = (
     (#return (#if available
       (#enum-literal Measurement.Present
         (#struct-literal Reading ((value 42u64))))
       (#enum-literal Measurement.Absent)))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let measurement Measurement (#call read-value ((available true))))
     (#return (#match measurement
       (#case (Measurement.Present reading) (#get reading value))
       (#case Measurement.Absent 0u64)))
+  );
+}

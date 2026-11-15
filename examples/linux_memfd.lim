@@ -26,10 +26,18 @@
 #alias linux-syncfs = ../library/linux_x86_64.lim::linux-syncfs
 #alias linux-write = ../library/linux_x86_64.lim::linux-write
 
-#fn syscall-is ((actual #i64) (expected #i64)) #bool
+#fn syscall-is {
+  #params = ((actual #i64) (expected #i64));
+  #returns = #bool;
+  #body = (
     (#return (#i64::eq actual expected))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let path-memory (#ptr-mut #u8)
       (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -181,3 +189,5 @@
         (#bool::and metadata-ok (#bool::and descriptor-range-ok updates-ok))))
         42u64
         1u64))
+  );
+}

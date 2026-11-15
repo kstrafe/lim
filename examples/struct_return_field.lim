@@ -6,18 +6,22 @@
     )
 
 #fn
-    make
-    ()
-    Point
+    make {
+  #params = ();
+  #returns = Point;
+  #body = (
     (
       #return
       (#struct-literal Point ((x 7) (y 9)))
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -26,3 +30,5 @@
         y
       )
     )
+  );
+}

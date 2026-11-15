@@ -6,20 +6,24 @@
     )
 
 #fn
-    make
-    ()
-    MaybeF
+    make {
+  #params = ();
+  #returns = MaybeF;
+  #body = (
     (
       #return
       (MaybeF.SomeF 2.5)
     )
+  );
+}
 
 #fn
-    read
-    (
+    read {
+  #params = (
       (value MaybeF)
-    )
-    #f32
+    );
+  #returns = #f32;
+  #body = (
     (
       #return
       (
@@ -32,11 +36,14 @@
         (#case MaybeF.None 0.0)
       )
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -49,3 +56,5 @@
         0
       )
     )
+  );
+}

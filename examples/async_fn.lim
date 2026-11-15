@@ -5,28 +5,48 @@
 
 #generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set
 
-#fn print-text ((text (#slice #char))) ()
+#fn print-text {
+  #params = ((text (#slice #char)));
+  #returns = ();
+  #body = (
     (#for-range (offset #usize) 0usize (#slice-len text)
       (#let byte #u8 (#as (#deref (#slice-idx text offset)) #u8))
       (#assert (#i64::eq (#call linux-write-byte ((source (#borrow byte)))) 1i64)))
     (#return ())
+  );
+}
 
 #struct Executor () ((notifications CellU64))
 #struct WakeMetadata (#linear) ((amount #u64))
 
-#fn notify ((executor (#ref Executor)) (metadata (#ref WakeMetadata))) ()
+#fn notify {
+  #params = ((executor (#ref Executor)) (metadata (#ref WakeMetadata)));
+  #returns = ();
+  #body = (
     (#let cell (#ref CellU64) (#borrow (#get executor notifications)))
     (#call CellU64::set
       ((cell (#clone cell))
        (value (#u64::add-wrap (#call CellU64::get (($ cell))) (#get metadata amount)))))
     (#return ())
+  );
+}
 
-#fn clone-metadata ((metadata (#ref WakeMetadata))) WakeMetadata
+#fn clone-metadata {
+  #params = ((metadata (#ref WakeMetadata)));
+  #returns = WakeMetadata;
+  #body = (
     (#return (#struct-literal WakeMetadata ((amount (#get metadata amount)))))
+  );
+}
 
-#fn destroy-metadata ((executor (#ref Executor)) (metadata WakeMetadata)) ()
+#fn destroy-metadata {
+  #params = ((executor (#ref Executor)) (metadata WakeMetadata));
+  #returns = ();
+  #body = (
     (#forget metadata)
     (#return ())
+  );
+}
 
 #generate lim-gen-local-waker
     (LocalWaker
@@ -39,7 +59,10 @@
     (notify clone-metadata destroy-metadata)
 #generate lim-gen-task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64))
 
-#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref LocalWaker)));
+  #returns = StepPoll;
+  #body = (
     (#return
       (#match task
         (#case (Step.Waiting remaining)
@@ -50,6 +73,8 @@
             (#block
               (#call local-waker-wake-by-ref (($ waker)))
               (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap remaining 1u64))))))))
+  );
+}
 
 #syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll)
 #generate #async-fn
@@ -66,12 +91,20 @@
          (#call print-text ((text (#borrow-slice resumed-text))))
          (#return (#u64::add-wrap total offset)))))
 
-#fn cancel-step ((task Step)) ()
+#fn cancel-step {
+  #params = ((task Step));
+  #returns = ();
+  #body = (
     (#match task
       (#case (Step.Waiting remaining) (#forget remaining)))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#call cancel-work ((task (#call Work::Poll::cleanup ((task (#call work ((offset 99u64)))))))))
     (#let executor Executor
       (#struct-literal Executor ((notifications (#call CellU64::create ((value 0u64)))))))
@@ -100,3 +133,5 @@
     (#drop executor-ref)
     (#forget executor)
     (#return (#u64::add-wrap result notifications))
+  );
+}

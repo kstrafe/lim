@@ -1,9 +1,10 @@
 #fn
-    classify
-    (
+    classify {
+  #params = (
       (value #u64)
-    )
-    #u64
+    );
+  #returns = #u64;
+  #body = (
     (
       #return
       (
@@ -14,12 +15,17 @@
         (#case _ 30)
       )
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (#call classify ((value 1)))
     )
+  );
+}

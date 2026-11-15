@@ -1,8 +1,16 @@
 #struct Holder () ((view (#ref #u64)))
-#fn replace ((target (#ref-mut Holder)) (value (#ref #u64))) ()
+#fn replace {
+  #params = ((target (#ref-mut Holder)) (value (#ref #u64)));
+  #returns = ();
+  #body = (
     (#deref-set target (#struct-literal Holder ((view value))))
     (#return ())
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let old #u64 7u64)
     (#let-mut holder Holder (#struct-literal Holder ((view (#borrow old)))))
     (#block
@@ -13,3 +21,5 @@
     (#let result #u64 (#deref (#get holder view)))
     (#forget holder)
     (#return result)
+  );
+}

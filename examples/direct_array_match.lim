@@ -1,5 +1,10 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return
       (#match (#array (#array #u64 3) 10 32 12)
         (#case (#array 10 middle _) middle)
         (#case _ 0)))
+  );
+}

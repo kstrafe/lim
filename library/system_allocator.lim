@@ -41,33 +41,66 @@
       (#atomic-init #usize 0usize))
 // Raw layout helpers are private by naming convention. All header addresses
 // are naturally aligned; unlike stack aggregates, raw words ascend in memory.
-#unsafe-fn system-allocator-word-pointer ((address #usize)) (#ptr-mut #usize)
+#unsafe-fn system-allocator-word-pointer {
+  #params = ((address #usize));
+  #returns = (#ptr-mut #usize);
+  #body = (
     (#return
       (#unsafe
         (#asm (#ptr-mut #usize) ((rdi address)) "mov rax, rdi")))
-#unsafe-fn system-allocator-byte-pointer ((address #usize)) (#ptr-mut #u8)
+  );
+}
+#unsafe-fn system-allocator-byte-pointer {
+  #params = ((address #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#return
       (#unsafe
         (#asm (#ptr-mut #u8) ((rdi address)) "mov rax, rdi")))
-#unsafe-fn system-allocator-read ((address #usize) (index #usize)) #usize
+  );
+}
+#unsafe-fn system-allocator-read {
+  #params = ((address #usize) (index #usize));
+  #returns = #usize;
+  #body = (
     (#return
       (#unsafe
         (#ptr-read (#ptr-offset (#unsafe-call system-allocator-word-pointer ((address address))) index))))
-#unsafe-fn system-allocator-write ((address #usize) (index #usize) (value #usize)) ()
+  );
+}
+#unsafe-fn system-allocator-write {
+  #params = ((address #usize) (index #usize) (value #usize));
+  #returns = ();
+  #body = (
     (#unsafe
       (#ptr-write (#ptr-offset (#unsafe-call system-allocator-word-pointer ((address address))) index) value))
     (#return ())
-#fn system-allocator-lock () ()
+  );
+}
+#fn system-allocator-lock {
+  #params = ();
+  #returns = ();
+  #body = (
     (#while (#u32::ne (#unsafe (#atomic-exchange (#borrow systemAllocatorLock) 1u32 #memory-acquire)) 0u32)
       ())
     (#return ())
-#unsafe-fn system-allocator-unlock () ()
+  );
+}
+#unsafe-fn system-allocator-unlock {
+  #params = ();
+  #returns = ();
+  #body = (
     (#unsafe
       (#atomic-store (#borrow systemAllocatorLock) 0u32 #memory-release))
     (#return ())
+  );
+}
 // These helpers isolate the OS boundary for deterministic failure injection.
 // Negative syscall error pointers are never exposed to callers.
-#fn system-allocator-map ((length #usize)) (#ptr-mut #u8)
+#fn system-allocator-map {
+  #params = ((length #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#let
       pointer
       (#ptr-mut #u8)
@@ -77,7 +110,12 @@
       (#if (#usize::ge (#ptr-address pointer) 18446744073709547521usize)
         (#ptr-null (#ptr-mut #u8))
         pointer))
-#unsafe-fn system-allocator-remap ((pointer (#ptr-mut #u8)) (old-length #usize) (length #usize)) (#ptr-mut #u8)
+  );
+}
+#unsafe-fn system-allocator-remap {
+  #params = ((pointer (#ptr-mut #u8)) (old-length #usize) (length #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#let
       resized
       (#ptr-mut #u8)
@@ -87,7 +125,12 @@
       (#if (#usize::ge (#ptr-address resized) 18446744073709547521usize)
         (#ptr-null (#ptr-mut #u8))
         resized))
-#unsafe-fn system-allocator-unmap ((pointer (#ptr-mut #u8)) (length #usize)) ()
+  );
+}
+#unsafe-fn system-allocator-unmap {
+  #params = ((pointer (#ptr-mut #u8)) (length #usize));
+  #returns = ();
+  #body = (
     (#let
       status
       #i64
@@ -95,10 +138,15 @@
         (#linux-syscall #i64 11usize (pointer length))))
     (#assert (#i64::eq status 0i64))
     (#return ())
+  );
+}
 // Partial slabs are doubly linked per class. Full slabs leave the list; a
 // first free reinserts them. Header words: next, previous, live, free, stride,
 // class, reserved, reserved. Pipeline.Only code holding systemAllocatorLock edits them.
-#unsafe-fn system-allocator-link ((slab #usize) (class #usize)) ()
+#unsafe-fn system-allocator-link {
+  #params = ((slab #usize) (class #usize));
+  #returns = ();
+  #body = (
     (#return
       (#unsafe
         (#block
@@ -113,7 +161,12 @@
             ())
           (#atomic-store (#borrow (#index systemAllocatorHeads class)) slab #memory-relaxed)
           ())))
-#unsafe-fn system-allocator-unlink ((slab #usize) (class #usize)) ()
+  );
+}
+#unsafe-fn system-allocator-unlink {
+  #params = ((slab #usize) (class #usize));
+  #returns = ();
+  #body = (
     (#return
       (#unsafe
         (#block
@@ -126,7 +179,12 @@
             (#unsafe-call system-allocator-write ((address next) (index 1usize) (value previous)))
             ())
           ())))
-#unsafe-fn system-allocator-new-slab ((stride #usize) (class #usize)) #usize
+  );
+}
+#unsafe-fn system-allocator-new-slab {
+  #params = ((stride #usize) (class #usize));
+  #returns = #usize;
+  #body = (
     (#return
       (#unsafe
         (#block
@@ -154,12 +212,27 @@
           (#unsafe-call system-allocator-write ((address slab) (index 5usize) (value class)))
           (#unsafe-call system-allocator-link ((slab slab) (class class)))
           slab)))
-#fn system-allocator-valid-size ((size #usize)) #bool
+  );
+}
+#fn system-allocator-valid-size {
+  #params = ((size #usize));
+  #returns = #bool;
+  #body = (
     (#return (#bool::and (#usize::ne size 0usize) (#usize::le size sYSTEM-ALLOCATION-MAX)))
-#fn system-allocator-mapping-size ((size #usize)) #usize
+  );
+}
+#fn system-allocator-mapping-size {
+  #params = ((size #usize));
+  #returns = #usize;
+  #body = (
     // Valid sizes leave room for the 16-byte header and page rounding.
     (#return (#usize::bit-and (#usize::add-wrap size 4111usize) 18446744073709547520usize))
-#fn system-allocator-allocate ((size #usize)) (#ptr-mut #u8)
+  );
+}
+#fn system-allocator-allocate {
+  #params = ((size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#if (#bool::not (#call system-allocator-valid-size ((size size))))
       (#block
         (#return (#ptr-null (#ptr-mut #u8)))
@@ -222,7 +295,12 @@
             ())
           (#unsafe-call system-allocator-unlock ())
           (#unsafe-call system-allocator-byte-pointer ((address (#usize::add-wrap block 16usize)))))))
-#unsafe-fn system-allocator-free ((pointer (#ptr-mut #u8))) ()
+  );
+}
+#unsafe-fn system-allocator-free {
+  #params = ((pointer (#ptr-mut #u8)));
+  #returns = ();
+  #body = (
     (#if (#ptr-is-null pointer)
       (#block
         (#return ())
@@ -266,7 +344,12 @@
             ())
           (#unsafe-call system-allocator-unlock ())
           ())))
-#unsafe-fn system-allocator-copy ((destination (#ptr-mut #u8)) (source (#ptr-mut #u8)) (count #usize)) ()
+  );
+}
+#unsafe-fn system-allocator-copy {
+  #params = ((destination (#ptr-mut #u8)) (source (#ptr-mut #u8)) (count #usize));
+  #returns = ();
+  #body = (
     (#return
       (#unsafe
         (#block
@@ -275,7 +358,12 @@
             (#ptr-write (#ptr-offset destination index) (#ptr-read (#ptr-offset source index)))
             (#set index (#usize::add-wrap index 1usize)))
           ())))
-#unsafe-fn system-allocator-resize ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)
+  );
+}
+#unsafe-fn system-allocator-resize {
+  #params = ((pointer (#ptr-mut #u8)) (size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#if (#bool::not (#call system-allocator-valid-size ((size size))))
       (#block
         (#return (#ptr-null (#ptr-mut #u8)))
@@ -337,19 +425,39 @@
           (#unsafe-call system-allocator-copy ((destination replacement) (source pointer) (count old-size)))
           (#unsafe-call system-allocator-free ((pointer pointer)))
           replacement)))
+  );
+}
 // Namespaced implementation entry points do not interpose on foreign malloc,
 // realloc, or free. The public system-* facade keeps its existing contract.
-#fn system-heap-allocate ((size #usize)) (#ptr-mut #u8)
+#fn system-heap-allocate {
+  #params = ((size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#return (#call system-allocator-allocate ((size size))))
-#unsafe-fn system-heap-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)
+  );
+}
+#unsafe-fn system-heap-reallocate {
+  #params = ((pointer (#ptr-mut #u8)) (size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#return
       (#unsafe
         (#unsafe-call system-allocator-resize ((pointer pointer) (size size)))))
-#unsafe-fn system-heap-deallocate ((pointer (#ptr-mut #u8))) ()
+  );
+}
+#unsafe-fn system-heap-deallocate {
+  #params = ((pointer (#ptr-mut #u8)));
+  #returns = ();
+  #body = (
     (#unsafe
       (#unsafe-call system-allocator-free ((pointer pointer))))
     (#return ())
-#fn system-allocate ((size #usize)) SystemAllocationResult
+  );
+}
+#fn system-allocate {
+  #params = ((size #usize));
+  #returns = SystemAllocationResult;
+  #body = (
     (#if (#bool::not (#call system-allocator-valid-size ((size size))))
       (#block
         (#return (SystemAllocationResult.SystemAllocationFailed SystemAllocationError.SystemAllocationInvalidSize))
@@ -360,8 +468,13 @@
       (#if (#ptr-is-null pointer)
         (SystemAllocationResult.SystemAllocationFailed SystemAllocationError.SystemAllocationOutOfMemory)
         (SystemAllocationResult.SystemAllocated pointer)))
+  );
+}
 // Failed growth leaves the old allocation and its contents unchanged.
-#unsafe-fn system-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) SystemAllocationResult
+#unsafe-fn system-reallocate {
+  #params = ((pointer (#ptr-mut #u8)) (size #usize));
+  #returns = SystemAllocationResult;
+  #body = (
     (#if (#bool::not (#call system-allocator-valid-size ((size size))))
       (#block
         (#return (SystemAllocationResult.SystemAllocationFailed SystemAllocationError.SystemAllocationInvalidSize))
@@ -376,10 +489,17 @@
       (#if (#ptr-is-null resized)
         (SystemAllocationResult.SystemAllocationFailed SystemAllocationError.SystemAllocationOutOfMemory)
         (SystemAllocationResult.SystemAllocated resized)))
-#unsafe-fn system-deallocate ((pointer (#ptr-mut #u8))) ()
+  );
+}
+#unsafe-fn system-deallocate {
+  #params = ((pointer (#ptr-mut #u8)));
+  #returns = ();
+  #body = (
     (#unsafe
       (#unsafe-call system-heap-deallocate ((pointer pointer))))
     (#return ())
+  );
+}
 
 // Byte::oriented shared allocator root backed by the native process heap.
 #struct SystemAllocator () ()
@@ -388,13 +508,19 @@
 #enum SystemAllocator::Allocator::Allocation (#linear)
     ((SystemAllocator::Allocator::Allocation.Allocated (#ptr-mut #u8))
      (SystemAllocator::Allocator::Allocation.AllocationFailed SystemAllocator::Allocator::Error))
-#fn system-allocator-valid-alignment ((alignment #usize)) #bool
+#fn system-allocator-valid-alignment {
+  #params = ((alignment #usize));
+  #returns = #bool;
+  #body = (
     (#return (#bool::and (#usize::gt alignment 0usize)
       (#bool::and (#usize::le alignment sYSTEM-ALLOCATION-ALIGNMENT)
         (#usize::eq (#usize::bit-and alignment (#usize::sub-wrap alignment 1usize)) 0usize))))
-#fn SystemAllocator::Allocator::allocate
-    ((allocator (#ref SystemAllocator::Allocator::State)) (layout #usize) (alignment #usize))
-    SystemAllocator::Allocator::Allocation
+  );
+}
+#fn SystemAllocator::Allocator::allocate {
+  #params = ((allocator (#ref SystemAllocator::Allocator::State)) (layout #usize) (alignment #usize));
+  #returns = SystemAllocator::Allocator::Allocation;
+  #body = (
     (#if (#bool::not (#call system-allocator-valid-alignment ((alignment alignment))))
       (#block
         (#return (SystemAllocator::Allocator::Allocation.AllocationFailed SystemAllocationError.SystemAllocationInvalidSize))
@@ -403,10 +529,13 @@
     (#return (#match (#call system-allocate ((size layout)))
       (#case (SystemAllocationResult.SystemAllocated pointer) (SystemAllocator::Allocator::Allocation.Allocated pointer))
       (#case (SystemAllocationResult.SystemAllocationFailed error) (SystemAllocator::Allocator::Allocation.AllocationFailed error))))
-#unsafe-fn SystemAllocator::Allocator::grow
-    ((allocator (#ref SystemAllocator::Allocator::State)) (pointer (#ptr-mut #u8))
-     (old-layout #usize) (layout #usize) (alignment #usize))
-    SystemAllocator::Allocator::Allocation
+  );
+}
+#unsafe-fn SystemAllocator::Allocator::grow {
+  #params = ((allocator (#ref SystemAllocator::Allocator::State)) (pointer (#ptr-mut #u8))
+     (old-layout #usize) (layout #usize) (alignment #usize));
+  #returns = SystemAllocator::Allocator::Allocation;
+  #body = (
     (#if (#bool::not (#call system-allocator-valid-alignment ((alignment alignment))))
       (#block
         (#return (SystemAllocator::Allocator::Allocation.AllocationFailed SystemAllocationError.SystemAllocationInvalidSize))
@@ -415,8 +544,14 @@
     (#return (#match (#unsafe (#unsafe-call system-reallocate ((pointer pointer) (size layout))))
       (#case (SystemAllocationResult.SystemAllocated resized) (SystemAllocator::Allocator::Allocation.Allocated resized))
       (#case (SystemAllocationResult.SystemAllocationFailed error) (SystemAllocator::Allocator::Allocation.AllocationFailed error))))
-#unsafe-fn SystemAllocator::Allocator::deallocate
-    ((allocator (#ref SystemAllocator::Allocator::State)) (pointer (#ptr-mut #u8))
-     (layout #usize) (alignment #usize)) ()
+  );
+}
+#unsafe-fn SystemAllocator::Allocator::deallocate {
+  #params = ((allocator (#ref SystemAllocator::Allocator::State)) (pointer (#ptr-mut #u8))
+     (layout #usize) (alignment #usize));
+  #returns = ();
+  #body = (
     (#unsafe (#unsafe-call system-deallocate ((pointer pointer))))
     (#return ())
+  );
+}

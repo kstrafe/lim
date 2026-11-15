@@ -2,17 +2,27 @@
 #enum ChildTask (#linear) ((ChildTask.Start #u64) (ChildTask.Resume #u64))
 
 #enum ChildPoll () ((ChildPoll.ChildPending ChildTask) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task ChildTask) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task ChildTask) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
     (#return
       (#match task
         (#case (ChildTask.Start value)
           (ChildPoll.ChildPending (ChildTask.Resume value)))
         (#case (ChildTask.Resume value)
           (ChildPoll.ChildReady value))))
-#fn bound ((order (#ref-mut #u64)) (expected #u64) (value #u64)) ChildTask
+  );
+}
+#fn bound {
+  #params = ((order (#ref-mut #u64)) (expected #u64) (value #u64));
+  #returns = ChildTask;
+  #body = (
     (#assert (#u64::eq (#deref order) expected))
     (#deref-set order (#u64::add-wrap (#deref order) 1u64))
     (#return (ChildTask.Start value))
+  );
+}
 #generate
     #async-fn
     ((protocol WorkAwait) (waker #u64) (function
@@ -27,7 +37,10 @@
           (#if (#u64::eq iteration 0u64) (#block (#continue-to counting)) ())
           (#set total (#u64::add-wrap total iteration))))
       (#return (#u64::add-wrap total 39u64)))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut order #u64 0u64)
     (#let waker #u64 0u64)
     (#let-mut task Work::Task (#call work ((order (#borrow-mut order)))))
@@ -44,3 +57,5 @@
             (#return value)))))
     (#forget task)
     (#return (#unreachable))
+  );
+}

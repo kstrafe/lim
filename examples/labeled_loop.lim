@@ -1,4 +1,7 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut count #u64 0)
     (#label outer
       (#while (#u64::lt (#clone count) 4u64)
@@ -11,3 +14,5 @@
           ())
         (#continue-to outer)))
     (#return count)
+  );
+}

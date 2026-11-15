@@ -6,9 +6,10 @@
     )
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       point
@@ -45,3 +46,5 @@
         0
       )
     )
+  );
+}

@@ -1,7 +1,17 @@
 #let answer #u64 42
 
-#fn identity ((value (#ref #u64))) (#ref #u64)
+#fn identity {
+  #params = ((value (#ref #u64)));
+  #returns = (#ref #u64);
+  #body = (
     (#return value)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#deref (#call identity ((value (#borrow answer))))))
+  );
+}

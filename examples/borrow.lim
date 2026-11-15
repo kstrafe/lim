@@ -1,7 +1,12 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut value #u64 40)
     (#return
       (#borrow-mut value
         (#block
           (#set value 42)
           value)))
+  );
+}

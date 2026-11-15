@@ -4,13 +4,23 @@
 #enum Child (#linear) ((Child.Waiting #u64))
 
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
     (#return (#match task
       (#case (Child.Waiting count)
         (#if (#u64::eq count 0u64)
           (ChildPoll.ChildPending (Child.Waiting 1u64))
           (ChildPoll.ChildReady 2u64)))))
-#fn cancel-child ((task Child)) () (#forget task) (#return ())
+  );
+}
+#fn cancel-child {
+  #params = ((task Child));
+  #returns = ();
+  #body = ( (#forget task) (#return ())
+  );
+}
 #struct Payload () ((left #u64) (right #u64))
 #struct Owner () ((payload Payload))
 
@@ -25,7 +35,10 @@
         (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
       (#return (#u64::add-wrap (#u64::add-wrap (#deref view) (#deref right-view)) result)))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut frame Read-after-await::Frame
       (#call read-after-await
         ((owner (#struct-literal Owner
@@ -75,3 +88,5 @@
     (#forget cancelled)
     (#forget waker)
     (#return (#u64::add-wrap result cancelled-owner))
+  );
+}

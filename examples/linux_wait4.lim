@@ -4,7 +4,10 @@
 #alias linux-fork = ../library/linux_x86_64.lim::linux-fork
 #alias linux-wait4 = ../library/linux_x86_64.lim::linux-wait4
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let status-memory (#ptr-mut #i32)
       (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -28,3 +31,5 @@
             (#i32::eq wait-status 9472i32)))))
     (#return
       (#if (#bool::and wait-ok (#i64::eq memory-unmapped 0i64)) 42u64 1u64))
+  );
+}

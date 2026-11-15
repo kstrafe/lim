@@ -1,4 +1,9 @@
 #enum Payload () ((Payload.Pair (#tuple #bool #u64)) Payload.Empty)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let value Payload (Payload.Pair (#tuple true false)))
     (#return 0u64)
+  );
+}

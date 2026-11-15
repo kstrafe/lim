@@ -12,7 +12,10 @@
 #generate lim-gen-pin-scope ((type Pair) (pin PinnedPair) (name with-pair)
     (run sum-pair) (destroy destroy-pair) (result #u64))
 
-#fn sum-pair ((pin PinnedPair)) #u64
+#fn sum-pair {
+  #params = ((pin PinnedPair));
+  #returns = #u64;
+  #body = (
     (#let-mut parent PinnedPair pin)
     // Borrowing a child does not consume the parent handle. Disjoint children
     // can coexist; asking for left twice while it is borrowed would fail.
@@ -29,12 +32,24 @@
     (#forget right)
     (#forget parent)
     (#return answer)
+  );
+}
 
-#fn destroy-pair ((pin PinnedPair)) ()
+#fn destroy-pair {
+  #params = ((pin PinnedPair));
+  #returns = ();
+  #body = (
     (#forget pin)
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call with-pair ((value (#struct-literal Pair
       ((left (#struct-literal Number ((value 0u64))))
        (right (#struct-literal Number ((value 0u64))))))))))
+  );
+}

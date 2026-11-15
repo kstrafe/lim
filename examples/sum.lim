@@ -1,10 +1,20 @@
-#fn sum ((n #u64)) #u64
+#fn sum {
+  #params = ((n #u64));
+  #returns = #u64;
+  #body = (
     (#let-mut i #u64 0)
     (#let-mut total #u64 0)
     (#while (#u64::lt (#clone i) (#clone n))
       (#set total (#u64::add-wrap total (#clone i)))
       (#set i (#u64::add-wrap (#clone i) 1)))
     (#return total)
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#return (#call sum ((n 10))))
+  );
+}

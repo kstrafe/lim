@@ -21,7 +21,10 @@
 
 // SAFETY: buffer is an exclusively writable 4096-byte region, readable after
 // the syscall fills it; directory refers to this example's scratch directory.
-#unsafe-fn check-legacy-entries ((directory #i64) (buffer (#ptr-mut #u8))) ()
+#unsafe-fn check-legacy-entries {
+  #params = ((directory #i64) (buffer (#ptr-mut #u8)));
+  #returns = ();
+  #body = (
     (#assert (#i64::eq (#call linux-lseek ((fd directory) (offset 0i64) (whence 0i64))) 0i64))
     (#assert (#i64::eq (#unsafe (#unsafe-call linux-getdents ((fd -1i64) (buffer buffer) (size 4096u32)))) -9i64))
     (#assert (#i64::eq (#unsafe (#unsafe-call linux-getdents ((fd directory) (buffer buffer) (size 1u32)))) -22i64))
@@ -67,8 +70,13 @@
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
     (#return ())
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let path-memory (#ptr-mut #u8)
       (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -201,3 +209,5 @@
                             (#i64::eq entries-unmapped 0i64)))))))))))))))
         42u64
         1u64))
+  );
+}

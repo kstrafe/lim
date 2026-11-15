@@ -12,7 +12,10 @@
 #alias linux-setpriority = ../library/linux_x86_64.lim::linux-setpriority
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u64)
       (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
         (0usize 4096usize 3u32 34u32 -1i64 0i64))))
@@ -57,3 +60,5 @@
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
     (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
     (#return 42u64)
+  );
+}

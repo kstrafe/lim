@@ -10,6 +10,11 @@
 #generate make-function second
 #generate make-function first
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#assert (#u64::eq (#call second ((task 21u64))) 42u64))
     (#return (#call first ((task 21u64))))
+  );
+}

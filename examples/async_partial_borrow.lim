@@ -9,13 +9,18 @@
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ()))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return
       (#match task
         (#case Step.Start
           (StepPoll.Pending Step.Resume))
         (#case Step.Resume
           (StepPoll.Ready ()))))
+  );
+}
 #generate
     #async-fn-pinned
     ((protocol WorkAwait) (waker #u64) (function
@@ -36,7 +41,10 @@
       (#let result #u64 (#u64::add-wrap (#get (#get pair left) value) observed))
       (#forget pair)
       (#return result))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work ()))
     (#let
@@ -56,3 +64,5 @@
             (#unreachable)))))
     (#forget frame)
     (#return result)
+  );
+}

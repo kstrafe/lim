@@ -1,4 +1,9 @@
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut value #u64 42u64)
     (#let pointer (#ptr-mut #u64) (#unsafe (#addr-of-mut value)))
     (#return (#unsafe (#ptr-read (#ptr-offset pointer 0usize))))
+  );
+}

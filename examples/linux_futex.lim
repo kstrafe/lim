@@ -2,7 +2,10 @@
 #alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP
 #alias linux-futex = ../library/linux_x86_64.lim::linux-futex
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u32)
       (#unsafe (#linux-syscall (#ptr-mut #u32) lINUX-SYS-MMAP
         (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -20,3 +23,5 @@
           (#bool::and (#u32::eq value-after 1u32) (#i64::eq unmapped 0i64))))
         42u64
         1u64))
+  );
+}

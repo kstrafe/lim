@@ -1,18 +1,22 @@
 #fn
-    identity
-    (
+    identity {
+  #params = (
       (
         values
         (#array #u64 3)
       )
-    )
-    (#array #u64 3)
+    );
+  #returns = (#array #u64 3);
+  #body = (
     (#return values)
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       values
@@ -23,3 +27,5 @@
       #return
       (#index values 2)
     )
+  );
+}

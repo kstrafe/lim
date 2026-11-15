@@ -5,13 +5,23 @@
 #struct Token (#linear) ((value #u64))
 
 #struct Owner () ((kept #u64) (item Token))
-#fn inspect ((owner (#ref Owner))) #u64
+#fn inspect {
+  #params = ((owner (#ref Owner)));
+  #returns = #u64;
+  #body = (
     (#return (#u64::add-wrap (#get owner kept) (#get (#get owner item) value)))
+  );
+}
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ()))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task (#case Step.Start (StepPoll.Pending Step.Resume)) (#case Step.Resume (StepPoll.Ready ()))))
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (function
     (#fn work () #u64
       (#let-mut owner Owner
@@ -32,7 +42,10 @@
       (#forget kept)
       (#forget owner)
       (#return (#if equal answer 0u64)))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work ()))
     (#let first Work::Poll
@@ -44,3 +57,5 @@
         (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
     (#forget frame)
     (#return result)
+  );
+}

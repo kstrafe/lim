@@ -8,7 +8,10 @@
 #alias wake-table4-valid = ../library/wake_tokens.lim::wake-table4-valid
 #alias wake-token4-generation = ../library/wake_tokens.lim::wake-token4-generation
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut table WakeTable4 (#call wake-table4-create ()))
     (#let first WakeRegister4
       (#call wake-table4-register ((table (#borrow-mut table)) (slot 2usize))))
@@ -46,3 +49,5 @@
             (#bool::and generation-changed
               (#bool::and stale-retire-ok fresh-valid)))))
       42u64 0u64))
+  );
+}

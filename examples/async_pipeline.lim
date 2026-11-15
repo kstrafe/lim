@@ -5,15 +5,25 @@
 
 #generate lim-gen-task (Count CountPoll CountPoll.CountPending CountPoll.CountReady) #u64 ((Count.Counting #u64))
 
-#fn count-poll ((task Count)) CountPoll
+#fn count-poll {
+  #params = ((task Count));
+  #returns = CountPoll;
+  #body = (
     (#return (#match task
       (#case (Count.Counting remaining)
         (#if (#u64::eq (#clone remaining) 0u64)
           (#block (#forget remaining) (CountPoll.CountReady 21u64))
           (CountPoll.CountPending (Count.Counting (#u64::sub-wrap remaining 1u64)))))))
+  );
+}
 
-#fn next-count ((value #u64)) Count
+#fn next-count {
+  #params = ((value #u64));
+  #returns = Count;
+  #body = (
     (#return (Count.Counting value))
+  );
+}
 
 #generate lim-gen-async (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
     ((Pipeline.Begin (#await Count CountPoll.CountPending CountPoll.CountReady count-poll)
@@ -21,9 +31,14 @@
      (Pipeline.Finish (#await Count CountPoll.CountPending CountPoll.CountReady count-poll)
        (#return)))
 
-#fn cancel-count ((task Count)) ()
+#fn cancel-count {
+  #params = ((task Count));
+  #returns = ();
+  #body = (
     (#match task (#case (Count.Counting remaining) (#forget remaining)))
     (#return ())
+  );
+}
 
 #generate lim-gen-task-cancel cancel-pipeline Pipeline
     ((Pipeline.Begin cancel-count) (Pipeline.Finish cancel-count))
@@ -32,9 +47,14 @@
     ((pipeline Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll #u64 pipeline-input)
      (counter Count CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 counter-input))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#call cancel-pipeline ((task (Pipeline.Begin (Count.Counting 100u64)))))
     (#let results Results
       (#call run-pipeline
         ((pipeline-input (Pipeline.Begin (Count.Counting 2u64))) (counter-input (Count.Counting 3u64)))))
     (#return (#u64::add-wrap (#get results pipeline) (#get results counter)))
+  );
+}

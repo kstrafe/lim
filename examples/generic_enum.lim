@@ -6,9 +6,10 @@
     )
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #let
       value
@@ -27,3 +28,5 @@
         (#case MaybeU64.None 0)
       )
     )
+  );
+}

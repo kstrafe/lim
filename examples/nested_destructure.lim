@@ -1,7 +1,12 @@
 #struct Inner () ((left #u64) (right #u64))
 #struct Outer () ((inner Inner) (tail #u64))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let (Outer (Inner left right) tail) Outer
       (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 30))))
     (#return (#u64::add-wrap right tail))
+  );
+}

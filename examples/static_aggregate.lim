@@ -7,25 +7,48 @@
 #enum Maybe () ((Maybe.Some #u64) Maybe.None)
 #static static-choice Maybe (#enum-literal Maybe.Some 12u64)
 
-#fn take ((values (#array #u64 3)) (point Point)) #u64
+#fn take {
+  #params = ((values (#array #u64 3)) (point Point));
+  #returns = #u64;
+  #body = (
     (#return
       (#u64::add-wrap
         (#index values 1)
         (#get point y)))
+  );
+}
 
-#fn return-values () (#array #u64 3)
+#fn return-values {
+  #params = ();
+  #returns = (#array #u64 3);
+  #body = (
     (#return (#unsafe static-values))
+  );
+}
 
-#fn read-choice ((choice Maybe)) #u64
+#fn read-choice {
+  #params = ((choice Maybe));
+  #returns = #u64;
+  #body = (
     (#return
       (#match choice
         (#case (Maybe.Some value) value)
         (#case Maybe.None 0)))
+  );
+}
 
-#fn return-choice () Maybe
+#fn return-choice {
+  #params = ();
+  #returns = Maybe;
+  #body = (
     (#return (#unsafe static-choice))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let copied (#array #u64 3) (#unsafe static-values))
     (#let copied-choice Maybe (#unsafe static-choice))
     (#return
@@ -38,3 +61,5 @@
             (#u64::add-wrap
               (#call read-choice ((choice copied-choice)))
               (#call read-choice ((choice (#call return-choice ())))))))))
+  );
+}

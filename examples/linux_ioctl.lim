@@ -7,7 +7,10 @@
 #alias linux-write = ../library/linux_x86_64.lim::linux-write
 
 // FIONREAD writes an int; FIONBIO reads an int on Linux x86-64.
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     (#let descriptors (#ptr-mut #i32)
       (#unsafe (#asm (#ptr-mut #i32) ((rdi memory)) "mov rax, rdi")))
@@ -40,3 +43,5 @@
     (#assert (#i64::eq (#unsafe (#unsafe-call linux-write ((fd 1i64) (source received) (count 4usize)))) 4i64))
     (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))) 0i64))
     (#return 42u64)
+  );
+}

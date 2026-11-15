@@ -1,5 +1,10 @@
 #alias WakeToken4 = (#unstable ../../library/wake_tokens.lim::WakeToken4)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let token WakeToken4
       (#struct-literal WakeToken4 ((slot 0usize) (generation 1u64))))
     (#return 0u64)
+  );
+}

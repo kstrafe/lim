@@ -10,20 +10,24 @@
     )
 
 #fn
-    make
-    ()
-    Values
+    make {
+  #params = ();
+  #returns = Values;
+  #body = (
     (
       #return
       (#struct-literal Values ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6)))
     )
+  );
+}
 
 #fn
-    sum
-    (
+    sum {
+  #params = (
       (value Values)
-    )
-    #u64
+    );
+  #returns = #u64;
+  #body = (
     (
       #return
       (#u64::add-wrap
@@ -43,12 +47,17 @@
         (#get value f)
       )
     )
+  );
+}
 
 #fn
-    main
-    ()
-    #u64
+    main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (
       #return
       (#call sum ((value (#call make ()))))
     )
+  );
+}

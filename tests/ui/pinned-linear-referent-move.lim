@@ -1,6 +1,11 @@
 #struct Resource (#linear) ((number #u64))
 
-#fn inspect ((reference (#pin-ref-mut Resource))) ()
+#fn inspect {
+  #params = ((reference (#pin-ref-mut Resource)));
+  #returns = ();
+  #body = (
     (#let moved Resource (#deref reference))
     (#forget moved)
     (#return ())
+  );
+}

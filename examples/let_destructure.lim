@@ -1,14 +1,29 @@
 #struct Point () ((x #u64) (y #u64))
 
-#fn sum-tuple ((value (#tuple #u64 #u64))) #u64
+#fn sum-tuple {
+  #params = ((value (#tuple #u64 #u64)));
+  #returns = #u64;
+  #body = (
     (#let (#tuple first second) (#tuple #u64 #u64) value)
     (#return (#u64::add-wrap first second))
+  );
+}
 
-#fn sum-point ((value Point)) #u64
+#fn sum-point {
+  #params = ((value Point));
+  #returns = #u64;
+  #body = (
     (#let (Point x y) Point value)
     (#return (#u64::add-wrap x y))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut (#tuple first second) (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 20 22))
     (#set first 40)
     (#return (#u64::add-wrap first second))
+  );
+}

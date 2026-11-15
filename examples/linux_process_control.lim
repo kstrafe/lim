@@ -7,15 +7,28 @@
 #alias linux-write = ../library/linux_x86_64.lim::linux-write
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#fn pointer-word ((pointer (#ptr-mut #u32))) #usize
+#fn pointer-word {
+  #params = ((pointer (#ptr-mut #u32)));
+  #returns = #usize;
+  #body = (
     (#return (#unsafe (#asm #usize ((rdi pointer)) "mov rax, rdi")))
+  );
+}
 
 // SAFETY: operation must be PR_GET_NAME/PR_SET_NAME and buffer must supply
 // 16 writable/readable bytes respectively, without conflicting accesses.
-#unsafe-fn name-operation ((operation #i32) (buffer (#ptr-mut #u32))) #i64
+#unsafe-fn name-operation {
+  #params = ((operation #i32) (buffer (#ptr-mut #u32)));
+  #returns = #i64;
+  #body = (
     (#return (#unsafe (#unsafe-call linux-prctl ((option operation) (arg2 (#call pointer-word ((pointer buffer)))) (arg3 0usize) (arg4 0usize) (arg5 0usize)))))
+  );
+}
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let memory (#ptr-mut #u32)
       (#unsafe (#linux-syscall (#ptr-mut #u32) lINUX-SYS-MMAP
         (0usize 4096usize 3u32 34u32 -1i64 0i64))))
@@ -64,3 +77,5 @@
     (#assert (#i64::eq (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP
       (memory 4096usize))) 0i64))
     (#return 42u64)
+  );
+}

@@ -2,10 +2,15 @@
 #struct Bounds () ((z (#tuple #u64 #u64)) (a #u64))
 #enum Step () ((Step.Start #u64) (Step.Resume #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
     (#return (#match task
       (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
       (#case (Step.Resume value) (StepPoll.StepReady value))))
+  );
+}
 
 #generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
     (#fn work ((bounds Bounds)) #u64
@@ -19,7 +24,10 @@
       (#let iteration #u64 42u64)
       (#return (#u64::add-wrap total (#u64::sub-wrap iteration 42u64))))))
 
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let-mut task Work::Task
       (#call work ((bounds
@@ -31,3 +39,5 @@
         (#case (Work::Poll.Ready value) (#block (#return value)))))
     (#forget task)
     (#return (#unreachable))
+  );
+}

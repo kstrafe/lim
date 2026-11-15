@@ -2,9 +2,17 @@
 #struct Token (#linear) ((value #u64))
 
 #struct Owner () ((kept #u64) (item Token))
-#fn inspect ((owner (#ref Owner))) #u64
+#fn inspect {
+  #params = ((owner (#ref Owner)));
+  #returns = #u64;
+  #body = (
     (#return (#u64::add-wrap (#get owner kept) (#get (#get owner item) value)))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut owner Owner
       (#struct-literal Owner
         ((kept 40u64) (item (#struct-literal Token ((value 1u64)))))))
@@ -22,3 +30,5 @@
     (#forget kept)
     (#forget owner)
     (#return (#if equal answer 0u64))
+  );
+}
