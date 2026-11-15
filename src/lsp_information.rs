@@ -165,13 +165,20 @@ fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signat
             .join(" "),
         text(context, return_type)
     );
-    let contracts = node
+    let mut contracts = node
         .children
         .iter()
         .skip(ni + 3)
         .filter(|child| matches!(head(child), "requires" | "ensures" | "preserves"))
         .map(|child| text(context, child))
-        .collect();
+        .collect::<Vec<_>>();
+    // Navigation has already selected the source declaration, including through
+    // aliases. Show its written permission interface without inferring grants
+    // from bodies or expanding #effects-of into predicate-style obligations.
+    if let Some(effects) = node.children.get(ni + 3).filter(|node| head(node) == "effects") {
+        contracts.push("// Declared effects".into());
+        contracts.push(text(context, effects));
+    }
     Some(Signature {
         label,
         parameters,
