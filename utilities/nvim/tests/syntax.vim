@@ -92,6 +92,12 @@ for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],
   let s:column = stridx(getline(1), s:token) + 1
   call assert_equal(s:group, synIDattr(synID(1, s:column, 1), 'name'))
 endfor
+call setline(1, '#let-mut count : #u64 = 42u64;')
+for [s:token, s:group] in [['#let-mut', 'limDeclaration'], [':', 'limSeparator'],
+      \ ['#u64', 'limType'], ['=', 'limSeparator'], ['42u64', 'limNumber']]
+  let s:column = stridx(getline(1), s:token) + 1
+  call assert_equal(s:group, synIDattr(synID(1, s:column, 1), 'name'))
+endfor
 call assert_equal('Type', synIDattr(synIDtrans(hlID('limType')), 'name'))
 call assert_equal('Operator', synIDattr(synIDtrans(hlID('limOperator')), 'name'))
 call setline(1, '(#generate #array ((element #u64) (length 4) (name Array4))) (#if-valid (#call #usize::lt ((left index) (right 4usize))) (#call Array4::get ((values values) (index index))) 0u64)')

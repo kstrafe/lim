@@ -5,9 +5,7 @@
 #fn exceeds {
   #params = ((token (#ref Token)) (limit #u64));
   #returns = #bool;
-  #body = (
-    (#return (#u64::gt (#get token value) limit))
-  );
+  #body = ((#return (#u64::gt (#get token value) limit)));
 }
 
 #fn main {
@@ -15,19 +13,25 @@
   #returns = #u64;
   #body = (
     (#let choice Choice (Choice.Owned (#struct-literal Token ((value 7u64)))))
-    (#return
-      (#match choice
+    (#return (#match choice
         (#case (Choice.Owned first)
           (#when (#call exceeds ((token (#borrow first)) (limit 99u64))))
           (#block
             (#let first-value #u64 (#get first value))
             (#forget first)
-            first-value))
+            first-value
+          )
+        )
         (#case (Choice.Owned second)
           (#block
             (#let second-value #u64 (#get second value))
             (#forget second)
-            second-value))
-        (#case Choice.Empty 0u64)))
+            second-value
+          )
+        )
+        (#case Choice.Empty
+          0u64
+        )
+      ))
   );
 }

@@ -1,33 +1,17 @@
-#fn
-    choose {
-  #params = (
-      (flag #bool)
-    );
+#fn choose {
+  #params = ((flag #bool));
   #returns = #f32;
-  #body = (
-    (
-      #return
-      (#if flag 1.5 2.5)
-    )
-  );
+  #body = ((#return (#if flag
+        1.5
+        2.5
+      )));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #if
-        (#f32::gt
-          (#call choose ((flag true)))
-          1.0
-        )
+  #body = ((#return (#if (#f32::gt (#call choose ((flag true))) 1.0)
         42
         0
-      )
-    )
-  );
+      )));
 }

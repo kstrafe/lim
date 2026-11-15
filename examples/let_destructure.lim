@@ -12,10 +12,7 @@
 #fn sum-point {
   #params = ((value Point));
   #returns = #u64;
-  #body = (
-    (#let (Point x y) Point value)
-    (#return (#u64::add-wrap x y))
-  );
+  #body = ((#let (Point x y) Point value) (#return (#u64::add-wrap x y)));
 }
 
 #fn main {

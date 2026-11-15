@@ -1,15 +1,11 @@
 #fn saturate {
   #params = ((value #i8));
   #returns = #i8;
-  #body = (
-    (#return (#i8::sub-saturate value))
-  );
+  #body = ((#return (#i8::sub-saturate value)));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#as (#call saturate ((value -128))) #u64))
-  );
+  #body = ((#return (#as (#call saturate ((value -128))) #u64)));
 }

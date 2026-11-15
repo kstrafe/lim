@@ -1,10 +1,12 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return
-      (#match (#tuple (#tuple #u64 #u64) 10 32)
-        (#case (#tuple 10 middle) middle)
-        (#case _ 0)))
-  );
+  #body = ((#return (#match (#tuple (#tuple #u64 #u64) 10 32)
+        (#case (#tuple 10 middle)
+          middle
+        )
+        (#case _
+          0
+        )
+      )));
 }

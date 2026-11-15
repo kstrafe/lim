@@ -1,14 +1,9 @@
-#cfg-if (#cfg-is #platform linux)
-    (#fn main {
+#cfg-if (#cfg-is #platform linux) (#fn main {
+    #params = ();
+    #returns = #u64;
+    #body = ((#return 42u64));
+  }) (#cfg-else (#fn main {
       #params = ();
       #returns = #u64;
-      #body = ( (#return 42u64)
-      );
-    })
-    (#cfg-else
-      (#fn main {
-        #params = ();
-        #returns = #u64;
-        #body = ( (#return 1u64)
-        );
-      }))
+      #body = ((#return 1u64));
+    }))

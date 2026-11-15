@@ -3,37 +3,27 @@
 #fn counter-new {
   #params = ((value #u64));
   #returns = Counter;
-  #body = (
-    (#return (#struct-literal Counter ((value value))))
-  );
+  #body = ((#return (#struct-literal Counter ((value value)))));
 }
 
 #fn counter-read {
   #params = ((counter (#ref Counter)));
   #returns = #u64;
-  #body = (
-    (#return (#call counter-value ((counter counter))))
-  );
+  #body = ((#return (#call counter-value ((counter counter)))));
 }
-
 // Private implementation shared by ordinary API functions and the generator.
+
 #fn counter-value {
   #params = ((counter (#ref Counter)));
   #returns = #u64;
-  #body = (
-    (#return (#get counter value))
-  );
+  #body = ((#return (#get counter value)));
 }
 
-#gn counter-reader (name)
-    `((#fn ,name ((counter (#ref @Counter))) #u64
+#gn counter-reader (name) `((#fn ,name ((counter (#ref @Counter))) #u64
         (#return (#call @counter-value ((counter counter))))))
 
 #fn counter-destroy {
   #params = ((counter Counter));
   #returns = ();
-  #body = (
-    (#forget counter)
-    (#return ())
-  );
+  #body = ((#forget counter) (#return ()));
 }

@@ -3,9 +3,7 @@
 #fn discriminant {
   #params = ((value Color));
   #returns = #u64;
-  #body = (
-    (#return (#as value #u64))
-  );
+  #body = ((#return (#as value #u64)));
 }
 
 #fn main {

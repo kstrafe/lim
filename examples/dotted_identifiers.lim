@@ -1,15 +1,11 @@
 #fn Math::add-one {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return 41u64)
-  );
+  #body = ((#return 41u64));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#u64::add-wrap (#call Math::add-one ()) 1u64))
-  );
+  #body = ((#return (#u64::add-wrap (#call Math::add-one ()) 1u64)));
 }

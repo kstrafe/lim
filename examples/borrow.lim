@@ -3,10 +3,9 @@
   #returns = #u64;
   #body = (
     (#let-mut value #u64 40)
-    (#return
-      (#borrow-mut value
-        (#block
+    (#return (#borrow-mut value (#block
           (#set value 42)
-          value)))
+          value
+        )))
   );
 }

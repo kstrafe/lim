@@ -8,7 +8,10 @@ exit 42 index_contracts.lim - -
 exit 42 generated_array.lim - -
 exit 42 surface_syntax.lim - -
 exit 42 surface_statics.lim - -
+exit 42 let_delimiters.lim - -
+exit 42 record_puns.lim - -
 exit 0 print_numbers.lim tests/fixtures/print_numbers.stdout -
+exit 0 tutorial_hello.lim tests/fixtures/tutorial_hello.stdout -
 exit 42 aarch64_scalar.lim - -
 exit 42 aarch64_ownership.lim - -
 exit 42 aarch64_syscall.lim examples/aarch64_syscall.stdout -
@@ -463,3 +466,4 @@ module generator_contexts.lim generator_contexts/lib.lim - -
 module library_boundary.lim encapsulation/lib.lim - -
 module library_boundary.lim encapsulation/storage.lim - -
 exit 42 encapsulation/test.lim - -
+exit 42 predicate_prerequisites.lim - -

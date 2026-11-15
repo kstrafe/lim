@@ -1,9 +1,9 @@
 # Tutorial {#tutorial}
 
 Lim is a statically typed Lisp with explicit returns, ownership and arithmetic
-behavior. A small surface reader turns records, infix expressions and indentation
-into the same trees that code generators manipulate. Builtins begin with `#`;
-your names do not.
+behavior. Surface syntax sugar—named records, colon and indentation grouping,
+and typed infix expressions—reduces nesting and visual noise while keeping those
+semantics explicit. Builtins begin with `#`; your names do not.
 
 Start here, then use the [complete language reference](#language-reference),
 [alphabetical builtin table](#complete--builtin-reference-alphabetical), or
@@ -11,9 +11,43 @@ Start here, then use the [complete language reference](#language-reference),
 [browser playground](playground.html) runs small examples with the real compiler.
 The full native language is broader than its first WebAssembly backend.
 
-## 1. Return a value {#first-program}
+## 1. Print Hello, world! {#first-program}
 
-This entire program returns 42:
+This program builds a string, prints it to standard output, releases it, and
+explicitly returns unit:
+
+```lisp run=0
+#std
+
+#fn main {
+  #params = {};
+  #returns = ();
+  #body:
+    #let greeting (#array #char 13) "Hello, world!";
+    #let message String:
+      #match String::from-chars { text = (#borrow-slice greeting); }
+        (#case (StringCreateResult.StringCreated owned) owned)
+        (#case (StringCreateResult.StringCreateFailed error) (#panic))
+    #assert [#i64; (#println (#borrow message)) == 0i64];
+    String::free { string = message; };
+    #return ();
+}
+```
+
+`#std` opts into the bundled String and stdout modules. `String::from-chars`
+returns a result, so the program handles both success and failure. `#println`
+borrows the string, writes its UTF-8 text and a newline, and returns zero on
+success; the assertion checks that status. The string remains owned until
+`String::free` releases it.
+
+`#fn` declares a function. `#params` is a record of parameter names and types;
+this function has none. `#returns` is always explicit, and `#body` contains the
+function’s forms. A function with no value uses `#returns = ();` and
+`#return ();`.
+
+## 2. Return a value {#return-value-tutorial}
+
+This program returns 42 as its exit status:
 
 ```lisp run=42
 #fn main {
@@ -23,34 +57,28 @@ This entire program returns 42:
 }
 ```
 
-`#fn` declares a function. `#params` is a record of parameter names and types;
-this function has none. `#returns` is always explicit. `#body` contains the
-function’s forms. `#u64` is an unsigned 64-bit integer. An unsuffixed literal
-gets its type from this explicitly declared context; `42u64` spells it directly.
+`#u64` is an unsigned 64-bit integer. An unsuffixed literal gets its type from
+this explicitly declared context; `42u64` spells it directly. The playground
+displays the returned value. Native exit statuses are limited by the operating
+system, so returning a number is different from printing text.
 
-For a function that returns no value, use `#returns = ();` and `#return ();`.
-Empty `#requires`, `#ensures` and `#preserves` fields may be omitted.
-
-Run this natively from a checkout:
+Run the printing example natively from a checkout:
 
 ```sh
 nix develop
 cargo build
-./target/debug/lim example.lim -o /tmp/example
-/tmp/example
-echo $?  # 42: the program's exit status, not printed output
+./target/debug/lim examples/tutorial_hello.lim -o /tmp/tutorial-hello
+/tmp/tutorial-hello
 ```
 
-The playground displays the returned value directly. Native exit statuses are
-limited by the operating system; returning a number is different from printing.
-
-## 2. Read the tree beneath the sugar {#syntax-cheat-sheet}
+## 3. Read the tree beneath the sugar {#syntax-cheat-sheet}
 
 Each surface form has a local, mechanical interpretation:
 
 | Surface spelling | Tree or meaning |
 | --- | --- |
 | `{ left = x; right = y; }` | `((left x) (right y))` |
+| `{ left; right; }` | `((left left) (right right))` |
 | `(a : b c)` | `(a (b c))` |
 | `(a : b : c)` | `(a (b (c)))` |
 | `: a b` | `(a b)` |
@@ -64,8 +92,9 @@ Inline colons consume through a newline, semicolon, or enclosing closing
 delimiter. Consecutive colons nest to the right. Semicolons inside explicit
 parentheses or an indented group belong to that group. Use spaces for layout.
 
-Curly braces contain only `key = value;` entries, with `key:` available when the
-value is colon-grouped. Parentheses delimit ordinary forms; square brackets
+Curly braces contain named entries: `key = value;`, or `key;` when the variable
+has the same name. Borrowing stays explicit. Use `key:` when the value is
+colon-grouped. Parentheses delimit ordinary forms; square brackets
 select infix parsing. Nested square brackets inherit their arithmetic header
 only through direct bracket nesting. A function-call parenthesis ends that
 inheritance, so brackets inside the call need their own header.
@@ -78,7 +107,7 @@ shows syntax data beneath the surface notation; source files use bare roots:
   (#return (#u64::add-wrap 40u64 2u64)))
 ```
 
-## 3. Declare and call a function {#functions-tutorial}
+## 4. Declare and call a function {#functions-tutorial}
 
 Calls name their arguments. Their written order can differ from the declaration;
 expressions are evaluated once in the order you write them. Names choose the
@@ -107,7 +136,7 @@ an arithmetic mode, such as `[#u64; value < 100]`.
 Handwritten code can call an ordinary function with its name and an argument
 record. Functions are free-standing declarations; there is no method lookup.
 
-## 4. Mutate a local and write a loop {#loops-tutorial}
+## 5. Mutate a local and write a loop {#loops-tutorial}
 
 `#let` binds an immutable value. `#let-mut` permits assignment with `#set`.
 A range is half-open: `1` through `11` means the numbers 1 through 10.
@@ -133,7 +162,7 @@ For actual printed output, see the working
 [1-through-10 native printing example](../examples/print_numbers.lim).
 The browser’s initial scalar backend reports return values instead of host I/O.
 
-## 5. Validate an API argument once {#contracts-tutorial}
+## 6. Validate an API argument once {#contracts-tutorial}
 
 A predicate is an ordinary pure Boolean function. A function that requires it
 can be called only where the checker already has matching evidence.
@@ -184,7 +213,7 @@ Use `--check-contracts` when testing native programs. It audits requirements,
 postconditions and preservation, but does not prove a programmer’s promise for
 all inputs. Production can omit these extra audits. The playground enables them.
 
-## 6. Borrow storage explicitly {#borrowing-tutorial}
+## 7. Borrow storage explicitly {#borrowing-tutorial}
 
 A mutable reference grants exclusive access. End it before using the owner again:
 
@@ -215,7 +244,7 @@ restoration rules. A valid property of an unrelated field can remain available.
 This example can use **Check only** in the browser; reference code generation
 currently belongs to the native backend.
 
-## 7. Prove an array index {#array-evidence-tutorial}
+## 8. Prove an array index {#array-evidence-tutorial}
 
 This checks the exact comparison needed by the access, then uses its evidence:
 
@@ -241,7 +270,7 @@ helper. The checker does not discover the conversion on its own. Proven access
 omits the bounds check in production; instrumented compilation audits the access.
 This example is available through **Check only** in the browser.
 
-## 8. Generate a concrete type {#generators-tutorial}
+## 9. Generate a concrete type {#generators-tutorial}
 
 Generators produce concrete declarations instead of hidden runtime dispatch:
 
@@ -266,7 +295,7 @@ Use the [generator reference](#user-defined-generators) for syntax bundles,
 quoting, generated declarations, validation witnesses and file authority.
 Generating a type does not make it an opaque mathematical proof.
 
-## 9. Follow a diagnostic {#diagnostics-tutorial}
+## 10. Follow a diagnostic {#diagnostics-tutorial}
 
 The compiler distinguishes parsing, generation, types, borrows, linearity,
 unsafe use, contracts, code generation and linking. A failed check gives a
@@ -288,7 +317,7 @@ with the available evidence. For borrow errors, inspect which owner or reference
 still has access. For unsupported WebAssembly code generation, use **Check only**
 or run the example natively.
 
-## 10. Keep the compiler stages in view {#pipeline-tutorial}
+## 11. Keep the compiler stages in view {#pipeline-tutorial}
 
 <svg class="pipeline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 120" role="img" aria-labelledby="pipeline-title pipeline-desc">
 <title id="pipeline-title">Lim compilation pipeline</title><desc id="pipeline-desc">Source is read into trees, expanded, checked, then emitted for native execution or the teaching WebAssembly backend.</desc>

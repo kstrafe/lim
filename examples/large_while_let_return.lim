@@ -1,10 +1,7 @@
 #fn values {
   #params = ();
   #returns = (#array #u64 7);
-  #body = (
-    (#return (#array-of (#array #u64 7)
-      1u64 2u64 3u64 4u64 5u64 6u64 42u64))
-  );
+  #body = ((#return (#array-of (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)));
 }
 
 #fn main {
@@ -13,11 +10,8 @@
   #body = (
     (#let-mut value (#array #u64 7) (#call values ()))
     (#let-mut total #u64 0u64)
-    (#while-let
-      (#array 1u64 _ _ _ _ _ _)
-      value
-      (#set total (#index value 6u64))
-      (#set-index value 0u64 0u64))
+    (#while-let (#array 1u64 _ _ _ _ _ _) value (#set total (#index value 6u64)) (#set-index value
+        0u64 0u64))
     (#return total)
   );
 }

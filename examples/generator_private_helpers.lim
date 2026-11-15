@@ -2,7 +2,6 @@
 #alias counters@counter-destroy = ./encapsulation/lib.lim::counter-destroy
 #alias counters@counter-new = ./encapsulation/lib.lim::counter-new
 #alias counters@counter-reader = ./encapsulation/lib.lim::counter-reader
-
 // The generated file's definition context permits counters@counter-value.
 // Ordinary consumer code still cannot call that private helper directly.
 #generate counters@counter-reader read-generated-counter
@@ -11,10 +10,8 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#let counter counters@Counter
-      (#call counters@counter-new ((value 42u64))))
-    (#let answer #u64
-      (#call read-generated-counter ((counter (#borrow counter)))))
+    (#let counter counters@Counter (#call counters@counter-new ((value 42u64))))
+    (#let answer #u64 (#call read-generated-counter ((counter (#borrow counter)))))
     (#call counters@counter-destroy ((counter counter)))
     (#return answer)
   );

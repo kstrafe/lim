@@ -5,9 +5,11 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#if (#i128::eq quotient minimum)
-      (#if (#i128::eq remainder 0) 42 0)
-      0))
-  );
+  #body = ((#return (#if (#i128::eq quotient minimum)
+        (#if (#i128::eq remainder 0)
+          42
+          0
+        )
+        0
+      )));
 }

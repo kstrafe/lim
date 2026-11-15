@@ -1,8 +1,5 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return
-      (#index (#array-repeat (#array #u64 3) 42) 2))
-  );
+  #body = ((#return (#index (#array-repeat (#array #u64 3) 42) 2)));
 }

@@ -1,12 +1,12 @@
 // Exclusive references transfer through aggregate arguments and return values.
 #struct View () ((value (#ref-mut #u64)))
+
 #fn package {
   #params = ((value (#ref-mut #u64)));
   #returns = View;
-  #body = (
-    (#return (#struct-literal View ((value value))))
-  );
+  #body = ((#return (#struct-literal View ((value value)))));
 }
+
 #fn increment {
   #params = ((view View));
   #returns = #u64;
@@ -19,6 +19,7 @@
     (#return result)
   );
 }
+
 #fn main {
   #params = ();
   #returns = #u64;

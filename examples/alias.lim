@@ -1,27 +1,13 @@
 #type UserId #u64
 
-#fn
-    add_one {
-  #params = (
-      (id UserId)
-    );
+#fn add_one {
+  #params = ((id UserId));
   #returns = UserId;
-  #body = (
-    (
-      #return
-      (#u64::add-wrap  id 1)
-    )
-  );
+  #body = ((#return (#u64::add-wrap id 1)));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = UserId;
-  #body = (
-    (
-      #return
-      (#call add_one ((id 41)))
-    )
-  );
+  #body = ((#return (#call add_one ((id 41)))));
 }

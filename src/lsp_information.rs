@@ -1,7 +1,7 @@
 //! Editor information uses the navigation resolver's declaration identities.
 //! Presentation reads authored spans instead of exposing compiler-private names.
-use super::navigation::Index;
-use crate::{editor::NavigationContext, Expr, SourceFile, Span, SpannedExpr as Node, Type};
+use super::navigation::{Index, binding_parts};
+use crate::{Expr, SourceFile, Span, SpannedExpr as Node, Type, editor::NavigationContext};
 
 pub(crate) struct Signature {
     pub label: String,
@@ -23,11 +23,7 @@ fn head(node: &Node) -> &str {
         .trim_start_matches('#')
 }
 fn name_index(node: &Node) -> usize {
-    if head(node) == "extern-fn" {
-        2
-    } else {
-        1
-    }
+    if head(node) == "extern-fn" { 2 } else { 1 }
 }
 fn is_function(node: &Node) -> bool {
     matches!(
@@ -120,6 +116,173 @@ fn display_type(context: &NavigationContext, kind: &Type) -> String {
     }
     crate::type_source(&authored(context, kind))
 }
+/// Match the resolver's declaration identity, not the spelling at the call or
+/// in the authored form. Imported/private functions may share local names.
+fn computed_requirements<'a>(
+    context: &'a NavigationContext,
+    node: &Node,
+) -> Option<&'a crate::contracts::prerequisites::Requirements> {
+    let program = context.program.as_ref()?;
+    let target = node.children.get(name_index(node))?.span;
+    let mut candidates = program.contracts.effective_requires.iter()
+        .filter(|(name, _)| {
+            program.declaration_expressions.get(*name).is_some_and(|source| {
+                is_function(source)
+                    && source.children.get(name_index(source))
+                        .is_some_and(|name| name.span == target)
+            })
+        });
+    let (_, requirements) = candidates.next()?;
+    candidates.next().is_none().then_some(requirements)
+}
+
+fn predicate_text(context: &NavigationContext, expression: &Expr) -> String {
+    fn authored(context: &NavigationContext, expression: &Expr) -> Expr {
+        match expression {
+            Expr::List(xs) => {
+                if let Some(Expr::Function(name)) = xs.first() {
+                    if let Some(function) = context
+                        .program
+                        .as_ref()
+                        .and_then(|program| program.contracts.originals.get(name))
+                    {
+                        let arguments = function.parameters.iter().zip(xs.iter().skip(1))
+                            .map(|(parameter, argument)| {
+                                Expr::List(vec![
+                                    Expr::Symbol(parameter.name.clone()),
+                                    authored(context, argument),
+                                ].into())
+                            })
+                            .collect::<Vec<_>>();
+                        return Expr::List(
+                            vec![
+                                Expr::Symbol("#call".into()),
+                                Expr::Symbol(name_for_type(context, name)),
+                                Expr::List(arguments.into()),
+                            ].into(),
+                        );
+                    }
+                }
+                Expr::List(
+                    xs.iter().enumerate().map(|(index, expression)| {
+                        if index == 0 {
+                            if let Expr::Symbol(name) = expression {
+                                return Expr::Symbol(
+                                    crate::names::numeric_source(name).unwrap_or_else(|| {
+                                        format!("#{}", name.trim_start_matches('#'))
+                                    }),
+                                );
+                            }
+                        }
+                        authored(context, expression)
+                    }).collect::<Vec<_>>().into(),
+                )
+            }
+            Expr::Symbol(name) | Expr::Function(name) => {
+                Expr::Symbol(name_for_type(context, name))
+            }
+            _ => expression.clone(),
+        }
+    }
+    crate::expression_source(&authored(context, expression)).unwrap_or_default()
+}
+
+fn origin_location(context: &NavigationContext, span: Span) -> String {
+    files(context).get(span.source_id as usize).map_or_else(
+        || format!("{}:{}", span.line, span.column),
+        |file| format!("{}:{}:{}", file.path.display(), span.line, span.column),
+    )
+}
+
+fn computed_contracts(context: &NavigationContext, node: &Node) -> Vec<String> {
+    let Some(requirements) = computed_requirements(context, node) else {
+        return Vec::new();
+    };
+    if requirements.nodes.is_empty() {
+        return Vec::new();
+    }
+    // Metadata is bounded separately by the checker. Keep editor output small
+    // too, and show DAG edges once instead of enumerating dependency paths.
+    const NODE_LIMIT: usize = 64;
+    const ORIGIN_LIMIT: usize = 128;
+    const TEXT_LIMIT: usize = 64 * 1024;
+    const OMITTED: &str = "// Additional prerequisite information omitted (display limit).";
+    let mut output = Vec::new();
+    let mut bytes = 0;
+    let mut append = |line: String| {
+        if bytes + line.len() + 1 > TEXT_LIMIT - OMITTED.len() - 1 {
+            false
+        } else {
+            bytes += line.len() + 1;
+            output.push(line);
+            true
+        }
+    };
+    let mut numbers = vec![None; requirements.nodes.len()];
+    let mut roots = vec![false; requirements.nodes.len()];
+    for root in &requirements.roots {
+        roots[root.node] = true;
+    }
+    append("// Computed requirements (prerequisites first)".into());
+    let mut omitted = requirements.order.len() > NODE_LIMIT;
+    for (index, &id) in requirements.order.iter().take(NODE_LIMIT).enumerate() {
+        let kind = if roots[id] {
+            "requirement root"
+        } else {
+            "inherited prerequisite"
+        };
+        let expression = predicate_text(context, &requirements.nodes[id].expression);
+        if !append(format!("// [{}] {kind}\n(#requires {expression})", index + 1)) {
+            omitted = true;
+            break;
+        }
+        numbers[id] = Some(index + 1);
+    }
+    append("// Origin chains (shared obligations reuse their number)".into());
+    let fallback = node.children[name_index(node)].span;
+    let mut origins = 0;
+    for root in &requirements.roots {
+        if let Some(number) = numbers[root.node] {
+            if origins >= ORIGIN_LIMIT
+                || !append(format!(
+                    "// root requirement -> [{number}] at {}{}",
+                    origin_location(context, root.span.unwrap_or(fallback)),
+                    if root.span.is_none() { " (signature constraint)" } else { "" },
+                ))
+            {
+                omitted = true;
+                break;
+            }
+            origins += 1;
+        }
+    }
+    for &id in requirements.order.iter().take(NODE_LIMIT) {
+        let Some(parent) = numbers[id] else {
+            continue;
+        };
+        for prerequisite in &requirements.nodes[id].prerequisites {
+            let Some(child) = numbers[prerequisite.node] else {
+                continue;
+            };
+            let location = prerequisite.span
+                .map(|span| format!(" at {}", origin_location(context, span)))
+                .unwrap_or_default();
+            if origins >= ORIGIN_LIMIT
+                || !append(format!("// [{parent}] -> prerequisite [{child}]{location}"))
+            {
+                omitted = true;
+                break;
+            }
+            origins += 1;
+        }
+    }
+    if omitted {
+        // This short marker is always available even when the text cap is hit.
+        output.push(OMITTED.into());
+    }
+    output
+}
+
 fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signature> {
     if !is_function(node) {
         return None;
@@ -172,9 +335,12 @@ fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signat
         .filter(|child| matches!(head(child), "requires" | "ensures" | "preserves"))
         .map(|child| text(context, child))
         .collect::<Vec<_>>();
-    // Navigation has already selected the source declaration, including through
-    // aliases. Show its written permission interface without inferring grants
-    // from bodies or expanding #effects-of into predicate-style obligations.
+    if !contracts.is_empty() {
+        contracts.insert(0, "// Authored contracts".into());
+    }
+    contracts.extend(computed_contracts(context, node));
+    // Navigation selected the source declaration, including through aliases.
+    // Permissions remain a separate written interface, never predicate facts.
     if let Some(effects) = node.children.get(ni + 3).filter(|node| head(node) == "effects") {
         contracts.push("// Declared effects".into());
         contracts.push(text(context, effects));
@@ -278,7 +444,7 @@ fn description(context: &NavigationContext, node: &Node, target: Span) -> Option
     if xs.get(1).is_some_and(|name| name.span == target) {
         match head(node) {
             "let" | "let-mut" | "const" | "static" => {
-                let kind = xs.get(2).filter(|kind| typed(kind))?;
+                let kind = binding_parts(node).0.filter(|kind| typed(kind))?;
                 return Some(format!(
                     "(#{} {} {})",
                     head(node),
@@ -287,7 +453,7 @@ fn description(context: &NavigationContext, node: &Node, target: Span) -> Option
                 ));
             }
             "type" | "struct" | "enum" | "distributed-enum" | "capability" => {
-                return Some(text(context, node))
+                return Some(text(context, node));
             }
             "gn" | "gn-fn" => {
                 return Some(format!(
@@ -295,7 +461,7 @@ fn description(context: &NavigationContext, node: &Node, target: Span) -> Option
                     head(node),
                     text(context, &xs[1]),
                     text(context, xs.get(2)?)
-                ))
+                ));
             }
             "syntax" => return Some(format!("(#syntax {})", text(context, &xs[1]))),
             _ => {}

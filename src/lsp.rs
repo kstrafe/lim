@@ -443,7 +443,14 @@ impl Server<'_> {
                 .get(&uri)
                 .map(|d| format!(",\"version\":{}", d.version))
                 .unwrap_or_default();
-            json::write_frame(out, &format!("{{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{{\"uri\":{}{version},\"diagnostics\":[{}]}}}}", quoted(&uri), diagnostics.join(",")))?;
+            json::write_frame(
+                out,
+                &format!(
+                    "{{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{{\"uri\":{}{version},\"diagnostics\":[{}]}}}}",
+                    quoted(&uri),
+                    diagnostics.join(",")
+                ),
+            )?;
         }
         Ok(())
     }
@@ -475,8 +482,10 @@ impl Server<'_> {
         let contexts = match crate::lsp_context::LspContext::read_all(manifest) {
             Ok(contexts) => contexts,
             Err(message) => {
-                return vec![Diagnostic::new(crate::DiagnosticCode::Cli, message)
-                    .with_source(doc.path.display().to_string(), &doc.text)]
+                return vec![
+                    Diagnostic::new(crate::DiagnosticCode::Cli, message)
+                        .with_source(doc.path.display().to_string(), &doc.text),
+                ];
             }
         };
         let multiple = contexts.len() > 1;
@@ -1366,7 +1375,12 @@ fn diagnostic_json(
         crate::DiagnosticSeverity::Error => 1,
         crate::DiagnosticSeverity::Warning => 2,
     };
-    format!("{{\"range\":{location},\"severity\":{severity},\"code\":{},\"source\":\"lim\",\"message\":{},\"relatedInformation\":[{}]}}", quoted(&d.code_string()), quoted(&message), related.join(","))
+    format!(
+        "{{\"range\":{location},\"severity\":{severity},\"code\":{},\"source\":\"lim\",\"message\":{},\"relatedInformation\":[{}]}}",
+        quoted(&d.code_string()),
+        quoted(&message),
+        related.join(",")
+    )
 }
 
 struct Declaration {
@@ -1560,7 +1574,15 @@ fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
             continue;
         }
         let index = match head {
-            Some("#let" | "#let-mut" | "#const" | "#static" | "#type") => Some(2),
+            Some("#let" | "#let-mut") => {
+                if let Some(kind) = navigation::binding_parts(expr).0 {
+                    if let Some(name) = in_type(kind, byte) {
+                        return Some(name);
+                    }
+                }
+                None
+            }
+            Some("#const" | "#static" | "#type") => Some(2),
             Some("#struct-literal") => Some(1),
             Some("#enum-contribute") => {
                 if let Some(name) = expr
@@ -1648,7 +1670,9 @@ fn declarations(source: &str) -> Vec<Declaration> {
 }
 
 fn range(sl: usize, sc: usize, el: usize, ec: usize) -> String {
-    format!("{{\"start\":{{\"line\":{sl},\"character\":{sc}}},\"end\":{{\"line\":{el},\"character\":{ec}}}}}")
+    format!(
+        "{{\"start\":{{\"line\":{sl},\"character\":{sc}}},\"end\":{{\"line\":{el},\"character\":{ec}}}}}"
+    )
 }
 pub fn byte_position(text: &str, byte: usize) -> (usize, usize) {
     let mut byte = byte.min(text.len());
@@ -1790,8 +1814,7 @@ pub fn path_to_uri(path: &Path) -> Option<String> {
 mod tests {
     #[test]
     fn distributed_enum_declarations_and_payloads_are_indexed() {
-        let source =
-            "#distributed-enum Error ()\n#enum-contribute Error (Error.Failure Payload)\n";
+        let source = "#distributed-enum Error ()\n#enum-contribute Error (Error.Failure Payload)\n";
         let definitions = super::declarations(source);
         assert_eq!(definitions.len(), 1);
         assert_eq!(definitions[0].name, "Error");

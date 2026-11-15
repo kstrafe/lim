@@ -1,19 +1,10 @@
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let-mut total #u64 0)
-    (
-      #for-range
-      (i #u64)
-      0
-      10
-      (
-        #set
-        total
-        (#u64::add-wrap  total i)
-      )
+    (#for-range (i #u64) 0 10
+      (#set total (#u64::add-wrap total i))
     )
     (#return total)
   );

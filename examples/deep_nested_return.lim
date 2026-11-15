@@ -1,23 +1,19 @@
 #fn make {
   #params = ();
   #returns = (#array (#array #u64 7) 2);
-  #body = (
-    (#return (#array (#array (#array #u64 7) 2)
-      (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)
-      (#array (#array #u64 7) 10u64 20u64 30u64 40u64 50u64 60u64 42u64)))
-  );
+  #body = ((#return (#array (#array (#array #u64 7) 2) (#array (#array #u64 7) 1u64 2u64 3u64 4u64
+          5u64 6u64 7u64) (#array (#array #u64 7) 10u64 20u64 30u64 40u64 50u64 60u64 42u64))));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return
-      (#match (#call make ())
-        (#case (#array
-          (#array _ _ _ _ _ _ _)
-          (#array first second third fourth fifth sixth last))
-         last)
-        (#case _ 0u64)))
-  );
+  #body = ((#return (#match (#call make ())
+        (#case (#array (#array _ _ _ _ _ _ _) (#array first second third fourth fifth sixth last))
+          last
+        )
+        (#case _
+          0u64
+        )
+      )));
 }

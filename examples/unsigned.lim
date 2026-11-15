@@ -1,17 +1,11 @@
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let value #u64 1)
-    (
-      #return
-      (
-        #if
-        (#u64::lt  value 2)
+    (#return (#if (#u64::lt value 2)
         42
         7
-      )
-    )
+      ))
   );
 }

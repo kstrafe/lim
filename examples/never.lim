@@ -1,23 +1,20 @@
 #fn abort {
   #params = ();
   #returns = !;
-  #body = (
-    (#return (#unreachable))
-  );
+  #body = ((#return (#unreachable)));
 }
 
 #fn choose {
   #params = ((condition #bool));
   #returns = #u64;
-  #body = (
-    (#return (#if condition 42 (#call abort ())))
-  );
+  #body = ((#return (#if condition
+        42
+        (#call abort ())
+      )));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#call choose ((condition false))))
-  );
+  #body = ((#return (#call choose ((condition false)))));
 }

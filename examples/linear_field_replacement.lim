@@ -7,33 +7,29 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#let-mut owner Owner
-      (#struct-literal Owner ((item (#struct-literal Resource ((number 1u64)))))))
+    (#let-mut owner Owner (#struct-literal Owner
+        ((item (#struct-literal Resource ((number 1u64)))))))
     (#let previous #u64 (#get (#get owner item) number))
     (#forget (#get owner item))
     (#set-field owner item (#struct-literal Resource ((number 11u64))))
     (#let replacement #u64 (#get (#get owner item) number))
     (#forget owner)
-    (#let-mut tuple (#tuple Resource)
-      (#tuple (#struct-literal Resource ((number 1u64)))))
+    (#let-mut tuple (#tuple Resource) (#tuple (#struct-literal Resource ((number 1u64)))))
     (#forget (#get tuple 0))
     (#set-field tuple 0 (#struct-literal Resource ((number 10u64))))
     (#let tuple-number #u64 (#get (#get tuple 0) number))
     (#forget tuple)
-    (#let-mut array (#array Resource 1)
-      (#array (#struct-literal Resource ((number 1u64)))))
+    (#let-mut array (#array Resource 1) (#array (#struct-literal Resource ((number 1u64)))))
     (#forget (#index array 0u64))
     (#set-index array 0u64 (#struct-literal Resource ((number 10u64))))
     (#let array-number #u64 (#get (#index array 0u64) number))
     (#forget array)
-    (#let-mut payload Container
-      (Container.Contained (#struct-literal Resource ((number 1u64)))))
+    (#let-mut payload Container (Container.Contained (#struct-literal Resource ((number 1u64)))))
     (#forget (#get-payload payload Container.Contained 0))
     (#set-payload payload Container.Contained 0 (#struct-literal Resource ((number 10u64))))
     (#let payload-number #u64 (#get (#get-payload payload Container.Contained 0) number))
     (#forget payload)
-    (#return
-      (#u64::add-wrap (#u64::add-wrap previous replacement)
-        (#u64::add-wrap tuple-number (#u64::add-wrap array-number payload-number))))
+    (#return (#u64::add-wrap (#u64::add-wrap previous replacement) (#u64::add-wrap tuple-number
+          (#u64::add-wrap array-number payload-number))))
   );
 }

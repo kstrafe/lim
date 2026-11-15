@@ -1,22 +1,24 @@
 //; Contiguous explicit tags use a bounds-checked native jump table. Source
 //; declaration and case order need not match the discriminant order.
-#enum Work ()
-    ((Work.Read 11 #u64)
-     (Work.Idle 10)
-     (Work.Finished 13 #u64)
-     (Work.Write 12 #u64))
+#enum Work () ((Work.Read 11 #u64) (Work.Idle 10) (Work.Finished 13 #u64) (Work.Write 12 #u64))
 
 #fn dispatch {
   #params = ((task Work));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match task
-        (#case (Work.Finished result) result)
-        (#case (Work.Write written) written)
-        (#case Work.Idle 0u64)
-        (#case (Work.Read received) received)))
-  );
+  #body = ((#return (#match task
+        (#case (Work.Finished result)
+          result
+        )
+        (#case (Work.Write written)
+          written
+        )
+        (#case Work.Idle
+          0u64
+        )
+        (#case (Work.Read received)
+          received
+        )
+      )));
 }
 
 #fn main {

@@ -10,7 +10,6 @@
 #alias wake-ready4-notify = ../library/wake_ready4.lim::wake-ready4-notify
 #alias wake-ready4-register = ../library/wake_ready4.lim::wake-ready4-register
 #alias wake-ready4-retire = ../library/wake_ready4.lim::wake-ready4-retire
-
 //; A pre-published local wake must make the blocking wait return immediately,
 //; even when the only descriptor is disabled and can never become ready.
 
@@ -21,28 +20,47 @@
   #returns = #u64;
   #body = (
     (#let-mut queue WakeReady4 (#call wake-ready4-create ()))
-    (#let registration WakeRegister4
-      (#call wake-ready4-register ((queue (#borrow-mut queue)) (slot 0usize))))
+    (#let registration WakeRegister4 (#call wake-ready4-register ((queue (#borrow-mut queue))
+          (slot 0usize))))
     (#let token WakeToken4 (#match registration
-      (#case (WakeRegister4.WakeRegistered4 value) value)
-      (#case _ (#unreachable))))
+        (#case (WakeRegister4.WakeRegistered4 value)
+          value
+        )
+        (#case _
+          (#unreachable)
+        )
+      ))
     (#assert (#call wake-ready4-notify ((queue (#borrow queue)) (token token))))
-    (#let source AsyncPollSource4
-      (#call async-poll4-source
-        ((fd -1i64) (queue (#borrow queue)) (token token))))
+    (#let source AsyncPollSource4 (#call async-poll4-source ((fd -1i64) (queue (#borrow queue))
+          (token token))))
     (#let entries (#array AsyncPollSource4 1) (#array-of (#array AsyncPollSource4 1) source))
     (#let sources (#slice AsyncPollSource4) (#borrow-slice entries))
-    (#let result AsyncPoll4Result
-      (#call async-poll4-wait ((sources sources) (timeout-ms -1i32))))
+    (#let result AsyncPoll4Result (#call async-poll4-wait ((sources sources) (timeout-ms -1i32))))
     (#let ready #bool (#match result
-      (#case (AsyncPoll4Result.AsyncPoll4Ready mask) (#u32::eq mask 1u32))
-      (#case (AsyncPoll4Result.AsyncPoll4Failed error) (#block (#forget error) false))))
+        (#case (AsyncPoll4Result.AsyncPoll4Ready mask)
+          (#u32::eq mask 1u32)
+        )
+        (#case (AsyncPoll4Result.AsyncPoll4Failed error)
+          (#block
+            (#forget error)
+            false
+          )
+        )
+      ))
     (#let retired WakeRetire4
       (#call wake-ready4-retire ((queue (#borrow-mut queue)) (token token))))
     (#assert (#match retired
-      (#case WakeRetire4.WakeRetired4 true)
-      (#case WakeRetire4.WakeStale4 false)))
+        (#case WakeRetire4.WakeRetired4
+          true
+        )
+        (#case WakeRetire4.WakeStale4
+          false
+        )
+      ))
     (#forget queue)
-    (#return (#if ready 42u64 1u64))
+    (#return (#if ready
+        42u64
+        1u64
+      ))
   );
 }

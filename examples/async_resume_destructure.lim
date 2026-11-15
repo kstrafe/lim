@@ -2,40 +2,50 @@
 #struct Values () ((z (#tuple #u16 #u16)) (a #u64))
 #enum Step () ((Step.Start #u64) (Step.Resume #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return (#match task
-      (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
-      (#case (Step.Resume value) (StepPoll.StepReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (Step.Start value)
+          (StepPoll.StepPending (Step.Resume value))
+        )
+        (#case (Step.Resume value)
+          (StepPoll.StepReady value)
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work ((values Values)) #u64
-      (#let first #u64
-        (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start 9u64)))
-      (#let-mut (Values (#tuple left right) bias) Values values)
-      (#set bias (#u64::add-wrap bias 2u64))
-      (#set right (#u16::add-wrap right 1u16))
-      (#let second #u64
-        (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as right #u64))))
-      (#return (#u64::add-wrap (#u64::add-wrap first second) bias)))))
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((values Values)) #u64
+      (#let first #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll
+          (Step.Start 9u64))) (#let-mut (Values (#tuple left right) bias) Values values) (#set
+        bias (#u64::add-wrap bias 2u64)) (#set right (#u16::add-wrap right 1u16)) (#let second
+        #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as
+              right #u64)))) (#return (#u64::add-wrap (#u64::add-wrap first second) bias)))))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let waker #u64 0u64)
-    (#let-mut task Work::Task
-      (#call work ((values
-        (#struct-literal Values ((a 22u64) (z (#tuple (#tuple #u16 #u16) 9u16 11u16))))))))
+    (#let-mut task Work::Task (#call work ((values (#struct-literal Values ((a 22u64) (z (#tuple
+                    (#tuple #u16 #u16) 9u16 11u16))))))))
     (#for-range (attempt #u64) 0u64 4u64
       (#let result Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
       (#match result
-        (#case (Work::Poll.Pending next) (#block (#set task next) ()))
-        (#case (Work::Poll.Ready value) (#block (#return value)))))
+        (#case (Work::Poll.Pending next)
+          (#block
+            (#set task next)
+            ()
+          )
+        )
+        (#case (Work::Poll.Ready value)
+          (#block
+            (#return value)
+          )
+        )
+      )
+    )
     (#forget task)
     (#return (#unreachable))
   );

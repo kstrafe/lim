@@ -1,10 +1,7 @@
-#const values (#array #u64 3)
-    (#array (#array #u64 3) 10u64 20u64 42u64)
+#const values (#array #u64 3) (#array (#array #u64 3) 10u64 20u64 42u64)
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#index values 2u64))
-  );
+  #body = ((#return (#index values 2u64)));
 }

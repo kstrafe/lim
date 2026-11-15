@@ -21,12 +21,45 @@ async function run(source) {
   const { instance } = await WebAssembly.instantiate(result.bytes, {});
   return displayResult(instance.exports.main(), result.returnType);
 }
-for (const [name, expected] of [['answer', '42'], ['loop', '55'], ['contract', '42']]) {
-  assert.equal(await run(example(name)), expected, name);
+async function print(source) {
+  const result = compiler.compile(source);
+  assert.ok(result.ok, result.message);
+  const module = new WebAssembly.Module(result.bytes);
+  assert.deepEqual(WebAssembly.Module.imports(module), [{ module: 'lim', name: 'print_u64', kind: 'function' }]);
+  assert.deepEqual(WebAssembly.Module.exports(module).map(entry => entry.name), ['main'], 'guest must not expose host memory');
+  let stdout = '';
+  let messages = 0;
+  const host = createStdout(text => { stdout += text; messages++; });
+  const instance = new WebAssembly.Instance(module, host.imports);
+  let value, error;
+  try { value = displayResult(instance.exports.main(), result.returnType); }
+  catch (caught) { error = caught; }
+  host.flush();
+  return { stdout, value, error, messages };
 }
-assert.equal(compiler.compile(example('invalid')).ok, false);
-assert.match(compiler.compile(example('invalid')).message, /E4000/);
-const array = example('array');
+const selectable = [...html.matchAll(/<option value="([^"]+)" data-stdout="([^"]*)"( data-runtime-error="true")?>(.*?)<\/option>/g)];
+assert.equal(selectable.length, (html.match(/<option\b/g) || []).length, 'every selectable example must declare its expected stdout');
+for (const [, name, encodedStdout, runtimeError] of selectable) {
+  const printed = await print(example(name));
+  assert.equal(printed.stdout, encodedStdout.replaceAll('&#10;', '\n'), `${name} stdout`);
+  if (runtimeError) assert(printed.error instanceof WebAssembly.RuntimeError, `${name} must trap after printing`);
+  else {
+    assert.equal(printed.error, undefined, `${name} must run successfully`);
+    assert.equal(printed.value, '()', `${name} must use an explicit unit return`);
+  }
+}
+const invalid = '#fn main { #params = {}; #returns = #u64; #body = ((#let answer #u64 false) (#return answer)); }';
+assert.equal(compiler.compile(invalid).ok, false);
+assert.match(compiler.compile(invalid).message, /E4000/);
+const array = `#fn main {
+  #params = {}; #returns = #u64;
+  #body:
+    #let items (#array #u64 2) : #array-of (#array #u64 2) 20 42;
+    #let view (#ref (#array #u64 2)) : #borrow items;
+    #let index #usize 1;
+    #return : #if-valid [#usize; index < 2] (#index-proven view index) 0u64;
+}
+`;
 const checkedArray = compiler.compile(array, { checkOnly: true });
 assert.ok(checkedArray.ok && checkedArray.checked, checkedArray.message);
 assert.equal(compiler.compile(array).ok, false);
@@ -85,26 +118,6 @@ const outOfRangeShift = `#fn shift {
 #fn main { #params = {}; #returns = #u64; #body: #return shift { n = 64; }; }
 `;
 await assert.rejects(() => run(outOfRangeShift), WebAssembly.RuntimeError, 'shift counts must trap rather than get masked');
-async function print(source) {
-  const result = compiler.compile(source);
-  assert.ok(result.ok, result.message);
-  const module = new WebAssembly.Module(result.bytes);
-  assert.deepEqual(WebAssembly.Module.imports(module), [{ module: 'lim', name: 'print_u64', kind: 'function' }]);
-  assert.deepEqual(WebAssembly.Module.exports(module).map(entry => entry.name), ['main'], 'guest must not expose host memory');
-  let stdout = '';
-  let messages = 0;
-  const host = createStdout(text => { stdout += text; messages++; });
-  const instance = new WebAssembly.Instance(module, host.imports);
-  let value, error;
-  try { value = displayResult(instance.exports.main(), result.returnType); }
-  catch (caught) { error = caught; }
-  host.flush();
-  return { stdout, value, error, messages };
-}
-const printed = await print(example('print'));
-assert.equal(printed.error, undefined);
-assert.equal(printed.value, '()');
-assert.equal(printed.stdout, '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n', 'compiled loop must write real stdout');
 const binding = example('print').split('#fn main {')[0];
 const beforeTrap = await print(`${binding}#fn main {
   #params = {}; #returns = #u64;

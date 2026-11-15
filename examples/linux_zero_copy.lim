@@ -14,9 +14,10 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#let name-memory (#ptr-mut #u8)
-      (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
+    (#let name-memory (#ptr-mut #u8) (#unsafe
+        (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
+          (0usize 4096usize 3usize 34usize -1i64 0usize))
+      ))
     (#unsafe
       (#block
         (#ptr-write name-memory 108u8)
@@ -33,118 +34,150 @@
         (#ptr-write (#ptr-offset name-memory 11usize) 112u8)
         (#ptr-write (#ptr-offset name-memory 12usize) 121u8)
         (#ptr-write (#ptr-offset name-memory 13usize) 0u8)
-        ()))
-    (#let data-memory (#ptr-mut #i32)
-      (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
-    (#let payload-set () (#unsafe (#ptr-write data-memory 305419896i32)))
-    (#let descriptor #i64
-      (#unsafe (#unsafe-call linux-memfd-create
-        ((name name-memory) (flags 1u32)))))
-    (#let payload-written #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-WRITE
-        (descriptor data-memory 4usize))))
-    (#let seek-start #i64
-      (#call linux-lseek ((fd descriptor) (offset 0i64) (whence 0i64))))
-    (#let pipe-memory (#ptr-mut #i32)
-      (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
-    (#let first-pipe #i64
-      (#unsafe (#unsafe-call linux-pipe2 ((descriptors pipe-memory) (flags 0i32)))))
-    (#let second-pipe #i64
-      (#unsafe (#unsafe-call linux-pipe2 ((descriptors (#ptr-offset pipe-memory 2usize)) (flags 0i32)))))
-    (#let third-pipe #i64
-      (#unsafe (#unsafe-call linux-pipe2 ((descriptors (#ptr-offset pipe-memory 4usize)) (flags 0i32)))))
-    (#let first-read-fd #i32 (#unsafe (#ptr-read pipe-memory)))
-    (#let first-write-fd #i32 (#unsafe (#ptr-read (#ptr-offset pipe-memory 1usize))))
-    (#let second-read-fd #i32 (#unsafe (#ptr-read (#ptr-offset pipe-memory 2usize))))
-    (#let second-write-fd #i32 (#unsafe (#ptr-read (#ptr-offset pipe-memory 3usize))))
-    (#let third-read-fd #i32 (#unsafe (#ptr-read (#ptr-offset pipe-memory 4usize))))
-    (#let third-write-fd #i32 (#unsafe (#ptr-read (#ptr-offset pipe-memory 5usize))))
-    (#let offsets (#ptr-mut #i64)
-      (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
-    (#let sent #i64
-      (#unsafe (#unsafe-call linux-sendfile ((output (#as first-write-fd #i64)) (input descriptor) (offset offsets) (count 4usize)))))
-    (#let sendfile-offset #i64 (#unsafe (#ptr-read offsets)))
-    (#let tee-count #i64
-      (#call linux-tee ((input (#as first-read-fd #i64)) (output (#as second-write-fd #i64)) (count 4usize) (flags 0u32))))
-    (#let second-offset-set ()
-      (#unsafe (#ptr-write (#ptr-offset offsets 1usize) 0i64)))
-    (#let spliced #i64
-      (#unsafe (#unsafe-call linux-splice ((input descriptor) (input-offset (#ptr-offset offsets 1usize)) (output (#as third-write-fd #i64)) (output-offset (#ptr-null (#ptr-mut #i64))) (count 4usize) (flags 0u32)))))
-    (#let splice-offset #i64
-      (#unsafe (#ptr-read (#ptr-offset offsets 1usize))))
-    (#let receive-memory (#ptr-mut #i32)
-      (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
-    (#let first-read #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-READ
-        (first-read-fd receive-memory 4usize))))
-    (#let second-read #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-READ
-        (second-read-fd (#ptr-offset receive-memory 1usize) 4usize))))
-    (#let third-read #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-READ
-        (third-read-fd (#ptr-offset receive-memory 2usize) 4usize))))
-    (#let first-payload #i32 (#unsafe (#ptr-read receive-memory)))
-    (#let second-payload #i32
-      (#unsafe (#ptr-read (#ptr-offset receive-memory 1usize))))
-    (#let third-payload #i32
-      (#unsafe (#ptr-read (#ptr-offset receive-memory 2usize))))
-    (#let first-read-close #i64
-      (#call linux-close ((fd (#as first-read-fd #i64)))))
-    (#let first-write-close #i64
-      (#call linux-close ((fd (#as first-write-fd #i64)))))
-    (#let second-read-close #i64
-      (#call linux-close ((fd (#as second-read-fd #i64)))))
-    (#let second-write-close #i64
-      (#call linux-close ((fd (#as second-write-fd #i64)))))
-    (#let third-read-close #i64
-      (#call linux-close ((fd (#as third-read-fd #i64)))))
-    (#let third-write-close #i64
-      (#call linux-close ((fd (#as third-write-fd #i64)))))
+        ()
+      )
+    )
+    (#let data-memory (#ptr-mut #i32) (#unsafe
+        (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64
+            0usize))
+      ))
+    (#let payload-set () (#unsafe
+        (#ptr-write data-memory 305419896i32)
+      ))
+    (#let descriptor #i64 (#unsafe
+        (#unsafe-call linux-memfd-create ((name name-memory) (flags 1u32)))
+      ))
+    (#let payload-written #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-WRITE (descriptor data-memory 4usize))
+      ))
+    (#let seek-start #i64 (#call linux-lseek ((fd descriptor) (offset 0i64) (whence 0i64))))
+    (#let pipe-memory (#ptr-mut #i32) (#unsafe
+        (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64
+            0usize))
+      ))
+    (#let first-pipe #i64 (#unsafe
+        (#unsafe-call linux-pipe2 ((descriptors pipe-memory) (flags 0i32)))
+      ))
+    (#let second-pipe #i64 (#unsafe
+        (#unsafe-call linux-pipe2 ((descriptors (#ptr-offset pipe-memory 2usize)) (flags 0i32)))
+      ))
+    (#let third-pipe #i64 (#unsafe
+        (#unsafe-call linux-pipe2 ((descriptors (#ptr-offset pipe-memory 4usize)) (flags 0i32)))
+      ))
+    (#let first-read-fd #i32 (#unsafe
+        (#ptr-read pipe-memory)
+      ))
+    (#let first-write-fd #i32 (#unsafe
+        (#ptr-read (#ptr-offset pipe-memory 1usize))
+      ))
+    (#let second-read-fd #i32 (#unsafe
+        (#ptr-read (#ptr-offset pipe-memory 2usize))
+      ))
+    (#let second-write-fd #i32 (#unsafe
+        (#ptr-read (#ptr-offset pipe-memory 3usize))
+      ))
+    (#let third-read-fd #i32 (#unsafe
+        (#ptr-read (#ptr-offset pipe-memory 4usize))
+      ))
+    (#let third-write-fd #i32 (#unsafe
+        (#ptr-read (#ptr-offset pipe-memory 5usize))
+      ))
+    (#let offsets (#ptr-mut #i64) (#unsafe
+        (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64
+            0usize))
+      ))
+    (#let sent #i64 (#unsafe
+        (#unsafe-call linux-sendfile ((output (#as first-write-fd #i64)) (input descriptor)
+            (offset offsets) (count 4usize)))
+      ))
+    (#let sendfile-offset #i64 (#unsafe
+        (#ptr-read offsets)
+      ))
+    (#let tee-count #i64 (#call linux-tee ((input (#as first-read-fd #i64)) (output (#as
+              second-write-fd #i64)) (count 4usize) (flags 0u32))))
+    (#let second-offset-set () (#unsafe
+        (#ptr-write (#ptr-offset offsets 1usize) 0i64)
+      ))
+    (#let spliced #i64 (#unsafe
+        (#unsafe-call linux-splice ((input descriptor) (input-offset (#ptr-offset offsets 1usize))
+            (output (#as third-write-fd #i64)) (output-offset (#ptr-null (#ptr-mut #i64))) (count
+              4usize) (flags 0u32)))
+      ))
+    (#let splice-offset #i64 (#unsafe
+        (#ptr-read (#ptr-offset offsets 1usize))
+      ))
+    (#let receive-memory (#ptr-mut #i32) (#unsafe
+        (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64
+            0usize))
+      ))
+    (#let first-read #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-READ (first-read-fd receive-memory 4usize))
+      ))
+    (#let second-read #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-READ (second-read-fd (#ptr-offset receive-memory 1usize)
+            4usize))
+      ))
+    (#let third-read #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-READ (third-read-fd (#ptr-offset receive-memory 2usize)
+            4usize))
+      ))
+    (#let first-payload #i32 (#unsafe
+        (#ptr-read receive-memory)
+      ))
+    (#let second-payload #i32 (#unsafe
+        (#ptr-read (#ptr-offset receive-memory 1usize))
+      ))
+    (#let third-payload #i32 (#unsafe
+        (#ptr-read (#ptr-offset receive-memory 2usize))
+      ))
+    (#let first-read-close #i64 (#call linux-close ((fd (#as first-read-fd #i64)))))
+    (#let first-write-close #i64 (#call linux-close ((fd (#as first-write-fd #i64)))))
+    (#let second-read-close #i64 (#call linux-close ((fd (#as second-read-fd #i64)))))
+    (#let second-write-close #i64 (#call linux-close ((fd (#as second-write-fd #i64)))))
+    (#let third-read-close #i64 (#call linux-close ((fd (#as third-read-fd #i64)))))
+    (#let third-write-close #i64 (#call linux-close ((fd (#as third-write-fd #i64)))))
     (#let descriptor-close #i64 (#call linux-close ((fd descriptor))))
-    (#let name-unmap #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (name-memory 4096usize))))
-    (#let data-unmap #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (data-memory 4096usize))))
-    (#let pipe-unmap #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (pipe-memory 4096usize))))
-    (#let offsets-unmap #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (offsets 4096usize))))
-    (#let receive-unmap #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (receive-memory 4096usize))))
-    (#let transfer-ok #bool
-      (#bool::and (#i64::ge descriptor 0i64)
-        (#bool::and (#i64::eq payload-written 4i64)
-          (#bool::and (#i64::eq seek-start 0i64)
-            (#bool::and (#i64::eq first-pipe 0i64)
-              (#bool::and (#i64::eq second-pipe 0i64)
-                (#bool::and (#i64::eq third-pipe 0i64)
-                  (#bool::and (#i64::eq sent 4i64)
-                    (#bool::and (#i64::eq sendfile-offset 4i64)
-                      (#bool::and (#i64::eq tee-count 4i64)
-                        (#bool::and (#i64::eq spliced 4i64)
-                          (#bool::and (#i64::eq splice-offset 4i64)
-                            (#bool::and (#i64::eq first-read 4i64)
-                              (#bool::and (#i64::eq second-read 4i64)
-                                (#bool::and (#i64::eq third-read 4i64)
-                                  (#bool::and (#i32::eq first-payload 305419896i32)
-                                    (#bool::and (#i32::eq second-payload 305419896i32)
-                                      (#bool::and (#i32::eq third-payload 305419896i32)
-                                        (#bool::and (#i64::eq first-read-close 0i64)
-                                          (#bool::and (#i64::eq first-write-close 0i64)
-                                            (#bool::and (#i64::eq second-read-close 0i64)
-                                              (#bool::and (#i64::eq second-write-close 0i64)
-                                                (#bool::and (#i64::eq third-read-close 0i64)
-                                                  (#bool::and (#i64::eq third-write-close 0i64)
-                                                    (#bool::and (#i64::eq descriptor-close 0i64)
-                                                      (#bool::and (#i64::eq name-unmap 0i64)
-                                                        (#bool::and (#i64::eq data-unmap 0i64)
-                                                          (#bool::and (#i64::eq pipe-unmap 0i64)
-                                                            (#bool::and (#i64::eq offsets-unmap 0i64)
+    (#let name-unmap #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (name-memory 4096usize))
+      ))
+    (#let data-unmap #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (data-memory 4096usize))
+      ))
+    (#let pipe-unmap #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (pipe-memory 4096usize))
+      ))
+    (#let offsets-unmap #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (offsets 4096usize))
+      ))
+    (#let receive-unmap #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (receive-memory 4096usize))
+      ))
+    (#let transfer-ok #bool (#bool::and (#i64::ge descriptor 0i64) (#bool::and (#i64::eq
+            payload-written 4i64) (#bool::and (#i64::eq seek-start 0i64) (#bool::and (#i64::eq
+                first-pipe 0i64) (#bool::and (#i64::eq second-pipe 0i64) (#bool::and (#i64::eq
+                    third-pipe 0i64) (#bool::and (#i64::eq sent 4i64) (#bool::and (#i64::eq
+                        sendfile-offset 4i64) (#bool::and (#i64::eq tee-count 4i64) (#bool::and
+                          (#i64::eq spliced 4i64) (#bool::and (#i64::eq splice-offset 4i64)
+                            (#bool::and (#i64::eq first-read 4i64) (#bool::and (#i64::eq
+                                  second-read 4i64) (#bool::and (#i64::eq third-read 4i64)
+                                  (#bool::and (#i32::eq first-payload 305419896i32) (#bool::and
+                                      (#i32::eq second-payload 305419896i32) (#bool::and (#i32::eq
+                                          third-payload 305419896i32) (#bool::and (#i64::eq
+                                            first-read-close 0i64) (#bool::and (#i64::eq
+                                              first-write-close 0i64) (#bool::and (#i64::eq
+                                                second-read-close 0i64) (#bool::and (#i64::eq
+                                                  second-write-close 0i64) (#bool::and (#i64::eq
+                                                    third-read-close 0i64) (#bool::and (#i64::eq
+                                                      third-write-close 0i64) (#bool::and
+                                                      (#i64::eq descriptor-close 0i64) (#bool::and
+                                                        (#i64::eq name-unmap 0i64) (#bool::and
+                                                          (#i64::eq data-unmap 0i64) (#bool::and
+                                                            (#i64::eq pipe-unmap 0i64) (#bool::and
+                                                              (#i64::eq offsets-unmap 0i64)
                                                               (#i64::eq receive-unmap 0i64))))))))))))))))))))))))))))))
-    (#return (#if transfer-ok 42u64 1u64))
+    (#return (#if transfer-ok
+        42u64
+        1u64
+      ))
   );
 }

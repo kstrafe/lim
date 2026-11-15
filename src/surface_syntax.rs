@@ -368,7 +368,20 @@ impl<'a> Parser<'a> {
             if !matches!(key.expr, Expr::Symbol(_) | Expr::Unquote(_)) {
                 return Err(self.error("record keys must be identifiers", key.span));
             }
-            let attached_colon = if let Some((plain_key, colon)) = split_layout_suffix(&key) {
+            let attached_colon = split_layout_suffix(&key);
+            if attached_colon.is_none()
+                && matches!(key.expr, Expr::Symbol(_))
+                && self.kind() == Some(&T::Semicolon)
+            {
+                let end = self
+                    .take(T::Semicolon, "record entries require a terminating ';'")?
+                    .end;
+                let value = key.clone();
+                let span = through(key.span, end);
+                pairs.push(list(vec![key, value], span));
+                continue;
+            }
+            let attached_colon = if let Some((plain_key, colon)) = attached_colon {
                 key = plain_key;
                 Some(colon)
             } else if self.kind() == Some(&T::Equal) {
@@ -378,7 +391,7 @@ impl<'a> Parser<'a> {
                 None
             } else {
                 return Err(self.error(
-                    "record entries require 'key = value;' or 'key:' with an indented value",
+                    "record entries require 'key;', 'key = value;', or 'key:' with an indented value",
                     self.current_span(),
                 ));
             };

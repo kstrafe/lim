@@ -1,17 +1,14 @@
 #fn choose {
   #params = ((condition #bool));
   #returns = (#tuple #u64 #u64);
-  #body = (
-    (#return (#if condition
-      (#tuple (#tuple #u64 #u64) 10 20)
-      (#tuple (#tuple #u64 #u64) 30 12)))
-  );
+  #body = ((#return (#if condition
+        (#tuple (#tuple #u64 #u64) 10 20)
+        (#tuple (#tuple #u64 #u64) 30 12)
+      )));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#get (#call choose ((condition true))) 1))
-  );
+  #body = ((#return (#get (#call choose ((condition true))) 1)));
 }

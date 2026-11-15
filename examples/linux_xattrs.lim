@@ -21,11 +21,11 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#let memory (#ptr-mut #u8)
-      (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
-    (#let initialized ()
-      (#unsafe
+    (#let memory (#ptr-mut #u8) (#unsafe
+        (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
+          (0usize 4096usize 3usize 34usize -1i64 0usize))
+      ))
+    (#let initialized () (#unsafe
         (#block
           (#ptr-write memory 120u8)
           (#ptr-write (#ptr-offset memory 1usize) 97u8)
@@ -65,96 +65,130 @@
           (#ptr-write (#ptr-offset memory 135usize) 105u8)
           (#ptr-write (#ptr-offset memory 136usize) 108u8)
           (#ptr-write (#ptr-offset memory 137usize) 101u8)
-          ())))
-    (#let fd #i64
-      (#unsafe (#unsafe-call linux-memfd-create ((name memory) (flags 1u32)))))
-    (#let attribute-set #i64
-      (#unsafe (#unsafe-call linux-fsetxattr ((fd fd) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 32usize)) (size 8usize) (flags 0i32)))))
-    (#let attribute-listed #i64
-      (#unsafe (#unsafe-call linux-flistxattr ((fd fd) (list (#ptr-offset memory 96usize)) (size 128usize)))))
-    (#let attribute-read #i64
-      (#unsafe (#unsafe-call linux-fgetxattr ((fd fd) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))))
-    (#let output-byte-0 #u8
-      (#unsafe (#ptr-read (#ptr-offset memory 64usize))))
-    (#let output-byte-7 #u8
-      (#unsafe (#ptr-read (#ptr-offset memory 71usize))))
-    (#let list-first #u8
-      (#unsafe (#ptr-read (#ptr-offset memory 96usize))))
-    (#let list-last #u8
-      (#unsafe (#ptr-read (#ptr-offset memory 104usize))))
-    (#let attribute-removed #i64
-      (#unsafe (#unsafe-call linux-fremovexattr ((fd fd) (name (#ptr-offset memory 16usize))))))
-    (#let absent-read #i64
-      (#unsafe (#unsafe-call linux-fgetxattr ((fd fd) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))))
+          ()
+        )
+      ))
+    (#let fd #i64 (#unsafe
+        (#unsafe-call linux-memfd-create ((name memory) (flags 1u32)))
+      ))
+    (#let attribute-set #i64 (#unsafe
+        (#unsafe-call linux-fsetxattr ((fd fd) (name (#ptr-offset memory 16usize)) (value
+              (#ptr-offset memory 32usize)) (size 8usize) (flags 0i32)))
+      ))
+    (#let attribute-listed #i64 (#unsafe
+        (#unsafe-call linux-flistxattr
+          ((fd fd) (list (#ptr-offset memory 96usize)) (size 128usize)))
+      ))
+    (#let attribute-read #i64 (#unsafe
+        (#unsafe-call linux-fgetxattr ((fd fd) (name (#ptr-offset memory 16usize)) (value
+              (#ptr-offset memory 64usize)) (size 128usize)))
+      ))
+    (#let output-byte-0 #u8 (#unsafe
+        (#ptr-read (#ptr-offset memory 64usize))
+      ))
+    (#let output-byte-7 #u8 (#unsafe
+        (#ptr-read (#ptr-offset memory 71usize))
+      ))
+    (#let list-first #u8 (#unsafe
+        (#ptr-read (#ptr-offset memory 96usize))
+      ))
+    (#let list-last #u8 (#unsafe
+        (#ptr-read (#ptr-offset memory 104usize))
+      ))
+    (#let attribute-removed #i64 (#unsafe
+        (#unsafe-call linux-fremovexattr ((fd fd) (name (#ptr-offset memory 16usize))))
+      ))
+    (#let absent-read #i64 (#unsafe
+        (#unsafe-call linux-fgetxattr ((fd fd) (name (#ptr-offset memory 16usize)) (value
+              (#ptr-offset memory 64usize)) (size 128usize)))
+      ))
     (#let fd-closed #i64 (#call linux-close ((fd fd))))
-    (#let path-file #i64
-      (#unsafe (#unsafe-call linux-creat ((path (#ptr-offset memory 128usize)) (mode 384u32)))))
-    (#let path-file-closed #i64
-      (#call linux-close ((fd path-file))))
-    (#let path-attribute-set #i64
-      (#unsafe (#unsafe-call linux-setxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 32usize)) (size 8usize) (flags 1i32)))))
-    (#let duplicate-path-attribute #i64
-      (#unsafe (#unsafe-call linux-setxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 32usize)) (size 8usize) (flags 1i32)))))
-    (#let path-attribute-read #i64
-      (#unsafe (#unsafe-call linux-getxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))))
-    (#let path-first-byte #u8
-      (#unsafe (#ptr-read (#ptr-offset memory 64usize))))
-    (#let path-last-byte #u8
-      (#unsafe (#ptr-read (#ptr-offset memory 71usize))))
-    (#let path-attribute-list #i64
-      (#unsafe (#unsafe-call linux-listxattr ((path (#ptr-offset memory 128usize)) (list (#ptr-offset memory 96usize)) (size 128usize)))))
-    (#let path-list-first-byte #u8
-      (#unsafe (#ptr-read (#ptr-offset memory 96usize))))
-    (#let path-attribute-lread #i64
-      (#unsafe (#unsafe-call linux-lgetxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))))
-    (#let path-attribute-llist #i64
-      (#unsafe (#unsafe-call linux-llistxattr ((path (#ptr-offset memory 128usize)) (list (#ptr-offset memory 96usize)) (size 128usize)))))
-    (#let path-attribute-lremoved #i64
-      (#unsafe (#unsafe-call linux-lremovexattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset memory 16usize))))))
-    (#let path-absent-read #i64
-      (#unsafe (#unsafe-call linux-getxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))))
-    (#let path-attribute-lset #i64
-      (#unsafe (#unsafe-call linux-lsetxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 32usize)) (size 8usize) (flags 0i32)))))
-    (#let path-attribute-removed #i64
-      (#unsafe (#unsafe-call linux-removexattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset memory 16usize))))))
-    (#let path-absent-lread #i64
-      (#unsafe (#unsafe-call linux-lgetxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))))
-    (#let path-file-unlinked #i64
-      (#unsafe (#unsafe-call linux-unlink ((path (#ptr-offset memory 128usize))))))
-    (#let memory-unmapped #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
-    (#let xattrs-ok #bool
-      (#bool::and (#i64::ge fd 0i64)
-        (#bool::and (#i64::eq attribute-set 0i64)
-          (#bool::and (#i64::eq attribute-listed 9i64)
-            (#bool::and (#i64::eq attribute-read 8i64)
-              (#bool::and (#u8::eq output-byte-0 108u8)
-                (#bool::and (#u8::eq output-byte-7 97u8)
-                  (#bool::and (#u8::eq list-first 117u8)
-                    (#bool::and (#u8::eq list-last 0u8)
-                      (#bool::and (#i64::eq attribute-removed 0i64)
-                        (#i64::eq absent-read -61i64)))))))))))
-    (#let path-xattrs-ok #bool
-      (#bool::and (#i64::ge path-file 0i64)
-        (#bool::and (#i64::eq path-file-closed 0i64)
-          (#bool::and (#i64::eq path-attribute-set 0i64)
-            (#bool::and (#i64::eq duplicate-path-attribute -17i64)
-              (#bool::and (#i64::eq path-attribute-read 8i64)
-                (#bool::and (#u8::eq path-first-byte 108u8)
-                  (#bool::and (#u8::eq path-last-byte 97u8)
-                    (#bool::and (#i64::eq path-attribute-list 9i64)
-                      (#bool::and (#u8::eq path-list-first-byte 117u8)
-                        (#bool::and (#i64::eq path-attribute-lread 8i64)
-                          (#bool::and (#i64::eq path-attribute-llist 9i64)
-                            (#bool::and (#i64::eq path-attribute-lremoved 0i64)
-                              (#bool::and (#i64::eq path-absent-read -61i64)
-                                (#bool::and (#i64::eq path-attribute-lset 0i64)
-                                  (#bool::and (#i64::eq path-attribute-removed 0i64)
-                                    (#bool::and (#i64::eq path-absent-lread -61i64)
+    (#let path-file #i64 (#unsafe
+        (#unsafe-call linux-creat ((path (#ptr-offset memory 128usize)) (mode 384u32)))
+      ))
+    (#let path-file-closed #i64 (#call linux-close ((fd path-file))))
+    (#let path-attribute-set #i64 (#unsafe
+        (#unsafe-call linux-setxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset
+                memory 16usize)) (value (#ptr-offset memory 32usize)) (size 8usize) (flags 1i32)))
+      ))
+    (#let duplicate-path-attribute #i64 (#unsafe
+        (#unsafe-call linux-setxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset
+                memory 16usize)) (value (#ptr-offset memory 32usize)) (size 8usize) (flags 1i32)))
+      ))
+    (#let path-attribute-read #i64 (#unsafe
+        (#unsafe-call linux-getxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset
+                memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))
+      ))
+    (#let path-first-byte #u8 (#unsafe
+        (#ptr-read (#ptr-offset memory 64usize))
+      ))
+    (#let path-last-byte #u8 (#unsafe
+        (#ptr-read (#ptr-offset memory 71usize))
+      ))
+    (#let path-attribute-list #i64 (#unsafe
+        (#unsafe-call linux-listxattr ((path (#ptr-offset memory 128usize)) (list (#ptr-offset
+                memory 96usize)) (size 128usize)))
+      ))
+    (#let path-list-first-byte #u8 (#unsafe
+        (#ptr-read (#ptr-offset memory 96usize))
+      ))
+    (#let path-attribute-lread #i64 (#unsafe
+        (#unsafe-call linux-lgetxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset
+                memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))
+      ))
+    (#let path-attribute-llist #i64 (#unsafe
+        (#unsafe-call linux-llistxattr ((path (#ptr-offset memory 128usize)) (list (#ptr-offset
+                memory 96usize)) (size 128usize)))
+      ))
+    (#let path-attribute-lremoved #i64 (#unsafe
+        (#unsafe-call linux-lremovexattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset
+                memory 16usize))))
+      ))
+    (#let path-absent-read #i64 (#unsafe
+        (#unsafe-call linux-getxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset
+                memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))
+      ))
+    (#let path-attribute-lset #i64 (#unsafe
+        (#unsafe-call linux-lsetxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset
+                memory 16usize)) (value (#ptr-offset memory 32usize)) (size 8usize) (flags 0i32)))
+      ))
+    (#let path-attribute-removed #i64 (#unsafe
+        (#unsafe-call linux-removexattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset
+                memory 16usize))))
+      ))
+    (#let path-absent-lread #i64 (#unsafe
+        (#unsafe-call linux-lgetxattr ((path (#ptr-offset memory 128usize)) (name (#ptr-offset
+                memory 16usize)) (value (#ptr-offset memory 64usize)) (size 128usize)))
+      ))
+    (#let path-file-unlinked #i64 (#unsafe
+        (#unsafe-call linux-unlink ((path (#ptr-offset memory 128usize))))
+      ))
+    (#let memory-unmapped #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))
+      ))
+    (#let xattrs-ok #bool (#bool::and (#i64::ge fd 0i64) (#bool::and (#i64::eq attribute-set 0i64)
+          (#bool::and (#i64::eq attribute-listed 9i64) (#bool::and (#i64::eq attribute-read 8i64)
+              (#bool::and (#u8::eq output-byte-0 108u8) (#bool::and (#u8::eq output-byte-7 97u8)
+                  (#bool::and (#u8::eq list-first 117u8) (#bool::and (#u8::eq list-last 0u8)
+                      (#bool::and (#i64::eq attribute-removed 0i64) (#i64::eq absent-read -61i64)))))))))))
+    (#let path-xattrs-ok #bool (#bool::and (#i64::ge path-file 0i64) (#bool::and (#i64::eq
+            path-file-closed 0i64) (#bool::and (#i64::eq path-attribute-set 0i64) (#bool::and
+              (#i64::eq duplicate-path-attribute -17i64) (#bool::and (#i64::eq path-attribute-read
+                  8i64) (#bool::and (#u8::eq path-first-byte 108u8) (#bool::and (#u8::eq
+                      path-last-byte 97u8) (#bool::and (#i64::eq path-attribute-list 9i64)
+                      (#bool::and (#u8::eq path-list-first-byte 117u8) (#bool::and (#i64::eq
+                            path-attribute-lread 8i64) (#bool::and (#i64::eq path-attribute-llist
+                              9i64) (#bool::and (#i64::eq path-attribute-lremoved 0i64)
+                              (#bool::and (#i64::eq path-absent-read -61i64) (#bool::and (#i64::eq
+                                    path-attribute-lset 0i64) (#bool::and (#i64::eq
+                                      path-attribute-removed 0i64) (#bool::and (#i64::eq
+                                        path-absent-lread -61i64)
                                       (#i64::eq path-file-unlinked 0i64))))))))))))))))))
     (#return
-      (#if (#bool::and (#bool::and xattrs-ok path-xattrs-ok)
-        (#bool::and (#i64::eq fd-closed 0i64)
-          (#i64::eq memory-unmapped 0i64))) 42u64 1u64))
+      (#if (#bool::and (#bool::and xattrs-ok path-xattrs-ok) (#bool::and (#i64::eq fd-closed 0i64)
+          (#i64::eq memory-unmapped 0i64)))
+        42u64
+        1u64
+      ))
   );
 }

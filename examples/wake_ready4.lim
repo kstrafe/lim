@@ -13,34 +13,72 @@
   #returns = #u64;
   #body = (
     (#let-mut queue WakeReady4 (#call wake-ready4-create ()))
-    (#let invalid WakeRegister4
-      (#call wake-ready4-register ((queue (#borrow-mut queue)) (slot 4usize))))
-    (#assert (#match invalid (#case WakeRegister4.WakeInvalid4 true) (#case _ false)))
-    (#let registration WakeRegister4
-      (#call wake-ready4-register ((queue (#borrow-mut queue)) (slot 1usize))))
+    (#let invalid WakeRegister4 (#call wake-ready4-register ((queue (#borrow-mut queue)) (slot
+            4usize))))
+    (#assert (#match invalid
+        (#case WakeRegister4.WakeInvalid4
+          true
+        )
+        (#case _
+          false
+        )
+      ))
+    (#let registration WakeRegister4 (#call wake-ready4-register ((queue (#borrow-mut queue))
+          (slot 1usize))))
     (#let token WakeToken4 (#match registration
-      (#case (WakeRegister4.WakeRegistered4 value) value)
-      (#case _ (#unreachable))))
-    (#let busy WakeRegister4
-      (#call wake-ready4-register ((queue (#borrow-mut queue)) (slot 1usize))))
-    (#assert (#match busy (#case WakeRegister4.WakeBusy4 true) (#case _ false)))
+        (#case (WakeRegister4.WakeRegistered4 value)
+          value
+        )
+        (#case _
+          (#unreachable)
+        )
+      ))
+    (#let busy WakeRegister4 (#call wake-ready4-register
+        ((queue (#borrow-mut queue)) (slot 1usize))))
+    (#assert (#match busy
+        (#case WakeRegister4.WakeBusy4
+          true
+        )
+        (#case _
+          false
+        )
+      ))
     (#assert (#call wake-ready4-notify ((queue (#borrow queue)) (token token))))
     (#assert (#call wake-ready4-notify ((queue (#borrow queue)) (token token))))
     (#assert (#call wake-ready4-take ((queue (#borrow queue)) (token token))))
     (#assert (#bool::not (#call wake-ready4-take ((queue (#borrow queue)) (token token)))))
     (#let retired WakeRetire4
       (#call wake-ready4-retire ((queue (#borrow-mut queue)) (token token))))
-    (#assert (#match retired (#case WakeRetire4.WakeRetired4 true) (#case WakeRetire4.WakeStale4 false)))
-    (#let next WakeRegister4
-      (#call wake-ready4-register ((queue (#borrow-mut queue)) (slot 1usize))))
+    (#assert (#match retired
+        (#case WakeRetire4.WakeRetired4
+          true
+        )
+        (#case WakeRetire4.WakeStale4
+          false
+        )
+      ))
+    (#let next WakeRegister4 (#call wake-ready4-register
+        ((queue (#borrow-mut queue)) (slot 1usize))))
     (#let new-token WakeToken4 (#match next
-      (#case (WakeRegister4.WakeRegistered4 value) value)
-      (#case _ (#unreachable))))
+        (#case (WakeRegister4.WakeRegistered4 value)
+          value
+        )
+        (#case _
+          (#unreachable)
+        )
+      ))
     (#assert (#bool::not (#call wake-ready4-notify ((queue (#borrow queue)) (token token)))))
     (#assert (#call wake-ready4-notify ((queue (#borrow queue)) (token new-token))))
-    (#let stale-retire WakeRetire4
-      (#call wake-ready4-retire ((queue (#borrow-mut queue)) (token token))))
-    (#assert (#match stale-retire (#case WakeRetire4.WakeStale4 true) (#case WakeRetire4.WakeRetired4 false)))
+    (#let stale-retire WakeRetire4 (#call wake-ready4-retire ((queue (#borrow-mut queue)) (token
+            token))))
+    (#assert (#match stale-retire
+        (#case WakeRetire4.WakeStale4
+          true
+        )
+        (#case WakeRetire4.WakeRetired4
+          false
+        )
+      ))
     (#assert (#call wake-ready4-take ((queue (#borrow queue)) (token new-token))))
     (#forget queue)
     (#return 42u64)

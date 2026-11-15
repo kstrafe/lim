@@ -1,28 +1,16 @@
 #type Value #u64
 
-#enum
-    Box ()
-    (
-      (Box.Some Value)
-      Box.None
-    )
+#enum Box () ((Box.Some Value) Box.None)
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #match
-        (Box.Some 42)
-        (#case
-          (Box.Some value)
+  #body = ((#return (#match (Box.Some 42)
+        (#case (Box.Some value)
           value
         )
-        (#case Box.None 0)
-      )
-    )
-  );
+        (#case Box.None
+          0
+        )
+      )));
 }

@@ -1,53 +1,45 @@
-#struct Large ()
-    ((a #u64) (b #u64) (c #u64) (d #u64)
-     (e #u64) (f #u64) (g #u64))
+#struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))
 
-#struct BigValues () ((first #u64) (second #u64) (third #u64) (fourth #u64)
-    (fifth #u64) (sixth #u64) (seventh #u64))
+#struct BigValues () ((first #u64) (second #u64) (third #u64) (fourth #u64) (fifth #u64) (sixth
+    #u64) (seventh #u64))
 #enum LargePayload () ((LargePayload.Big BigValues) LargePayload.Empty)
 
 #fn consume-tuple {
   #params = ((value (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)));
   #returns = #u64;
-  #body = (
-    (#return (#get value 6))
-  );
+  #body = ((#return (#get value 6)));
 }
 
 #fn consume-struct {
   #params = ((value Large));
   #returns = #u64;
-  #body = (
-    (#return (#get value g))
-  );
+  #body = ((#return (#get value g)));
 }
 
 #fn consume-enum {
   #params = ((value LargePayload));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match value
-        (#case (LargePayload.Big values) (#get values seventh))
-        (#case LargePayload.Empty 0u64)))
-  );
+  #body = ((#return (#match value
+        (#case (LargePayload.Big values)
+          (#get values seventh)
+        )
+        (#case LargePayload.Empty
+          0u64
+        )
+      )));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let tuple-value (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
-      (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
-        1u64 2u64 3u64 4u64 5u64 6u64 42u64))
-    (#let struct-value Large
-      (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 42u64))))
-    (#let enum-value LargePayload
-      (LargePayload.Big (#struct-literal BigValues
-        ((first 1u64) (second 2u64) (third 3u64) (fourth 4u64) (fifth 5u64) (sixth 6u64) (seventh 42u64)))))
-    (#return
-      (#u64::add-wrap
-        (#u64::add-wrap (#call consume-tuple ((value tuple-value))) (#call consume-struct ((value struct-value))))
-        (#call consume-enum ((value enum-value)))))
+    (#let tuple-value (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) (#tuple (#tuple #u64 #u64 #u64
+          #u64 #u64 #u64 #u64) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))
+    (#let struct-value Large (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64)
+          (f 6u64) (g 42u64))))
+    (#let enum-value LargePayload (LargePayload.Big (#struct-literal BigValues ((first 1u64)
+            (second 2u64) (third 3u64) (fourth 4u64) (fifth 5u64) (sixth 6u64) (seventh 42u64)))))
+    (#return (#u64::add-wrap (#u64::add-wrap (#call consume-tuple ((value tuple-value))) (#call
+            consume-struct ((value struct-value)))) (#call consume-enum ((value enum-value)))))
   );
 }

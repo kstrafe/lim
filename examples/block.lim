@@ -1,21 +1,16 @@
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let-mut value #u64 1)
-    (
-      #return
-      (
-        #if
-        true
-        (
-          #block
+    (#return (#if true
+        (#block
           (#set value 40)
           value
         )
-        (#block value)
-      )
-    )
+        (#block
+          value
+        )
+      ))
   );
 }

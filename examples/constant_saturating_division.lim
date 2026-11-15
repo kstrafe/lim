@@ -4,7 +4,5 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#as quotient #u64))
-  );
+  #body = ((#return (#as quotient #u64)));
 }

@@ -2,25 +2,30 @@
 #enum Child (#linear) ((Child.Waiting #u64) (Child.Resume #u64))
 
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+
 #fn child-poll {
   #params = ((task Child) (waker (#ref #u64)));
   #returns = ChildPoll;
-  #body = (
-    (#return (#match task
-      (#case (Child.Waiting value) (ChildPoll.ChildPending (Child.Resume value)))
-      (#case (Child.Resume value) (ChildPoll.ChildReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (Child.Waiting value)
+          (ChildPoll.ChildPending (Child.Resume value))
+        )
+        (#case (Child.Resume value)
+          (ChildPoll.ChildReady value)
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work ((early #bool)) #u64
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((early #bool)) #u64
       (#if early
         (#block
-          (#let first #u64 (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 7u64)))
-          (#return first))
-        ())
-      (#let result #u64 (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 42u64)))
-      (#return result))))
+          (#let first #u64 (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady
+              child-poll (Child.Waiting 7u64)))
+          (#return first)
+        )
+        ()
+      ) (#let result #u64 (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady
+          child-poll (Child.Waiting 42u64))) (#return result))))
 
 #fn run {
   #params = ((early #bool) (waker (#ref #u64)));
@@ -30,8 +35,16 @@
     (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
     (#let second Work::Poll (#call Work::poll ((task task) (waker waker))))
     (#return (#match second
-      (#case (Work::Poll.Ready value) value)
-      (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#case (Work::Poll.Ready value)
+          value
+        )
+        (#case (Work::Poll.Pending unexpected)
+          (#block
+            (#forget unexpected)
+            (#unreachable)
+          )
+        )
+      ))
   );
 }
 

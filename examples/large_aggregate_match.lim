@@ -1,23 +1,27 @@
-#struct Large ()
-    ((a #u64) (b #u64) (c #u64) (d #u64)
-     (e #u64) (f #u64) (g #u64))
+#struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let tuple-value (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
-      (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
-        1u64 2u64 3u64 4u64 5u64 6u64 40u64))
-    (#let struct-value Large
-      (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 2u64))))
-    (#return
-      (#u64::add-wrap
-        (#match tuple-value
-          (#case (#tuple first second third fourth fifth sixth last) last)
-          (#case _ 0u64))
-        (#match struct-value
-          (#case (Large first second third fourth fifth sixth last) last)
-          (#case _ 0u64))))
+    (#let tuple-value (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) (#tuple (#tuple #u64 #u64 #u64
+          #u64 #u64 #u64 #u64) 1u64 2u64 3u64 4u64 5u64 6u64 40u64))
+    (#let struct-value Large (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64)
+          (f 6u64) (g 2u64))))
+    (#return (#u64::add-wrap (#match tuple-value
+          (#case (#tuple first second third fourth fifth sixth last)
+            last
+          )
+          (#case _
+            0u64
+          )
+        ) (#match struct-value
+          (#case (Large first second third fourth fifth sixth last)
+            last
+          )
+          (#case _
+            0u64
+          )
+        )))
   );
 }

@@ -62,6 +62,12 @@ remain valid inside declarations and in quoted generator syntax trees.
 The executable [surface example](../examples/surface_syntax.lim) combines
 generated arrays, contracts, infix expressions and local indentation lists.
 
+An **experimental binding form** puts the type and initializer in a nested
+`Type = initializer` shape: `#let count : #u64 = 42u64;` or
+`#let-mut count : #u64 = 0u64;`. The colon introduces the type, and `=`
+introduces its initializer. Existing `#let count #u64 42u64;` and
+`#let-mut count #u64 0u64;` spellings remain valid during this experiment.
+
 ```lisp run=42
 #fn increment {
   #params = { value = #u64; };
@@ -88,6 +94,8 @@ generated arrays, contracts, infix expressions and local indentation lists.
   inline values are single forms and require a final semicolon. Indented
   list values use `key:` as described below. Empty records use `{}`.
   Duplicate argument keys are checked by their consumer.
+  A bare `key;` entry means `key = key;` and can mix with explicit entries.
+  It introduces neither type inference nor implicit borrowing.
 - `function { name = value; }` and `(function { name = value; })` are ordinary
   named calls, including generated scalar intrinsics. `function ((name value))`
   and `(function ((name value)))` are equivalent. Empty calls use `function {}`
@@ -139,7 +147,7 @@ generated arrays, contracts, infix expressions and local indentation lists.
   boundaries. A function's closing `}` needs no trailing semicolon.
   Static and constant records require `#type` and `#value`.
 
-The formatter retains authored layout in forms using this notation and removes
+The formatter retains semantic line boundaries in forms using this notation and removes
 trailing horizontal whitespace. Source formatting emits bare roots; the separate
 syntax-tree formatter handles canonical AST data. Reader nesting limits also bound trees
 created by flat infix chains. Surface syntax does not infer contracts or change
@@ -1069,8 +1077,15 @@ comparison, and mutation together, followed by its indented body:
 ```
 
 Ordinary expressions exceeding a target width of 100 columns wrap between
-arguments. Form headers may exceed that width. Comments and parser shorthand
-retain their source spelling.
+arguments. Short records and named calls stay on one line; function records
+use one field per line, and long parameter lists fill lines rather than putting
+each operand on its own line. A single-statement loop still places its body
+below the header. Form headers may exceed the target width.
+
+Comments, blank lines, literals, quoted generator data, and parser shorthand
+retain their source spelling. Colon-based blocks use two-space indentation
+without moving line boundaries that affect their meaning. Formatting checks
+the resulting syntax tree and its own fixed point before accepting a layout.
 
 `lim fmt INPUT` formats the file and its transitive explicit file dependencies
 within the same library boundary. Dependencies across a boundary are skipped. The read-only `--format`
@@ -2024,12 +2039,28 @@ Place contract clauses first in a function body:
 | `(#ensures Q)` | Receives Q after normal return | Programmer promises Q; checked dynamically when instrumented |
 | `(#preserves P)` | P survives if it was available before the call | Conditional promise: entry P implies exit P |
 
-A validator is an ordinary function without the requirement it tests. Every
-intermediary must explicitly annotate the requirements and guarantees it
-exports. Only structural read/write footprints propagate through calls;
-semantic contracts are never inferred from callees. Consequently, writes to an
-unread sibling field need not revoke a predicate, but a wrapper that changes a
-predicate's inputs must declare its own `#preserves` or `#ensures`.
+A predicate can itself declare requirements. A function that lists that
+predicate in `#requires` also requires its declared prerequisites, with the
+arguments substituted at each step. For example, if `ready(subject)` requires
+`valid(subject)`, then requiring `ready(user)` also requires `valid(user)`.
+The compiler computes this dependency set separately from the written roots;
+removing a root removes prerequisites that no remaining root needs. Cycles
+and excessive expansion are errors. Diagnostics show the chain from the call
+through the written requirement to the missing prerequisite.
+
+Only declared requirements participate in this inheritance. Calling a
+predicate inside a function body still checks its requirements against the
+evidence available there; it does not change that function's interface. A
+validator may test a partial predicate after establishing its prerequisites.
+No facts are inferred from a predicate's body, and exact predicate and
+argument identities still apply.
+
+Structural read/write footprints propagate through calls. Evidence for a
+partial predicate also depends on the observations used by its prerequisites;
+mutating one revokes the dependent evidence. Writes to an unread sibling field
+need not revoke it. A wrapper that changes a predicate's inputs must declare
+its own `#preserves` or `#ensures`. An explicit `#assume`, `#ensures`, or
+`#preserves` promise of a predicate does not promise its prerequisites.
 
 `(#result)` names the result in `#ensures`. `(#old observation)` snapshots an
 entry observation for a postcondition. Snapshot scalar observations rather

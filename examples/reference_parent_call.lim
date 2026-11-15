@@ -5,18 +5,13 @@
 #fn increment {
   #params = ((target (#ref-mut #u64)));
   #returns = #u64;
-  #body = (
-    (#deref-set target (#u64::add-wrap (#deref target) 1u64))
-    (#return (#deref target))
-  );
+  #body = ((#deref-set target (#u64::add-wrap (#deref target) 1u64)) (#return (#deref target)));
 }
 
 #fn observe {
   #params = ((target (#ref-mut Owner)));
   #returns = #u64;
-  #body = (
-    (#return (#get target value))
-  );
+  #body = ((#return (#get target value)));
 }
 
 #fn main {
@@ -25,8 +20,7 @@
   #body = (
     (#let-mut owner Owner (#struct-literal Owner ((value 41u64))))
     (#let parent (#ref-mut Owner) (#borrow-mut owner))
-    (#let view View
-      (#struct-literal View ((child (#borrow-mut (#get parent value))))))
+    (#let view View (#struct-literal View ((child (#borrow-mut (#get parent value))))))
     (#let child-value #u64 (#call increment ((target (#get view child)))))
     (#forget view)
     (#let answer #u64 (#call observe ((target parent))))

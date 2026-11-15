@@ -3,57 +3,56 @@
 #struct Holder (#linear) ((reference (#ref #u64)))
 
 #struct Envelope () ((item Holder))
+
 #fn make-envelope {
   #params = ((reference (#ref #u64)));
   #returns = Envelope;
-  #body = (
-    (#return (#struct-literal Envelope ((item (#struct-literal Holder ((reference reference)))))))
-  );
+  #body = ((#return (#struct-literal Envelope ((item (#struct-literal Holder
+              ((reference reference))))))));
 }
+
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ()))
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return
-      (#match task
+  #body = ((#return (#match task
         (#case Step.Start
-          (StepPoll.Pending Step.Resume))
+          (StepPoll.Pending Step.Resume)
+        )
         (#case Step.Resume
-          (StepPoll.Ready ()))))
-  );
+          (StepPoll.Ready ())
+        )
+      )));
 }
-#generate
-    #async-fn
-    ((protocol WorkAwait) (waker #u64) (function
-    (#fn work ((owner (#ref #u64))) #u64
-      (#let holder Holder
-        (#clone (#get (#call make-envelope ((reference owner))) item)))
-      (#let ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
-      (#let result #u64 (#deref (#get holder reference)))
-      (#forget holder)
-      (#return result))))
+
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((owner (#ref #u64)))
+      #u64 (#let holder Holder (#clone (#get (#call make-envelope ((reference owner))) item)))
+      (#let ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start)) (#let
+        result #u64 (#deref (#get holder reference))) (#forget holder) (#return result))))
+
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let owner #u64 42u64)
     (#let waker #u64 0u64)
-    (#let
-      first
-      Work::Poll
-      (#call Work::poll ((task (#call work ((owner (#borrow owner))))) (waker (#borrow waker)))))
+    (#let first Work::Poll (#call Work::poll ((task (#call work ((owner (#borrow owner))))) (waker
+            (#borrow waker)))))
     (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
     (#let second Work::Poll (#call Work::poll ((task pending) (waker (#borrow waker)))))
-    (#return
-      (#match second
+    (#return (#match second
         (#case (Work::Poll.Ready result)
-          result)
+          result
+        )
         (#case (Work::Poll.Pending unexpected)
           (#block
             (#forget unexpected)
-            (#unreachable)))))
+            (#unreachable)
+          )
+        )
+      ))
   );
 }

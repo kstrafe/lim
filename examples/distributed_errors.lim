@@ -5,18 +5,18 @@
 #fn code {
   #params = ((error ApplicationError));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match error
-        (#case (ApplicationError.FileFailure number) (#as number #u64))
-        (#case (ApplicationError.ParseFailure number) number)))
-  );
+  #body = ((#return (#match error
+        (#case (ApplicationError.FileFailure number)
+          (#as number #u64)
+        )
+        (#case (ApplicationError.ParseFailure number)
+          number
+        )
+      )));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#call code ((error (ApplicationError.FileFailure 42u32)))))
-  );
+  #body = ((#return (#call code ((error (ApplicationError.FileFailure 42u32))))));
 }

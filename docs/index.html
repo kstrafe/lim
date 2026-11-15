@@ -44,16 +44,17 @@
 </ul></li>
 <li><a href="#tutorial" id="toc-tutorial">Tutorial</a>
 <ul>
-<li><a href="#first-program" id="toc-first-program">1. Return a value</a></li>
-<li><a href="#syntax-cheat-sheet" id="toc-syntax-cheat-sheet">2. Read the tree beneath the sugar</a></li>
-<li><a href="#functions-tutorial" id="toc-functions-tutorial">3. Declare and call a function</a></li>
-<li><a href="#loops-tutorial" id="toc-loops-tutorial">4. Mutate a local and write a loop</a></li>
-<li><a href="#contracts-tutorial" id="toc-contracts-tutorial">5. Validate an API argument once</a></li>
-<li><a href="#borrowing-tutorial" id="toc-borrowing-tutorial">6. Borrow storage explicitly</a></li>
-<li><a href="#array-evidence-tutorial" id="toc-array-evidence-tutorial">7. Prove an array index</a></li>
-<li><a href="#generators-tutorial" id="toc-generators-tutorial">8. Generate a concrete type</a></li>
-<li><a href="#diagnostics-tutorial" id="toc-diagnostics-tutorial">9. Follow a diagnostic</a></li>
-<li><a href="#pipeline-tutorial" id="toc-pipeline-tutorial">10. Keep the compiler stages in view</a></li>
+<li><a href="#first-program" id="toc-first-program">1. Print Hello, world!</a></li>
+<li><a href="#return-value-tutorial" id="toc-return-value-tutorial">2. Return a value</a></li>
+<li><a href="#syntax-cheat-sheet" id="toc-syntax-cheat-sheet">3. Read the tree beneath the sugar</a></li>
+<li><a href="#functions-tutorial" id="toc-functions-tutorial">4. Declare and call a function</a></li>
+<li><a href="#loops-tutorial" id="toc-loops-tutorial">5. Mutate a local and write a loop</a></li>
+<li><a href="#contracts-tutorial" id="toc-contracts-tutorial">6. Validate an API argument once</a></li>
+<li><a href="#borrowing-tutorial" id="toc-borrowing-tutorial">7. Borrow storage explicitly</a></li>
+<li><a href="#array-evidence-tutorial" id="toc-array-evidence-tutorial">8. Prove an array index</a></li>
+<li><a href="#generators-tutorial" id="toc-generators-tutorial">9. Generate a concrete type</a></li>
+<li><a href="#diagnostics-tutorial" id="toc-diagnostics-tutorial">10. Follow a diagnostic</a></li>
+<li><a href="#pipeline-tutorial" id="toc-pipeline-tutorial">11. Keep the compiler stages in view</a></li>
 </ul></li>
 <li><a href="#language-reference" id="toc-language-reference">Language reference</a>
 <ul>
@@ -145,10 +146,9 @@
 </ul></li>
 </ul></nav>
 <main class="manual" id="main">
-<header class="document-intro"><p class="eyebrow">A language for people &amp; machines · experimental</p><h1>Explicit code.<br>One place to look.</h1><p class="lead">Lim is a human-readable intermediate representation for code you can inspect, test, and ship. A strongly typed Lisp, it combines Rust-inspired whole-program borrow checking with proof-oriented ideas from <a href="https://lean-lang.org/">Lean 4</a>: validated branches carry facts that later calls must satisfy. Concrete generated implementations keep behavior visible, with fast compilation and efficient native code as core goals.</p><p class="anchor-hint">Find a keyword with <kbd>Ctrl</kbd> + <kbd>F</kbd> / <kbd>⌘</kbd> + <kbd>F</kbd>. No JavaScript, external fonts or collapsed reference text. Save this HTML file to read offline.</p></header>
 <section id="introduction" class="level1">
 <h1>Meet Lim</h1>
-<p>Lim is an experimental, compiled <strong>Lisp with explicit, strong static types</strong> and a <strong>human-readable target for generated code</strong>. Write it by hand, ask a language model to produce it, or build your own generator: the result stays ordinary source you can follow, test, and change. This page explains the design, walks through examples, and keeps the full reference close at hand.</p>
+<p>Lim is an experimental, compiled <strong>Lisp with explicit, strong static types</strong> and a <strong>human-readable target for generated code</strong>. Write it by hand or generate it: the result stays ordinary source you can inspect, test, and change. Its name evokes a limit as time approaches zero, reflecting its goals of fast builds and efficient native code.</p>
 <section id="language" class="level2">
 <h2>Read what runs</h2>
 <p><strong>Explicitness is the guiding principle.</strong> Declarations and behavior are written out in source. Local variable declarations include a type instead of asking the compiler to infer one. A function returns through an explicit return statement; its final expression never silently becomes its return value. Arithmetic operations state the types they operate on and, where relevant, how overflow is handled. Ordinary function calls name their arguments, so you can see which parameter receives each value at the call site. Builtin operations and special forms can also have positional operands.</p>
@@ -266,28 +266,46 @@ cargo build --release
 </section>
 <section id="tutorial" class="level1">
 <h1>Tutorial</h1>
-<p>Lim is a statically typed Lisp with explicit returns, ownership and arithmetic behavior. A small surface reader turns records, infix expressions and indentation into the same trees that code generators manipulate. Builtins begin with <code>#</code>; your names do not.</p>
+<p>Lim is a statically typed Lisp with explicit returns, ownership and arithmetic behavior. Surface syntax sugar—named records, colon and indentation grouping, and typed infix expressions—reduces nesting and visual noise while keeping those semantics explicit. Builtins begin with <code>#</code>; your names do not.</p>
 <p>Start here, then use the <a href="#language-reference">complete language reference</a>, <a href="#complete--builtin-reference-alphabetical">alphabetical builtin table</a>, or <a href="#predicate-contracts-and-constrained-types">contract reference</a>. The separate <a href="playground.html">browser playground</a> runs small examples with the real compiler. The full native language is broader than its first WebAssembly backend.</p>
 <section id="first-program" class="level2">
-<h2>1. Return a value</h2>
-<p>This entire program returns 42:</p>
+<h2>1. Print Hello, world!</h2>
+<p>This program builds a string, prints it to standard output, releases it, and explicitly returns unit:</p>
+<pre class="lisp"><code><span class="lim-keyword">#std</span>
+
+<span class="lim-keyword">#fn</span> main {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
+    <span class="lim-keyword">#let</span> greeting (<span class="lim-keyword">#array</span> <span class="lim-type">#char</span> <span class="lim-literal">13</span>) <span class="lim-string">&quot;Hello, world!&quot;</span>;
+    <span class="lim-keyword">#let</span> message String<span class="lim-operator">:</span>
+      <span class="lim-keyword">#match</span> String::from-chars { text <span class="lim-operator">=</span> (<span class="lim-keyword">#borrow-slice</span> greeting); }
+        (<span class="lim-keyword">#case</span> (StringCreateResult.StringCreated owned) owned)
+        (<span class="lim-keyword">#case</span> (StringCreateResult.StringCreateFailed error) (<span class="lim-keyword">#panic</span>))
+    <span class="lim-keyword">#assert</span> [<span class="lim-type">#i64</span>; (<span class="lim-keyword">#println</span> (<span class="lim-keyword">#borrow</span> message)) <span class="lim-operator">==</span> <span class="lim-literal">0i64</span>];
+    String::free { string <span class="lim-operator">=</span> message; };
+    <span class="lim-keyword">#return</span> ();
+}</code></pre>
+<p><code>#std</code> opts into the bundled String and stdout modules. <code>String::from-chars</code> returns a result, so the program handles both success and failure. <code>#println</code> borrows the string, writes its UTF-8 text and a newline, and returns zero on success; the assertion checks that status. The string remains owned until <code>String::free</code> releases it.</p>
+<p><code>#fn</code> declares a function. <code>#params</code> is a record of parameter names and types; this function has none. <code>#returns</code> is always explicit, and <code>#body</code> contains the function’s forms. A function with no value uses <code>#returns = ();</code> and <code>#return ();</code>.</p>
+</section>
+<section id="return-value-tutorial" class="level2">
+<h2>2. Return a value</h2>
+<p>This program returns 42 as its exit status:</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span> <span class="lim-keyword">#return</span> <span class="lim-literal">42</span>;
 }</code></pre>
-<p><code>#fn</code> declares a function. <code>#params</code> is a record of parameter names and types; this function has none. <code>#returns</code> is always explicit. <code>#body</code> contains the function’s forms. <code>#u64</code> is an unsigned 64-bit integer. An unsuffixed literal gets its type from this explicitly declared context; <code>42u64</code> spells it directly.</p>
-<p>For a function that returns no value, use <code>#returns = ();</code> and <code>#return ();</code>. Empty <code>#requires</code>, <code>#ensures</code> and <code>#preserves</code> fields may be omitted.</p>
-<p>Run this natively from a checkout:</p>
+<p><code>#u64</code> is an unsigned 64-bit integer. An unsuffixed literal gets its type from this explicitly declared context; <code>42u64</code> spells it directly. The playground displays the returned value. Native exit statuses are limited by the operating system, so returning a number is different from printing text.</p>
+<p>Run the printing example natively from a checkout:</p>
 <pre class="sh"><code>nix develop
 cargo build
-./target/debug/lim example.lim -o /tmp/example
-/tmp/example
-echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
-<p>The playground displays the returned value directly. Native exit statuses are limited by the operating system; returning a number is different from printing.</p>
+./target/debug/lim examples/tutorial_hello.lim -o /tmp/tutorial-hello
+/tmp/tutorial-hello</code></pre>
 </section>
 <section id="syntax-cheat-sheet" class="level2">
-<h2>2. Read the tree beneath the sugar</h2>
+<h2>3. Read the tree beneath the sugar</h2>
 <p>Each surface form has a local, mechanical interpretation:</p>
 <table>
 <colgroup>
@@ -304,6 +322,10 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 <tr>
 <td><code>{ left = x; right = y; }</code></td>
 <td><code>((left x) (right y))</code></td>
+</tr>
+<tr>
+<td><code>{ left; right; }</code></td>
+<td><code>((left left) (right right))</code></td>
 </tr>
 <tr>
 <td><code>(a : b c)</code></td>
@@ -340,13 +362,13 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 </tbody>
 </table>
 <p>Inline colons consume through a newline, semicolon, or enclosing closing delimiter. Consecutive colons nest to the right. Semicolons inside explicit parentheses or an indented group belong to that group. Use spaces for layout.</p>
-<p>Curly braces contain only <code>key = value;</code> entries, with <code>key:</code> available when the value is colon-grouped. Parentheses delimit ordinary forms; square brackets select infix parsing. Nested square brackets inherit their arithmetic header only through direct bracket nesting. A function-call parenthesis ends that inheritance, so brackets inside the call need their own header.</p>
+<p>Curly braces contain named entries: <code>key = value;</code>, or <code>key;</code> when the variable has the same name. Borrowing stays explicit. Use <code>key:</code> when the value is colon-grouped. Parentheses delimit ordinary forms; square brackets select infix parsing. Nested square brackets inherit their arithmetic header only through direct bracket nesting. A function-call parenthesis ends that inheritance, so brackets inside the call need their own header.</p>
 <p>Canonical S-expressions describe the trees used by generators. This example shows syntax data beneath the surface notation; source files use bare roots:</p>
 <pre class="lisp"><code>(<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
   (<span class="lim-keyword">#return</span> (<span class="lim-operator">#u64::add-wrap</span> <span class="lim-literal">40u64</span> <span class="lim-literal">2u64</span>)))</code></pre>
 </section>
 <section id="functions-tutorial" class="level2">
-<h2>3. Declare and call a function</h2>
+<h2>4. Declare and call a function</h2>
 <p>Calls name their arguments. Their written order can differ from the declaration; expressions are evaluated once in the order you write them. Names choose the destination parameters; they do not rearrange effects. An earlier argument finishes before a later one starts, and all arguments finish before callee entry.</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> subtract {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { left <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; right <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; };
@@ -363,7 +385,7 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 <p><code>#call</code> remains a canonical form understood by the compiler and generators. Handwritten code can call an ordinary function with its name and an argument record. Functions are free-standing declarations; there is no method lookup.</p>
 </section>
 <section id="loops-tutorial" class="level2">
-<h2>4. Mutate a local and write a loop</h2>
+<h2>5. Mutate a local and write a loop</h2>
 <p><code>#let</code> binds an immutable value. <code>#let-mut</code> permits assignment with <code>#set</code>. A range is half-open: <code>1</code> through <code>11</code> means the numbers 1 through 10.</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -378,7 +400,7 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 <p>For actual printed output, see the working <a href="../examples/print_numbers.lim">1-through-10 native printing example</a>. The browser’s initial scalar backend reports return values instead of host I/O.</p>
 </section>
 <section id="contracts-tutorial" class="level2">
-<h2>5. Validate an API argument once</h2>
+<h2>6. Validate an API argument once</h2>
 <p>A predicate is an ordinary pure Boolean function. A function that requires it can be called only where the checker already has matching evidence.</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> positive {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { value <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; };
@@ -449,7 +471,7 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 <p>Use <code>--check-contracts</code> when testing native programs. It audits requirements, postconditions and preservation, but does not prove a programmer’s promise for all inputs. Production can omit these extra audits. The playground enables them.</p>
 </section>
 <section id="borrowing-tutorial" class="level2">
-<h2>6. Borrow storage explicitly</h2>
+<h2>7. Borrow storage explicitly</h2>
 <p>A mutable reference grants exclusive access. End it before using the owner again:</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -466,7 +488,7 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 <p>This example can use <strong>Check only</strong> in the browser; reference code generation currently belongs to the native backend.</p>
 </section>
 <section id="array-evidence-tutorial" class="level2">
-<h2>7. Prove an array index</h2>
+<h2>8. Prove an array index</h2>
 <p>This checks the exact comparison needed by the access, then uses its evidence:</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -481,7 +503,7 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 <p>To connect claims, call an ordinary helper with explicit <code>#requires</code> and <code>#ensures</code>. The <a href="#fixed-array-apis">generated fixed-array API</a> supplies such a helper. The checker does not discover the conversion on its own. Proven access omits the bounds check in production; instrumented compilation audits the access. This example is available through <strong>Check only</strong> in the browser.</p>
 </section>
 <section id="generators-tutorial" class="level2">
-<h2>8. Generate a concrete type</h2>
+<h2>9. Generate a concrete type</h2>
 <p>Generators produce concrete declarations instead of hidden runtime dispatch:</p>
 <pre class="lisp"><code><span class="lim-keyword">#generate</span> <span class="lim-keyword">#optional</span> { type <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; name <span class="lim-operator">=</span> MaybeNumber; }
 
@@ -496,7 +518,7 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 <p>Use the <a href="#user-defined-generators">generator reference</a> for syntax bundles, quoting, generated declarations, validation witnesses and file authority. Generating a type does not make it an opaque mathematical proof.</p>
 </section>
 <section id="diagnostics-tutorial" class="level2">
-<h2>9. Follow a diagnostic</h2>
+<h2>10. Follow a diagnostic</h2>
 <p>The compiler distinguishes parsing, generation, types, borrows, linearity, unsafe use, contracts, code generation and linking. A failed check gives a source location and, where available, related locations.</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -508,7 +530,7 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 <p>Here the declared type is <code>#u64</code> and the value is <code>#bool</code>. Change <code>false</code> to 42. For contract errors, first compare the required predicate and argument identities with the available evidence. For borrow errors, inspect which owner or reference still has access. For unsupported WebAssembly code generation, use <strong>Check only</strong> or run the example natively.</p>
 </section>
 <section id="pipeline-tutorial" class="level2">
-<h2>10. Keep the compiler stages in view</h2>
+<h2>11. Keep the compiler stages in view</h2>
 <svg class="pipeline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 120" role="img" aria-labelledby="pipeline-title pipeline-desc">
 <title id="pipeline-title">
 Lim compilation pipeline
@@ -541,6 +563,7 @@ Lim compilation pipeline
 <section id="surface-notation" class="level3">
 <h3>Surface notation</h3>
 <p>Surface forms lower to the same explicit S-expression representation used by generators and the checker. Every source-file root starts with a bare declaration head: the reader supplies its outer list. Explicit root wrappers, such as <code>(#fn main {...})</code>, and doubled-list wrappers are rejected. Parentheses remain valid inside declarations and in quoted generator syntax trees. The executable <a href="../examples/surface_syntax.lim">surface example</a> combines generated arrays, contracts, infix expressions and local indentation lists.</p>
+<p>An <strong>experimental binding form</strong> puts the type and initializer in a nested <code>Type = initializer</code> shape: <code>#let count : #u64 = 42u64;</code> or <code>#let-mut count : #u64 = 0u64;</code>. The colon introduces the type, and <code>=</code> introduces its initializer. Existing <code>#let count #u64 42u64;</code> and <code>#let-mut count #u64 0u64;</code> spellings remain valid during this experiment.</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> increment {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { value <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; };
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
@@ -561,7 +584,7 @@ Lim compilation pipeline
       <span class="lim-literal">0u64</span>);
 }</code></pre>
 <ul>
-<li><code>{ key = form; ... }</code> is a named pair list. Keys are literal identifiers; inline values are single forms and require a final semicolon. Indented list values use <code>key:</code> as described below. Empty records use <code>{}</code>. Duplicate argument keys are checked by their consumer.</li>
+<li><code>{ key = form; ... }</code> is a named pair list. Keys are literal identifiers; inline values are single forms and require a final semicolon. Indented list values use <code>key:</code> as described below. Empty records use <code>{}</code>. Duplicate argument keys are checked by their consumer. A bare <code>key;</code> entry means <code>key = key;</code> and can mix with explicit entries. It introduces neither type inference nor implicit borrowing.</li>
 <li><code>function { name = value; }</code> and <code>(function { name = value; })</code> are ordinary named calls, including generated scalar intrinsics. <code>function ((name value))</code> and <code>(function ((name value)))</code> are equivalent. Empty calls use <code>function {}</code> or <code>(function ())</code>. No <code>#call</code> marker is required. They use the same safe call checks and written-order evaluation as <code>#call</code>. Unsafe calls retain <code>#unsafe-call</code> and an enclosing <code>#unsafe</code>.</li>
 <li>In a parenthesized semicolon list, <code>#let x #u64 expression; #return x;</code> groups into two forms. Existing parenthesized forms are retained. A nested call and its argument record constitute one expression. Every group needs a terminating semicolon; newlines alone do not terminate forms.</li>
 <li><code>[#u64 #wrap; a + b * c]</code> scopes the scalar operator type and integer overflow mode. Integer arithmetic requires <code>#wrap</code> or <code>#saturate</code>; comparisons and floating arithmetic omit the mode. Operators have fixed precedence: unary, multiplication/division/remainder, addition/subtraction, shifts, bitwise AND/XOR/OR, comparisons, Boolean AND, then Boolean OR. Arithmetic associates left. Chained comparisons are rejected. Operators require token separation; <code>start-offset</code> remains one identifier.</li>
@@ -572,7 +595,7 @@ Lim compilation pipeline
 <li>In records, <code>key: syntax;</code>, <code>key : syntax;</code>, and <code>key = : syntax;</code> assign that grouped value. Inline entries retain their terminating semicolon; multiline groups close the entry on dedent. Blank/comment lines do not affect scope. Use spaces for indentation. <code>::</code>, embedded <code>left:right</code>, and prefixed <code>:label</code> remain ordinary identifier text; a standalone colon or a single trailing colon starts a group.</li>
 <li>Every module declaration uses a bare head, including <code>#alias</code>, <code>#struct</code>, <code>#enum</code>, <code>#gn</code>, <code>#generate</code> and <code>#std</code>. A newline or EOF ends its logical form unless an explicit delimiter or indented continuation remains open. A semicolon at root depth also ends a declaration; use it to separate roots on one physical line. Nested bodies retain their own colon and semicolon boundaries. A function&#39;s closing <code>}</code> needs no trailing semicolon. Static and constant records require <code>#type</code> and <code>#value</code>.</li>
 </ul>
-<p>The formatter retains authored layout in forms using this notation and removes trailing horizontal whitespace. Source formatting emits bare roots; the separate syntax-tree formatter handles canonical AST data. Reader nesting limits also bound trees created by flat infix chains. Surface syntax does not infer contracts or change the exact identity of comparison evidence.</p>
+<p>The formatter retains semantic line boundaries in forms using this notation and removes trailing horizontal whitespace. Source formatting emits bare roots; the separate syntax-tree formatter handles canonical AST data. Reader nesting limits also bound trees created by flat infix chains. Surface syntax does not infer contracts or change the exact identity of comparison evidence.</p>
 <p>Inline colons also work inside a function&#39;s body field:</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -787,7 +810,8 @@ nix develop --command cargo run -- fmt examples/modules/main.lim</code></pre>
 <p>Formatting uses Lisp-style headers and two-space body indentation. Function signatures stay together, short nested expressions stay inline, and closing parentheses follow the final expression. A <code>#for</code> keeps initialization, comparison, and mutation together, followed by its indented body:</p>
 <pre class="lisp"><code>(<span class="lim-keyword">#for</span> (<span class="lim-keyword">#let-mut</span> i <span class="lim-type">#u64</span> <span class="lim-literal">0</span>) (<span class="lim-operator">#u64::lt</span> (<span class="lim-keyword">#clone</span> i) <span class="lim-literal">10</span>) (<span class="lim-keyword">#set</span> i (<span class="lim-operator">#u64::add-wrap</span> (<span class="lim-keyword">#clone</span> i) <span class="lim-literal">1</span>))
   (<span class="lim-keyword">#assert</span> (<span class="lim-operator">#u64::lt</span> (<span class="lim-keyword">#clone</span> i) <span class="lim-literal">10</span>)))</code></pre>
-<p>Ordinary expressions exceeding a target width of 100 columns wrap between arguments. Form headers may exceed that width. Comments and parser shorthand retain their source spelling.</p>
+<p>Ordinary expressions exceeding a target width of 100 columns wrap between arguments. Short records and named calls stay on one line; function records use one field per line, and long parameter lists fill lines rather than putting each operand on its own line. A single-statement loop still places its body below the header. Form headers may exceed the target width.</p>
+<p>Comments, blank lines, literals, quoted generator data, and parser shorthand retain their source spelling. Colon-based blocks use two-space indentation without moving line boundaries that affect their meaning. Formatting checks the resulting syntax tree and its own fixed point before accepting a layout.</p>
 <p><code>lim fmt INPUT</code> formats the file and its transitive explicit file dependencies within the same library boundary. Dependencies across a boundary are skipped. The read-only <code>--format</code> form remains available to print one formatted file or write it to a separate output path.</p>
 <p>Native compilation carries an explicit target description. The supported target/ABI matrix currently has one entry:</p>
 <table>
@@ -1251,7 +1275,9 @@ Choice.Ready</code></pre>
 </tr>
 </tbody>
 </table>
-<p>A validator is an ordinary function without the requirement it tests. Every intermediary must explicitly annotate the requirements and guarantees it exports. Only structural read/write footprints propagate through calls; semantic contracts are never inferred from callees. Consequently, writes to an unread sibling field need not revoke a predicate, but a wrapper that changes a predicate&#39;s inputs must declare its own <code>#preserves</code> or <code>#ensures</code>.</p>
+<p>A predicate can itself declare requirements. A function that lists that predicate in <code>#requires</code> also requires its declared prerequisites, with the arguments substituted at each step. For example, if <code>ready(subject)</code> requires <code>valid(subject)</code>, then requiring <code>ready(user)</code> also requires <code>valid(user)</code>. The compiler computes this dependency set separately from the written roots; removing a root removes prerequisites that no remaining root needs. Cycles and excessive expansion are errors. Diagnostics show the chain from the call through the written requirement to the missing prerequisite.</p>
+<p>Only declared requirements participate in this inheritance. Calling a predicate inside a function body still checks its requirements against the evidence available there; it does not change that function&#39;s interface. A validator may test a partial predicate after establishing its prerequisites. No facts are inferred from a predicate&#39;s body, and exact predicate and argument identities still apply.</p>
+<p>Structural read/write footprints propagate through calls. Evidence for a partial predicate also depends on the observations used by its prerequisites; mutating one revokes the dependent evidence. Writes to an unread sibling field need not revoke it. A wrapper that changes a predicate&#39;s inputs must declare its own <code>#preserves</code> or <code>#ensures</code>. An explicit <code>#assume</code>, <code>#ensures</code>, or <code>#preserves</code> promise of a predicate does not promise its prerequisites.</p>
 <p><code>(#result)</code> names the result in <code>#ensures</code>. <code>(#old observation)</code> snapshots an entry observation for a postcondition. Snapshot scalar observations rather than reference/slice handles. These forms are unavailable in requirements, preservation clauses, validation bodies, or assumptions. A mutable value parameter is a local copy: postconditions must use scalar <code>#old</code> observations or the returned value instead of promising properties of its final binding.</p>
 <p><code>(#assume P)</code> explicitly trusts P without evaluating the predicate or any of its arguments, including in instrumented builds. It still checks predicate purity, argument types, identity and dependencies. It grants no exception to ordinary type, ownership, initialization or borrowing rules. Assumptions do not suppress independent runtime checks of function contracts.</p>
 <p>A constrained type has the same runtime representation as its base type:</p>
@@ -3720,11 +3746,11 @@ identifier    = { letter | digit | &quot;_&quot; | &quot;-&quot; | &quot;.&quot;
 <section id="what-the-compiler-verifies" class="level2">
 <h2>What the compiler verifies</h2>
 <ul>
-<li>A call has evidence for every declared requirement.</li>
+<li>A call has evidence for every declared requirement and its declared predicate prerequisites, instantiated with the same argument identities.</li>
 <li>Successful <code>#if-valid</code> branches grant facts about exactly the checked subjects.</li>
 <li>Joins retain facts common to every continuing path.</li>
 <li>Possible writes revoke facts and saved Boolean evidence that depend on them.</li>
-<li>Structural read/write footprints cross calls; semantic contracts require explicit annotations at every intermediary.</li>
+<li>Structural read/write footprints cross calls. Written predicate requirements inherit declared prerequisites; ordinary body calls never infer interfaces.</li>
 <li>Constrained bindings, fields, parameters and results require evidence.</li>
 <li>Fixed storage constraints must be restored when exclusive loans end. A returned/reborrowed alias carries the same obligation.</li>
 <li>Specifications name pure Boolean predicates or typed scalar comparisons and type-correct, pure observations. Unsupported analysis fails closed.</li>
@@ -3736,11 +3762,15 @@ identifier    = { letter | digit | &quot;_&quot; | &quot;-&quot; | &quot;.&quot;
 <p><code>src/contracts</code> replaces the former <code>src/proof</code> and <code>src/theorem.rs</code> modules:</p>
 <ul>
 <li><code>mod.rs</code> collects explicit clauses and constrained types before erasure.</li>
+<li><code>prerequisites.rs</code> builds a bounded dependency DAG from declared requirements, with prerequisite-first ordering and source edges for diagnostic traces.</li>
 <li><code>summaries.rs</code> records transitive structural reads, writes and returned reference origins. It never infers semantic contracts.</li>
 <li><code>flow.rs</code> tracks subject identities, predicate facts, dependency versions, branch joins, mutable loans and fixed storage obligations.</li>
 <li><code>lowering.rs</code> erases ghost forms and optionally emits native contract checks.</li>
 </ul>
 <p>Facts are opaque named applications, matched by predicate and argument identity. There is no SAT solving, arithmetic implication discovery, predicate unfolding, symbolic execution of function bodies, or hidden runtime proof object. The rule checker follows ordinary control flow and declared interfaces. Checked function/type metadata is tied to its lowered AST; modifying a parsed program cannot retain contracts for a different body.</p>
+<p>A predicate may be partial: its own <code>#requires</code> clauses specify the evidence needed before calling it. Listing that predicate as a requirement inherits those clauses transitively, substituting its actual arguments at each edge. The compiler retains authored roots separately from this derived set. Shared prerequisites deduplicate without enumerating every path through a diamond; cycles and bounded-work exhaustion reject the interface. Instrumented builds evaluate prerequisite checks before invoking a partial predicate.</p>
+<p>Inherited prerequisites are not inferred truths. Explicit <code>#assume</code>, <code>#ensures</code> and <code>#preserves</code> clauses promise only what they name, not the domain of a partial predicate. Checked constrained-value boundaries require both. Evidence for a partial predicate depends on its prerequisites&#39; observations, so changing those observations invalidates the dependent fact too. This dependency is derived from declarations, never by proving implications from function bodies.</p>
+<p>Persistent semantic summaries are not safety certificates. Their context key includes the expanded program, source dependencies, compiler, target and cfg; changing an imported prerequisite invalidates that context. Contract checks still run on every compilation, including cache hits.</p>
 <p>Typed scalar comparisons also form exact atomic facts. They carry their operator, scalar type and operand identities; a comparison does not imply a different bound automatically. Explicit helper calls may require one claim and promise another through <code>#ensures</code>, audited in instrumented execution. This is contract-directed code, not a separate proof kernel or tactic engine.</p>
 <p>Scalar comparisons can use ordinary named calls, for example <code>(#call #usize::lt ((left index) (right 4usize)))</code>. The compiler generates the typed intrinsic signature and lowers it to the same operation and fact identity as <code>(#usize::lt index 4usize)</code>. This spelling change introduces no new inference.</p>
 <p><code>#index-proven</code> accepts a reference to a fixed array and a <code>#usize</code> index. Its implicit requirement is exactly <code>(#usize::lt index N)</code> for the array length. Production omits the bounds check; instrumented lowering uses ordinary checked indexing at the access. Named predicates require an explicit helper to establish the comparison claim. <a href="../examples/index_contracts.lim">index_contracts.lim</a> demonstrates the helper, a constrained index assignment and the proven access. Ordinary <code>#index</code> and dynamic slice operations retain their checks.</p>

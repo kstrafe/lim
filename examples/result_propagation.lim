@@ -5,10 +5,8 @@
   #params = ((value Input));
   #returns = Output;
   #body = (
-    (#let-else (Input.Ok number) Input
-      value
-      (#else (Input.Err error)
-        (#return (#call Output::err (($ error))))))
+    (#let-else (Input.Ok number) Input value (#else (Input.Err error) (#return (#call Output::err
+            (($ error))))))
     (#return (#call Output::ok ((value (#u64::eq number 42u64)))))
   );
 }
@@ -18,12 +16,16 @@
   #returns = #u64;
   #body = (
     (#let result Output (#call convert ((value (#call Input::err ((error 42u32)))))))
-    (#return
-      (#match result
+    (#return (#match result
         (#case (Output.Ok yes)
           (#if yes
             42u64
-            0u64))
-        (#case (Output.Err error) (#as error #u64))))
+            0u64
+          )
+        )
+        (#case (Output.Err error)
+          (#as error #u64)
+        )
+      ))
   );
 }

@@ -3,37 +3,54 @@
 #enum Choice () ((Choice.Chosen Values) Choice.Empty)
 #enum Step () ((Step.Start #u64) (Step.Resume #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return (#match task
-      (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
-      (#case (Step.Resume value) (StepPoll.StepReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (Step.Start value)
+          (StepPoll.StepPending (Step.Resume value))
+        )
+        (#case (Step.Resume value)
+          (StepPoll.StepReady value)
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work ((choice Choice)) #u64
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((choice Choice)) #u64
       (#return (#match choice
-        (#case (Choice.Chosen (Values value bias))
-          (#u64::add-wrap
-            (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as value #u64)))
-            bias))
-        (#case Choice.Empty 0u64))))))
+          (#case (Choice.Chosen (Values value bias))
+            (#u64::add-wrap (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll
+                (Step.Start (#as value #u64))) bias)
+          )
+          (#case Choice.Empty
+            0u64
+          )
+        )))))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let waker #u64 0u64)
-    (#let-mut task Work::Task
-      (#call work ((choice (Choice.Chosen (#struct-literal Values ((a 22u64) (z 20u16))))))))
+    (#let-mut task Work::Task (#call work ((choice (Choice.Chosen (#struct-literal Values
+                ((a 22u64) (z 20u16))))))))
     (#for-range (attempt #u64) 0u64 3u64
       (#let result Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
       (#match result
-        (#case (Work::Poll.Pending next) (#block (#set task next) ()))
-        (#case (Work::Poll.Ready value) (#block (#return value)))))
+        (#case (Work::Poll.Pending next)
+          (#block
+            (#set task next)
+            ()
+          )
+        )
+        (#case (Work::Poll.Ready value)
+          (#block
+            (#return value)
+          )
+        )
+      )
+    )
     (#forget task)
     (#return (#unreachable))
   );

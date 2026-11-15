@@ -6,7 +6,12 @@
   #body = (
     (#let value Result (Result.Ok 42))
     (#return (#match value
-      (#case (Result.Ok payload) payload)
-      (#case (Result.Err _) 0)))
+        (#case (Result.Ok payload)
+          payload
+        )
+        (#case (Result.Err _)
+          0
+        )
+      ))
   );
 }

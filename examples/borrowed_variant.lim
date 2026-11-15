@@ -4,12 +4,14 @@
 #fn read {
   #params = ((source (#ref Choice)));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match (#deref source)
-        (#case (Choice.Empty) 0u64)
-        (#case (Choice.Full value) (#deref value))))
-  );
+  #body = ((#return (#match (#deref source)
+        (#case (Choice.Empty)
+          0u64
+        )
+        (#case (Choice.Full value)
+          (#deref value)
+        )
+      )));
 }
 
 #fn main {

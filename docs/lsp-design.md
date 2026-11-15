@@ -61,11 +61,20 @@ see success bindings; nested blocks, arms and loops do not export bindings.
 No-shadowing does not remove the need for scope: separate functions can reuse
 parameter names, and unrelated structs can reuse field names.
 
+Delimited bindings such as `#let value : Type = initializer;` retain the
+reader's nested `(Type = initializer)` source tree. Resolve the type inside
+that specification as a type, and the initializer as an expression evaluated
+before the new binding enters scope. The `:` and `=` delimiters have no
+definition target. Navigation, hover, and initializer signature help must also
+handle `#let-mut`, compound types, and multiline specifications while retaining
+the exact authored spans. The checked binding representation remains the same
+as for canonical positional generator syntax.
+
 Fields resolve through the receiver's declared type, aliases, reference/pointer
 wrappers, function signatures and projections. Named call labels resolve to the
 selected function's parameters. Struct-literal labels resolve to that struct's
-fields. Tuple/array indices remain literals, not identifiers. `$` puns navigate
-as the value use, since their label and value share the same source token.
+fields. Tuple/array indices remain literals, not identifiers. `$` and bare record
+puns navigate as the value use, since their label and value share a source token.
 Enum constructor and pattern names resolve to variant declaration spans; this
 includes cases, conditional patterns, payload operations and fieldless values.
 In `(#enum-literal Variant payload)`, `Variant` resolves only to an enum
@@ -120,7 +129,12 @@ does not provide information. Hover ranges select the authored token in UTF-16;
 explicit binding, parameter and field types retain their source notation.
 Function information includes named parameters, return types and the declaration's
 `#requires`, `#ensures` and `#preserves` contracts without checking or changing their
-meaning. Information queries do not publish generated source or write buffers.
+meaning. When checked metadata is available, it separately displays computed
+predicate prerequisites in evaluation order, with substituted arguments and
+numbered source-origin edges. Canonical declaration spans identify the contract
+through aliases and private library names; shared prerequisites are shown once.
+Display limits bound large dependency graphs and report omitted information.
+Information queries do not publish generated source or write buffers.
 When an unfinished named call prevents normal expansion from completing,
 display-only queries can reuse the existing declaration planner before call
 normalization, retaining generated signatures and canonical file scopes. This

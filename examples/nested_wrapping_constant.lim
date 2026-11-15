@@ -1,6 +1,7 @@
 #const wrapped #i8 (#i8::div-wrap (#i8::add-wrap 127i8 1i8) 2i8)
 #const negated #i8 (#i8::div-wrap (#i8::sub-wrap -128i8) 2i8)
 #const inverted #u8 (#u8::div-wrap (#u8::not 0u8) 2u8)
+
 #fn main {
   #params = ();
   #returns = #u64;
@@ -10,7 +11,8 @@
     (#assert (#u8::eq inverted 127u8))
     (#assert (#u128::eq (#u128::not 0u128) 340282366920938463463374607431768211455u128))
     (#assert (#u128::eq (#u128::sub-wrap 1u128) 340282366920938463463374607431768211455u128))
-    (#assert (#i128::eq (#i128::sub-saturate -170141183460469231731687303715884105728i128) 170141183460469231731687303715884105727i128))
+    (#assert (#i128::eq (#i128::sub-saturate -170141183460469231731687303715884105728i128)
+        170141183460469231731687303715884105727i128))
     (#assert (#i8::eq wrapped (#i8::div-wrap (#i8::add-wrap 127i8 1i8) 2i8)))
     (#return 42u64)
   );

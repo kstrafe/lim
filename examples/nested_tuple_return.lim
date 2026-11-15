@@ -1,15 +1,11 @@
 #fn make {
   #params = ();
   #returns = (#tuple (#tuple #u64 #u64) #u64);
-  #body = (
-    (#return (#tuple (#tuple (#tuple #u64 #u64) 10 20) 32))
-  );
+  #body = ((#return (#tuple (#tuple (#tuple #u64 #u64) 10 20) 32)));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#get (#call make ()) 1))
-  );
+  #body = ((#return (#get (#call make ()) 1)));
 }

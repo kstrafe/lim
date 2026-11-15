@@ -3,16 +3,19 @@
   #returns = #u64;
   #body = (
     (#let-mut count #u64 0)
-    (#label outer
-      (#while (#u64::lt (#clone count) 4u64)
+    (#label outer (#while (#u64::lt (#clone count) 4u64)
         (#set count (#u64::add-wrap (#clone count) 1u64))
-        (#label inner
-          (#while true
-            (#break-to inner)))
+        (#label inner (#while true
+            (#break-to inner)
+          ))
         (#if (#u64::eq (#clone count) 3u64)
-          (#block (#break-to outer))
-          ())
-        (#continue-to outer)))
+          (#block
+            (#break-to outer)
+          )
+          ()
+        )
+        (#continue-to outer)
+      ))
     (#return count)
   );
 }

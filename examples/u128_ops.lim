@@ -1,24 +1,13 @@
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let left #u128 1)
     (#let right #u128 2)
-    (
-      #return
-      (
-        #if
-        (#bool::and
-          (#u128::lt  (#clone left) (#clone right))
-          (#u128::eq
-            (#u128::shl  left 5)
-            32
-          )
-        )
+    (#return
+      (#if (#bool::and (#u128::lt (#clone left) (#clone right)) (#u128::eq (#u128::shl left 5) 32))
         42
         0
-      )
-    )
+      ))
   );
 }

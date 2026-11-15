@@ -11,11 +11,14 @@
   #body = (
     (#let-mut owner Owner (#struct-literal Owner ((number 1u64))))
     (#let parent (#ref-mut Owner) (#borrow-mut owner))
-    (#let-mut view View
-      (#struct-literal View ((item (#borrow-mut (#get parent number))))))
+    (#let-mut view View (#struct-literal View ((item (#borrow-mut (#get parent number))))))
     (#let target (#pin-ref-mut View) (#pin-borrow-mut view))
-    (#let loaded View (#unsafe (#pin-read target)))
-    (#unsafe (#pin-write target loaded))
+    (#let loaded View (#unsafe
+        (#pin-read target)
+      ))
+    (#unsafe
+      (#pin-write target loaded)
+    )
     (#drop target)
     (#deref-set (#get view item) 42u64)
     (#forget view)

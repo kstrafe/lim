@@ -1,11 +1,8 @@
 #fn make {
   #params = ((last #u64));
   #returns = (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64);
-  #body = (
-    (#return
-      (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
-        1u64 2u64 3u64 4u64 5u64 6u64 last))
-  );
+  #body = ((#return (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) 1u64 2u64 3u64 4u64 5u64
+        6u64 last)));
 }
 
 #fn main {

@@ -6,34 +6,41 @@
 #fn step-poll {
   #params = ((task StepTask) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return (#match task
-      (#case StepTask.Start (StepPoll.StepPending StepTask.Resume))
-      (#case StepTask.Resume (StepPoll.StepReady ()))))
-  );
+  #body = ((#return (#match task
+        (#case StepTask.Start
+          (StepPoll.StepPending StepTask.Resume)
+        )
+        (#case StepTask.Resume
+          (StepPoll.StepReady ())
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work () #u64
-      (#let-mut keep-going #bool true)
-      (#for () keep-going
-        (#await () StepTask StepPoll.StepPending StepPoll.StepReady step-poll StepTask.Start)
-        (#set keep-going false))
-      (#return 42u64))))
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#let-mut
+        keep-going #bool true)
+      (#for () keep-going (#await () StepTask StepPoll.StepPending StepPoll.StepReady step-poll
+        StepTask.Start)
+        (#set keep-going false)
+      ) (#return 42u64))))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let waker #u64 0u64)
-    (#let first Work::Poll
-      (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
+    (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
-    (#let second Work::Poll
-      (#call Work::poll ((task task) (waker (#borrow waker)))))
+    (#let second Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
     (#return (#match second
-      (#case (Work::Poll.Ready value) value)
-      (#case (Work::Poll.Pending unexpected)
-        (#block (#forget unexpected) (#unreachable)))))
+        (#case (Work::Poll.Ready value)
+          value
+        )
+        (#case (Work::Poll.Pending unexpected)
+          (#block
+            (#forget unexpected)
+            (#unreachable)
+          )
+        )
+      ))
   );
 }

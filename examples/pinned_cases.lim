@@ -4,25 +4,20 @@
 #fn inspect {
   #params = ((choice (#pin-ref Choice)));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match choice
+  #body = ((#return (#match choice
         (#case-pin (Choice.Full payload) (#get payload value))
-        (#case-pin Choice.Empty 0u64)))
-  );
+        (#case-pin Choice.Empty 0u64)
+      )));
 }
 
 #fn update {
   #params = ((choice (#pin-ref-mut Choice)));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match choice
-        (#case-pin-mut (Choice.Full payload)
-          (#pin-set-field payload value 42u64)
-          (#get payload value))
-        (#case-pin-mut Choice.Empty 0u64)))
-  );
+  #body = ((#return (#match choice
+        (#case-pin-mut (Choice.Full payload) (#pin-set-field payload value 42u64) (#get payload
+            value))
+        (#case-pin-mut Choice.Empty 0u64)
+      )));
 }
 
 #fn main {

@@ -2321,3 +2321,201 @@ fn record_function_contracts_and_refinement_named_calls_have_information_over_st
     assert!(!fixture.0.join(".lim").exists());
     client.shutdown();
 }
+
+#[test]
+fn delimited_let_hover_and_initializer_signature_help_preserve_source_ranges_over_stdio() {
+    let fixture = Fixture::new("delimited-let-information");
+    for keyword in ["#let", "#let-mut"] {
+        let source = r#"#type Number #u64
+#fn choose {
+  #params = { first = Number; second = Number; };
+  #returns = Number;
+  #body: #return (#u64::add-wrap first second);
+}
+#fn main {
+  #params = {}; #returns = Number;
+  #body = (
+    #let-kind answer : Number = choose {
+      second = 22u64;
+      first = 20u64;
+    };
+    #let-kind pair : (#tuple Number Number) = (#tuple answer 0u64);
+    #return (#get pair 0);
+  );
+}
+"#
+        .replace("#let-kind", keyword);
+        let path = fixture.write("main.lim", &source);
+        let mut client = Client::start(&fixture.0);
+        client.open(&path, &source);
+        for (needle, name, ty) in [
+            ("answer :", "answer", "Number"),
+            ("answer 0u64", "answer", "Number"),
+            ("pair :", "pair", "(#tuple Number Number)"),
+            ("pair 0)", "pair", "(#tuple Number Number)"),
+        ] {
+            let hover = client.hover(&path, &source, needle, name);
+            assert!(hover.contains(ty), "{keyword}: {hover}");
+        }
+        for (needle, active) in [("22u64", 1), ("20u64", 0)] {
+            let signature = client.signature(&path, &source, source.find(needle).unwrap());
+            assert_signature(&signature, "choose", &["first", "second"], Some(active));
+        }
+        for needle in [": Number = choose", "= choose", ": (#tuple", "= (#tuple answer"] {
+            let byte = source.find(needle).unwrap();
+            assert_eq!(
+                client.at("textDocument/hover", &path, &source, byte),
+                Json::Null,
+                "{keyword}: {needle}"
+            );
+        }
+        client.clear(&path);
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+        client.shutdown();
+    }
+}
+
+#[test]
+fn hover_and_signature_show_inherited_requirements_and_origins_over_stdio() {
+    let fixture = Fixture::new("information-prerequisites");
+    let source = r#"#fn available {
+  #params = ((value #u64)); #returns = #bool;
+  #body = ( (#return true) );
+}
+#fn selected {
+  #params = ((subject #u64)); #returns = #bool;
+  #body = ( (#requires (#call available ((value subject)))) (#return true) );
+}
+#fn consume {
+  #params = ((input #u64)); #returns = #u64;
+  #body = ( (#requires (#call selected ((subject input)))) (#return input) );
+}
+#fn forward {
+  #params = ((input #u64)); #returns = #u64;
+  #body = ( (#requires (#call selected ((subject input))))
+            (#return (#call consume ((input input)))) );
+}
+"#;
+    lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
+    let path = fixture.write("main.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    let origin_line = source[..source.find("(#call available").unwrap()]
+        .bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let origin = format!("{}:{origin_line}:", path.display());
+    for hover in [
+        client.hover(&path, source, "consume {", "consume"),
+        client.hover(&path, source, "consume ((input input))", "consume"),
+    ] {
+        let (authored, computed) = hover.split_once("// Computed requirements").unwrap();
+        assert!(authored.contains("// Authored contracts"), "{hover}");
+        assert!(authored.contains("(#requires (#call selected ((subject input))))"), "{hover}");
+        assert!(!authored.contains("#call available"), "{hover}");
+        for part in [
+            "inherited prerequisite",
+            "(#requires (#call available ((value input))))",
+            "// Origin chains",
+            "root requirement -> [2]",
+            "[2] -> prerequisite [1]",
+            origin.as_str(),
+        ] {
+            assert!(computed.contains(part), "missing {part}: {hover}");
+        }
+    }
+    let signature = client.signature(
+        &path, source, source.rfind("input input").unwrap() + "input ".len(),
+    );
+    assert_signature(&signature, "consume", &["input"], Some(0));
+    let documentation = signature.get("signatures").unwrap().array().unwrap()[0]
+        .get("documentation").unwrap().get("value").unwrap().string().unwrap();
+    for part in [
+        "// Authored contracts", "// Computed requirements",
+        "(#requires (#call available ((value input))))",
+        "[2] -> prerequisite [1]", origin.as_str(),
+    ] {
+        assert!(documentation.contains(part), "missing {part}: {documentation}");
+    }
+    let local = client.hover_at(
+        &path, source, source.rfind("input input").unwrap() + "input ".len(), "input",
+    );
+    assert!(local.contains("#u64"), "{local}");
+    assert!(!local.contains("Computed requirements"), "{local}");
+    client.clear(&path);
+    client.shutdown();
+}
+
+#[test]
+fn aliased_contract_information_uses_declaration_identity_and_private_names_over_stdio() {
+    let fixture = Fixture::new("information-private-prerequisites");
+    let library = r#"#export consume selected
+#fn available {
+  #params = ((value #u64)); #returns = #bool;
+  #body = ( (#return true) );
+}
+#fn selected {
+  #params = ((subject #u64)); #returns = #bool;
+  #body = ( (#requires (#call available ((value subject)))) (#return true) );
+}
+#fn consume {
+  #params = ((input #u64)); #returns = #u64;
+  #body = ( (#requires (#call selected ((subject input)))) (#return input) );
+}
+"#;
+    let implementation = fixture.write("library/lib.lim", library);
+    fixture.write("facade.lim", "#alias api = ./library/lib.lim::consume\n#alias predicate = ./library/lib.lim::selected\n");
+    let source = r#"#alias renamed = ./facade.lim::api
+#alias needed = ./facade.lim::predicate
+#fn consume {
+  #params = ((input #u64)); #returns = #u64;
+  #body = ( (#return input) );
+}
+#fn forward {
+  #params = ((input #u64)); #returns = #u64;
+  #body = ( (#requires (#call needed ((subject input))))
+            (#return (#call renamed ((input input)))) );
+}
+#fn local {
+  #params = ((input #u64)); #returns = #u64;
+  #body = ( (#return (#call consume ((input input)))) );
+}
+"#;
+    let path = fixture.write("main.lim", source);
+    lim::check_types(&lim::parse_program_from_path(source, &path).unwrap()).unwrap();
+    fixture.context(&path, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    let hover = client.hover(&path, source, "renamed ((input input))", "renamed");
+    for part in [
+        "(#fn consume", "// Authored contracts", "// Computed requirements",
+        "(#requires (#call available ((value input))))",
+        "(#requires (#call selected ((subject input))))",
+        "[2] -> prerequisite [1]", "lib.lim:",
+    ] {
+        assert!(hover.contains(part), "missing {part}: {hover}");
+    }
+    // The prerequisite is private to the imported file. Present its authored
+    // spelling without leaking canonical file identities into predicate text.
+    assert!(!hover.contains(".lim::"), "{hover}");
+    let signature = client.signature(
+        &path, source, source.find("renamed ((input input))").unwrap() + "renamed ((input ".len(),
+    );
+    assert_signature(&signature, "consume", &["input"], Some(0));
+    let documentation = signature.get("signatures").unwrap().array().unwrap()[0]
+        .get("documentation").unwrap().get("value").unwrap().string().unwrap();
+    assert!(documentation.contains("inherited prerequisite"), "{documentation}");
+    assert!(documentation.contains("#call available"), "{documentation}");
+    assert!(documentation.contains("lib.lim:"), "{documentation}");
+    assert!(!documentation.contains(".lim::"), "{documentation}");
+    let ordinary = client.hover(&path, source, "consume ((input input))", "consume");
+    assert!(ordinary.contains("(#fn consume"), "{ordinary}");
+    assert!(!ordinary.contains("Computed requirements"), "{ordinary}");
+    let signature = client.signature(
+        &path, source, source.rfind("input input").unwrap() + "input ".len(),
+    );
+    assert_signature(&signature, "consume", &["input"], Some(0));
+    assert!(signature.get("signatures").unwrap().array().unwrap()[0]
+        .get("documentation").is_none(), "{signature:?}");
+    client.clear(&path);
+    assert_eq!(fs::read_to_string(&implementation).unwrap(), library);
+    client.shutdown();
+}

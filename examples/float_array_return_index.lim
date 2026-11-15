@@ -1,35 +1,14 @@
-#fn
-    make {
+#fn make {
   #params = ();
   #returns = (#array #f32 2);
-  #body = (
-    (
-      #return
-      (#array 1.5 2.5)
-    )
-  );
+  #body = ((#return (#array 1.5 2.5)));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #if
-        (#f32::gt
-          (
-            #index
-            (#call make ())
-            1
-          )
-          2.0
-        )
+  #body = ((#return (#if (#f32::gt (#index (#call make ()) 1) 2.0)
         42
         0
-      )
-    )
-  );
+      )));
 }

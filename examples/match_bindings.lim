@@ -5,9 +5,13 @@
   #returns = #u64;
   #body = (
     (#let value #u64 40u64)
-    (#return
-      (#match (Maybe.Some 1u64)
-        (#case (Maybe.Some matched) (#u64::add-wrap matched value))
-        (#case Maybe.None value)))
+    (#return (#match (Maybe.Some 1u64)
+        (#case (Maybe.Some matched)
+          (#u64::add-wrap matched value)
+        )
+        (#case Maybe.None
+          value
+        )
+      ))
   );
 }

@@ -368,7 +368,7 @@ so this spelling also works in supported nested value expressions without
 repeating the result type. Declare a bundle for a handwritten task, or let
 `#generate #async-fn` export it:
 
-```lisp
+```lisp syntax
 #generate #async-fn ((protocol WorkAwait) (waker LocalWaker)
     (function (#fn work ((offset #u64)) #u64
       (#return (#await StepAwait (Waiting offset))))))
@@ -481,7 +481,7 @@ intentionally bypasses cleanup; it is not a cancellation operation.
 optional `:cancel` argument. Map source binding names and `await-N` identities
 to concrete handlers, not private program-counter states:
 
-```lisp
+```lisp syntax
 #generate #async-fn-pinned
     ((protocol WorkAwait)
      (waker LocalWaker)

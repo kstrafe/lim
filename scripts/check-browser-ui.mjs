@@ -62,26 +62,44 @@ try {
   await until('document.readyState === "complete" && document.querySelector("#run") && typeof Worker === "function"');
   async function choose(name) { await evaluate(`document.querySelector('#example').value=${JSON.stringify(name)};document.querySelector('#example').dispatchEvent(new Event('change'))`); }
   async function click(button) { await evaluate(`document.querySelector('#${button}').click()`); }
-  console.log('Checking default program');
+  console.log('Checking the default program');
   await click('run'); await until('document.querySelector("#status").textContent === "Compiled and ran"');
-  assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned 42/);
-  assert.equal(await evaluate('document.querySelector("#download").hidden'), false);
-  console.log('Checking compiled stdout separately from the return value');
-  await choose('print'); await click('run'); await until('document.querySelector("#status").textContent === "Compiled and ran"');
-  assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n');
+  assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '42\n');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned \(\)/);
-  assert.match(await evaluate('document.querySelector("#output").textContent'), /lim.print_u64/);
+  console.log('Checking stdout for every selectable example');
+  const demos = await evaluate(`Array.from(document.querySelector('#example').options, option => ({ value: option.value, stdout: option.dataset.stdout, runtimeError: option.dataset.runtimeError === 'true' }))`);
+  assert(demos.length > 0 && demos.every(demo => typeof demo.stdout === 'string'), 'every selectable example must declare expected stdout');
+  for (const demo of demos) {
+    await choose(demo.value); await click('run');
+    await until(`document.querySelector("#status").textContent === ${JSON.stringify(demo.runtimeError ? 'Needs attention' : 'Compiled and ran')}`);
+    assert.equal(await evaluate('document.querySelector("#stdout").textContent'), demo.stdout, `${demo.value} stdout`);
+    if (demo.runtimeError) assert.match(await evaluate('document.querySelector("#output").textContent'), /Runtime trap/);
+    else assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned \(\)/);
+    assert.equal(await evaluate('document.querySelector("#download").hidden'), false);
+  }
   const playgroundShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   await writeFile('/tmp/lim-playground-preview.png', Buffer.from(playgroundShot.data, 'base64'));
-  console.log('Checking diagnostics and arrays');
-  await choose('invalid'); await click('run'); await until('document.querySelector("#status").textContent === "Needs attention"');
+  console.log('Checking diagnostics and check-only arrays');
+  const invalid = '#fn main { #params = {}; #returns = #u64; #body = ((#let answer #u64 false) (#return answer)); }';
+  await evaluate(`document.querySelector('#source').value=${JSON.stringify(invalid)}`);
+  await click('run'); await until('document.querySelector("#status").textContent === "Needs attention"');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /E4000/);
-  await choose('array'); await click('check'); await until('document.querySelector("#status").textContent === "Checks passed"');
+  const checkOnlyArray = `#fn main {
+    #params = {}; #returns = #u64;
+    #body:
+      #let items (#array #u64 2) : #array-of (#array #u64 2) 20 42;
+      #let view (#ref (#array #u64 2)) : #borrow items;
+      #let index #usize 1;
+      #return : #if-valid [#usize; index < 2] (#index-proven view index) 0u64;
+  }`;
+  await evaluate(`document.querySelector('#source').value=${JSON.stringify(checkOnlyArray)}`);
+  await click('check'); await until('document.querySelector("#status").textContent === "Checks passed"');
   await click('run'); await until('document.querySelector("#status").textContent === "Needs attention"');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /does not yet support/);
   console.log('Checking contracts and worker cancellation');
   await choose('contract'); await click('run'); await until('document.querySelector("#status").textContent === "Compiled and ran"');
-  assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned 42/);
+  assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned \(\)/);
+  assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '42\n');
   const binding = await evaluate('document.querySelector("#example-print").content.textContent.split("#fn main {")[0]');
   const printThenTrap = `${binding}#fn main {
     #params = {}; #returns = #u64;

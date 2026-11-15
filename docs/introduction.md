@@ -1,10 +1,10 @@
 # Meet Lim {#introduction}
 
 Lim is an experimental, compiled **Lisp with explicit, strong static types**
-and a **human-readable target for generated code**. Write it by hand, ask a
-language model to produce it, or build your own generator: the result stays
-ordinary source you can follow, test, and change. This page explains the design,
-walks through examples, and keeps the full reference close at hand.
+and a **human-readable target for generated code**. Write it by hand or generate
+it: the result stays ordinary source you can inspect, test, and change. Its name
+evokes a limit as time approaches zero, reflecting its goals of fast builds and
+efficient native code.
 
 ## Read what runs {#language}
 

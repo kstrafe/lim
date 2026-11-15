@@ -16,10 +16,7 @@
 #fn update-state {
   #params = ((target (#pin-ref-mut Link)));
   #returns = (#pin-ref-mut Link);
-  #body = (
-    (#pin-set-field target state 2u32)
-    (#return target)
-  );
+  #body = ((#pin-set-field target state 2u32) (#return target));
 }
 
 #fn main {
@@ -28,10 +25,8 @@
   #body = (
     (#let-mut outside #u64 3u64)
     (#let external (#pin-ref #u64) (#pin-borrow outside))
-    (#let-mut link Link
-      (#struct-literal Link ((value 42u64) (state 0u32) (view external))))
-    (#let pinned (#pin-ref-mut Link)
-      (#call install-view ((target (#pin-borrow-mut link)))))
+    (#let-mut link Link (#struct-literal Link ((value 42u64) (state 0u32) (view external))))
+    (#let pinned (#pin-ref-mut Link) (#call install-view ((target (#pin-borrow-mut link)))))
     (#let updated (#pin-ref-mut Link) (#call update-state ((target pinned))))
     (#let observed #u64 (#deref (#get updated view)))
     (#pin-set-field updated view external)

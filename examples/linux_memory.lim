@@ -9,46 +9,61 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#let memory (#ptr-mut #u8)
-      (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
-    (#let memory-initialized ()
-      (#unsafe (#block (#ptr-write memory 201u8) ())))
-    (#let value #u8 (#unsafe (#ptr-read memory)))
-    (#let residency (#ptr-mut #u8)
-      (#unsafe (#ptr-offset memory 64usize)))
-    (#let residence-result #i64
-      (#unsafe (#unsafe-call linux-mincore ((address memory) (length 4096usize) (residency residency)))))
-    (#let resident-bit #u8
-      (#u8::bit-and (#unsafe (#ptr-read residency)) 1u8))
-    (#let unaligned-mincore #i64
-      (#unsafe (#unsafe-call linux-mincore ((address (#ptr-offset memory 1usize)) (length 1usize) (residency residency)))))
-    (#let synced #i64
-      (#unsafe (#unsafe-call linux-msync ((address memory) (length 4096usize) (flags 4i32)))))
-    (#let invalid-sync-flags #i64
-      (#unsafe (#unsafe-call linux-msync ((address memory) (length 4096usize) (flags 5i32)))))
-    (#let barrier-capabilities #i64
-      (#call linux-membarrier ((command 0i32) (flags 0u32) (cpu-id 0i32))))
-    (#let invalid-barrier-flags #i64
-      (#call linux-membarrier ((command 0i32) (flags 1u32) (cpu-id 0i32))))
-    (#let readable #i64
-      (#unsafe (#unsafe-call linux-mprotect ((address memory) (length 4096usize) (protection 1u32)))))
-    (#let unaligned-protection #i64
-      (#unsafe (#unsafe-call linux-mprotect ((address (#unsafe (#ptr-offset memory 1usize))) (length 1usize) (protection 1u32)))))
-    (#let unmapped #i64
-      (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))))
-    (#return
-      (#if (#bool::and (#u8::eq value 201u8)
-            (#bool::and (#i64::eq residence-result 0i64)
-              (#bool::and (#u8::eq resident-bit 1u8)
-                (#bool::and (#i64::eq unaligned-mincore -22i64)
-                  (#bool::and (#i64::eq synced 0i64)
-                    (#bool::and (#i64::eq invalid-sync-flags -22i64)
-                      (#bool::and (#i64::ge barrier-capabilities 0i64)
-                        (#bool::and (#i64::eq invalid-barrier-flags -22i64)
-                          (#bool::and (#i64::eq readable 0i64)
-                            (#bool::and (#i64::eq unaligned-protection -22i64)
-                              (#i64::eq unmapped 0i64)))))))))))
+    (#let memory (#ptr-mut #u8) (#unsafe
+        (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)
+            (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))
+      ))
+    (#let memory-initialized () (#unsafe
+        (#block
+          (#ptr-write memory 201u8)
+          ()
+        )
+      ))
+    (#let value #u8 (#unsafe
+        (#ptr-read memory)
+      ))
+    (#let residency (#ptr-mut #u8) (#unsafe
+        (#ptr-offset memory 64usize)
+      ))
+    (#let residence-result #i64 (#unsafe
+        (#unsafe-call linux-mincore ((address memory) (length 4096usize) (residency residency)))
+      ))
+    (#let resident-bit #u8 (#u8::bit-and (#unsafe
+          (#ptr-read residency)
+        ) 1u8))
+    (#let unaligned-mincore #i64 (#unsafe
+        (#unsafe-call linux-mincore ((address (#ptr-offset memory 1usize)) (length 1usize)
+            (residency residency)))
+      ))
+    (#let synced #i64 (#unsafe
+        (#unsafe-call linux-msync ((address memory) (length 4096usize) (flags 4i32)))
+      ))
+    (#let invalid-sync-flags #i64 (#unsafe
+        (#unsafe-call linux-msync ((address memory) (length 4096usize) (flags 5i32)))
+      ))
+    (#let barrier-capabilities #i64 (#call linux-membarrier ((command 0i32) (flags 0u32) (cpu-id
+            0i32))))
+    (#let invalid-barrier-flags #i64 (#call linux-membarrier ((command 0i32) (flags 1u32) (cpu-id
+            0i32))))
+    (#let readable #i64 (#unsafe
+        (#unsafe-call linux-mprotect ((address memory) (length 4096usize) (protection 1u32)))
+      ))
+    (#let unaligned-protection #i64 (#unsafe
+        (#unsafe-call linux-mprotect ((address (#unsafe
+                (#ptr-offset memory 1usize)
+              )) (length 1usize) (protection 1u32)))
+      ))
+    (#let unmapped #i64 (#unsafe
+        (#unsafe-call linux-munmap ((address memory) (length 4096usize)))
+      ))
+    (#return (#if (#bool::and (#u8::eq value 201u8) (#bool::and (#i64::eq residence-result 0i64)
+          (#bool::and (#u8::eq resident-bit 1u8) (#bool::and (#i64::eq unaligned-mincore -22i64)
+              (#bool::and (#i64::eq synced 0i64) (#bool::and (#i64::eq invalid-sync-flags -22i64)
+                  (#bool::and (#i64::ge barrier-capabilities 0i64) (#bool::and (#i64::eq
+                        invalid-barrier-flags -22i64) (#bool::and (#i64::eq readable 0i64)
+                        (#bool::and (#i64::eq unaligned-protection -22i64) (#i64::eq unmapped 0i64)))))))))))
         42u64
-        1u64))
+        1u64
+      ))
   );
 }

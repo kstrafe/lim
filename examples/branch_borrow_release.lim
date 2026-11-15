@@ -5,12 +5,17 @@
   #returns = #u64;
   #body = (
     (#let-mut owner #u64 1u64)
-    (#let holder Holder
-      (#struct-literal Holder ((view (#borrow owner)))))
-    (#let released ()
-      (#if true
-        (#block (#forget holder) ())
-        (#block (#forget holder) ())))
+    (#let holder Holder (#struct-literal Holder ((view (#borrow owner)))))
+    (#let released () (#if true
+        (#block
+          (#forget holder)
+          ()
+        )
+        (#block
+          (#forget holder)
+          ()
+        )
+      ))
     (#set owner 42u64)
     (#return owner)
   );

@@ -1,21 +1,17 @@
-#enum
-    Color ()
-    (Color.Red Color.Green Color.Blue)
+#enum Color () (Color.Red Color.Green Color.Blue)
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #match
-        Color.Green
-        (#case Color.Red 10)
-        (#case Color.Green 20)
-        (#case _ 30)
-      )
-    )
-  );
+  #body = ((#return (#match Color.Green
+        (#case Color.Red
+          10
+        )
+        (#case Color.Green
+          20
+        )
+        (#case _
+          30
+        )
+      )));
 }

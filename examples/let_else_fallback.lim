@@ -5,9 +5,7 @@
   #returns = #u64;
   #body = (
     (#let value Maybe (#enum-literal Maybe.None))
-    (#let-else (Maybe.Some payload) value
-      (#else
-        (#return 7u64)))
+    (#let-else (Maybe.Some payload) value (#else (#return 7u64)))
     (#return payload)
   );
 }

@@ -3,9 +3,13 @@
   #returns = #u64;
   #body = (
     (#let value (#tuple #u64 #u64) (#tuple 1 2))
-    (#return
-      (#match value
-        (#case (#or (#tuple 1 2) (#tuple 3 4)) 42)
-        (#case _ 0)))
+    (#return (#match value
+        (#case (#or (#tuple 1 2) (#tuple 3 4))
+          42
+        )
+        (#case _
+          0
+        )
+      ))
   );
 }

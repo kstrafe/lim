@@ -1,18 +1,20 @@
-#struct Inner ()
-    ((payload (#array #u64 7)))
+#struct Inner () ((payload (#array #u64 7)))
 
-#struct Outer ()
-    ((inner Inner))
+#struct Outer () ((inner Inner))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let value Outer
-      (#struct-literal Outer ((inner (#struct-literal Inner ((payload (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))))))))
-    (#return
-      (#match value
-        (#case (Outer (Inner payload)) (#index payload 6u64))
-        (#case _ 0u64)))
+    (#let value Outer (#struct-literal Outer ((inner (#struct-literal Inner ((payload (#array
+                    (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))))))))
+    (#return (#match value
+        (#case (Outer (Inner payload))
+          (#index payload 6u64)
+        )
+        (#case _
+          0u64
+        )
+      ))
   );
 }

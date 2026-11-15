@@ -1,27 +1,11 @@
-#fn
-    make {
+#fn make {
   #params = ();
   #returns = (#array #u64 3);
-  #body = (
-    (
-      #return
-      (#array 10 20 30)
-    )
-  );
+  #body = ((#return (#array 10 20 30)));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #index
-        (#call make ())
-        1
-      )
-    )
-  );
+  #body = ((#return (#index (#call make ()) 1)));
 }

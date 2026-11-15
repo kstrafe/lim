@@ -9,14 +9,15 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#let paths (#ptr-mut #u8)
-      (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
-    (#let how (#ptr-mut #u64)
-      (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
-    (#let initialized ()
-      (#unsafe
+    (#let paths (#ptr-mut #u8) (#unsafe
+        (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
+          (0usize 4096usize 3usize 34usize -1i64 0usize))
+      ))
+    (#let how (#ptr-mut #u64) (#unsafe
+        (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64
+            0usize))
+      ))
+    (#let initialized () (#unsafe
         (#block
           (#ptr-write paths 112u8)
           (#ptr-write (#ptr-offset paths 1usize) 114u8)
@@ -35,34 +36,45 @@
           (#ptr-write how 0u64)
           (#ptr-write (#ptr-offset how 1usize) 0u64)
           (#ptr-write (#ptr-offset how 2usize) 8u64)
-          ())))
-    (#let file-created #i64
-      (#unsafe (#unsafe-call linux-openat ((directory -100i64) (path paths) (flags 524481i32) (mode 384u32)))))
+          ()
+        )
+      ))
+    (#let file-created #i64 (#unsafe
+        (#unsafe-call linux-openat ((directory -100i64) (path paths) (flags 524481i32)
+            (mode 384u32)))
+      ))
     (#let file-closed #i64 (#call linux-close ((fd file-created))))
-    (#let secure-open #i64
-      (#unsafe (#unsafe-call linux-openat2 ((directory -100i64) (path paths) (how how) (how-size 24usize)))))
+    (#let secure-open #i64 (#unsafe
+        (#unsafe-call linux-openat2 ((directory -100i64) (path paths) (how how) (how-size 24usize)))
+      ))
     (#let secure-close #i64 (#call linux-close ((fd secure-open))))
-    (#let missing-open #i64
-      (#unsafe (#unsafe-call linux-openat2 ((directory -100i64) (path (#ptr-offset paths 16usize)) (how how) (how-size 24usize)))))
-    (#unsafe (#ptr-write (#ptr-offset how 2usize) 9223372036854775808u64))
-    (#let invalid-resolve #i64
-      (#unsafe (#unsafe-call linux-openat2 ((directory -100i64) (path paths) (how how) (how-size 24usize)))))
-    (#let file-removed #i64
-      (#unsafe (#unsafe-call linux-unlinkat ((directory -100i64) (path paths) (flags 0i32)))))
-    (#let how-unmapped #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (how 4096usize))))
-    (#let paths-unmapped #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (paths 4096usize))))
-    (#let openat2-ok #bool
-      (#bool::and (#i64::ge file-created 0i64)
-        (#bool::and (#i64::eq file-closed 0i64)
-          (#bool::and (#i64::ge secure-open 0i64)
-            (#bool::and (#i64::eq secure-close 0i64)
-              (#bool::and (#i64::eq missing-open -2i64)
-                (#bool::and (#i64::eq invalid-resolve -22i64)
-                  (#bool::and (#i64::eq file-removed 0i64)
-                    (#bool::and (#i64::eq how-unmapped 0i64)
-                      (#i64::eq paths-unmapped 0i64))))))))))
-    (#return (#if openat2-ok 42u64 1u64))
+    (#let missing-open #i64 (#unsafe
+        (#unsafe-call linux-openat2 ((directory -100i64) (path (#ptr-offset paths 16usize)) (how
+              how) (how-size 24usize)))
+      ))
+    (#unsafe
+      (#ptr-write (#ptr-offset how 2usize) 9223372036854775808u64)
+    )
+    (#let invalid-resolve #i64 (#unsafe
+        (#unsafe-call linux-openat2 ((directory -100i64) (path paths) (how how) (how-size 24usize)))
+      ))
+    (#let file-removed #i64 (#unsafe
+        (#unsafe-call linux-unlinkat ((directory -100i64) (path paths) (flags 0i32)))
+      ))
+    (#let how-unmapped #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (how 4096usize))
+      ))
+    (#let paths-unmapped #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (paths 4096usize))
+      ))
+    (#let openat2-ok #bool (#bool::and (#i64::ge file-created 0i64) (#bool::and (#i64::eq
+            file-closed 0i64) (#bool::and (#i64::ge secure-open 0i64) (#bool::and (#i64::eq
+                secure-close 0i64) (#bool::and (#i64::eq missing-open -2i64) (#bool::and (#i64::eq
+                    invalid-resolve -22i64) (#bool::and (#i64::eq file-removed 0i64) (#bool::and
+                      (#i64::eq how-unmapped 0i64) (#i64::eq paths-unmapped 0i64))))))))))
+    (#return (#if openat2-ok
+        42u64
+        1u64
+      ))
   );
 }

@@ -5,38 +5,34 @@
 #fn make-array {
   #params = ((owner (#ref #u64)));
   #returns = (#array Holder 2);
-  #body = (
-    (#return
-      (#array-of
-        (#array Holder 2)
-        (#struct-literal Holder ((reference owner) (offset 0u64)))
-        (#struct-literal Holder ((reference owner) (offset 1u64)))))
-  );
+  #body = ((#return (#array-of (#array Holder 2) (#struct-literal Holder ((reference owner)
+            (offset 0u64))) (#struct-literal Holder ((reference owner) (offset 1u64))))));
 }
+
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ()))
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return
-      (#match task
+  #body = ((#return (#match task
         (#case Step.Start
-          (StepPoll.Pending Step.Resume))
+          (StepPoll.Pending Step.Resume)
+        )
         (#case Step.Resume
-          (StepPoll.Ready ()))))
-  );
+          (StepPoll.Ready ())
+        )
+      )));
 }
-#generate
-    #async-fn
-    ((protocol WorkAwait) (waker #u64) (function
-    (#fn work ((owner (#ref #u64)) (index #usize)) #u64
-      (#let holder Holder (#clone (#index (#call make-array ((owner owner))) index)))
-      (#let ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
-      (#let result #u64 (#u64::add-wrap
-        (#deref (#get holder reference)) (#get holder offset)))
-      (#forget holder) (#return result))))
+
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((owner (#ref #u64))
+        (index #usize)) #u64 (#let holder Holder (#clone (#index
+            (#call make-array ((owner owner))) index))) (#let ready () (#await () Step
+          StepPoll.Pending StepPoll.Ready step-poll Step.Start)) (#let result #u64 (#u64::add-wrap
+          (#deref (#get holder reference)) (#get holder offset))) (#forget holder)
+      (#return result))))
+
 #fn main {
   #params = ();
   #returns = #u64;
@@ -44,22 +40,20 @@
     (#let owner #u64 42u64)
     (#let index #usize 1usize)
     (#let waker #u64 0u64)
-    (#let
-      first
-      Work::Poll
-      (#call
-        Work::poll
-        ((task (#call work ((owner (#borrow owner)) (index index))))
-        (waker (#borrow waker)))))
+    (#let first Work::Poll (#call Work::poll ((task (#call work ((owner (#borrow owner)) (index
+                  index)))) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
     (#let second Work::Poll (#call Work::poll ((task pending) (waker (#borrow waker)))))
-    (#return
-      (#match second
+    (#return (#match second
         (#case (Work::Poll.Ready result)
-          result)
+          result
+        )
         (#case (Work::Poll.Pending unexpected)
           (#block
             (#forget unexpected)
-            (#unreachable)))))
+            (#unreachable)
+          )
+        )
+      ))
   );
 }

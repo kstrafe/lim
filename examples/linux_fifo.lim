@@ -9,57 +9,86 @@
 #alias linux-stat = ../library/linux_x86_64.lim::linux-stat
 #alias linux-unlink = ../library/linux_x86_64.lim::linux-unlink
 #alias linux-write = ../library/linux_x86_64.lim::linux-write
-
 // Run in a private scratch directory: creates and removes FIFOs a and b.
+
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let memory (#ptr-mut #u8)
-      (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
-    (#let second (#ptr-mut #u8) (#unsafe (#ptr-offset memory 8usize)))
-    (#let current (#ptr-mut #u8) (#unsafe (#ptr-offset memory 16usize)))
-    (#let empty (#ptr-mut #u8) (#unsafe (#ptr-offset memory 24usize)))
-    (#let payload (#ptr-mut #u8) (#unsafe (#ptr-offset memory 32usize)))
-    (#let received (#ptr-mut #u8) (#unsafe (#ptr-offset memory 40usize)))
-    (#let metadata (#ptr-mut #u64)
-      (#unsafe (#asm (#ptr-mut #u64) ((rdi memory)) "lea rax, [rdi+128]")))
-    (#unsafe (#block
-      (#ptr-write memory 97u8)
-      (#ptr-write second 98u8)
-      (#ptr-write current 46u8)
-      (#ptr-write payload 70u8)
-      (#ptr-write (#ptr-offset payload 1usize) 10u8)
-      ()))
-    (#let directory #i64 (#unsafe (#unsafe-call linux-openat ((directory -100i64) (path current) (flags 65536i32) (mode 0u32)))))
-    (#assert (#i64::ge directory 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mknod ((path memory) (mode 4480u32) (device 0u32)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mknod ((path memory) (mode 4480u32) (device 0u32)))) -17i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mknodat ((directory -1i64) (path second) (mode 4480u32) (device 0u32)))) -9i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mknodat ((directory directory) (path second) (mode 4480u32) (device 0u32)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-fchmodat2 ((directory directory) (path second) (mode 256u32) (flags 0u32)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-stat ((path second) (metadata metadata)))) 0i64))
-    (#assert (#u64::eq (#u64::bit-and
-      (#unsafe (#ptr-read (#ptr-offset metadata 3usize))) 65535u64) 4352u64))
-    (#let path-fd #i64 (#unsafe (#unsafe-call linux-openat ((directory directory) (path second) (flags 2097152i32) (mode 0u32)))))
-    (#assert (#i64::ge path-fd 0i64))
+  #body = ((#let memory (#ptr-mut #u8) (#unsafe
+        (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)
+            (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))
+      )) (#let second (#ptr-mut #u8) (#unsafe
+        (#ptr-offset memory 8usize)
+      )) (#let current (#ptr-mut #u8) (#unsafe
+        (#ptr-offset memory 16usize)
+      )) (#let empty (#ptr-mut #u8) (#unsafe
+        (#ptr-offset memory 24usize)
+      )) (#let payload (#ptr-mut #u8) (#unsafe
+        (#ptr-offset memory 32usize)
+      )) (#let received (#ptr-mut #u8) (#unsafe
+        (#ptr-offset memory 40usize)
+      )) (#let metadata (#ptr-mut #u64) (#unsafe
+        (#asm (#ptr-mut #u64) ((rdi memory)) "lea rax, [rdi+128]")
+      )) (#unsafe
+      (#block
+        (#ptr-write memory 97u8)
+        (#ptr-write second 98u8)
+        (#ptr-write current 46u8)
+        (#ptr-write payload 70u8)
+        (#ptr-write (#ptr-offset payload 1usize) 10u8)
+        ()
+      )
+    ) (#let directory #i64 (#unsafe
+        (#unsafe-call linux-openat
+          ((directory -100i64) (path current) (flags 65536i32) (mode 0u32)))
+      )) (#assert (#i64::ge directory 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mknod ((path memory) (mode 4480u32) (device 0u32)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mknod ((path memory) (mode 4480u32) (device 0u32)))
+        ) -17i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mknodat
+            ((directory -1i64) (path second) (mode 4480u32) (device 0u32)))
+        ) -9i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mknodat ((directory directory) (path second) (mode 4480u32) (device
+                0u32)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-fchmodat2 ((directory directory) (path second) (mode 256u32) (flags
+                0u32)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-stat ((path second) (metadata metadata)))
+        ) 0i64)) (#assert (#u64::eq (#u64::bit-and (#unsafe
+            (#ptr-read (#ptr-offset metadata 3usize))
+          ) 65535u64) 4352u64)) (#let path-fd #i64 (#unsafe
+        (#unsafe-call linux-openat ((directory directory) (path second) (flags 2097152i32) (mode
+              0u32)))
+      )) (#assert (#i64::ge path-fd 0i64))
     // AT_EMPTY_PATH operates on the O_PATH descriptor without opening the FIFO.
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-fchmodat2 ((directory path-fd) (path empty) (mode 384u32) (flags 4096u32)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-fchmodat2 ((directory directory) (path second) (mode 384u32) (flags 1u32)))) -22i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-stat ((path second) (metadata metadata)))) 0i64))
-    (#assert (#u64::eq (#u64::bit-and
-      (#unsafe (#ptr-read (#ptr-offset metadata 3usize))) 65535u64) 4480u64))
-    (#let fifo #i64 (#unsafe (#unsafe-call linux-openat ((directory directory) (path memory) (flags 2050i32) (mode 0u32)))))
-    (#assert (#i64::ge fifo 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-unlink ((path memory)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-unlink ((path second)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-write ((fd fifo) (source payload) (count 2usize)))) 2i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-read ((fd fifo) (destination received) (count 2usize)))) 2i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-write ((fd 1i64) (source received) (count 2usize)))) 2i64))
-    (#assert (#i64::eq (#call linux-close ((fd fifo))) 0i64))
-    (#assert (#i64::eq (#call linux-close ((fd path-fd))) 0i64))
-    (#assert (#i64::eq (#call linux-close ((fd directory))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))) 0i64))
-    (#return 42u64)
-  );
+    (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-fchmodat2 ((directory path-fd) (path empty) (mode 384u32) (flags
+                4096u32)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-fchmodat2 ((directory directory) (path second) (mode 384u32) (flags
+                1u32)))
+        ) -22i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-stat ((path second) (metadata metadata)))
+        ) 0i64)) (#assert (#u64::eq (#u64::bit-and (#unsafe
+            (#ptr-read (#ptr-offset metadata 3usize))
+          ) 65535u64) 4480u64)) (#let fifo #i64 (#unsafe
+        (#unsafe-call linux-openat
+          ((directory directory) (path memory) (flags 2050i32) (mode 0u32)))
+      )) (#assert (#i64::ge fifo 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-unlink ((path memory)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-unlink ((path second)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-write ((fd fifo) (source payload) (count 2usize)))
+        ) 2i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-read ((fd fifo) (destination received) (count 2usize)))
+        ) 2i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-write ((fd 1i64) (source received) (count 2usize)))
+        ) 2i64)) (#assert (#i64::eq (#call linux-close ((fd fifo))) 0i64)) (#assert (#i64::eq
+        (#call linux-close ((fd path-fd))) 0i64)) (#assert (#i64::eq (#call linux-close ((fd
+              directory))) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-munmap ((address memory) (length 4096usize)))
+        ) 0i64)) (#return 42u64));
 }

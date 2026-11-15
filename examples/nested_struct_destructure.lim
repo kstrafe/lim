@@ -5,7 +5,8 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#let (Outer inner tail) Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 32))))
+    (#let (Outer inner tail) Outer (#struct-literal Outer ((inner (#struct-literal Inner
+              ((left 10) (right 20)))) (tail 32))))
     (#return tail)
   );
 }

@@ -2,9 +2,7 @@
 #fn under-two {
   #params = ((index #usize));
   #returns = #bool;
-  #body = (
-    (#return (#usize::lt index 2usize))
-  );
+  #body = ((#return (#usize::lt index 2usize)));
 }
 
 #fn widen-to-four {
@@ -22,31 +20,24 @@
 #fn read-four {
   #params = ((values (#ref (#array #u64 4))) (index Index4));
   #returns = #u64;
-  #body = (
-    (#return (#index-proven values index))
-  );
+  #body = ((#return (#index-proven values index)));
 }
 
 #fn read-first-two {
   #params = ((values (#ref (#array #u64 4))) (index #usize));
   #returns = #u64;
-  #body = (
-    (#return
-      (#if-valid (#call under-two ((index index)))
-        (#block
+  #body = ((#return (#if-valid (#call under-two ((index index))) (#block
           (#call widen-to-four ((index index)))
           (#let checked Index4 index)
-          (#call read-four ((values values) (index checked))))
-        0u64))
-  );
+          (#call read-four ((values values) (index checked)))
+        ) 0u64)));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let values (#array #u64 4)
-      (#array (#array #u64 4) 10u64 42u64 30u64 40u64))
+    (#let values (#array #u64 4) (#array (#array #u64 4) 10u64 42u64 30u64 40u64))
     (#return (#call read-first-two ((values (#borrow values)) (index 1usize))))
   );
 }

@@ -4,24 +4,19 @@
 
 #std
 
-#generate lim-gen-pin-box
-    ((type #u64) (allocator SystemAllocator::Allocator) (name PinU64Box) (destroy destroy-u64))
+#generate lim-gen-pin-box ((type #u64) (allocator SystemAllocator::Allocator) (name PinU64Box)
+  (destroy destroy-u64))
 
 #fn destroy-u64 {
   #params = ((allocator (#ref SystemAllocator)) (pin (#pin-ref-mut #u64)));
   #returns = ();
-  #body = (
-    (#forget pin)
-    (#return ())
-  );
+  #body = ((#forget pin) (#return ()));
 }
 
 #fn forward-owner {
   #params = ((owner PinU64Box));
   #returns = PinU64Box;
-  #body = (
-    (#return owner)
-  );
+  #body = ((#return owner));
 }
 
 #fn main {
@@ -29,16 +24,15 @@
   #returns = #u64;
   #body = (
     (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
-    (#let-else (PinU64Box::CreateResult.Created owner) PinU64Box::CreateResult
-      (#call PinU64Box::create (($ (#borrow allocator)) (value 42u64)))
-      (#else (PinU64Box::CreateResult.Allocation-failed failure)
-        (#let (#tuple error value) (#tuple SystemAllocationError #u64) failure)
-        (#forget error)
-        (#forget value)
-        (#return 0u64)))
+    (#let-else (PinU64Box::CreateResult.Created owner) PinU64Box::CreateResult (#call
+        PinU64Box::create (($ (#borrow allocator)) (value 42u64))) (#else
+        (PinU64Box::CreateResult.Allocation-failed failure) (#let (#tuple error value) (#tuple
+            SystemAllocationError #u64) failure) (#forget error) (#forget value) (#return 0u64)))
     (#let value-reference (#pin-ref #u64) (#call PinU64Box::borrow (($ (#borrow owner)))))
     (#let moved-owner PinU64Box (#call forward-owner (($ owner))))
-    (#let value #u64 (#unsafe (#pin-read value-reference)))
+    (#let value #u64 (#unsafe
+        (#pin-read value-reference)
+      ))
     (#drop value-reference)
     (#call PinU64Box::destroy ((owner moved-owner)))
     (#return value)

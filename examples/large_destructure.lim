@@ -1,25 +1,16 @@
 #fn make {
   #params = ();
   #returns = (#array #u64 7);
-  #body = (
-    (#return (#array (#array #u64 7)
-      1u64 2u64 3u64 4u64 5u64 6u64 42u64))
-  );
+  #body = ((#return (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let values (#array #u64 7)
-      (#array (#array #u64 7)
-        10u64 20u64 30u64 40u64 50u64 60u64 41u64))
-    (#let (#array first second third fourth fifth sixth last)
-      (#array #u64 7)
-      values)
-    (#let (#array a b c d e f result)
-      (#array #u64 7)
-      (#call make ()))
+    (#let values (#array #u64 7) (#array (#array #u64 7) 10u64 20u64 30u64 40u64 50u64 60u64 41u64))
+    (#let (#array first second third fourth fifth sixth last) (#array #u64 7) values)
+    (#let (#array a b c d e f result) (#array #u64 7) (#call make ()))
     (#return (#u64::add-wrap last result))
   );
 }

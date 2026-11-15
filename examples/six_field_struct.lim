@@ -1,63 +1,21 @@
-#struct
-    Values ()
-    (
-      (a #u64)
-      (b #u64)
-      (c #u64)
-      (d #u64)
-      (e #u64)
-      (f #u64)
-    )
+#struct Values () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64))
 
-#fn
-    make {
+#fn make {
   #params = ();
   #returns = Values;
-  #body = (
-    (
-      #return
-      (#struct-literal Values ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6)))
-    )
-  );
+  #body = ((#return (#struct-literal Values ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6)))));
 }
 
-#fn
-    sum {
-  #params = (
-      (value Values)
-    );
+#fn sum {
+  #params = ((value Values));
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (#u64::add-wrap
-        (#u64::add-wrap
-          (#u64::add-wrap
-            (#u64::add-wrap
-              (#u64::add-wrap
-                (#get value a)
-                (#get value b)
-              )
-              (#get value c)
-            )
-            (#get value d)
-          )
-          (#get value e)
-        )
-        (#get value f)
-      )
-    )
-  );
+  #body = ((#return (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap
+              (#u64::add-wrap (#get value a) (#get value b)) (#get value c)) (#get value d)) (#get
+            value e)) (#get value f))));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (#call sum ((value (#call make ()))))
-    )
-  );
+  #body = ((#return (#call sum ((value (#call make ()))))));
 }

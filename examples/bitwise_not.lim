@@ -1,14 +1,5 @@
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u32;
-  #body = (
-    (
-      #return
-      (#u32::bit-and
-        (#u32::not  0)
-        42
-      )
-    )
-  );
+  #body = ((#return (#u32::bit-and (#u32::not 0) 42)));
 }

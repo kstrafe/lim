@@ -1,52 +1,18 @@
-#struct
-    Point ()
-    (
-      (x #f64)
-      (y #f32)
-    )
+#struct Point () ((x #f64) (y #f32))
 
-#fn
-    make {
+#fn make {
   #params = ();
   #returns = Point;
-  #body = (
-    (
-      #return
-      (#struct-literal Point ((x 1.5) (y 2.5)))
-    )
-  );
+  #body = ((#return (#struct-literal Point ((x 1.5) (y 2.5)))));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #if
-        (#bool::and
-          (#f64::gt
-            (
-              #get
-              (#call make ())
-              x
-            )
-            1.0
-          )
-          (#f32::gt
-            (
-              #get
-              (#call make ())
-              y
-            )
-            2.0
-          )
-        )
+  #body = ((#return
+      (#if (#bool::and (#f64::gt (#get (#call make ()) x) 1.0) (#f32::gt (#get (#call make ()) y)
+          2.0))
         42
         0
-      )
-    )
-  );
+      )));
 }

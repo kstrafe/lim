@@ -4,32 +4,28 @@
 #fn inspect {
   #params = ((choice (#ref Choice)));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match choice
+  #body = ((#return (#match choice
         (#case-ref (Choice.Full payload) (#get payload value))
         (#case-ref Choice.Empty 0u64)
         (#case-ref (Choice.Byte _) 0u64)
-        (#case _ 99u64)))
-  );
+        (#case _
+          99u64
+        )
+      )));
 }
 
 #fn update {
   #params = ((choice (#ref-mut Choice)));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match choice
-        (#case-ref-mut (Choice.Full payload)
-          (#deref-set (#borrow-mut (#get payload narrow)) 42u8)
-          (#assert (#u8::eq (#get payload narrow) 42u8))
-          (#get payload value))
+  #body = ((#return (#match choice
+        (#case-ref-mut (Choice.Full payload) (#deref-set (#borrow-mut (#get payload narrow)) 42u8)
+          (#assert (#u8::eq (#get payload narrow) 42u8)) (#get payload value))
         (#case-ref-mut Choice.Empty 0u64)
-        (#case-ref-mut (Choice.Byte byte)
-          (#deref-set byte 41u8)
-          41u64)
-        (#case _ 99u64)))
-  );
+        (#case-ref-mut (Choice.Byte byte) (#deref-set byte 41u8) 41u64)
+        (#case _
+          99u64
+        )
+      )));
 }
 
 #fn main {

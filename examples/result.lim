@@ -3,12 +3,14 @@
 #fn classify {
   #params = ((value Result));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match value
-        (#case (Result.Ok 42) 1)
-        (#case (Result.Err _) 0)))
-  );
+  #body = ((#return (#match value
+        (#case (Result.Ok 42)
+          1
+        )
+        (#case (Result.Err _)
+          0
+        )
+      )));
 }
 
 #fn main {

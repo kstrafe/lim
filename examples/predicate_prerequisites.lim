@@ -1,0 +1,32 @@
+// A partial predicate declares its own domain. Consumers inherit that domain
+// through #requires; callers establish each exact fact by validation.
+#fn positive {
+  #params = { value = #u64; };
+  #returns = #bool;
+  #body: #return [#u64; value > 0u64];
+}
+
+#fn small-positive {
+  #params = { value = #u64; };
+  #returns = #bool;
+  #requires: (positive { value; });
+  #body: #return [#u64; value < 100u64];
+}
+
+#fn consume {
+  #params = { value = #u64; };
+  #returns = #u64;
+  // This also requires positive(value), without repeating it here.
+  #requires: (small-positive { value; });
+  #body: #return value;
+}
+
+#fn main {
+  #params = { };
+  #returns = #u64;
+  #body:
+    #let value : #u64 = 42u64;
+    #return (#if-valid (positive { value; })
+      (#if-valid (small-positive { value; }) (consume { value; }) 0u64)
+      0u64);
+}

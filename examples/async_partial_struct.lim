@@ -6,35 +6,30 @@
 #enum Step (#linear) ((Step.Start #u64) (Step.Resume #u64))
 
 #enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready #u64))
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return
-      (#match task
+  #body = ((#return (#match task
         (#case (Step.Start value)
-          (StepPoll.Pending (Step.Resume value)))
+          (StepPoll.Pending (Step.Resume value))
+        )
         (#case (Step.Resume value)
-          (StepPoll.Ready value))))
-  );
+          (StepPoll.Ready value)
+        )
+      )));
 }
-#generate
-    #async-fn
-    ((protocol WorkAwait) (waker #u64) (function
-    (#fn work () #u64
-      (#let-mut pair Pair (#struct-literal Pair
-        ((left (#struct-literal Resource ((value 20u64))))
-         (right (#struct-literal Resource ((value 22u64)))))))
-      (#let moved Resource (#get pair left))
-      (#let delta #u64 (#await #u64 Step StepPoll.Pending StepPoll.Ready step-poll (Step.Start 2u64)))
-      (#let old #u64 (#get moved value))
-      (#forget moved)
-      (#set-field pair left
-        (#struct-literal Resource ((value (#u64::add-wrap old delta)))))
-      (#let result #u64
-        (#u64::add-wrap (#get (#get pair left) value) (#get (#get pair right) value)))
-      (#forget pair)
-      (#return result))))
+
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#let-mut pair
+        Pair (#struct-literal Pair ((left (#struct-literal Resource ((value 20u64)))) (right
+              (#struct-literal Resource ((value 22u64)))))))
+      (#let moved Resource (#get pair left)) (#let delta #u64 (#await #u64 Step StepPoll.Pending
+          StepPoll.Ready step-poll (Step.Start 2u64))) (#let old #u64 (#get moved value)) (#forget
+        moved) (#set-field pair left
+        (#struct-literal Resource ((value (#u64::add-wrap old delta))))) (#let result #u64
+        (#u64::add-wrap (#get (#get pair left) value) (#get (#get pair right) value))) (#forget
+        pair) (#return result))))
+
 #fn main {
   #params = ();
   #returns = #u64;
@@ -42,13 +37,16 @@
     (#let waker #u64 0u64)
     (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
-    (#return
-      (#match (#call Work::poll ((task task) (waker (#borrow waker))))
+    (#return (#match (#call Work::poll ((task task) (waker (#borrow waker))))
         (#case (Work::Poll.Ready result)
-          result)
+          result
+        )
         (#case (Work::Poll.Pending unexpected)
           (#block
             (#forget unexpected)
-            (#unreachable)))))
+            (#unreachable)
+          )
+        )
+      ))
   );
 }

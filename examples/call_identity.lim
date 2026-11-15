@@ -1,18 +1,16 @@
 #fn panic {
   #params = ((value (#ref #u64)));
   #returns = #u64;
-  #body = (
-    (#return (#deref value))
-  );
+  #body = ((#return (#deref value)));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let value #u64 42u64)
+  #body = ((#let value #u64 42u64)
     // The #-prefixed builtin is distinct from the user function above.
-    (#if false (#panic) ())
-    (#return (#call panic ((value (#borrow value)))))
-  );
+    (#if false
+      (#panic)
+      ()
+    ) (#return (#call panic ((value (#borrow value))))));
 }

@@ -2,31 +2,28 @@
 #alias linux-gettid = ../library/linux_x86_64.lim::linux-gettid
 #alias linux-sched-yield = ../library/linux_x86_64.lim::linux-sched-yield
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
-
 //; Both participants must run: the worker announces readiness, and the parent
 //; releases it before joining. PID is shared; TID and stack are per-thread.
+
 #fn kernel-worker {
   #params = ((pid #i64) (parent-tid #i64) (gate (#ref (#atomic #u64))) (round #u64));
   #returns = #u64;
-  #body = (
-    (#assert (#i64::eq (#call linux-getpid ()) pid))
-    (#assert (#i64::ne (#call linux-gettid ()) parent-tid))
+  #body = ((#assert (#i64::eq (#call linux-getpid ()) pid)) (#assert (#i64::ne (#call linux-gettid
+          ()) parent-tid))
     //; Raw Lim workers have no libc TLS and must not inherit the parent's FS base.
-    (#let-mut fs-base #usize 1usize)
-    (#assert (#i64::eq (#unsafe (#asm #i64
-      ((rax 158usize) (rdi 4099usize) (rsi (#addr-of-mut fs-base))) "syscall")) 0i64))
-    (#assert (#usize::eq fs-base 0usize))
-    (#atomic-store gate 1u64 #memory-release)
+    (#let-mut fs-base #usize 1usize) (#assert (#i64::eq (#unsafe
+          (#asm #i64 ((rax 158usize) (rdi 4099usize) (rsi (#addr-of-mut fs-base))) "syscall")
+        ) 0i64)) (#assert (#usize::eq fs-base 0usize)) (#atomic-store gate 1u64 #memory-release)
     (#while (#u64::ne (#atomic-load gate #memory-acquire) 2u64)
-      (#drop (#call linux-sched-yield ())))
-    (#if (#u64::eq round 0u64)
+      (#drop (#call linux-sched-yield ()))
+    ) (#if (#u64::eq round 0u64)
       (#block
         (#let letter #u8 84u8)
         (#let newline #u8 10u8)
         (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
-        (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))))
-    (#return 42u64)
-  );
+        (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
+      )
+    ) (#return 42u64));
 }
 
 #generate #thread-spawn ((task KernelWorker) (worker kernel-worker))
@@ -36,7 +33,8 @@
   #returns = ();
   #body = (
     (#while (#u64::ne (#atomic-load gate #memory-acquire) 1u64)
-      (#drop (#call linux-sched-yield ())))
+      (#drop (#call linux-sched-yield ()))
+    )
     (#return ())
   );
 }
@@ -49,16 +47,26 @@
     (#let tid #i64 (#call linux-gettid ()))
     (#let gate (#atomic #u64) (#atomic-init #u64 0u64))
     (#atomic-store (#borrow gate) 0u64 #memory-release)
-    (#match (#call KernelWorker::spawn
-      ((pid pid) (parent-tid tid) (gate (#borrow gate)) (round round)))
+    (#match (#call KernelWorker::spawn ((pid pid) (parent-tid tid) (gate (#borrow gate)) (round
+          round)))
       (#case (KernelWorker::SpawnResult.Ok worker)
         (#block
           (#call wait-ready ((gate (#borrow gate))))
           (#atomic-store (#borrow gate) 2u64 #memory-release)
           (#match (#call KernelWorker::join ((task worker)))
-            (#case (KernelWorker::JoinResult.Ok value) (#assert (#u64::eq value 42u64)))
-            (#case (KernelWorker::JoinResult.Error (#tuple retry error)) (#panic)))))
-      (#case (KernelWorker::SpawnResult.Error error) (#panic)))
+            (#case (KernelWorker::JoinResult.Ok value)
+              (#assert (#u64::eq value 42u64))
+            )
+            (#case (KernelWorker::JoinResult.Error (#tuple retry error))
+              (#panic)
+            )
+          )
+        )
+      )
+      (#case (KernelWorker::SpawnResult.Error error)
+        (#panic)
+      )
+    )
     (#forget gate)
     (#return ())
   );
@@ -71,7 +79,8 @@
     (#let-mut round #u64 0u64)
     (#while (#u64::lt round 32u64)
       (#call run-round ((round round)))
-      (#set round (#u64::add-wrap round 1u64)))
+      (#set round (#u64::add-wrap round 1u64))
+    )
     (#return 42u64)
   );
 }

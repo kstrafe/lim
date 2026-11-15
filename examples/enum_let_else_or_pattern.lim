@@ -4,8 +4,7 @@
   #params = ((value Maybe));
   #returns = #u64;
   #body = (
-    (#let-else (#or (Maybe.Some 1u64) (Maybe.Some 2u64) Maybe.None) Maybe value
-      (#return 0u64))
+    (#let-else (#or (Maybe.Some 1u64) (Maybe.Some 2u64) Maybe.None) Maybe value (#return 0u64))
     (#return 42u64)
   );
 }
@@ -13,7 +12,5 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#call classify ((value (Maybe.Some 2u64)))))
-  );
+  #body = ((#return (#call classify ((value (Maybe.Some 2u64))))));
 }

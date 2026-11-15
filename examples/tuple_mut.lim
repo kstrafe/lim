@@ -1,21 +1,9 @@
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (
-      #let-mut
-      value
-      (#tuple #u64 #f32)
-      (#tuple 1 2.5)
-    )
+    (#let-mut value (#tuple #u64 #f32) (#tuple 1 2.5))
     (#set-field value 0 40)
-    (
-      #return
-      (#u64::add-wrap
-        (#get value 0)
-        2
-      )
-    )
+    (#return (#u64::add-wrap (#get value 0) 2))
   );
 }

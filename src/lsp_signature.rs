@@ -264,7 +264,7 @@ fn runtime(node: &Node, byte: usize, source: &str) -> Option<(Span, Option<Strin
         "type" => {
             return children
                 .get(2)
-                .and_then(|kind| type_predicates(kind, byte, source))
+                .and_then(|kind| type_predicates(kind, byte, source));
         }
         "struct" | "enum" => {
             return children.get(3).and_then(|fields| {
@@ -278,14 +278,10 @@ fn runtime(node: &Node, byte: usize, source: &str) -> Option<(Span, Option<Strin
             });
         }
         "let" | "let-mut" | "static" | "const" => {
-            return children
-                .get(2)
+            let (kind, initializer) = super::navigation::binding_parts(node);
+            return kind
                 .and_then(|kind| type_predicates(kind, byte, source))
-                .or_else(|| {
-                    children
-                        .get(3)
-                        .and_then(|child| runtime(child, byte, source))
-                });
+                .or_else(|| initializer.and_then(|child| runtime(child, byte, source)));
         }
         _ => {}
     }
@@ -376,7 +372,8 @@ mod tests {
         } else {
             format!(
                 "#fn probe {{ #params = (); #returns = #u64; #body = (\n{}",
-                source.lines()
+                source
+                    .lines()
                     .map(|line| format!("  {line}"))
                     .collect::<Vec<_>>()
                     .join("\n")
@@ -407,7 +404,11 @@ mod tests {
             "#fn main { #params = {}; #returns = #u64; #body:\n  #return choose {\n    right:\n      2|\n    left = 1;\n  };\n}",
             "(#return : choose : : right 2|)",
         ] {
-            assert_eq!(locate(source), ("choose".into(), Some("right".into())), "{source}");
+            assert_eq!(
+                locate(source),
+                ("choose".into(), Some("right".into())),
+                "{source}"
+            );
         }
     }
 
@@ -430,7 +431,11 @@ mod tests {
             "#fn work { #params = ((value (#where (item #u64) (valid ((input item|)))))); #returns = #u64; #body = ( (#return value) ); }\n",
             "#struct Refined () ((field (#where (item #u64) (valid ((input item|))))))\n",
         ] {
-            assert_eq!(locate(source), ("valid".into(), Some("input".into())), "{source}");
+            assert_eq!(
+                locate(source),
+                ("valid".into(), Some("input".into())),
+                "{source}"
+            );
         }
         let source = "#type Refined (valid ((input item)))\n";
         assert!(call(source, source.find("item").unwrap()).is_none());
@@ -535,7 +540,9 @@ mod tests {
             assert!(call(&source, byte).is_none(), "{source}");
         }
         assert_eq!(
-            locate("#generate generator ((value (#fn work () #u64 (#return (#call choose ((right 2|)))))))\n"),
+            locate(
+                "#generate generator ((value (#fn work () #u64 (#return (#call choose ((right 2|)))))))\n"
+            ),
             ("choose".into(), Some("right".into()))
         );
     }

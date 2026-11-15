@@ -4,19 +4,13 @@
 #fn replace-choice {
   #params = ((target (#ref-mut Choice)) (value (#ref #u64)));
   #returns = ();
-  #body = (
-    (#deref-set target (Choice.Full value))
-    (#return ())
-  );
+  #body = ((#deref-set target (Choice.Full value)) (#return ()));
 }
 
 #fn clear-choice {
   #params = ((target (#ref-mut Choice)));
   #returns = ();
-  #body = (
-    (#deref-set target (Choice.Empty))
-    (#return ())
-  );
+  #body = ((#deref-set target (Choice.Empty)) (#return ()));
 }
 
 #fn main {
@@ -29,10 +23,14 @@
     (#let target (#ref-mut Choice) (#borrow-mut holder))
     (#call replace-choice ((target target) (value (#borrow value))))
     (#drop target)
-    (#let result #u64
-      (#match holder
-        (#case (Choice.Empty) 0u64)
-        (#case (Choice.Full view) (#deref view))))
+    (#let result #u64 (#match holder
+        (#case (Choice.Empty)
+          0u64
+        )
+        (#case (Choice.Full view)
+          (#deref view)
+        )
+      ))
     (#let clear-target (#ref-mut Choice) (#borrow-mut holder))
     (#call clear-choice ((target clear-target)))
     (#drop clear-target)

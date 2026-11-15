@@ -1,37 +1,14 @@
-#fn
-    blend {
-  #params = (
-      (small #f32)
-      (large #f64)
-    );
+#fn blend {
+  #params = ((small #f32) (large #f64));
   #returns = #f64;
-  #body = (
-    (
-      #return
-      (#f64::add
-        (#as small #f64)
-        large
-      )
-    )
-  );
+  #body = ((#return (#f64::add (#as small #f64) large)));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #if
-        (#f64::gt
-          (#call blend ((small 1.5) (large 2.5)))
-          4.0
-        )
+  #body = ((#return (#if (#f64::gt (#call blend ((small 1.5) (large 2.5))) 4.0)
         42
         0
-      )
-    )
-  );
+      )));
 }

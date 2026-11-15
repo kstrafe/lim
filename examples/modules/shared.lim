@@ -3,7 +3,5 @@
 #fn widget-value {
   #params = ((widget Widget));
   #returns = #u64;
-  #body = (
-    (#return (#get widget value))
-  );
+  #body = ((#return (#get widget value)));
 }
