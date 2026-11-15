@@ -1521,7 +1521,12 @@ fn call_callee(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
         if byte < expression.span.start || byte >= expression.span.end {
             continue;
         }
-        if matches!(expression.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
+        if matches!(expression.expr, Expr::Quote(_) | Expr::QuasiQuote(_))
+            || matches!(expression.children.first().map(|head| &head.expr), Some(Expr::Generate))
+        {
+            // Generator literal and nested function roles are handled by the
+            // navigation index. Do not reinterpret a data pair as a positional
+            // runtime call merely because its first symbol names a function.
             continue;
         }
         if let Some(Expr::Symbol(head)) = expression.children.first().map(|c| &c.expr) {
