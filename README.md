@@ -63,6 +63,13 @@ See [explicit error propagation](docs/error-propagation.md),
 [owned files and buffered readers](docs/files.md), and
 [semantic checking without native emission](docs/check-command.md).
 
+## Read and try Lim
+
+Open the [single-page tutorial and reference](docs/reference.html) for a complete,
+searchable handbook. It works offline with no JavaScript or external resources.
+The separate [browser playground](docs/playground.html) uses a WebAssembly build
+of the real compiler. See [build and serve instructions](docs/webassembly.md).
+
 ## Build the compiler
 
 The repository's Nix development shell provides Rust. Lim itself does not

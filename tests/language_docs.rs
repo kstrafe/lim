@@ -239,6 +239,7 @@ fn documented_programs_compile_and_run() {
     for (name, document) in [
         ("README", include_str!("../README.md")),
         ("language", include_str!("../docs/language.md")),
+        ("tutorial", include_str!("../docs/tutorial.md")),
         ("allocator", include_str!("../docs/allocator.md")),
         ("soundness", include_str!("../docs/soundness-audit.md")),
     ] {

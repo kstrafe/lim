@@ -1587,9 +1587,9 @@ operator.  `-` is also an ordinary symbol character.  Thus these are single
 identifiers:
 
 ```lisp syntax
-math.add.one
+Work::poll
 my-value
-Maybe?::unwrap-or
+Choice.Ready
 ```
 
 Builtin forms are distinguished by their `#` prefix:
@@ -1749,12 +1749,12 @@ second owned string by shared borrow, and releases both owners:
   (#return 42u64))
 ```
 
-`String::byte-at` takes a shared string and `: index #usize`. It returns
+`String::byte-at` takes a shared string and an `index` parameter of type `#usize`. It returns
 `(StringByte byte)` with a copied `#u8`, or `StringByteOutOfBounds`.
 `String::bytes ((string (#ref String)))` returns an opaque `StringBytes` view
 that retains the owner borrow, preventing mutation, moving, or freeing its
-owner while the view is live. `StringBytes-len ((bytes view))` and
-`StringBytes-byte-at ((bytes view) (index #usize))` inspect that view without
+owner while the view is live. `StringBytes::len ((bytes view))` and
+`StringBytes::byte-at ((bytes view) (index #usize))` inspect that view without
 allocating; indexing also returns a copied byte. No mutable byte access is
 exposed: safe operations preserve valid UTF-8.
 `String::data-pointer ((string (#ref String)))` is an unsafe raw-I/O escape
@@ -1766,7 +1766,7 @@ uphold these obligations internally; printing does not require `#unsafe`.
 ### Borrowed UTF-8 views
 
 `(#std)` also provides `StringView` and `Utf8Slice`: opaque, allocation-free
-UTF-8 views that retain a shared borrow of their source. `String-view
+UTF-8 views that retain a shared borrow of their source. `String::view
 ((string (#ref String)))` borrows the complete String in constant time, since
 safe String operations already guarantee valid UTF-8. `Utf8Slice::from-owner
 ((owner (#slice #u8)))` validates the complete byte slice and returns
@@ -1797,15 +1797,15 @@ For a generated name `V`, the public operations are:
 
 | Function | Arguments | Result |
 | --- | --- | --- |
-| `V::from-owner` | `: owner` with the declared source type | `V::Result`: `(V::Result.Valid view)` or `V::Result.InvalidUtf8`; validates in O(bytes). |
-| `V::len` | `: view (#ref V)` | `#usize` byte length, not character count. |
-| `V::is-empty` | `: view (#ref V)` | `#bool`. |
-| `V::byte-at` | `: view (#ref V) : index #usize` | `(Utf8Byte copied-byte)` or `Utf8ByteOutOfBounds`. |
-| `V::boundary` | `: view (#ref V) : index #usize` | Whether the offset is a scalar boundary; zero and length are boundaries, out-of-range is false. |
-| `V::subview` | `: view (#ref V) : start #usize : end #usize` | `V::Result` for half-open byte range `[start,end)`: `(V::Result.Valid subview)`, `V::Result.InvalidRange`, or `V::Result.InvalidBoundary`. |
-| `V::clone` | `: view (#ref V)` | A new borrowed view; copies only borrow metadata, not the source or allocation. |
-| `V::chars` | `: view V` | `V::Chars`, consuming the view and retaining its source borrow. |
-| `V::Chars::next` | `: iterator (#ref-mut V::Chars)` | `(V::CharResult.Char scalar)` or `V::CharResult.End`; repeated end reads remain at end. |
+| `V::from-owner` | `((owner OwnerType))` with the declared source type | `V::Result`: `(V::Result.Valid view)` or `V::Result.InvalidUtf8`; validates in O(bytes). |
+| `V::len` | `((view (#ref V)))` | `#usize` byte length, not character count. |
+| `V::is-empty` | `((view (#ref V)))` | `#bool`. |
+| `V::byte-at` | `((view (#ref V)) (index #usize))` | `(Utf8Byte copied-byte)` or `Utf8ByteOutOfBounds`. |
+| `V::boundary` | `((view (#ref V)) (index #usize))` | Whether the offset is a scalar boundary; zero and length are boundaries, out-of-range is false. |
+| `V::subview` | `((view (#ref V)) (start #usize) (end #usize))` | `V::Result` for half-open byte range `[start,end)`: `(V::Result.Valid subview)`, `V::Result.InvalidRange`, or `V::Result.InvalidBoundary`. |
+| `V::clone` | `((view (#ref V)))` | A new borrowed view; copies only borrow metadata, not the source or allocation. |
+| `V::chars` | `((view V))` | `V::Chars`, consuming the view and retaining its source borrow. |
+| `V::Chars::next` | `((iterator (#ref-mut V::Chars)))` | `(V::CharResult.Char scalar)` or `V::CharResult.End`; repeated end reads remain at end. |
 
 Subview bounds are checked before additions or byte access, including maximal
 `#usize` offsets. Splitting a multibyte scalar is an error, including an empty
@@ -3345,19 +3345,19 @@ conversion between two comparison bounds.
 
 ### Optional and result APIs
 
-`(#generate #optional ((type T) (name Name)))` always creates an enum with `Name-some`
-and `Name-none`, plus the free-standing `Name-construct` constructor. When the
+`(#generate #optional ((type T) (name Name)))` always creates an enum with `Name.Some`
+and `Name.None`, plus the free-standing `Name::construct` constructor. When the
 enum and its payload are Copy, it also creates:
 
-- `Name-is-some`
-- `Name-unwrap-or`
+- `Name::is-some`
+- `Name::unwrap-or`
 
 `(#generate #result ((ok Ok) (error Err) (name Name)))` always creates an enum with
-`Name-ok-value` and `Name-err-value`, plus the `Name-ok` and `Name-err`
+`Name.Ok` and `Name.Err`, plus the `Name::ok` and `Name::err`
 constructors. When the enum and both payloads are Copy, it also creates:
 
-- `Name-is-ok`;
-- `Name-unwrap-or` and `Name-unwrap-err-or`.
+- `Name::is-ok`;
+- `Name::unwrap-or` and `Name::unwrap-err-or`.
 
 The by-value predicate and fallback unwrap helpers discard values on some
 paths, so they are omitted for linear payloads, exclusive references, and
@@ -3518,9 +3518,12 @@ The crate is dependency-free.  Its primary public types and functions are:
 
 - `lex(&str) -> Result<Vec<Token>, LexError>`;
 - `parse(&str) -> Result<Vec<SpannedExpr>, String>`;
-- `parse_program(&str) -> Result<Program, String>` for canonical syntax;
+- `parse_program(&str) -> Result<Program, String>` for Lim programs and surface notation;
 - `check_types(&Program) -> Result<(), String>`;
 - `generate_assembly(&Program) -> Result<String, String>`;
+- `wasm::check(&str) -> Result<(), Diagnostic>` for self-contained browser input;
+- `wasm::compile(&str) -> Result<wasm::Module, Diagnostic>` for the scalar
+  WebAssembly teaching backend, with runtime contract audits enabled;
 - `render_diagnostic(&Diagnostic, source, filename) -> String` and
   `render_error(source, filename, error) -> String` for Rust-style terminal
   source excerpts;
@@ -3537,7 +3540,7 @@ The crate is dependency-free.  Its primary public types and functions are:
 Tooling can use `Diagnostic` and `DiagnosticCode` for stable high-level error
 categories (`E1000` lexing, `E2000` parsing, `E3000` generators, `E4000`
 typing, `E4100` borrowing, `E4200` linear ownership, `E4300` unsafe checks,
-`E5000` code generation, and `E6000` linking). Diagnostics carry an optional
+`E4400` contracts, `E5000` code generation, and `E6000` linking). Diagnostics carry an optional
 source span and structured notes; legacy string-returning APIs remain
 available for compatibility.
 
