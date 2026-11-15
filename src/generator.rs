@@ -31,6 +31,7 @@ static CACHE_CLEANUP_TIMES: OnceLock<Mutex<HashMap<PathBuf, Instant>>> = OnceLoc
 
 #[derive(Clone, Debug)]
 struct GeneratorParameter {
+    label: String,
     name: String,
     capabilities: Vec<String>,
 }
@@ -99,6 +100,7 @@ mod async_word_cleanup;
 pub(crate) mod builtins;
 mod effects;
 pub(crate) mod frontend;
+mod records;
 pub(crate) use crate::capture_storage as async_storage;
 pub(crate) mod async_values;
 
@@ -512,7 +514,9 @@ fn expand_with_hits_and_origins(
             }
             if is_operator(items.first(), "#gn-fn") {
                 let function = parse_generator_function(items, &expression).map_err(|error| {
-                    at_span(error, expression.span, "generator function declaration")
+                    if error.span.is_some() { error } else {
+                        at_span(error, expression.span, "generator function declaration")
+                    }
                 })?;
                 let name = symbol(items.get(1), "generator function name")?.to_owned();
                 if generators.contains_key(&name)
@@ -598,6 +602,9 @@ fn expand_with_hits_and_origins(
         cache_dir,
         dependency_context,
         invocation_span: None,
+        invocation_source: None,
+        evaluation_spans: HashMap::new(),
+        error_span: None,
     };
     let mut output = Vec::new();
     let mut generated = Vec::new();
@@ -611,6 +618,8 @@ fn expand_with_hits_and_origins(
             continue;
         }
         context.invocation_span = Some(expression.span);
+        context.invocation_source = Some(expression.clone());
+        context.error_span = None;
         if crate::generated_lookup::enabled() {
             if let Expr::List(items) = &expression.expr {
                 if let Some(Expr::Symbol(name)) = items.get(1) {
@@ -634,7 +643,7 @@ fn expand_with_hits_and_origins(
         let original_expr = expression.expr.clone();
         let original_children = expression.children.clone();
         let expanded = expand_top(expression.expr.into(), &mut context)
-            .map_err(|error| at_span(error, expression.span, "generator expansion"))?;
+            .map_err(|error| at_span(error, context.error_span.take().unwrap_or(expression.span), "generator expansion"))?;
         if is_user_invocation {
             for form in &expanded {
                 context.budget.generated_nodes = context
@@ -726,7 +735,7 @@ fn parse_generator_function(
     source: &SpannedExpr,
 ) -> Result<GeneratorFunction, crate::source_error::SourceError> {
     if items.len() != 4 {
-        return Err("#gn-fn requires a name, parameter list, and body".into());
+        return Err("#gn-fn requires a name, named record pattern, and body".into());
     }
     let generator = parse_generator(items, source).map_err(|mut error| {
         if error.message.starts_with("#gn requires ") {
@@ -743,92 +752,12 @@ fn parse_generator(
     source: &SpannedExpr,
 ) -> Result<Generator, crate::source_error::SourceError> {
     if items.len() != 4 {
-        return Err("#gn requires a name, parameter list, and body".into());
+        return Err("#gn requires a name, named record pattern, and body".into());
     }
-    let name = symbol(items.get(1), "generator name")?;
-    let parameters = match items.get(2) {
-        Some(Expr::List(parameters)) => parameters,
-        _ => return Err(format!("generator '{name}' parameters must be a list").into()),
-    };
-    let mut names = Vec::with_capacity(parameters.len());
-    for (parameter_index, parameter) in parameters.iter().enumerate() {
-        let (name, capabilities) = match parameter {
-            Expr::Symbol(name) => (name.as_str(), Vec::new()),
-            Expr::List(items) if !items.is_empty() => {
-                let name = match items.first() {
-                    Some(Expr::Symbol(name)) => name.as_str(),
-                    _ => {
-                        let span = source
-                            .children
-                            .get(2)
-                            .and_then(|parameters| parameters.children.get(parameter_index))
-                            .and_then(|parameter| parameter.children.first())
-                            .map_or(source.span, |node| node.span);
-                        return Err(at_span(
-                            "generator parameter declarations name one binding; nested lists are not destructuring patterns",
-                            span,
-                            "generator parameter",
-                        ));
-                    }
-                };
-                let mut required = Vec::new();
-                for (annotation_index, capability) in items[1..].iter().enumerate() {
-                    let capability = match capability {
-                        Expr::Symbol(name) => name.as_str(),
-                        _ => {
-                            let span = source
-                                .children
-                                .get(2)
-                                .and_then(|parameters| parameters.children.get(parameter_index))
-                                .and_then(|parameter| parameter.children.get(annotation_index + 1))
-                                .map_or(source.span, |node| node.span);
-                            return Err(at_span(
-                                "generator parameter annotations must be capability names, not nested patterns",
-                                span,
-                                "generator parameter",
-                            ));
-                        }
-                    };
-                    if capability.starts_with('#') || capability.starts_with('@') {
-                        return Err(format!("invalid generator capability '{capability}'").into());
-                    }
-                    required.push(capability.to_owned());
-                }
-                (name, required)
-            }
-            _ => {
-                return Err("generator parameter must be a symbol or (name capability ...)".into())
-            }
-        };
-        if name.starts_with('#') || name.starts_with('@') {
-            return Err(format!("invalid generator parameter '{name}'").into());
-        }
-        if names
-            .iter()
-            .any(|existing: &GeneratorParameter| existing.name == name)
-        {
-            let parameter_span = source
-                .children
-                .get(2)
-                .and_then(|parameters| parameters.children.get(parameter_index))
-                .and_then(|parameter| match &parameter.expr {
-                    Expr::List(_) => parameter.children.first(),
-                    _ => Some(parameter),
-                })
-                .map_or(source.span, |name| name.span);
-            return Err(at_span(
-                format!("duplicate generator parameter '{name}'"),
-                parameter_span,
-                "generator parameter",
-            ));
-        }
-        names.push(GeneratorParameter {
-            name: name.to_owned(),
-            capabilities,
-        });
-    }
+    symbol(items.get(1), "generator name")?;
+    let parameters = records::parameters(&items[2], source.children.get(2).unwrap_or(source))?;
     Ok(Generator {
-        parameters: names,
+        parameters,
         body: items[3].clone(),
         span: source.span,
         source_body: source.children.get(3).cloned(),
@@ -886,6 +815,9 @@ struct ExpansionContext<'a> {
     origins: &'a mut Origins,
     invocation_builtins: HashMap<String, Vec<String>>,
     active_builtins: Vec<Vec<String>>,
+    invocation_source: Option<SpannedExpr>,
+    evaluation_spans: HashMap<usize, Span>,
+    error_span: Option<Span>,
 }
 
 fn record_invocation_origins(key: &str, context: &mut ExpansionContext<'_>) {
@@ -1018,7 +950,6 @@ fn expand_top(
             }
         }
     }
-    let arguments = parts.into_iter().skip(2).collect::<Vec<_>>();
     let Some(generator) = context.generators.get(name).cloned() else {
         if builtins::named_builtin_keys(name).is_none() {
             return Err(format!("unknown generator '#generate {name}'"));
@@ -1041,54 +972,32 @@ fn expand_top(
             "recursive generator expansion is not allowed: {chain}"
         ));
     }
-    if items.len() - 2 != generator.parameters.len() {
-        return Err(format!(
-            "{} expects {} syntax argument(s), received {}",
-            invocation_description(
-                name,
-                expression_arguments(items),
-                &generator,
-                context.invocation_span,
-            ),
-            generator.parameters.len(),
-            items.len() - 2
-        ));
+    let supplied = records::arguments(items, &generator.parameters, &format!("#generate {name}"))
+        .map_err(|error| argument_error(error, &expression.expr, context))?;
+    let mut arguments = vec![None; generator.parameters.len()];
+    for (index, value) in supplied {
+        let argument = Syntax::authored(value.clone(), expression.authority());
+        check_capabilities(
+            &generator.parameters[index],
+            &argument,
+            context.capabilities,
+        )
+        .map_err(|message| {
+            argument_error(
+                records::ArgumentError {
+                    message,
+                    expression: value,
+                },
+                &expression.expr,
+                context,
+            )
+        })?;
+        arguments[index] = Some(argument);
     }
-    for (parameter, argument) in generator.parameters.iter().zip(&arguments) {
-        for capability in &parameter.capabilities {
-            let Expr::Symbol(type_name) = &argument.expr else {
-                return Err(format!(
-                    "{} parameter '{}' requires capability '{}' on a concrete type symbol",
-                    invocation_description(
-                        name,
-                        expression_arguments(items),
-                        &generator,
-                        context.invocation_span,
-                    ),
-                    parameter.name,
-                    capability,
-                ));
-            };
-            if !context.capabilities.get(capability).is_some_and(|types| {
-                types.contains_key(type_name.strip_prefix('#').unwrap_or(type_name))
-            }) {
-                return Err(format!(
-                    "{} parameter '{}' requires capability '{}' for type '{}'; declare (#capability {} {})",
-                    invocation_description(
-                        name,
-                        expression_arguments(items),
-                        &generator,
-                        context.invocation_span,
-                    ),
-                    parameter.name,
-                    capability,
-                    type_name,
-                    capability,
-                    type_name,
-                ));
-            }
-        }
-    }
+    let arguments = arguments
+        .into_iter()
+        .map(Option::unwrap)
+        .collect::<Vec<_>>();
     if context.active.len() >= MAX_EXPANSION_DEPTH {
         return Err(format!(
             "generator expansion exceeds maximum depth of {MAX_EXPANSION_DEPTH}"
@@ -1140,7 +1049,7 @@ fn expand_top(
         context.invocation_span.unwrap_or(generator.span),
     );
     let cache_key = format!(
-        "lim-generator-cache-v15\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\ninstance={}\narguments={:?}\ncontext={header}",
+        "lim-generator-cache-v16-named-records\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\ninstance={}\narguments={:?}\ncontext={header}",
         concat!(env!("CARGO_PKG_VERSION"), "-record-functions-v1"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
@@ -1201,7 +1110,7 @@ fn expand_top(
                 .map(|parameter| parameter.name.clone())
                 .zip(arguments.iter().cloned())
                 .collect();
-            let result = match evaluate(&generator.body, &environment, context) {
+            let result = match evaluate_definition(&generator, &environment, context) {
                 Ok(result) => result,
                 Err(error) => {
                     context.active.pop();
@@ -1488,8 +1397,14 @@ fn collect_generator_function_calls(expression: &Expr, calls: &mut Vec<String>) 
                     if let Some(Expr::Symbol(name) | Expr::Function(name)) = items.get(1) {
                         calls.push(name.clone());
                     }
-                    for argument in items.iter().skip(2) {
-                        collect_generator_function_calls(argument, calls);
+                    if let Some(Expr::List(fields)) = items.get(2) {
+                        for field in fields {
+                            if let Expr::List(pair) = field {
+                                if let Some(value) = pair.get(1) {
+                                    collect_generator_function_calls(value, calls);
+                                }
+                            }
+                        }
                     }
                 }
                 "#gn-if" | "#gn-equal" | "#gn-symbol?" | "#gn-list?" | "#gn-symbol"
@@ -1867,6 +1782,7 @@ fn interpreter_hash() -> u128 {
     *INTERPRETER_HASH.get_or_init(|| {
         stable_hash_parts(&[
             include_bytes!("generator.rs"),
+            include_bytes!("generator/records.rs"),
             include_bytes!("gensym.rs"),
             include_bytes!("generator_authority.rs"),
         ])
@@ -2112,6 +2028,66 @@ fn cached_expansion_key(bytes: &[u8]) -> Option<&[u8]> {
     let mut cursor = 8;
     let length = read_cache_length(bytes, &mut cursor)?;
     bytes.get(cursor..cursor.checked_add(length)?)
+}
+
+fn argument_error(
+    error: records::ArgumentError<'_>,
+    root: &Expr,
+    context: &mut ExpansionContext<'_>,
+) -> String {
+    let span = context
+        .evaluation_spans
+        .get(&(std::ptr::from_ref(error.expression) as usize))
+        .copied()
+        .or_else(|| {
+            if context.active.is_empty() {
+                context
+                    .invocation_source
+                    .as_ref()
+                    .and_then(|source| records::source_span(root, error.expression, source))
+            } else {
+                None
+            }
+        });
+    if context.error_span.is_none() {
+        context.error_span = span;
+    }
+    error.message
+}
+
+fn evaluate_definition(
+    definition: &Generator,
+    environment: &Environment,
+    context: &mut ExpansionContext<'_>,
+) -> Result<Value, String> {
+    let previous = std::mem::take(&mut context.evaluation_spans);
+    if let Some(source) = &definition.source_body {
+        records::evaluation_spans(&definition.body, source, &mut context.evaluation_spans);
+    }
+    let result = evaluate(&definition.body, environment, context);
+    context.evaluation_spans = previous;
+    result
+}
+
+fn check_capabilities(
+    parameter: &GeneratorParameter,
+    argument: &Syntax,
+    capabilities: &Capabilities,
+) -> Result<(), String> {
+    for capability in &parameter.capabilities {
+        let Expr::Symbol(type_name) = &argument.expr else {
+            return Err(format!(
+                "argument '{}' requires capability '{capability}' on a concrete type symbol",
+                parameter.label
+            ));
+        };
+        if !capabilities.get(capability).is_some_and(|types| {
+            types.contains_key(type_name.strip_prefix('#').unwrap_or(type_name))
+        }) {
+            return Err(format!("argument '{}' requires capability '{capability}' for type '{type_name}'; declare (#capability {capability} {type_name})", parameter.label));
+        }
+    }
+    Ok(())
 }
 
 fn evaluate(
@@ -2365,13 +2341,8 @@ fn evaluate(
             let Some(function) = context.functions.get(name).cloned() else {
                 return Err(format!("unknown generator function '{name}'"));
             };
-            if items.len() - 2 != function.parameters.len() {
-                return Err(format!(
-                    "#gn-call {name} expects {} syntax argument(s), received {}",
-                    function.parameters.len(),
-                    items.len() - 2
-                ));
-            }
+            let supplied = records::arguments(items, &function.parameters, &format!("#gn-call {name}"))
+                .map_err(|error| argument_error(error, expression, context))?;
             if context.active_functions.iter().any(|active| active == name) {
                 let mut chain = context.active_functions.join(" -> ");
                 if !chain.is_empty() {
@@ -2383,14 +2354,15 @@ fn evaluate(
                 ));
             }
             let mut nested = Environment::new();
-            for (parameter, argument) in function.parameters.iter().zip(&items[2..]) {
-                nested.insert(
-                    parameter.name.clone(),
-                    syntax(evaluate(argument, environment, context)?, "#gn-call")?,
-                );
+            for (index, argument) in supplied {
+                let parameter = &function.parameters[index];
+                let value = syntax(evaluate(argument, environment, context)?, "#gn-call")?;
+                check_capabilities(parameter, &value, context.capabilities)
+                    .map_err(|message| argument_error(records::ArgumentError { message, expression: argument }, expression, context))?;
+                nested.insert(parameter.name.clone(), value);
             }
             context.active_functions.push(name.to_owned());
-            let result = evaluate(&function.body, &nested, context);
+            let result = evaluate_definition(&function, &nested, context);
             context.active_functions.pop();
             match result? {
                 value @ Value::Syntax(_) => Ok(value),
@@ -2670,6 +2642,7 @@ mod tests {
     fn interpreter_fingerprint_matches_embedded_source() {
         let expected = stable_hash_parts(&[
             include_bytes!("generator.rs"),
+            include_bytes!("generator/records.rs"),
             include_bytes!("gensym.rs"),
             include_bytes!("generator_authority.rs"),
         ]);
@@ -2887,7 +2860,10 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         fs::create_dir(directory.join("generated")).unwrap();
         let header = "#generated-context ((producer \"expected\"))\n";
-        let key = format!("lim-generator-cache-v15\ncontext=({})", header.trim());
+        let key = format!(
+            "lim-generator-cache-v16-named-records\ncontext=({})",
+            header.trim()
+        );
         let wrong = "#generated-context ((producer \"other\"))\n#type Value #u64\n";
         publish_generated_expansion(&directory, &key, wrong).unwrap();
         assert!(load_generated_expansion(&directory, &key)
@@ -3338,6 +3314,9 @@ mod tests {
                 cache_dir: None,
                 dependency_context: "",
                 invocation_span: None,
+                invocation_source: None,
+                evaluation_spans: HashMap::new(),
+                error_span: None,
             },
         )
         .unwrap_err();

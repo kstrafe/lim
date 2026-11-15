@@ -565,6 +565,7 @@ pub(crate) fn prepare_program_syntax(
     let visibility = crate::library::check_generators(&loaded, &source_files)?;
     let qualified = crate::library::qualify(&mut loaded, &visibility, &source_files)?;
     let dependency_context = generator_dependency_context(&loaded, config);
+    let user_dependency_context = super::records::dependency_context(&loaded, config);
     let mut bundles = syntax_bundle::Bundles::default();
     let loaded = bundles
         .expand(loaded, false)
@@ -576,7 +577,7 @@ pub(crate) fn prepare_program_syntax(
     let (expanded, _) = generator::expand_with_origins(
         loaded,
         cache_directory,
-        &dependency_context,
+        &user_dependency_context,
         &mut generator_origins,
     )
     .map_err(|error| attach_generator_source(error, &source_files))?;

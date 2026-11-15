@@ -521,33 +521,45 @@ impl Resolver<'_> {
             }
             let args = if kind == "#extern-fn" { 3 } else { 2 };
             if let Some(arguments) = node.children.get_mut(args) {
-                if crate::positional_parameter_type(&arguments.expr).is_some() {
+                let generator = matches!(kind.as_str(), "#gn" | "#gn-fn");
+                if !generator && crate::positional_parameter_type(&arguments.expr).is_some() {
                     inner.insert("#arg".into());
                     self.rewrite(arguments, file, locals)?;
                 } else {
                     for argument in &mut arguments.children {
-                        let binder = if argument.children.is_empty() {
-                            symbol(argument)
+                        let pattern = if generator {
+                            argument.children.get(1).unwrap_or(argument)
                         } else {
-                            argument.children.first().and_then(symbol)
+                            argument
                         };
-                        if let Some(name) = binder {
+                        let binder_node = if pattern.children.is_empty() {
+                            Some(&*pattern)
+                        } else {
+                            pattern.children.first()
+                        };
+                        if let Some(name) = binder_node.and_then(symbol) {
                             inner.insert(name.into());
-                        }
-                        if let Some(name) = binder {
-                            if self
-                                .lookup(file, name, &mut Vec::new())
-                                .map_err(SourceError::from)?
-                                .is_some()
+                            if self.lookup(file, name, &mut Vec::new())
+                                .map_err(SourceError::from)?.is_some()
                             {
                                 return Err(SourceError::from(format!(
                                     "parameter '{name}' would shadow a file-local declaration or alias"
-                                ))
-                                .at(argument.span));
+                                )).at(binder_node.unwrap().span));
                             }
                         }
-                        for ty in argument.children.iter_mut().skip(1) {
-                            self.rewrite(ty, file, locals)?;
+                        if generator {
+                            if let Some(value) = argument.children.get_mut(1) {
+                                // Keys and binding names are literal; only
+                                // capability annotations resolve declarations.
+                                for capability in value.children.iter_mut().skip(1) {
+                                    self.rewrite(capability, file, locals)?;
+                                }
+                                rebuild(value)?;
+                            }
+                        } else {
+                            for ty in argument.children.iter_mut().skip(1) {
+                                self.rewrite(ty, file, locals)?;
+                            }
                         }
                         rebuild(argument)?;
                     }
@@ -576,7 +588,10 @@ impl Resolver<'_> {
             }
             return rebuild(node);
         }
-        if matches!(kind.as_str(), "#call" | "#unsafe-call" | "#struct-literal") {
+        if matches!(
+            kind.as_str(),
+            "#call" | "#unsafe-call" | "#struct-literal" | "#gn-call"
+        ) {
             if let Some(name) = node.children.get_mut(1) {
                 self.rewrite(name, file, locals)?;
             }
