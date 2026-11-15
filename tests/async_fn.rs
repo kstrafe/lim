@@ -163,12 +163,17 @@ fn async_protocols_compose_with_forward_references_and_derived_names() {
             (#case (Parent::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))\n";
     let generated = build_and_run(source, 42);
     assert_generated_type_names_are_capitalized(&generated);
+    let nodes = lim::parse_source_unit(&generated).unwrap();
     for declaration in [
         "(#syntax ParentAwait (#u64 Parent::Task Parent::Poll.Pending Parent::Poll.Ready Parent::poll))",
         "(#syntax ChildAwait (#u64 Child::Task Child::Poll.Pending Child::Poll.Ready Child::poll))",
     ] {
-        assert!(generated.contains(declaration), "{generated}");
-        assert_eq!(generated.matches(declaration).count(), 1);
+        let expected = lim::parse(declaration).unwrap().remove(0).expr;
+        assert_eq!(
+            nodes.iter().filter(|node| node.expr == expected).count(),
+            1,
+            "{declaration}"
+        );
     }
     assert_single_poll(&generated, "Parent::poll");
     assert_single_poll(&generated, "Child::poll");
