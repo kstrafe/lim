@@ -124,9 +124,75 @@ fn generated_documents_use_bare_roots_with_stable_cold_warm_artifacts() {
         })
         .collect::<Vec<_>>();
     assert!(!artifacts.is_empty());
-    assert_eq!(compile().unwrap(), cold);
+    let (warm, report) = lim::with_cache_report(compile);
+    assert_eq!(warm.unwrap(), cold);
+    assert!(report.contains("\"decision\":\"hit\""), "{report}");
     for (path, text) in artifacts {
         assert_eq!(fs::read_to_string(path).unwrap(), text);
     }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn all_declaration_payloads_keep_their_existing_tree_shapes() {
+    for payload in [
+        "#std",
+        "#alias value = ./value.lim::value",
+        "#export Value value",
+        "#type Value #u64",
+        "#struct Value (#linear) ((value #u64))",
+        "#enum Choice () ((Choice.Some #u64) Choice.None)",
+        "#opaque Value",
+        "#unsafe-impl #send Value",
+        "#const count #u64 1u64",
+        "#static count #u64 1u64",
+        "#let count #u64 1u64",
+        "#fn value () #u64 (#return 1u64)",
+        "#unsafe-fn value () #u64 (#return 1u64)",
+        "#extern-fn #abi-c value () #u64",
+        "#thread-task Task worker",
+        "#distributed-enum Choice ()",
+        "#enum-contribute Choice (Some #u64)",
+        "#gn make (name) `((#type ,name #u64))",
+        "#gn-fn make (name) `(#type ,name #u64)",
+        "#generate make Value",
+        "#require-generated Value make",
+        "#capability readable #u64 ((read () #u64))",
+        "#syntax Body ((#return 1u64))",
+        "#cfg-if (#cfg-is #platform linux) (#type Word #u64)",
+    ] {
+        let canonical = format!("({payload})");
+        assert_eq!(
+            trees(payload),
+            lim::parse(&canonical)
+                .unwrap()
+                .into_iter()
+                .map(|n| n.expr)
+                .collect::<Vec<_>>(),
+            "{payload}"
+        );
+        assert!(lim::parse_source_unit(&canonical).is_err(), "{canonical}");
+    }
+}
+
+#[test]
+fn imported_source_obeys_the_same_root_rule() {
+    let dir = scratch();
+    fs::write(dir.join("value.lim"), "(#fn value () #u64 (#return 42u64))").unwrap();
+    let source = "#alias value = ./value.lim::value\n#fn main () #u64 (#return (#call value ()))\n";
+    let compile = || {
+        lim::compile_source_to_assembly(
+            source,
+            &dir.join("main.lim"),
+            &CompileConfig::default(),
+            &dir.join("cache"),
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+    };
+    let error = compile().unwrap_err();
+    assert_eq!(error.code, DiagnosticCode::Parse);
+    assert!(error.message.contains("bare root"));
+    fs::write(dir.join("value.lim"), "#fn value () #u64 (#return 42u64)\n").unwrap();
+    compile().unwrap();
     fs::remove_dir_all(dir).unwrap();
 }
