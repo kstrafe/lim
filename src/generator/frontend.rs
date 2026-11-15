@@ -971,7 +971,7 @@ pub(crate) fn parse_prepared_program_items(
                 .source
                 .get(expression.span.start..expression.span.end)
                 .unwrap_or("");
-            let literal = parse(original).ok().is_some_and(|forms| forms.len() == 1 && matches!(&forms[0].expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#export")));
+            let literal = crate::parse_source_unit(original).ok().is_some_and(|forms| forms.len() == 1 && matches!(&forms[0].expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#export")));
             if file.path.file_name().is_none_or(|name| name != "lib.lim") || !literal {
                 return Err(SourceError::from(
                     "#export must be literal source in lib.lim, not generated code",

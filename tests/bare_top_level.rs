@@ -236,3 +236,19 @@ fn builtin_and_async_published_sources_reuse_bare_warm_artifacts() {
         fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn bare_library_exports_remain_literal_and_generated_exports_cannot_grant_authority() {
+    let dir = scratch();
+    let library = dir.join("lib.lim");
+    let authored = "#export value\n#fn value () #u64 (#return 42u64)\n";
+    fs::write(&library, authored).unwrap();
+    let caller = "#alias value = ./lib.lim::value\n#fn main () #u64 (#return (#call value ()))\n";
+    let program = lim::parse_program_from_path(caller, &dir.join("main.lim")).unwrap();
+    lim::check_types(&program).unwrap();
+    let forged =
+        "#fn value () #u64 (#return 42u64)\n#gn emit () `((#export value))\n#generate emit\n";
+    let error = lim::parse_program_from_path(forged, &library).unwrap_err();
+    assert!(error.contains("#export must be literal"), "{error}");
+    fs::remove_dir_all(dir).unwrap();
+}
