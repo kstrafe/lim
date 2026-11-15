@@ -11,7 +11,7 @@ The current implementation references 278 distinct catalog numbers (about
 or kernel feature has been verified**. Some wrappers share a syscall number.
 No `#extern-fn` declarations appear in the library sources. This source check
 is supplemented by emitted-code and ELF checks: `library/tasks.lim` exposes
-`#generate #threaded-executor`, which expands to `#generate #thread-spawn`, and its backend now
+`#generate #std/tasks.lim::threaded-executor`, which expands to `#generate #thread-spawn`, and its backend now
 uses kernel mappings, clone, futex joining, and unmapping instead of
 malloc/free/pthreads. Reachable foreign worker calls are rejected; arbitrary
 user-requested FFI outside worker call graphs remains separate from the library.

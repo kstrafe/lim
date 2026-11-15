@@ -48,12 +48,16 @@ These generated types are build-local, not stable serialization or FFI schemas.
 
 ## Explicit task protocol
 
-Import `library/tasks.lim`. A task has a concrete state enum and a concrete
+Use `#std/tasks.lim::task`. A task has a concrete state enum and a concrete
 poll-result enum. The task generator emits `#linear` for the state type, so
 even an all-numeric state cannot be implicitly copied or silently abandoned.
 
 ```lisp syntax
-#generate #task (Count CountPoll CountPoll.CountPending CountPoll.CountReady) #u64 ((Count.Counting #u64))
+#generate #std/tasks.lim::task {
+  names = (Count CountPoll CountPoll.CountPending CountPoll.CountReady);
+  result = #u64;
+  states = ((Count.Counting #u64));
+}
 ```
 
 Write a free-standing poll function with exactly the named argument `task`:
@@ -74,9 +78,12 @@ rules.
 ## Fixed-capacity executors
 
 ```lisp syntax
-#generate #executor run-counts Counts
-    ((first Count CountPoll CountPending CountReady count-poll #u64 first-input)
-     (second Count CountPoll CountPending CountReady count-poll #u64 second-input))
+#generate #std/tasks.lim::executor {
+  run = run-counts;
+  result = Counts;
+  jobs = ((first Count CountPoll CountPending CountReady count-poll #u64 first-input)
+     (second Count CountPoll CountPending CountReady count-poll #u64 second-input));
+}
 ```
 
 Each job descriptor is
@@ -89,21 +96,31 @@ job list is an explicit literal generator argument.
 The executor polls each pending job once per round using direct calls, retains
 completed results, and returns when every job is ready. Poll functions must
 return promptly for cooperative fairness. A permanently pending task keeps
-the executor running. This basic driver busy-polls; use `#generate #wake-executor` when
-tasks can register wake handles. Task and result storage is inline; task
+the executor running. This basic driver busy-polls; use
+`#std/tasks.lim::wake-executor` when tasks can register wake handles.
+Task and result storage is inline; task
 implementations can still explicitly allocate if they choose. The local name
 `lim.executor.waiting` is reserved by this generator.
 
 ## Bounded ready queue foundation
 
 ```lisp syntax
-#generate #ready-queue ReadyQueue QueueEnqueue QueueDequeue
-    queue-create queue-enqueue queue-dequeue
-    QueueEnqueue.QueueEnqueued QueueEnqueue.QueueFull QueueDequeue.QueueItem QueueDequeue.QueueEmpty
-    (worker-a worker-b worker-c)
+#generate #std/ready_queue.lim::ready-queue {
+  name = ReadyQueue;
+  enqueue-result = QueueEnqueue;
+  dequeue-result = QueueDequeue;
+  create = queue-create;
+  enqueue = queue-enqueue;
+  dequeue = queue-dequeue;
+  enqueued = QueueEnqueue.QueueEnqueued;
+  full = QueueEnqueue.QueueFull;
+  item = QueueDequeue.QueueItem;
+  empty = QueueDequeue.QueueEmpty;
+  slots = (worker-a worker-b worker-c);
+}
 ```
 
-Import `library/ready_queue.lim` to use this generator. Every generated type,
+The `#std/ready_queue.lim` path selects this library generator. Every generated type,
 function, and variant name is an explicit literal argument, so multiple
 concrete queues can coexist. The final literal list fixes capacity; its
 entries identify slots for generation but are not runtime queue contents.
@@ -140,21 +157,22 @@ one bit, and a retired token cannot affect a reused slot. Registration and
 retirement require a mutable queue reference; notify and take use a shared
 one. The opaque queue is local-only, not a cross-thread notifier.
 `examples/wake_ready4.lim` covers capacity, duplicates, and stale handles;
-`examples/async_registered_wake.lim` connects it to `#generate #async-wake`. The bounded
-`#generate #wake-executor` below composes the ready set with task polling and blocking
-readiness.
+`examples/async_registered_wake.lim` connects it to
+`#std/tasks.lim::async-wake`. The bounded `#std/tasks.lim::wake-executor`
+below composes the ready set with task polling and blocking readiness.
 
 ## Borrowed local wakers
 
-Import `library/local_waker.lim` to generate a concrete, single-threaded wake
+Use `#std/local_waker.lim::local-waker` to generate a concrete, single-threaded wake
 handle with no function pointers:
 
 ```lisp syntax
-#generate #local-waker
-    (CounterWaker counter-waker-create counter-waker-wake
-      counter-waker-wake-by-ref counter-waker-clone counter-waker-destroy)
-    (WakeCounter WakeMetadata)
-    (counter-notify metadata-clone metadata-destroy)
+#generate #std/local_waker.lim::local-waker {
+  names = (CounterWaker counter-waker-create counter-waker-wake
+      counter-waker-wake-by-ref counter-waker-clone counter-waker-destroy);
+  types = (WakeCounter WakeMetadata);
+  callbacks = (counter-notify metadata-clone metadata-destroy);
+}
 ```
 
 The generated linear `CounterWaker` owns a `WakeMetadata` and holds a
@@ -201,19 +219,21 @@ See `examples/local_waker.lim` for a complete runnable example.
 
 ## Wake-driven fixed task set
 
-Import `library/tasks.lim` and use `#generate #wake-executor` when all task slots have the
-same concrete task, poll-result, output, and waker types:
+Use `#std/tasks.lim::wake-executor` when all task slots have the same concrete
+task, poll-result, output, and waker types:
 
 ```lisp syntax
-#generate #wake-executor run-jobs
-    (JobResults JobOutcome JobLifecycle JobLifecycle.JobRunning
-      JobOutcome.JobComplete JobLifecycle.JobCancelling JobOutcome.JobStopped)
-    (JobTask JobPoll JobPending JobReady #u64 job-poll LocalWaker)
-    (WaitResult WaitReady WaitStopped #i64 wait-ready
-      (sources (#slice AsyncPollSource4)))
-    cancel-poll
-    ((first-state first-task first-waker first 0u32)
-     (second-state second-task second-waker second 1u32))
+#generate #std/tasks.lim::wake-executor {
+  run = run-jobs;
+  outputs = (JobResults JobOutcome JobLifecycle JobLifecycle.JobRunning
+      JobOutcome.JobComplete JobLifecycle.JobCancelling JobOutcome.JobStopped);
+  task-spec = (JobTask JobPoll JobPending JobReady #u64 job-poll LocalWaker);
+  wait-spec = (WaitResult WaitReady WaitStopped #i64 wait-ready
+      (sources (#slice AsyncPollSource4)));
+  cancel-function = cancel-poll;
+  jobs = ((first-state first-task first-waker first 0u32)
+     (second-state second-task second-waker second 1u32));
+}
 ```
 
 Each job descriptor names its generated poll-state local, task input, borrowed
@@ -255,11 +275,14 @@ a Pending state with an owned waker and an already-Ready result.
 ## Explicit async composition
 
 ```lisp syntax
-#generate #async (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
-    ((Pipeline.Begin (#await Count CountPending CountReady count-poll)
+#generate #std/tasks.lim::async {
+  names = (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll);
+  result = #u64;
+  stages = ((Pipeline.Begin (#await Count CountPending CountReady count-poll)
        (#then Pipeline.Finish next-count))
      (Pipeline.Finish (#await Count CountPending CountReady count-poll)
-       (#return)))
+       (#return)));
+}
 ```
 
 Each stage stores exactly one concrete child task. Polling the parent polls
@@ -270,8 +293,8 @@ unbounded chain of transitions within one parent poll. Continuations and poll
 functions are ordinary strongly checked functions.
 
 Here `#await`, `#then`, and `#return` are syntax interpreted by the user-defined
-`#generate #async` generator. This is **not** `#async-fn` or arbitrary suspension inside
-ordinary function bodies. State names and continuation functions are explicit.
+`#std/tasks.lim::async` generator. This is **not** `#async-fn` or arbitrary
+suspension inside ordinary function bodies. State names and continuation functions are explicit.
 To carry additional data, put it in concrete child states and result types.
 No local stack reference is silently captured: generated enums and functions
 undergo the existing borrow checks. Self-referential movable task frames are
@@ -283,19 +306,21 @@ explicit poll context carrying a local waker. Suspension preserves the live
 locals and checked loans in the frame; cancellation consumes the suspended
 state through its explicit cleanup interface. Movable frames reject internal
 references that remain live across Pending; use pinned frame storage when
-references into the frame must survive suspension. The staged `#generate #async`
-generator described above remains explicit state composition and does not
+references into the frame must survive suspension. The staged
+`#std/tasks.lim::async` generator described above remains explicit state composition and does not
 lower an arbitrary function body.
 
 For explicit state composition that already needs a wake context, use
-`#generate #async-wake` with the same stage descriptors as `#generate #async` and one additional
-concrete waker type:
+`#std/tasks.lim::async-wake` with the same stage descriptors as
+`#std/tasks.lim::async` and one additional concrete waker type:
 
 ```lisp syntax
-#generate #async-wake
-    (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
-    ((Pipeline.Only (#await Step StepPoll.StepPending StepPoll.StepReady step-poll) (#return)))
-    LocalWaker
+#generate #std/tasks.lim::async-wake {
+  names = (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll);
+  result = #u64;
+  stages = ((Pipeline.Only (#await Step StepPoll.StepPending StepPoll.StepReady step-poll) (#return)));
+  waker = LocalWaker;
+}
 ```
 
 The generated `pipeline-poll` takes `task` and `waker (#ref LocalWaker)`.
@@ -304,7 +329,7 @@ the generated code forwards the borrow without retaining it. The child can
 use `wake-by-ref` before returning Pending. The poll driver must register a
 token before polling and consult its ready bit after Pending; see
 `examples/async_registered_wake.lim` for a runnable validated cycle. The
-bare `#generate #async-wake` expansion does not perform registration itself. See
+bare `#generate #std/tasks.lim::async-wake` expansion does not perform registration itself. See
 `examples/async_wake_pipeline.lim` for the adapter-only cycle.
 
 ## Compiler-lowered async functions
@@ -329,8 +354,9 @@ empties the stationary frame before transferring independent owning values.
 Dependent children are cancelled in place before their referents are extracted.
 There is no public `Frame-state` or raw-state cancellation export.
 `examples/async_single_poll.lim` shows repeated polling through an opaque
-`#generate #pin` handle whose storage is owned by `#generate #pin-scope`; its low-level adapter
-requires `#unsafe`, and cleanup completes before the scope releases storage.
+`#std/pin.lim::pin` handle whose storage is owned by `#std/pin.lim::pin-scope`;
+its low-level adapter requires `#unsafe`, and cleanup completes before the
+scope releases storage.
 
 The emitted Lim is stored in `.lim/generated`, with cache metadata in
 `.lim/cache`, and undergoes normal type, borrow, linearity, and code generation
@@ -470,15 +496,25 @@ Ready(false).
 
 ## Cancellation and threads
 
-`#generate #task-cancel cancel-function Task ((State handler) ...)` generates an
-exhaustive match consuming a task. Every state must have one payload; each
-handler accepts that payload as `task`, consumes its owned resources, and
+The task cancellation generator takes an exhaustive named record:
+
+```lisp syntax
+#generate #std/tasks.lim::task-cancel {
+  cancel = cancel-function;
+  task = Task;
+  states = ((State handler));
+}
+```
+
+The `states` list contains one `(State handler)` entry per state. The generated
+function exhaustively matches and consumes a task. Every state must have one
+payload; each handler accepts that payload as `task`, consumes its owned resources, and
 returns `()`. Cleanup occurs only when this function is explicitly called.
 There is no automatic cancellation when a task goes out of scope. `#forget`
 intentionally bypasses cleanup; it is not a cancellation operation.
 
 `#generate #async-fn` and `#generate #async-fn-pinned` can generate a cleanup dispatcher with an
-optional `:cancel` argument. Map source binding names and `await-N` identities
+optional `cancel` field. Map source binding names and `await-N` identities
 to concrete handlers, not private program-counter states:
 
 ```lisp syntax
@@ -548,7 +584,16 @@ rejected. Descriptor ownership and
 executor shutdown remain open. Externally interrupting a blocking run also
 remains open.
 
-`#generate #threaded-executor run Result jobs Worker` expands an executor plus
+```lisp syntax
+#generate #std/tasks.lim::threaded-executor {
+  run = run;
+  result = Result;
+  jobs = ((number NumberTask NumberPoll NumberPending NumberReady number-poll #u64 number-input));
+  thread = Worker;
+}
+```
+
+This expands an executor plus
 `#generate #thread-spawn ((task Worker) (worker run))`. Each job names both its result
 field/state binding and a distinct worker-input parameter, for example
 `(number NumberTask NumberPoll NumberPending NumberReady number-poll #u64 number-input)`.

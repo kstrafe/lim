@@ -258,8 +258,8 @@ command prints each current generated source path with its generator name and
 relationship to the selection, without building a native binary:
 
 ```text
-direct #generate #pin-box -> /project/examples/.lim/generated/generated-<hash>.lim
-nested #generate #allocator-for -> /project/examples/.lim/generated/generated-<hash>.lim
+direct #generate #std/pin_box.lim::pin-box -> /project/examples/.lim/generated/generated-<hash>.lim
+nested #generate #std/allocator.lim::allocator-for -> /project/examples/.lim/generated/generated-<hash>.lim
 ```
 
 `direct` identifies output from a selected invocation; `nested` identifies
