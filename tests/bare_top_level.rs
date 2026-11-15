@@ -197,3 +197,42 @@ fn imported_source_obeys_the_same_root_rule() {
     compile().unwrap();
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn builtin_and_async_published_sources_reuse_bare_warm_artifacts() {
+    for source in [
+        include_str!("../examples/optional.lim"),
+        include_str!("../examples/async_block_loop.lim"),
+    ] {
+        let dir = scratch();
+        let compile = || {
+            lim::compile_source_with_generated_sources(
+                source,
+                &dir.join("main.lim"),
+                &CompileConfig::default(),
+                &dir.join("cache"),
+                TargetDescription::X86_64_SYSTEM_V,
+                None,
+                &dir.join("generated"),
+            )
+        };
+        let cold = compile().unwrap();
+        let artifacts = fs::read_dir(dir.join("generated"))
+            .unwrap()
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                let text = fs::read_to_string(&path).unwrap();
+                lim::parse_source_unit(&text).unwrap_or_else(|e| panic!("{e}\n{text}"));
+                (path, text)
+            })
+            .collect::<Vec<_>>();
+        assert!(!artifacts.is_empty());
+        let (warm, report) = lim::with_cache_report(compile);
+        assert_eq!(warm.unwrap(), cold);
+        assert!(report.contains("\"decision\":\"hit\""), "{report}");
+        for (path, text) in artifacts {
+            assert_eq!(fs::read_to_string(path).unwrap(), text);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+}
