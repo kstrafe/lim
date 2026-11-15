@@ -1,8 +1,12 @@
 //! Synchronous, std-only LSP server. Checks never save editor buffers.
+#[path = "lsp_information.rs"]
+mod information;
 #[path = "lsp_json.rs"]
 pub mod json;
 #[path = "lsp_navigation.rs"]
 pub(crate) mod navigation;
+#[path = "lsp_signature.rs"]
+mod signature;
 #[path = "lsp_syntax_policy.rs"]
 mod syntax_policy;
 
@@ -42,6 +46,9 @@ pub fn serve(
         ready: false,
         shutdown: false,
         context_watch: false,
+        signature_no_active_parameter: false,
+        hover_markup: "plaintext",
+        signature_markup: "plaintext",
         root: None,
     };
     while let Some(body) = json::read_frame(&mut input)? {
@@ -95,10 +102,33 @@ pub fn serve(
                         .and_then(|p| p.get("dynamicRegistration")),
                     Some(Json::Bool(true))
                 );
+                server.signature_no_active_parameter = matches!(
+                    params
+                        .get("capabilities")
+                        .and_then(|value| value.get("textDocument"))
+                        .and_then(|value| value.get("signatureHelp"))
+                        .and_then(|value| value.get("signatureInformation"))
+                        .and_then(|value| value.get("noActiveParameterSupport")),
+                    Some(Json::Bool(true))
+                );
+                let capabilities = params
+                    .get("capabilities")
+                    .and_then(|value| value.get("textDocument"));
+                server.hover_markup = preferred_markup(
+                    capabilities
+                        .and_then(|value| value.get("hover"))
+                        .and_then(|value| value.get("contentFormat")),
+                );
+                server.signature_markup = preferred_markup(
+                    capabilities
+                        .and_then(|value| value.get("signatureHelp"))
+                        .and_then(|value| value.get("signatureInformation"))
+                        .and_then(|value| value.get("documentationFormat")),
+                );
                 result(
                     &mut output,
                     id,
-                    r#"{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1,"save":{"includeText":true}},"documentFormattingProvider":true,"documentSymbolProvider":true,"definitionProvider":true},"serverInfo":{"name":"lim","version":"0.1.0"}}"#,
+                    r#"{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1,"save":{"includeText":true}},"documentFormattingProvider":true,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":[" ","(","{",":"],"retriggerCharacters":[" ",";",")","}"]}},"serverInfo":{"name":"lim","version":"0.1.0"}}"#,
                 )?;
             } else if !server.initialized {
                 error(&mut output, id, -32002, "Server not initialized")?;
@@ -164,11 +194,101 @@ struct Server<'a> {
     ready: bool,
     shutdown: bool,
     context_watch: bool,
+    signature_no_active_parameter: bool,
+    hover_markup: &'static str,
+    signature_markup: &'static str,
     root: Option<PathBuf>,
 }
 fn text_document(params: &Json) -> Option<&str> {
     params.get("textDocument")?.get("uri")?.string()
 }
+
+fn code_markdown(text: &str) -> String {
+    let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(3.max(longest + 1));
+    format!("{fence}lim\n{text}\n{fence}")
+}
+
+fn preferred_markup(formats: Option<&Json>) -> &'static str {
+    formats
+        .and_then(Json::array)
+        .into_iter()
+        .flatten()
+        .find_map(|format| match format.string() {
+            Some("markdown") => Some("markdown"),
+            Some("plaintext") => Some("plaintext"),
+            _ => None,
+        })
+        .unwrap_or("plaintext")
+}
+
+fn markup_content(kind: &str, text: &str) -> String {
+    let value = if kind == "markdown" {
+        code_markdown(text)
+    } else {
+        text.to_owned()
+    };
+    format!("{{\"kind\":{},\"value\":{}}}", quoted(kind), quoted(&value))
+}
+
+/// Keep compilation contexts separate while presenting every distinct result.
+/// A broken entry cannot hide useful information from another valid entry.
+fn merge_information(method: &str, mut results: BTreeSet<String>) -> String {
+    if results.len() <= 1 {
+        return results.pop_first().unwrap_or_else(|| "null".into());
+    }
+    let values = results
+        .iter()
+        .filter_map(|result| json::parse(result).ok())
+        .collect::<Vec<_>>();
+    if method == "textDocument/hover" {
+        let kind = values
+            .first()
+            .and_then(|value| value.get("contents")?.get("kind")?.string())
+            .unwrap_or("plaintext");
+        let contents = values
+            .iter()
+            .filter_map(|value| value.get("contents")?.get("value")?.string())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(if kind == "markdown" {
+                "\n\n---\n\n"
+            } else {
+                "\n\n"
+            });
+        let range = values
+            .first()
+            .and_then(|value| value.get("range"))
+            .map(|range| format!(",\"range\":{}", range.render()))
+            .unwrap_or_default();
+        format!(
+            "{{\"contents\":{{\"kind\":{},\"value\":{}}}{range}}}",
+            quoted(kind),
+            quoted(&contents)
+        )
+    } else {
+        let signatures = values
+            .iter()
+            .filter_map(|value| value.get("signatures").and_then(Json::array))
+            .flatten()
+            .map(Json::render)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let active = signatures
+            .first()
+            .and_then(|signature| json::parse(signature).ok())
+            .and_then(|signature| signature.get("activeParameter").map(Json::render))
+            .map(|active| format!(",\"activeParameter\":{active}"))
+            .unwrap_or_default();
+        format!(
+            "{{\"signatures\":[{}],\"activeSignature\":0{active}}}",
+            signatures.join(",")
+        )
+    }
+}
+
 impl Server<'_> {
     fn context_file(&self, doc: &Document) -> Option<PathBuf> {
         crate::lsp_context::discover(&doc.path).or_else(|| {
@@ -400,7 +520,10 @@ impl Server<'_> {
     }
 
     fn request(&self, method: &str, params: &Json) -> Result<String, (i32, &'static str)> {
-        if method != "textDocument/definition" {
+        if !matches!(
+            method,
+            "textDocument/definition" | "textDocument/hover" | "textDocument/signatureHelp"
+        ) {
             return self.request_single(method, params);
         }
         let uri = text_document(params)
@@ -440,6 +563,30 @@ impl Server<'_> {
             .values()
             .map(|document| (document.path.clone(), document.text.clone()))
             .collect();
+        if method != "textDocument/definition" {
+            let mut results = BTreeSet::new();
+            for context in contexts {
+                crate::lsp_context::with_selected(
+                    &context,
+                    || -> Result<(), (i32, &'static str)> {
+                        if crate::editor::context_includes_file(
+                            &doc.text,
+                            &doc.path,
+                            self.config,
+                            &overlays,
+                            Some(&manifest),
+                        ) {
+                            let value = self.request_single(method, params)?;
+                            if value != "null" {
+                                results.insert(value);
+                            }
+                        }
+                        Ok(())
+                    },
+                )?;
+            }
+            return Ok(merge_information(method, results));
+        }
         let mut locations = BTreeSet::new();
         let mut array_result = false;
         for context in contexts {
@@ -477,7 +624,11 @@ impl Server<'_> {
     fn request_single(&self, method: &str, params: &Json) -> Result<String, (i32, &'static str)> {
         if !matches!(
             method,
-            "textDocument/formatting" | "textDocument/documentSymbol" | "textDocument/definition"
+            "textDocument/formatting"
+                | "textDocument/documentSymbol"
+                | "textDocument/definition"
+                | "textDocument/hover"
+                | "textDocument/signatureHelp"
         ) {
             return Err((-32601, "Method not found"));
         }
@@ -536,6 +687,11 @@ impl Server<'_> {
             .ok_or((-32602, "Invalid params"))?;
         let byte = position_byte(&doc.text, line as usize, character as usize)
             .ok_or((-32602, "Invalid position"))?;
+        if matches!(method, "textDocument/hover" | "textDocument/signatureHelp") {
+            return Ok(self
+                .document_information(doc, byte, method)
+                .unwrap_or_else(|| "null".into()));
+        }
         if let Some((span, name)) = crate::parse(&doc.text)
             .ok()
             .and_then(|tree| generator_reference(&tree, byte))
@@ -671,6 +827,114 @@ impl Server<'_> {
                 )
             })
             .unwrap_or_else(|| "null".into()))
+    }
+
+    fn document_information(&self, doc: &Document, byte: usize, method: &str) -> Option<String> {
+        let call = if method == "textDocument/signatureHelp" {
+            Some(signature::call(&doc.text, byte)?)
+        } else {
+            None
+        };
+        let recovered;
+        let source = if let Some(call) = &call {
+            call.source.as_str()
+        } else {
+            recovered = signature::recover(&doc.text)?;
+            recovered.as_str()
+        };
+        let query_byte = call.as_ref().map_or(byte, |call| call.callee.start);
+        let overlays = self
+            .documents
+            .values()
+            .map(|document| (document.path.clone(), document.text.clone()))
+            .collect();
+        let context = crate::editor::information_context(
+            source,
+            &doc.path,
+            self.config,
+            &overlays,
+            self.context_file(doc).as_deref(),
+            query_byte,
+        )
+        .ok()?;
+        let files = context
+            .program
+            .as_ref()
+            .map_or(context.files.as_slice(), |program| {
+                program.source_files.as_slice()
+            });
+        let mut queries = files
+            .iter()
+            .enumerate()
+            .filter(|(_, file)| path_key(&file.path) == doc.path)
+            .map(|(file, _)| (file as u32, query_byte, 0))
+            .collect::<Vec<_>>();
+        if queries.is_empty() {
+            if let Some(program) = &context.program {
+                queries.extend((0..program.source_files.len()).filter_map(|id| {
+                    let (source, prefix) = generated_snapshot(program, id as u32)?;
+                    (source == doc.text)
+                        .then(|| {
+                            query_byte
+                                .checked_sub(prefix)
+                                .map(|byte| (id as u32, byte, prefix))
+                        })
+                        .flatten()
+                }));
+            }
+        }
+        let mut results = BTreeSet::new();
+        for (file, query_byte, prefix) in queries {
+            if let Some(call) = &call {
+                let Some(signature) = information::signature(&context, file, query_byte) else {
+                    continue;
+                };
+                let active = call.argument.as_ref().and_then(|name| {
+                    signature
+                        .parameters
+                        .iter()
+                        .position(|(parameter, _)| parameter == name)
+                });
+                let active = active
+                    .map(|index| format!(",\"activeParameter\":{index}"))
+                    .unwrap_or_else(|| {
+                        if self.signature_no_active_parameter {
+                            ",\"activeParameter\":null".into()
+                        } else {
+                            String::new()
+                        }
+                    });
+                let documentation = if signature.contracts.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ",\"documentation\":{}",
+                        markup_content(self.signature_markup, &signature.contracts.join("\n"))
+                    )
+                };
+                let parameters = signature
+                    .parameters
+                    .iter()
+                    .map(|(_, label)| format!("{{\"label\":{}}}", quoted(label)))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                results.insert(format!(
+                    "{{\"signatures\":[{{\"label\":{},\"parameters\":[{parameters}]{documentation}{active}}}],\"activeSignature\":0{active}}}",
+                    quoted(&signature.label)
+                ));
+            } else if let Some((span, text)) = information::hover(&context, file, query_byte) {
+                // Recovery only appends syntax; hover ranges always belong to the
+                // original open document, never to synthetic completions.
+                if prefix + span.end <= doc.text.len() {
+                    results.insert(format!(
+                        "{{\"contents\":{},\"range\":{}}}",
+                        markup_content(self.hover_markup, &text),
+                        byte_range(&doc.text, prefix + span.start, prefix + span.end)
+                    ));
+                }
+            }
+        }
+        (!results.is_empty()).then(|| merge_information(method, results))
     }
 
     fn resolved_definition(&self, doc: &Document, byte: usize, name: &str) -> Option<String> {

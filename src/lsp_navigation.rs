@@ -55,6 +55,8 @@ pub(crate) struct Index<'a> {
     byte: usize,
     explicit_locals: RefCell<HashSet<Span>>,
     checked_types: OnceCell<HashMap<Span, Vec<Type>>>,
+    binding_types: RefCell<HashMap<Span, Type>>,
+    intrinsic_information: RefCell<Option<(Span, String, Option<String>)>>,
 }
 
 impl<'a> Index<'a> {
@@ -68,6 +70,8 @@ impl<'a> Index<'a> {
             byte,
             explicit_locals: RefCell::new(HashSet::new()),
             checked_types: OnceCell::new(),
+            binding_types: RefCell::new(HashMap::new()),
+            intrinsic_information: RefCell::new(None),
         };
         if let Some(program) = program {
             for (name, nodes) in &program.declaration_occurrences {
@@ -243,7 +247,36 @@ impl<'a> Index<'a> {
             _ => self.field_types(owner).get(index).cloned(),
         }
     }
-    fn parameter(&self, callee: &str, label: &str) -> Vec<Span> {
+    fn callee(&self, node: &Node) -> Vec<Span> {
+        let Some(name) = symbol(node) else {
+            return vec![];
+        };
+        if crate::intrinsics::declaration(name)
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            *self.intrinsic_information.borrow_mut() = Some((node.span, name.to_owned(), None));
+        }
+        self.global(name)
+    }
+    fn parameter(&self, callee: &str, node: &Node) -> Vec<Span> {
+        let Some(label) = symbol(node) else {
+            return vec![];
+        };
+        if crate::intrinsics::declaration(callee)
+            .ok()
+            .flatten()
+            .is_some_and(|declaration| {
+                declaration
+                    .parameters
+                    .iter()
+                    .any(|parameter| parameter.name == label)
+            })
+        {
+            *self.intrinsic_information.borrow_mut() =
+                Some((node.span, callee.to_owned(), Some(label.to_owned())));
+        }
         let Some(declaration) = self.declaration(callee) else {
             return vec![];
         };
@@ -431,6 +464,11 @@ impl<'a> Index<'a> {
                 } else {
                     vec![]
                 };
+            }
+            if let Some(kind) = &value_type {
+                self.binding_types
+                    .borrow_mut()
+                    .insert(pattern.span, kind.clone());
             }
             scope
                 .entry(name.to_owned())
@@ -673,18 +711,13 @@ impl<'a> Index<'a> {
         if let Some((callee, arguments)) = named_call(node) {
             let name = symbol(callee).unwrap();
             if self.contains(callee) {
-                return self.global(name);
+                return self.callee(callee);
             }
             for pair in arguments.children.iter().filter(|pair| self.contains(pair)) {
                 if let Some(value) = pair.children.get(1).filter(|value| self.contains(value)) {
                     return self.walk(value, scope, labels);
                 }
-                if let Some(label) = pair
-                    .children
-                    .first()
-                    .filter(|key| self.contains(key))
-                    .and_then(symbol)
-                {
+                if let Some(label) = pair.children.first().filter(|key| self.contains(key)) {
                     return self.parameter(name, label);
                 }
             }
@@ -944,7 +977,7 @@ impl<'a> Index<'a> {
                     return vec![];
                 };
                 if self.contains(&xs[1]) {
-                    return self.global(callee);
+                    return self.callee(&xs[1]);
                 }
                 if let Some(arguments) = xs.get(2) {
                     for pair in arguments.children.iter().filter(|pair| self.contains(pair)) {
@@ -953,11 +986,7 @@ impl<'a> Index<'a> {
                         {
                             return self.walk(value, scope, labels);
                         }
-                        if let Some(label) = pair
-                            .children
-                            .first()
-                            .filter(|key| self.contains(key))
-                            .and_then(symbol)
+                        if let Some(label) = pair.children.first().filter(|key| self.contains(key))
                         {
                             return self.parameter(callee, label);
                         }
@@ -1181,9 +1210,31 @@ impl<'a> Index<'a> {
         {
             return self.type_reference(kind);
         }
-        // A constructor head is an enum variant, not an implicit function call.
-        if xs.first().is_some_and(|node| self.contains(node)) {
-            return self.variant_target(symbol(&xs[0]).unwrap_or(""));
+        if let Some(callee) = xs.first().filter(|node| self.contains(node)) {
+            let name = symbol(callee).unwrap_or("");
+            if crate::intrinsics::declaration(name)
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                // Positional scalar calls use the same compiler signature as
+                // named calls. Lowered infix operators have different authored
+                // text and must keep their punctuation role.
+                let authored = self.program.and_then(|program| {
+                    program
+                        .source_files
+                        .get(callee.span.source_id as usize)?
+                        .source
+                        .get(callee.span.start..callee.span.end)
+                });
+                if authored.is_none_or(|authored| authored == name) {
+                    *self.intrinsic_information.borrow_mut() =
+                        Some((callee.span, name.to_owned(), None));
+                }
+                return vec![];
+            }
+            // A constructor head is an enum variant, not an implicit function call.
+            return self.variant_target(name);
         }
         let start = usize::from(xs.first().and_then(symbol).is_some());
         for child in xs.iter().skip(start).filter(|node| self.contains(node)) {
@@ -1451,6 +1502,24 @@ impl<'a> Index<'a> {
         result.sort_by_key(|span| (span.source_id, span.start, span.end));
         result.dedup();
         result
+    }
+
+    /// Builtin callable metadata is distinct from user-source declaration targets.
+    pub fn intrinsic_information(
+        &self,
+    ) -> Option<(Span, crate::intrinsics::Declaration, Option<String>)> {
+        let information = self.intrinsic_information.borrow();
+        let (span, name, parameter) = information.as_ref()?;
+        Some((
+            *span,
+            crate::intrinsics::declaration(name).ok()??,
+            parameter.clone(),
+        ))
+    }
+
+    /// Type supplied by the same lexical traversal that resolved the binding.
+    pub fn binding_type(&self, span: Span) -> Option<Type> {
+        self.binding_types.borrow().get(&span).cloned()
     }
 
     /// Explicit lexical binders need no generation or whole-program analysis.

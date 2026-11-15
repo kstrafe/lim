@@ -155,7 +155,31 @@ impl Client {
         };
         let capabilities = client.request(
             "initialize",
-            object([("rootUri", string(uri(root))), ("capabilities", object([]))]),
+            object([
+                ("rootUri", string(uri(root))),
+                (
+                    "capabilities",
+                    object([(
+                        "textDocument",
+                        object([
+                            (
+                                "hover",
+                                object([("contentFormat", Json::Array(vec![string("markdown")]))]),
+                            ),
+                            (
+                                "signatureHelp",
+                                object([(
+                                    "signatureInformation",
+                                    object([(
+                                        "documentationFormat",
+                                        Json::Array(vec![string("markdown")]),
+                                    )]),
+                                )]),
+                            ),
+                        ]),
+                    )]),
+                ),
+            ]),
         );
         let capabilities = capabilities.get("capabilities").unwrap();
         assert_eq!(
@@ -164,11 +188,17 @@ impl Client {
         );
         for key in [
             "definitionProvider",
+            "hoverProvider",
             "documentSymbolProvider",
             "documentFormattingProvider",
         ] {
             assert_eq!(capabilities.get(key), Some(&Json::Bool(true)));
         }
+        assert!(capabilities
+            .get("signatureHelpProvider")
+            .and_then(|provider| provider.get("triggerCharacters"))
+            .and_then(Json::array)
+            .is_some_and(|triggers| !triggers.is_empty()));
         client.notify("initialized", object([]));
         client
     }
@@ -264,6 +294,35 @@ impl Client {
                 ("position", position(text, text.find(needle).unwrap())),
             ]),
         )
+    }
+    fn at(&mut self, method: &str, path: &Path, text: &str, byte: usize) -> Json {
+        self.request(
+            method,
+            object([
+                ("textDocument", object([("uri", string(uri(path)))])),
+                ("position", position(text, byte)),
+            ]),
+        )
+    }
+    fn hover(&mut self, path: &Path, text: &str, needle: &str, name: &str) -> String {
+        self.hover_at(path, text, text.find(needle).unwrap(), name)
+    }
+    fn hover_at(&mut self, path: &Path, text: &str, byte: usize, name: &str) -> String {
+        let result = self.at("textDocument/hover", path, text, byte);
+        assert_eq!(
+            result.get("range"),
+            Some(&source_range(text, byte, byte + name.len())),
+            "{name}: {result:?}"
+        );
+        let contents = result.get("contents").unwrap();
+        assert_eq!(contents.get("kind"), Some(&string("markdown")));
+        let value = contents.get("value").and_then(Json::string).unwrap();
+        assert!(value.starts_with("```lim\n"), "{value}");
+        assert!(value.ends_with("```"), "{value}");
+        value.to_owned()
+    }
+    fn signature(&mut self, path: &Path, text: &str, byte: usize) -> Json {
+        self.at("textDocument/signatureHelp", path, text, byte)
     }
     fn diagnostics(&self, path: &Path) -> &Json {
         self.messages
@@ -1470,6 +1529,753 @@ fn formatting_symbols_utf16_invalid_requests_and_parse_error_recovery_over_stdio
         2
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    assert!(!fixture.0.join(".lim").exists());
+    client.shutdown();
+}
+
+fn assert_signature(result: &Json, callee: &str, parameters: &[&str], active: Option<usize>) {
+    let signatures = result
+        .get("signatures")
+        .and_then(Json::array)
+        .unwrap_or_else(|| panic!("missing signature for {callee}: {result:?}"));
+    assert_eq!(signatures.len(), 1, "{result:?}");
+    assert_eq!(result.get("activeSignature"), Some(&number(0)));
+    let signature = &signatures[0];
+    let label = signature.get("label").and_then(Json::string).unwrap();
+    assert!(label.contains(callee), "{result:?}");
+    let displayed = signature.get("parameters").and_then(Json::array).unwrap();
+    assert_eq!(displayed.len(), parameters.len(), "{result:?}");
+    for (parameter, expected) in displayed.iter().zip(parameters) {
+        let parameter = parameter.get("label").and_then(Json::string).unwrap();
+        assert!(parameter.contains(expected), "{expected}: {result:?}");
+        assert!(label.contains(parameter), "{result:?}");
+    }
+    if let Some(active) = active {
+        assert_eq!(
+            result.get("activeParameter"),
+            Some(&number(active)),
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn hover_reports_explicit_lexical_member_and_contract_information_over_stdio() {
+    let fixture = Fixture::new("hover-information");
+    let source = "(#struct Left () ((value #u8)))
+      (#struct Right () ((value #u64)))
+      (#fn valid ((subject #u64)) #bool (#return true))
+      (#fn inspect ((input #u64) (row (#ref Right))) #u64
+        (#requires (#call valid ((subject input))))
+        (#ensures (#call valid ((subject (#result)))))
+        (#preserves (#call valid ((subject input))))
+        (#let answer #u64 (#get row value))
+        (#return answer))
+      (#fn show ((input #u64) (row (#ref Right))) #u64
+        (#return (#call inspect ((row row) (input input)))))
+      (#fn other ((input #u8)) #u8 (#return input))";
+    let path = fixture.write("main.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    for (needle, name, ty) in [
+        ("input))))", "input", "#u64"),
+        ("row value", "row", "(#ref Right)"),
+        ("value))", "value", "#u64"),
+        ("answer))", "answer", "#u64"),
+    ] {
+        let hover = client.hover(&path, source, needle, name);
+        assert!(hover.contains(name), "{hover}");
+        assert!(hover.contains(ty), "{hover}");
+    }
+    assert!(client
+        .hover_at(&path, source, source.rfind("input").unwrap(), "input")
+        .contains("#u8"));
+    let function = client.hover(&path, source, "inspect", "inspect");
+    for part in [
+        "input",
+        "#u64",
+        "row",
+        "(#ref Right)",
+        "#requires",
+        "#ensures",
+        "#preserves",
+        "valid",
+        "#result",
+    ] {
+        assert!(function.contains(part), "missing {part}: {function}");
+    }
+    let signature = client.signature(&path, source, source.find("subject input").unwrap() + 8);
+    assert_signature(&signature, "valid", &["subject"], Some(0));
+    let signature = client.signature(&path, source, source.find("row row").unwrap() + 4);
+    assert_signature(&signature, "inspect", &["input", "row"], Some(1));
+    let docs = signature.get("signatures").unwrap().array().unwrap()[0]
+        .get("documentation")
+        .unwrap()
+        .get("value")
+        .unwrap()
+        .string()
+        .unwrap();
+    for contract in ["#requires", "#ensures", "#preserves", "valid", "#result"] {
+        assert!(docs.contains(contract), "{docs}");
+    }
+    for needle in ["#requires", "#result", "#return answer", "true", "#u8"] {
+        assert_eq!(
+            client.at(
+                "textDocument/hover",
+                &path,
+                source,
+                source.find(needle).unwrap()
+            ),
+            Json::Null,
+            "{needle}"
+        );
+    }
+    // The local declaration remains available through an unrelated semantic error.
+    let broken = format!("{source}\n(#fn broken () #u64 (#return false))");
+    client.change(&path, 2, &broken);
+    assert!(client
+        .hover(&path, &broken, "answer))", "answer")
+        .contains("#u64"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+    assert!(!fixture.0.join(".lim").exists());
+    client.shutdown();
+}
+
+#[test]
+fn signature_help_uses_named_parameter_order_for_all_call_spellings_over_stdio() {
+    let fixture = Fixture::new("signature-spellings");
+    let declarations = "(#fn choose ((first #u64) (second #u64)) #u64 (#return first))\n";
+    let path = fixture.write("main.lim", declarations);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, declarations);
+    let bodies = [
+        "(#fn main () #u64 (#return (#call choose ((second 2u64) (first 1u64)))))",
+        "(#fn main () #u64 (#return (choose ((second 2u64) (first 1u64)))))",
+        "(#fn main () #u64 (#return (choose { second = 2u64; first = 1u64; })))",
+        "(#fn main () #u64 (#return choose { second = 2u64; first = 1u64; }))",
+        "(#fn main () #u64 (#return (#call choose { second = 2u64; first = 1u64; })))",
+        "(#fn main () #u64 (#return : choose : (second 2u64) (first 1u64)))",
+        "#fn main {\n  #params = {}; #returns = #u64;\n  #body:\n    #return choose {\n      second = 2u64;\n      first = 1u64;\n    };\n}\n",
+        "#fn main {\n  #params = {}; #returns = #u64;\n  #body:\n    #return choose {\n      second:\n        #block 2u64\n      first = 1u64;\n    };\n}\n",
+    ];
+    for (version, body) in bodies.iter().enumerate() {
+        let source = format!("{declarations}{body}");
+        let program = lim::parse_program(&source)
+            .unwrap_or_else(|error| panic!("cannot parse call fixture {body}: {error}"));
+        lim::check_types(&program)
+            .unwrap_or_else(|error| panic!("invalid call fixture {body}: {error}"));
+        client.change(&path, version + 2, &source);
+        // The cursor is exactly after the operand, including for indented values.
+        let signature =
+            client.signature(&path, &source, source.find("2u64").unwrap() + "2u64".len());
+        assert_signature(&signature, "choose", &["first", "second"], Some(1));
+        assert!(signature.get("signatures").unwrap().array().unwrap()[0]
+            .get("label")
+            .unwrap()
+            .string()
+            .unwrap()
+            .contains("#u64"));
+        client.clear(&path);
+    }
+    let puns = format!("{declarations}(#fn main () #u64 (#let first #u64 1u64) (#let second #u64 2u64) (#return (#call choose (($ second) ($ first)))))");
+    lim::check_types(&lim::parse_program(&puns).unwrap()).unwrap();
+    client.change(&path, 20, &puns);
+    let signature = client.signature(&path, &puns, puns.find("$ second").unwrap() + 3);
+    assert_signature(&signature, "choose", &["first", "second"], Some(1));
+    let unsafe_source = "(#extern-fn #abi-c foreign ((first #u64) (second #u64)) #u64)\n(#fn main () #u64 (#return (#unsafe (#unsafe-call foreign ((second 2u64) (first 1u64))))))";
+    lim::check_types(&lim::parse_program(unsafe_source).unwrap()).unwrap();
+    client.change(&path, 21, unsafe_source);
+    let signature = client.signature(
+        &path,
+        unsafe_source,
+        unsafe_source.find("2u64").unwrap() + 2,
+    );
+    assert_signature(&signature, "foreign", &["first", "second"], Some(1));
+    let nested = format!("{declarations}(#fn inner ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (#call choose ((second (#call inner ((value 2u64)))) (first 1u64)))))");
+    client.change(&path, 22, &nested);
+    let signature = client.signature(&path, &nested, nested.find("2u64").unwrap() + 2);
+    assert_signature(&signature, "inner", &["value"], Some(0));
+    let signature = client.signature(&path, &nested, nested.find("first 1u64").unwrap() + 7);
+    assert_signature(&signature, "choose", &["first", "second"], Some(0));
+    assert_eq!(client.signature(&path, &nested, nested.len()), Json::Null);
+    client.clear(&path);
+    // Display-only metadata remains available in an erroneous buffer. The
+    // compiler's restriction on bare keyword heads must remain a diagnostic.
+    let bare_keyword = "(#fn type ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (type ((value 42u64)))))";
+    assert!(lim::parse_program(bare_keyword).is_err());
+    client.change(&path, 23, bare_keyword);
+    assert_signature(
+        &client.signature(&path, bare_keyword, bare_keyword.find("42u64").unwrap()),
+        "type",
+        &["value"],
+        Some(0),
+    );
+    assert!(client
+        .hover(&path, bare_keyword, "type ((value 42", "type")
+        .contains("#u64"));
+    assert!(client
+        .diagnostics(&path)
+        .render()
+        .contains("must use its '#' prefix"));
+    client.shutdown();
+}
+
+#[test]
+fn signature_help_recovers_unclosed_calls_without_writing_buffers_over_stdio() {
+    let fixture = Fixture::new("signature-incomplete");
+    let declarations = "(#fn choose ((first #u64) (second #u64)) #u64 (#return first))\n";
+    let path = fixture.write("main.lim", declarations);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, declarations);
+    for (version, suffix) in [
+        "(#fn main () #u64 (#return (#call choose ",
+        "(#fn main () #u64 (#return (#call choose ((second ",
+        "(#fn main () #u64 (#return (#call choose ((second 2u64) (first ",
+        "(#fn main () #u64 (#return (choose { second = ",
+        "(#fn main () #u64 (#return : choose : : second ",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let source = format!("{declarations}{suffix}");
+        assert!(lim::parse(&source).is_err());
+        client.change(&path, version + 2, &source);
+        let signature = client.signature(&path, &source, source.len());
+        let active = if suffix.contains("(first ") {
+            Some(0)
+        } else if suffix.contains("second") {
+            Some(1)
+        } else {
+            None
+        };
+        assert_signature(&signature, "choose", &["first", "second"], active);
+        assert_eq!(fs::read_to_string(&path).unwrap(), declarations);
+    }
+    let restored = format!(
+        "{declarations}(#fn main () #u64 (#return (#call choose ((second 2u64) (first 1u64)))))"
+    );
+    client.change(&path, 10, &restored);
+    assert_signature(
+        &client.signature(&path, &restored, restored.find("2u64").unwrap()),
+        "choose",
+        &["first", "second"],
+        Some(1),
+    );
+    client.clear(&path);
+    assert!(!fixture.0.join(".lim").exists());
+    client.shutdown();
+}
+
+#[test]
+fn hover_and_signature_follow_aliases_unsaved_dependencies_and_generated_metadata_over_stdio() {
+    let fixture = Fixture::new("information-metadata");
+    let disk = "(#fn original ((amount #u8) (other #u16)) #u32 (#return 0u32))";
+    let dependency = fixture.write("dependency.lim", disk);
+    fixture.write(
+        "facade.lim",
+        "(#alias forwarded = ./dependency.lim::original)",
+    );
+    let source = "(#alias renamed = ./facade.lim::forwarded)\n(#fn main () #u32 (#return (#call renamed ((other 2u64) (amount 1u64)))))";
+    let path = fixture.write("main.lim", source);
+    fixture.context(&path, "first");
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    let unsaved = "// unsaved API\n(#fn original ((amount #u64) (other #u64)) #u32 (#return 0u32))";
+    client.open(&dependency, unsaved);
+    let hover = client.hover(&path, source, "renamed ((", "renamed");
+    for part in ["amount", "other", "#u64", "#u32"] {
+        assert!(hover.contains(part), "{hover}");
+    }
+    assert!(!hover.contains("#u8"), "{hover}");
+    let signature = client.signature(&path, source, source.find("2u64").unwrap());
+    assert_signature(&signature, "original", &["amount", "other"], Some(1));
+    assert!(signature.get("signatures").unwrap().array().unwrap()[0]
+        .get("label")
+        .unwrap()
+        .string()
+        .unwrap()
+        .contains("#u32"));
+    assert!(client
+        .hover(&path, source, "other 2u64", "other")
+        .contains("#u64"));
+    client.clear(&path);
+    assert_eq!(fs::read_to_string(&dependency).unwrap(), disk);
+    assert!(!fixture.0.join(".lim").exists());
+    client.close(&dependency);
+    let generated = "(#gn emit () `((#fn produced ((value #u64)) #u64 (#return value))))\n(#generate emit)\n(#fn main () #u64 (#return (#call produced ((value 42u64)))))";
+    client.change(&path, 2, generated);
+    assert!(client
+        .hover(&path, generated, "produced ((value 42", "produced")
+        .contains("#u64"));
+    assert!(client
+        .hover(&path, generated, "value 42u64", "value")
+        .contains("#u64"));
+    assert_signature(
+        &client.signature(&path, generated, generated.find("42u64").unwrap()),
+        "produced",
+        &["value"],
+        Some(0),
+    );
+    client.clear(&path);
+    let prefix = &generated[..generated.find("(#fn main").unwrap()];
+    for (version, suffix) in [
+        "(#fn main () #u64 (#return (#call produced ",
+        "(#fn main () #u64 (#return (produced { value = ",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let incomplete = format!("{prefix}{suffix}");
+        client.change(&path, version + 3, &incomplete);
+        assert_signature(
+            &client.signature(&path, &incomplete, incomplete.len()),
+            "produced",
+            &["value"],
+            suffix.contains("value").then_some(0),
+        );
+    }
+    fixture.write("emitted.lim", prefix);
+    let incomplete_alias =
+        "(#alias renamed = ./emitted.lim::produced)\n(#fn main () #u64 (#return (#call renamed ";
+    client.change(&path, 5, incomplete_alias);
+    assert_signature(
+        &client.signature(&path, incomplete_alias, incomplete_alias.len()),
+        "produced",
+        &["value"],
+        None,
+    );
+    assert!(
+        !fixture.0.join(".lim").exists(),
+        "information requests must not publish generated snapshots"
+    );
+    client.shutdown();
+}
+
+#[test]
+fn information_requests_preserve_utf16_ranges_and_reject_invalid_positions_over_stdio() {
+    let fixture = Fixture::new("information-utf16");
+    let source = "(#fn glyph () #char (#return #\\😀)) (#fn combine ((left😀 #u64) (right #u64)) #u64 (#return left😀))\r\n(#fn main () #u64 (#return (#call combine ((right 2u64) (left😀 1u64)))))";
+    let path = fixture.write("editor 😀.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    assert!(client
+        .hover(&path, source, "left😀))", "left😀")
+        .contains("#u64"));
+    assert!(client
+        .hover(&path, source, "left😀 1u64", "left😀")
+        .contains("#u64"));
+    assert_signature(
+        &client.signature(&path, source, source.find("1u64").unwrap() + 1),
+        "combine",
+        &["left😀", "right"],
+        Some(0),
+    );
+    let emoji = position(source, source.find('😀').unwrap());
+    for method in ["textDocument/hover", "textDocument/signatureHelp"] {
+        for invalid in [
+            object([("line", number(99)), ("character", number(0))]),
+            object([("line", number(0)), ("character", number(999))]),
+            object([
+                ("line", number(0)),
+                (
+                    "character",
+                    number(emoji.get("character").unwrap().integer().unwrap() as usize + 1),
+                ),
+            ]),
+            object([
+                ("line", Json::Number("-1".into())),
+                ("character", number(0)),
+            ]),
+        ] {
+            client.error(
+                method,
+                object([
+                    ("textDocument", object([("uri", string(uri(&path)))])),
+                    ("position", invalid),
+                ]),
+                -32602,
+            );
+        }
+    }
+    client.clear(&path);
+    client.shutdown();
+}
+
+#[test]
+fn information_requests_ignore_comments_strings_and_generator_data_over_stdio() {
+    let fixture = Fixture::new("information-inert-data");
+    let source = "(#fn choose ((value #u64)) #u64 (#return value))\n(#gn data () '(#call choose ((value 7u64))))\n(#generate unknown ((payload (#call choose ((value 8u64))))))\n(#fn main () #u64\n  // (#call choose ((value 9u64)))\n  (#println \"(#call choose ((value 10u64)))\")\n  (#return (#call choose ((value 42u64)))))";
+    let path = fixture.write("main.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    for marker in ["7u64", "8u64", "9u64", "10u64"] {
+        let byte = source.find(marker).unwrap();
+        assert_eq!(
+            client.signature(&path, source, byte),
+            Json::Null,
+            "{marker}"
+        );
+        let callee = source[..byte].rfind("choose").unwrap();
+        assert_eq!(
+            client.at("textDocument/hover", &path, source, callee),
+            Json::Null,
+            "{marker}"
+        );
+    }
+    client.shutdown();
+}
+
+#[test]
+fn information_requests_keep_context_alternatives_and_cfg_exclusions_over_stdio() {
+    let fixture = Fixture::new("information-contexts");
+    let source = "(#cfg-if (#cfg-is #flavor first)
+      (#type Number #u8)
+      (#cfg-else (#type Number #u64)))
+      (#cfg-if (#cfg-is #flavor first)
+        (#fn choose ((left #u8) (right #u8)) #u8 (#return left))
+        (#cfg-else (#fn choose ((left #u64) (right #u64)) #u64 (#return left))))
+      (#fn use ((left Number) (right Number)) Number
+        (#return (#call choose ((right right) (left left)))))";
+    let shared = fixture.write("shared.lim", source);
+    let first = fixture.write("first.lim", "(#alias use = ./shared.lim::use) (#fn main () #u8 (#return (#call use ((right 2u8) (left 1u8)))))");
+    let second = fixture.write("second.lim", "(#alias use = ./shared.lim::use) (#fn main () #u64 (#return (#call use ((right 2u64) (left 1u64)))))");
+    let broken = fixture.write("broken.lim", ")");
+    let contexts =
+        [(first, "first"), (second, "second"), (broken, "broken")].map(|(entry, flavor)| {
+            let mut config = CompileConfig::default();
+            config.set("flavor", flavor);
+            LspContext {
+                entry,
+                config,
+                target: TargetDescription::X86_64_SYSTEM_V,
+            }
+        });
+    let manifest = fixture.0.join("lim.lsp");
+    LspContext::write_all(&contexts, &manifest).unwrap();
+    let mut client = Client::start(&fixture.0);
+    client.open(&shared, source);
+    let hover = client.hover(&shared, source, "choose ((right right", "choose");
+    for ty in ["#u8", "#u64"] {
+        assert!(hover.contains(ty), "{hover}");
+    }
+    let result = client.signature(&shared, source, source.find("right right").unwrap() + 7);
+    let signatures = result.get("signatures").unwrap().array().unwrap();
+    assert_eq!(signatures.len(), 2, "{result:?}");
+    for ty in ["#u8", "#u64"] {
+        let signature = signatures
+            .iter()
+            .find(|signature| {
+                signature
+                    .get("label")
+                    .unwrap()
+                    .string()
+                    .unwrap()
+                    .contains(ty)
+            })
+            .unwrap();
+        assert_eq!(
+            signature.get("activeParameter"),
+            Some(&number(1)),
+            "{result:?}"
+        );
+    }
+    // Selecting only the second context hides declarations in the first branch.
+    LspContext::write_all(&contexts[1..2], &manifest).unwrap();
+    client.watch(&manifest);
+    assert_eq!(
+        client.at(
+            "textDocument/hover",
+            &shared,
+            source,
+            source.find("choose ((left #u8").unwrap()
+        ),
+        Json::Null
+    );
+    let hover = client.hover(&shared, source, "choose ((right right", "choose");
+    assert!(hover.contains("#u64"), "{hover}");
+    assert!(!hover.contains("#u8"), "{hover}");
+    assert_signature(
+        &client.signature(&shared, source, source.find("right right").unwrap() + 7),
+        "choose",
+        &["left", "right"],
+        Some(1),
+    );
+    client.shutdown();
+}
+
+#[test]
+fn intrinsic_information_uses_compiler_signatures_without_definition_targets_over_stdio() {
+    let fixture = Fixture::new("information-intrinsics");
+    let source = "(#fn main () #u64 (#return (#call #u64::add-wrap ((right 2u64) (left 1u64)))))";
+    lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
+    let path = fixture.write("main.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    let hover = client.hover(&path, source, "#u64::add-wrap", "#u64::add-wrap");
+    for part in ["#u64::add-wrap", "left", "right", "#u64"] {
+        assert!(hover.contains(part), "{hover}");
+    }
+    assert!(client
+        .hover(&path, source, "right 2u64", "right")
+        .contains("#u64"));
+    assert_signature(
+        &client.signature(&path, source, source.find("2u64").unwrap()),
+        "#u64::add-wrap",
+        &["left", "right"],
+        Some(1),
+    );
+    assert_eq!(
+        client.definition(&path, source, "#u64::add-wrap"),
+        Json::Null
+    );
+    assert_eq!(client.definition(&path, source, "right 2u64"), Json::Null);
+    client.clear(&path);
+    let positional = "(#fn main () #u64 (#return (#u64::add-wrap 1u64 2u64)))";
+    lim::check_types(&lim::parse_program(positional).unwrap()).unwrap();
+    client.change(&path, 2, positional);
+    let hover = client.hover(&path, positional, "#u64::add-wrap", "#u64::add-wrap");
+    for part in ["left", "right", "#u64"] {
+        assert!(hover.contains(part), "{hover}");
+    }
+    assert_signature(
+        &client.signature(&path, positional, positional.find("2u64").unwrap() + 2),
+        "#u64::add-wrap",
+        &["left", "right"],
+        Some(1),
+    );
+    assert_eq!(
+        client.definition(&path, positional, "#u64::add-wrap"),
+        Json::Null
+    );
+    let direct_outer = "(#fn inner ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (#u64::add-wrap 1u64 (#call inner ((value 2u64))))))";
+    lim::check_types(&lim::parse_program(direct_outer).unwrap()).unwrap();
+    client.change(&path, 3, direct_outer);
+    assert_signature(
+        &client.signature(&path, direct_outer, direct_outer.find("2u64").unwrap()),
+        "inner",
+        &["value"],
+        Some(0),
+    );
+    assert_signature(
+        &client.signature(&path, direct_outer, direct_outer.find("1u64").unwrap()),
+        "#u64::add-wrap",
+        &["left", "right"],
+        Some(0),
+    );
+    let direct_inner = "(#fn outer ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (#call outer ((value (#u64::add-wrap 1u64 2u64))))))";
+    lim::check_types(&lim::parse_program(direct_inner).unwrap()).unwrap();
+    client.change(&path, 4, direct_inner);
+    assert_signature(
+        &client.signature(&path, direct_inner, direct_inner.find("2u64").unwrap()),
+        "#u64::add-wrap",
+        &["left", "right"],
+        Some(1),
+    );
+    let infix = "(#fn outer ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (#call outer ((value [#u64 #wrap; 1u64 + 2u64])))))";
+    lim::check_types(&lim::parse_program(infix).unwrap()).unwrap();
+    client.change(&path, 5, infix);
+    // Lowered arithmetic has no authored callee: its enclosing call remains active.
+    for byte in [infix.find('+').unwrap(), infix.find("2u64").unwrap()] {
+        assert_signature(
+            &client.signature(&path, infix, byte),
+            "outer",
+            &["value"],
+            Some(0),
+        );
+    }
+    assert_eq!(
+        client.at("textDocument/hover", &path, infix, infix.find('+').unwrap()),
+        Json::Null
+    );
+    let standalone_infix = "(#fn main () #u64 (#return [#u64 #wrap; 1u64 + 2u64]))";
+    client.change(&path, 6, standalone_infix);
+    let operator = standalone_infix.find('+').unwrap();
+    assert_eq!(
+        client.signature(&path, standalone_infix, operator),
+        Json::Null
+    );
+    assert_eq!(
+        client.at("textDocument/hover", &path, standalone_infix, operator),
+        Json::Null
+    );
+    client.clear(&path);
+    client.shutdown();
+}
+
+#[test]
+fn hover_uses_tuple_and_match_payload_binding_types_over_stdio() {
+    let fixture = Fixture::new("hover-pattern-bindings");
+    let source = "(#enum Choice () ((Choice.Full #u16) Choice.Empty))
+      (#fn tuple () #u64
+        (#let (#tuple small large) (#tuple #u8 #u64)
+          (#tuple (#tuple #u8 #u64) 1u8 2u64))
+        (#forget small)
+        (#return large))
+      (#fn payload ((choice Choice)) #u16
+        (#return (#match choice
+          (#case (Choice.Full value) value)
+          (#case Choice.Empty 0u16))))";
+    lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
+    let path = fixture.write("main.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    for (needle, name, ty) in [
+        ("small large", "small", "#u8"),
+        ("large) (#tuple", "large", "#u64"),
+        ("small)", "small", "#u8"),
+        ("large))", "large", "#u64"),
+        ("value) value", "value", "#u16"),
+        ("value)\n", "value", "#u16"),
+    ] {
+        let hover = client.hover(&path, source, needle, name);
+        assert!(hover.contains(ty), "{hover}");
+    }
+    client.clear(&path);
+    // Invalid enum or-patterns still retain unambiguous source binding metadata.
+    let or_pattern = "(#enum Alternative () ((Alternative.First #u32) (Alternative.Second #u32)))
+      (#fn either ((item Alternative)) #u32
+        (#return (#match item
+          (#case (#or (Alternative.First shared) (Alternative.Second shared)) shared))))";
+    client.change(&path, 2, or_pattern);
+    let shared = client.hover_at(
+        &path,
+        or_pattern,
+        or_pattern.rfind("shared").unwrap(),
+        "shared",
+    );
+    assert!(shared.contains("#u32"), "{shared}");
+    assert!(client
+        .diagnostics(&path)
+        .render()
+        .contains("or-pattern alternatives cannot bind values"));
+    client.shutdown();
+}
+
+#[test]
+fn information_requests_reject_ambiguous_globals_and_out_of_scope_locals_over_stdio() {
+    let fixture = Fixture::new("information-ambiguity");
+    let source = "(#fn choose ((value #u8)) #u8 (#return value))
+      (#fn choose ((value #u64)) #u64 (#return value))
+      (#fn main () #u64
+        (#forget later)
+        (#let later #u64 1u64)
+        (#block (#let inside #u64 2u64) (#forget inside))
+        (#forget inside)
+        (#return (#call choose ((value later)))))";
+    let path = fixture.write("main.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    for byte in [
+        source.find("later)").unwrap(),
+        source.rfind("inside)").unwrap(),
+        source.find("choose ((value later").unwrap(),
+    ] {
+        assert_eq!(
+            client.at("textDocument/hover", &path, source, byte),
+            Json::Null
+        );
+    }
+    assert_eq!(
+        client.signature(&path, source, source.rfind("later").unwrap()),
+        Json::Null
+    );
+    assert!(client
+        .hover_at(&path, source, source.rfind("later").unwrap(), "later")
+        .contains("#u64"));
+    assert!(client
+        .hover(&path, source, "inside))", "inside")
+        .contains("#u64"));
+    client.shutdown();
+}
+
+#[test]
+fn record_function_contracts_and_refinement_named_calls_have_information_over_stdio() {
+    let fixture = Fixture::new("information-record-contracts");
+    let source = "#fn acceptable {
+  #params = { value = #u64; };
+  #returns = #bool;
+  #body: #return true;
+}
+#fn identity {
+  #params = { value = #u64; };
+  #returns = #u64;
+  #requires:
+    acceptable { value = value; };
+  #ensures:
+    acceptable { value = (#result); };
+  #body:
+    #return value;
+}
+(#type Small (#where (subject #u64) (acceptable { value = subject; })))
+#fn main {
+  #params = {}; #returns = #u64;
+  #body:
+    #let input #u64 42;
+    #assume acceptable { value = input; };
+    #return identity { value = input; };
+}
+";
+    lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
+    let path = fixture.write("main.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    let hover = client.hover(&path, source, "identity", "identity");
+    for part in [
+        "value",
+        "#u64",
+        "#requires",
+        "#ensures",
+        "acceptable",
+        "#result",
+    ] {
+        assert!(hover.contains(part), "{hover}");
+    }
+    let signature = client.signature(
+        &path,
+        source,
+        source.rfind("input;").unwrap() + "input".len(),
+    );
+    assert_signature(&signature, "identity", &["value"], Some(0));
+    let documentation = signature.get("signatures").unwrap().array().unwrap()[0]
+        .get("documentation")
+        .unwrap()
+        .get("value")
+        .unwrap()
+        .string()
+        .unwrap();
+    for contract in ["#requires", "#ensures", "acceptable", "#result"] {
+        assert!(documentation.contains(contract), "{documentation}");
+    }
+    let signature = client.signature(
+        &path,
+        source,
+        source.find("subject;").unwrap() + "subject".len(),
+    );
+    assert_signature(&signature, "acceptable", &["value"], Some(0));
+    assert!(client
+        .hover(&path, source, "subject;", "subject")
+        .contains("#u64"));
+    assert!(client
+        .hover(&path, source, "value = subject", "value")
+        .contains("#u64"));
+    let diagnostics = client
+        .diagnostics(&path)
+        .get("diagnostics")
+        .unwrap()
+        .array()
+        .unwrap();
+    assert!(diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.get("severity") == Some(&number(2))));
+    assert!(diagnostics.iter().any(
+        |diagnostic| diagnostic.get("code") == Some(&string("W8000"))
+            && diagnostic
+                .get("message")
+                .unwrap()
+                .string()
+                .unwrap()
+                .contains("Small")
+    ));
     assert!(!fixture.0.join(".lim").exists());
     client.shutdown();
 }

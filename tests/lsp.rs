@@ -1882,6 +1882,137 @@ fn unknown_methods_invalid_types_and_json_recover() {
 }
 
 #[test]
+fn information_requests_validate_documents_and_positions() {
+    let path = std::env::temp_dir().join("lim-lsp-information-params.lim");
+    let uri = lsp::path_to_uri(&path).unwrap();
+    let text = "// 😀\n(#fn main () #u64 (#return 0u64))";
+    let mut messages = start();
+    messages.push(open(&uri, 1, text));
+    let mut ids = Vec::new();
+    for method in ["textDocument/hover", "textDocument/signatureHelp"] {
+        for params in [
+            "{}".to_owned(),
+            format!(
+                "{{\"textDocument\":{{\"uri\":{}}}}}",
+                diagnostic_json::quoted(&uri)
+            ),
+            format!(
+                "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":-1,\"character\":0}}}}",
+                diagnostic_json::quoted(&uri)
+            ),
+            format!(
+                "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":0,\"character\":4}}}}",
+                diagnostic_json::quoted(&uri)
+            ),
+            format!(
+                "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":50,\"character\":0}}}}",
+                diagnostic_json::quoted(&uri)
+            ),
+        ] {
+            let id = 2 + ids.len() as i64;
+            ids.push(id);
+            messages.push(request(id, method, &params));
+        }
+    }
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    for id in ids {
+        assert_eq!(
+            reply(&replies, id)
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Json::integer),
+            Some(-32602),
+            "{:?}",
+            reply(&replies, id)
+        );
+    }
+    let capabilities = reply(&replies, 1)
+        .get("result")
+        .unwrap()
+        .get("capabilities")
+        .unwrap();
+    assert_eq!(capabilities.get("hoverProvider"), Some(&Json::Bool(true)));
+    assert!(capabilities
+        .get("signatureHelpProvider")
+        .unwrap()
+        .get("triggerCharacters")
+        .and_then(Json::array)
+        .is_some_and(|triggers| !triggers.is_empty()));
+}
+
+#[test]
+fn signature_help_negotiates_no_active_parameter_for_unknown_labels() {
+    let path = std::env::temp_dir().join("lim-lsp-unknown-parameter.lim");
+    let uri = lsp::path_to_uri(&path).unwrap();
+    let source = "(#fn choose ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (#call choose ((unknown 1u64)))))";
+    for supported in [false, true] {
+        let mut messages = vec![
+            request(1, "initialize", &format!("{{\"capabilities\":{{\"textDocument\":{{\"signatureHelp\":{{\"signatureInformation\":{{\"noActiveParameterSupport\":{supported}}}}}}}}}}}")),
+            notify("initialized", "{}"),
+            open(&uri, 1, source),
+        ];
+        let (line, character) = lsp::byte_position(source, source.find("1u64").unwrap());
+        messages.push(request(2, "textDocument/signatureHelp", &format!("{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":{line},\"character\":{character}}}}}", diagnostic_json::quoted(&uri))));
+        finish(&mut messages);
+        let (_, responses) = session(messages);
+        let result = reply(&responses, 2).get("result").unwrap();
+        let expected = supported.then_some(&Json::Null);
+        assert_eq!(result.get("activeParameter"), expected, "{result:?}");
+        assert_eq!(
+            result.get("signatures").unwrap().array().unwrap()[0].get("activeParameter"),
+            expected
+        );
+    }
+}
+
+#[test]
+fn information_respects_client_markup_preferences_and_plaintext_default() {
+    let path = std::env::temp_dir().join("lim-lsp-information-markup.lim");
+    let uri = lsp::path_to_uri(&path).unwrap();
+    let source = "(#fn inspect ((value #u64)) #u64 (#requires true) (#return value))\n(#fn main () #u64 (#return (#call inspect ((value 1u64)))))";
+    for (formats, kind) in [
+        (None, "plaintext"),
+        (Some(r#"["plaintext","markdown"]"#), "plaintext"),
+        (Some(r#"["markdown","plaintext"]"#), "markdown"),
+    ] {
+        let params = formats.map(|formats| format!("{{\"capabilities\":{{\"textDocument\":{{\"hover\":{{\"contentFormat\":{formats}}},\"signatureHelp\":{{\"signatureInformation\":{{\"documentationFormat\":{formats}}}}}}}}}}}")).unwrap_or_else(|| "{}".into());
+        let mut messages = vec![
+            request(1, "initialize", &params),
+            notify("initialized", "{}"),
+            open(&uri, 1, source),
+        ];
+        for (id, method, needle) in [
+            (2, "textDocument/hover", "inspect ((value 1"),
+            (3, "textDocument/signatureHelp", "1u64"),
+        ] {
+            let (line, character) = lsp::byte_position(source, source.find(needle).unwrap());
+            messages.push(request(id, method, &format!("{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":{line},\"character\":{character}}}}}", diagnostic_json::quoted(&uri))));
+        }
+        finish(&mut messages);
+        let (_, replies) = session(messages);
+        let hover = reply(&replies, 2)
+            .get("result")
+            .unwrap()
+            .get("contents")
+            .unwrap();
+        let signature = &reply(&replies, 3)
+            .get("result")
+            .unwrap()
+            .get("signatures")
+            .unwrap()
+            .array()
+            .unwrap()[0];
+        for contents in [hover, signature.get("documentation").unwrap()] {
+            assert_eq!(contents.get("kind").and_then(Json::string), Some(kind));
+            let value = contents.get("value").unwrap().string().unwrap();
+            assert!(value.contains("#requires true"), "{value}");
+            assert_eq!(value.starts_with("```lim\n"), kind == "markdown", "{value}");
+        }
+    }
+}
+
+#[test]
 fn bounded_json_types_and_unicode() {
     for value in [
         "null",

@@ -170,6 +170,31 @@ pub(crate) fn navigation_context(
     context_file: Option<&Path>,
     byte: usize,
 ) -> Result<NavigationContext, crate::Diagnostic> {
+    navigation_context_impl(source, path, config, overlays, context_file, byte, false)
+}
+
+/// Display-only declaration metadata may remain useful while a call is being
+/// edited. This context must never be used to publish generated source snapshots.
+pub(crate) fn information_context(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+    byte: usize,
+) -> Result<NavigationContext, crate::Diagnostic> {
+    navigation_context_impl(source, path, config, overlays, context_file, byte, true)
+}
+
+fn navigation_context_impl(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+    byte: usize,
+    partial_information: bool,
+) -> Result<NavigationContext, crate::Diagnostic> {
     with_compilation_context(
         source,
         path,
@@ -198,7 +223,22 @@ pub(crate) fn navigation_context(
             }
             let program =
                 crate::prepare_program_syntax(entry_source, base, Some(entry), config, None)
-                    .and_then(|prepared| crate::expand_prepared_program(&prepared))
+                    .and_then(|prepared| {
+                        let expanded = crate::expand_prepared_program(&prepared);
+                        if partial_information && expanded.is_err() {
+                            // Reuse the existing declaration planner before call
+                            // normalization. Missing argument labels must not
+                            // hide the generated signature needed to finish them.
+                            let program =
+                                crate::generator::frontend::parse_prepared_async_declarations(
+                                    &prepared,
+                                )?;
+                            crate::file_access::validate(&program)?;
+                            Ok(program)
+                        } else {
+                            expanded
+                        }
+                    })
                     .ok();
             if let Some(program) = &program {
                 let map = files
