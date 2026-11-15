@@ -25,6 +25,7 @@ mod tests {
         "alias",
         "align-of",
         "arch",
+        "arg", // Bare value binds to the explicit single positional parameter.
         "array", // Also #generate #array: literal inputs and generated definitions.
         "array-of",
         "array-repeat",

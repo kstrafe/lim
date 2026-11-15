@@ -3434,7 +3434,8 @@ mod tests {
         let ((warm, _), hits) = expand(source);
         assert_eq!(hits, 2);
         assert_eq!(first, warm);
-        let changed = source.replace("Second #u32", "Second #u16");
+        let changed = source.replace("variant = Second; payload = #u32;", "variant = Second; payload = #u16;");
+        assert_ne!(source, changed, "cache invalidation must change the named input");
         let ((changed_forms, _), hits) = expand(&changed);
         assert_eq!(hits, 1);
         assert_ne!(first, changed_forms);

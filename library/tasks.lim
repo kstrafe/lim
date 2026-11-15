@@ -343,8 +343,8 @@
                        (#gn-first field))))))))
         (#gn-error
           "task cancellation state requires (Variant handler) or (Variant handler ((field Type) ...))")))
-#gn task-cancel { cancel; task; states; }
-    `((#fn ,cancel ((task ,task)) ()
+#gn task-cancel { cancel; task = task-type; states; }
+    `((#fn ,cancel ((task ,task-type)) ()
         (#effects ((#effects-of ,(#gn-for-each entry states (#gn-call @task-second { values = entry; })))))
         (#return (#match task ,@(#gn-for-each entry states (#gn-call @task-cancel-case { entry = entry; }))))))
 //; Choice.One explicit OS worker owns this executor and its fixed set of task slots.

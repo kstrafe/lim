@@ -131,24 +131,24 @@
       fields = (#gn-get options fields ()); projections = (#gn-get options projections ()); copy = (#gn-get options copy false);
       checked = (#gn-for-each option options (#gn-call pin-option-check { option = option; keys = (type name fields projections copy); })); })
 
-#gn-fn pin-scope-build { element; pin; name; run; destroy; result; checked; }
+#gn-fn pin-scope-build { element; pin = pin-type; name; run; destroy; result; checked; }
     `((#fn ,name ((value ,element)) ,result
-      (#effects ((#effects-of ,(#gn-call pin-name { name = pin; suffix = "from-mut"; })) (#effects-of ,destroy) (#effects-of ,run)))
+      (#effects ((#effects-of ,(#gn-call pin-name { name = pin-type; suffix = "from-mut"; })) (#effects-of ,destroy) (#effects-of ,run)))
       (#let-mut storage ,element value)
-      (#let handle ,pin
-        (#unsafe (#unsafe-call ,(#gn-call pin-name { name = pin; suffix = "from-mut"; })
+      (#let handle ,pin-type
+        (#unsafe (#unsafe-call ,(#gn-call pin-name { name = pin-type; suffix = "from-mut"; })
           ((view (#pin-borrow-mut storage))))))
       (#let output ,result (#call ,run ((pin handle))))
-      (#let cleanup ,pin
-        (#unsafe (#unsafe-call ,(#gn-call pin-name { name = pin; suffix = "from-mut"; })
+      (#let cleanup ,pin-type
+        (#unsafe (#unsafe-call ,(#gn-call pin-name { name = pin-type; suffix = "from-mut"; })
           ((view (#pin-borrow-mut storage))))))
       (#call ,destroy ((pin cleanup)))
       (#forget storage)
       (#return output)))
 
 #gn pin-scope { options; }
-    (#gn-call pin-scope-build { element = (#gn-get options type); pin = (#gn-get options pin);
+    (#gn-call pin-scope-build { element = (#gn-get options type); pin = (#gn-get options (#gn-symbol "pin"));
       name = (#gn-get options name); run = (#gn-get options run); destroy = (#gn-get options destroy);
       result = (#gn-get options result);
       checked = (#gn-for-each option options
-        (#gn-call pin-option-check { option = option; keys = (type pin name run destroy result); })); })
+        (#gn-call pin-option-check { option = option; keys = (#gn-list type (#gn-symbol "pin") name run destroy result); })); })
