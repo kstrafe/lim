@@ -173,16 +173,22 @@ impl<'a> SourceForms<'a> {
         let end = tokens.last().unwrap().span;
         let mut parser = Parser::new(&tokens).with_source(self.source);
         let mut node = parser.implicit_root()?;
+        validate_function_declarations(&node, self.source)?;
         // Parsing knows where a colon operand actually ends. A declaration
         // head left as an immediate symbol is an ungrouped sibling, even if
         // the lexical scan previously entered a colon operand. Nested and
         // quoted declaration trees remain ordinary children of this root.
         if colon_operand {
-            if let Some(child) = node.children.iter().skip(1).find(|child| match &child.expr {
-                crate::Expr::Symbol(head) => declaration_head(head),
-                crate::Expr::Generate => true,
-                _ => false,
-            }) {
+            if let Some(child) = node
+                .children
+                .iter()
+                .skip(1)
+                .find(|child| match &child.expr {
+                    crate::Expr::Symbol(head) => declaration_head(head),
+                    crate::Expr::Generate => true,
+                    _ => false,
+                })
+            {
                 return Err(crate::ParseError {
                     message: "root declarations require a newline or semicolon separator".into(),
                     span: child.span,
@@ -197,13 +203,190 @@ impl<'a> SourceForms<'a> {
     }
 }
 
+// Only compilation-unit declarations are source syntax. A generator's quoted
+// template, function-shaped data and ordinary grouping retain the raw grammar.
+fn validate_function_declarations(
+    node: &SpannedExpr,
+    source: &str,
+) -> Result<(), crate::ParseError> {
+    let Some(head) = node.children.first() else {
+        return Ok(());
+    };
+    let crate::Expr::Symbol(keyword) = &head.expr else {
+        return Ok(());
+    };
+    if matches!(keyword.as_str(), "#fn" | "#unsafe-fn" | "#extern-fn") {
+        let mut lexer = Lexer::new(&source[head.span.end..node.span.end]);
+        let mut next = || lexer.next_token().ok().flatten().map(|token| token.kind);
+        if !matches!(next(), Some(TokenKind::Symbol(_))) || next() != Some(TokenKind::LBrace) {
+            return Err(crate::ParseError {
+                message: format!(
+                    "{keyword} source declarations require a named record; use {keyword} name {{ #params = {{}}; #returns = (); {} }}",
+                    if keyword == "#extern-fn" { "#abi = #abi-c;" } else { "#body: #return ();" }
+                ),
+                span: head.span,
+            });
+        }
+    } else if keyword == "#cfg-if" {
+        for branch in node.children.iter().skip(2) {
+            validate_function_declarations(branch, source)?;
+        }
+    } else if keyword == "#cfg-else" {
+        for branch in node.children.iter().skip(1) {
+            validate_function_declarations(branch, source)?;
+        }
+    }
+    Ok(())
+}
+
 fn declaration_head(name: &str) -> bool {
     matches!(
         name,
-        "#fn" | "#unsafe-fn" | "#extern-fn" | "#struct" | "#enum" | "#type"
-            | "#alias" | "#export" | "#std" | "#cfg-if" | "#gn" | "#gn-fn"
-            | "#const" | "#static" | "#opaque" | "#unsafe-impl" | "#capability"
-            | "#syntax" | "#distributed-enum" | "#enum-contribute" | "#thread-task"
+        "#fn"
+            | "#unsafe-fn"
+            | "#extern-fn"
+            | "#struct"
+            | "#enum"
+            | "#type"
+            | "#alias"
+            | "#export"
+            | "#std"
+            | "#cfg-if"
+            | "#gn"
+            | "#gn-fn"
+            | "#const"
+            | "#static"
+            | "#opaque"
+            | "#unsafe-impl"
+            | "#capability"
+            | "#syntax"
+            | "#distributed-enum"
+            | "#enum-contribute"
+            | "#thread-task"
             | "#require-generated"
     )
+}
+
+/// Serialize canonical declaration trees as source, without changing their AST
+/// representation or reinterpreting quoted generator templates as declarations.
+pub(crate) fn modern_declaration_source(
+    expression: &crate::Expr,
+) -> Result<Option<String>, String> {
+    use crate::{expression_source, Expr};
+    let Expr::List(items) = expression else {
+        return Ok(None);
+    };
+    let Some(Expr::Symbol(head)) = items.first() else {
+        return Ok(None);
+    };
+    if matches!(head.as_str(), "#cfg-if" | "#cfg-else") {
+        let prefix = if head == "#cfg-if" { 2 } else { 1 };
+        if items.len() < prefix {
+            return Ok(None);
+        }
+        let mut output = items[..prefix]
+            .iter()
+            .map(expression_source)
+            .collect::<Result<Vec<_>, _>>()?
+            .join(" ");
+        for branch in &items[prefix..] {
+            output.push('\n');
+            if matches!(branch, Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(name)) if name.starts_with('#')) || matches!(parts.first(), Some(Expr::Generate)))
+            {
+                let source = crate::declaration_source(branch)?;
+                output.push_str("  (");
+                output.push_str(&source.replace('\n', "\n  "));
+                output.push(')');
+            } else {
+                output.push_str("  ");
+                output.push_str(&expression_source(branch)?);
+            }
+        }
+        return Ok(Some(output));
+    }
+    if !matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#extern-fn") {
+        return Ok(None);
+    }
+    let external = head == "#extern-fn";
+    let name_index = if external { 2 } else { 1 };
+    let params_index = name_index + 1;
+    let returns_index = name_index + 2;
+    let body_index = name_index + 3;
+    if items.len() < body_index {
+        return Err(format!(
+            "{head} requires a name, parameters and return type"
+        ));
+    }
+    if external && items.len() != body_index {
+        return Err("extern-fn requires a non-generic signature without a body".into());
+    }
+    let mut output = format!("{head} {} {{\n", expression_source(&items[name_index])?);
+    if external {
+        output.push_str(&format!("  #abi = {};\n", expression_source(&items[1])?));
+    }
+    let parameters = match &items[params_index] {
+        Expr::List(parameters) if parameters.iter().all(|parameter| matches!(parameter,
+            Expr::List(parts) if parts.len() == 2 && matches!(parts.first(), Some(Expr::Symbol(name)) if !name.starts_with('#')))) => {
+            let mut record = String::from("{");
+            for parameter in parameters {
+                let Expr::List(parts) = parameter else { unreachable!() };
+                record.push_str(&format!(" {} = {};", expression_source(&parts[0])?, expression_source(&parts[1])?));
+            }
+            if !parameters.is_empty() { record.push(' '); }
+            record.push('}');
+            record
+        }
+        // Mutable binders retain their explicit (#mut name Type) structure.
+        // Only the enclosing declaration changes syntax in this cutover.
+        parameters => expression_source(parameters)?,
+    };
+    output.push_str(&format!(
+        "  #params = {parameters};\n  #returns = {};\n",
+        expression_source(&items[returns_index])?
+    ));
+    if !external {
+        let mut body_start = body_index;
+        let mut contracts = [Vec::new(), Vec::new(), Vec::new()];
+        while let Some(Expr::List(clause)) = items.get(body_start) {
+            if !matches!(clause.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#requires" | "#ensures" | "#preserves"))
+            {
+                break;
+            }
+            if clause.len() != 2 {
+                break;
+            }
+            let index = match &clause[0] {
+                Expr::Symbol(name) if name == "#requires" => 0,
+                Expr::Symbol(name) if name == "#ensures" => 1,
+                _ => 2,
+            };
+            contracts[index].push(&clause[1]);
+            body_start += 1;
+        }
+        for (name, predicates) in ["#requires", "#ensures", "#preserves"]
+            .into_iter()
+            .zip(contracts)
+        {
+            if !predicates.is_empty() {
+                output.push_str(&format!(
+                    "  {name} = ({});\n",
+                    predicates
+                        .into_iter()
+                        .map(expression_source)
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(" ")
+                ));
+            }
+        }
+        if body_start == items.len() {
+            output.push_str("  #body = ();\n");
+        } else {
+            output.push_str("  #body:\n");
+            for statement in &items[body_start..] {
+                output.push_str(&format!("    {};\n", expression_source(statement)?));
+            }
+        }
+    }
+    output.push('}');
+    Ok(Some(output))
 }

@@ -6298,6 +6298,9 @@ fn builtin_payload_helpers_source(
 
 /// Serialize a declaration document, not a nested syntax-tree expression.
 pub(crate) fn declaration_source(expression: &Expr) -> Result<String, String> {
+    if let Some(source) = source_forms::modern_declaration_source(expression)? {
+        return Ok(source);
+    }
     let Expr::List(items) = expression else {
         return Err("generated source root must be a declaration list".into());
     };

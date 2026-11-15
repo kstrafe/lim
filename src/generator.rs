@@ -16,7 +16,7 @@ use std::{
 use crate::generator_authority::Syntax;
 use crate::{Expr, Span, SpannedExpr};
 
-pub(crate) const GENERATED_SOURCE_FORMAT: &str = "lim-generated-source-format-v2-bare-roots";
+pub(crate) const GENERATED_SOURCE_FORMAT: &str = "lim-generated-source-format-v3-record-functions";
 const MAX_EVALUATION_STEPS: usize = 200_000;
 const MAX_GENERATED_NODES: usize = 1_000_000;
 const MAX_EXPANSION_DEPTH: usize = 128;
@@ -1139,7 +1139,7 @@ fn expand_top(
     );
     let cache_key = format!(
         "lim-generator-cache-v15\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\ninstance={}\narguments={:?}\ncontext={header}",
-        concat!(env!("CARGO_PKG_VERSION"), "-bare-root-v1"),
+        concat!(env!("CARGO_PKG_VERSION"), "-record-functions-v1"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
         context.capability_hash,
@@ -1764,9 +1764,13 @@ fn render_generated_forms(forms: &[SpannedExpr]) -> Result<String, String> {
         if !output.is_empty() {
             output.push('\n');
         }
-        crate::declaration_source(&parsed.expr)?;
-        let rendered = render(&parsed.expr, 0)?;
-        output.push_str(&rendered[1..rendered.len() - 1]);
+        if let Some(source) = crate::source_forms::modern_declaration_source(&parsed.expr)? {
+            output.push_str(&source);
+        } else {
+            crate::declaration_source(&parsed.expr)?;
+            let rendered = render(&parsed.expr, 0)?;
+            output.push_str(&rendered[1..rendered.len() - 1]);
+        }
         output.push('\n');
     }
     Ok(output)

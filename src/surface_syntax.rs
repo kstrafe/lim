@@ -51,6 +51,7 @@ fn syntax_operand(terms: &[Node]) -> bool {
                 name(&terms[0]),
                 "#fn"
                     | "#unsafe-fn"
+                    | "#extern-fn"
                     | "#static"
                     | "#const"
                     | "#call"
@@ -118,7 +119,10 @@ fn split_layout_suffix(key: &Node) -> Option<(Node, Span)> {
 }
 
 pub(super) fn record_declaration(name: &str) -> bool {
-    matches!(name, "#fn" | "#unsafe-fn" | "#static" | "#const")
+    matches!(
+        name,
+        "#fn" | "#unsafe-fn" | "#extern-fn" | "#static" | "#const"
+    )
 }
 
 pub(super) fn has_surface_notation(node: &Node, source: &str) -> bool {
@@ -772,8 +776,11 @@ impl<'a> Parser<'a> {
         {
             return Ok(node);
         }
-        let function = matches!(head, "#fn" | "#unsafe-fn");
-        let allowed = if function {
+        let external = head == "#extern-fn";
+        let function = matches!(head, "#fn" | "#unsafe-fn" | "#extern-fn");
+        let allowed = if external {
+            &["#abi", "#params", "#returns"][..]
+        } else if function {
             &[
                 "#params",
                 "#returns",
@@ -811,7 +818,15 @@ impl<'a> Parser<'a> {
                     self.error(&format!("{head} record requires '{field}'"), fields.span)
                 })
         };
-        let mut output = vec![children[0].clone(), children[1].clone()];
+        let mut output = vec![children[0].clone()];
+        if external {
+            let abi = require("#abi")?;
+            if name(&abi) != "#abi-c" {
+                return Err(self.error("#extern-fn record requires '#abi = #abi-c;'", abi.span));
+            }
+            output.push(abi);
+        }
+        output.push(children[1].clone());
         if !function {
             output.push(require("#type")?);
             output.push(require("#value")?);
@@ -829,6 +844,9 @@ impl<'a> Parser<'a> {
                 },
             );
             output.push(require("#returns")?);
+            if external {
+                return Ok(list(output, node.span));
+            }
             for section in ["#requires", "#ensures", "#preserves"] {
                 if let Some((key, predicates)) = values.get(section) {
                     if !matches!(&predicates.expr, Expr::List(items) if items.len() == predicates.children.len())
