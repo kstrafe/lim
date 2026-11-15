@@ -1,6 +1,20 @@
+import { highlightLim } from './lim-highlight.mjs';
 import { MAX_STDOUT_CHARS } from './playground-host.mjs';
 
 const editor = document.querySelector('#source');
+const colors = document.querySelector('#source-colors');
+function updateHighlight() {
+  colors.querySelector('code').innerHTML = highlightLim(editor.value) + '\n';
+  colors.scrollTop = editor.scrollTop;
+  colors.scrollLeft = editor.scrollLeft;
+}
+editor.closest('.source-editor').classList.add('highlighted');
+editor.addEventListener('input', updateHighlight);
+editor.addEventListener('scroll', () => {
+  colors.scrollTop = editor.scrollTop;
+  colors.scrollLeft = editor.scrollLeft;
+});
+updateHighlight();
 const output = document.querySelector('#output');
 const stdout = document.querySelector('#stdout');
 const status = document.querySelector('#status');
@@ -61,7 +75,7 @@ check.addEventListener('click', () => compile(true));
 stop.addEventListener('click', () => { finish(); clearDownload(); status.textContent = 'Stopped'; output.textContent = 'Compilation or execution was cancelled.'; });
 document.querySelector('#example').addEventListener('change', ({ target }) => {
   const template = document.querySelector(`#example-${target.value}`);
-  if (template) { finish(); clearDownload(); editor.value = template.content.textContent.trim(); stdout.textContent = ''; output.textContent = 'Choose Compile & run or Check only.'; status.textContent = 'Ready'; }
+  if (template) { finish(); clearDownload(); editor.value = template.content.textContent.trim(); editor.scrollTop = 0; editor.scrollLeft = 0; updateHighlight(); stdout.textContent = ''; output.textContent = 'Choose Compile & run or Check only.'; status.textContent = 'Ready'; }
 });
 editor.addEventListener('keydown', (event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); compile(false); } });
 window.addEventListener('pagehide', finish);

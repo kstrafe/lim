@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build a deterministic, self-contained manual with Pandoc; no browser scripts."""
 import argparse
+import html
+import json
 from html.parser import HTMLParser
 from pathlib import Path
 import re
@@ -106,6 +108,20 @@ class Inspect(HTMLParser):
             self.resources.append(attrs)
 
 
+def highlight_code(output):
+    # Pandoc emits escaped plain text with --no-highlight. Color only Lim fences;
+    # decoding then escaping in the colorizer preserves copy/search text exactly.
+    pattern = re.compile(r'(<pre\b[^>]*\bclass="(?:[^" ]+ )*(?:lim|lisp)(?: [^"]+)?"[^>]*><code>)([\s\S]*?)(</code>)')
+    blocks = list(pattern.finditer(output))
+    if not blocks:
+        return output
+    colored = json.loads(subprocess.check_output(
+        ['node', str(ROOT / 'scripts/highlight-code.mjs')],
+        input=json.dumps([html.unescape(block[2]) for block in blocks]), text=True))
+    replacements = iter(colored)
+    return pattern.sub(lambda match: match[1] + next(replacements) + match[3], output)
+
+
 def build():
     with tempfile.TemporaryDirectory(prefix='lim-reference-') as directory:
         source = Path(directory) / 'manual.md'
@@ -115,6 +131,7 @@ def build():
                    '--template=' + str(DOCS / 'reference.template.html'), '--css=' + str(DOCS / 'reference.css'),
                    '--resource-path=' + str(DOCS), '--wrap=none']
         output = subprocess.check_output(command, text=True)
+    output = highlight_code(output)
     inspect = Inspect()
     inspect.feed(output)
     inspect.errors += [f'broken anchor #{link}' for link in inspect.links if link not in inspect.ids]

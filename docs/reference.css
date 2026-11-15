@@ -6,3 +6,14 @@
 @media print{body{background:#fff;color:#000;font-size:10pt}.topbar,.contents,.skip-link{display:none}.reading-layout{display:block;padding:0}.manual{max-width:none}.manual>section.level1{break-before:page}.manual>section.level1:first-of-type{break-before:auto}pre{white-space:pre-wrap;break-inside:avoid;border-color:#ddd;background:#fafafa}pre code{white-space:pre-wrap;font-size:8pt}.manual table{display:table;font-size:8pt}.manual th,.manual td{min-width:0;padding:.4rem}a{color:#000;text-decoration:underline}.page-footer{display:none}}
 
 .stdout-panel{border-top:1px solid var(--line)}.stdout-panel pre{max-height:320px;overflow:auto}.stdout-panel pre:empty::before{content:"(no output)";color:var(--muted)}
+/* Lexical colors meet WCAG AA on both code and editor surfaces. */
+:root{--lim-comment:#52695c;--lim-string:#83521c;--lim-literal:#8a3458;--lim-type:#255e9a;--lim-keyword:#65459a;--lim-operator:#226253}
+.lim-comment{color:var(--lim-comment)}.lim-string{color:var(--lim-string)}.lim-literal{color:var(--lim-literal)}.lim-type{color:var(--lim-type)}.lim-keyword{color:var(--lim-keyword)}.lim-operator{color:var(--lim-operator)}
+.source-editor{position:relative;min-width:0;background:var(--surface)}
+#source-colors{display:none;position:absolute;inset:0;margin:0;border:0;border-radius:0;padding:1.35rem 1.5rem;background:transparent;overflow:hidden;pointer-events:none;white-space:pre}
+#source-colors,#source-colors code{font:13px/1.8 var(--mono);tab-size:2;white-space:pre}
+.highlighted #source-colors{display:block}.highlighted textarea{position:relative;background:transparent;color:transparent;caret-color:var(--ink)}
+.highlighted textarea::selection{background:#729d8c55;color:transparent}
+@media(prefers-color-scheme:dark){:root{--lim-comment:#a0b5a7;--lim-string:#e9bc7d;--lim-literal:#efa5c4;--lim-type:#9bc6f5;--lim-keyword:#cdb2f5;--lim-operator:#91cdb0}}
+@media(forced-colors:active){.highlighted #source-colors{display:none}.highlighted textarea{color:CanvasText;caret-color:CanvasText}.highlighted textarea::selection{background:Highlight;color:HighlightText}}
+@media print{.lim-comment,.lim-string,.lim-literal,.lim-type,.lim-keyword,.lim-operator{color:#222}}
