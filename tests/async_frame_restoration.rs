@@ -399,7 +399,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "{context}
 #generate {kind} ((protocol WorkAwait) (waker #u64) (access ({access}))
             (function (#fn work {parameters} #u64 (#forget amount) (#return 42u64))))
-          {suffix}
+{suffix}
 #fn main () #u64 (#return 0u64)
 "
         );

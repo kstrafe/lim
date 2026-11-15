@@ -512,7 +512,7 @@ fn direct_exclusive_field_reads_do_not_release_the_callers_unique_loan() {
             "View (#linear) ((value (#ref #u64)))",
             "View (#linear) ((value (#ref-mut #u64)))",
         )
-        .replace("(#let second Work::Poll", "(#let conflicting (#ref #u64) (#borrow owner))\n(#forget conflicting)\n(#let second Work::Poll");
+        .replace("(#let second Work::Poll", "(#let conflicting (#ref #u64) (#borrow owner))\n  (#forget conflicting)\n  (#let second Work::Poll");
     let scratch = support::Scratch::new("async-direct-field-caller-conflict");
     let error = lim::compile_source_to_assembly(
         &source,
@@ -591,19 +591,19 @@ fn repeated_direct_field_reads_lend_a_unique_parent_before_and_after_pending() {
 fn linear_reference_guard_source() -> String {
     aggregate_reference_guard_source()
         .replace(
-            "(#struct View () ((value (#ref #u64))))",
-            "(#struct View (#linear) ((value (#ref #u64)))) ",
+            "#struct View () ((value (#ref #u64)))",
+            "#struct View (#linear) ((value (#ref #u64)))\n ",
         )
         .replace(
-            "\n        (#deref (#get view value)))",
+            "\n          (#deref (#get view value)))",
             "\n        (#block (#let answer #u64 (#deref (#get view value)))\n\
              (#forget view) answer))",
         )
         .replace(
             "(#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start (#deref (#get view value))))",
-            "(#block (#let amount #u64 (#deref (#get view value)))\n\
-             (#forget view)\n\
-             (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start amount)))",
+            "(#block (#let amount #u64 (#deref (#get view value)))
+  (#forget view)
+  (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start amount)))",
         )
         .replace("(#get view value)", "(#get (#borrow view) value)")
 }
@@ -674,7 +674,7 @@ fn suspended_linear_reference_guard_keeps_the_callers_referent_borrowed() {
         .replace("(#let owner #u64", "(#let-mut owner #u64")
         .replace(
             "(#let second Work::Poll",
-            "(#set owner 99u64)\n(#let second Work::Poll",
+            "(#set owner 99u64)\n  (#let second Work::Poll",
         );
     let scratch = support::Scratch::new("async-linear-guard-conflict");
     let error = lim::compile_source_to_assembly(
@@ -716,8 +716,8 @@ fn linear_reference_guard_cancellation_reads_and_releases_the_retained_owner() {
 fn copy_reference_tuple_guard_retains_nested_referents_across_rejection() {
     let source = aggregate_reference_guard_source()
         .replace(
-            "(#struct View () ((value (#ref #u64))))",
-            "(#type View (#tuple #u64 (#ref #u64)))",
+            "#struct View () ((value (#ref #u64)))",
+            "#type View (#tuple #u64 (#ref #u64))",
         )
         .replace(
             "(#struct-literal View ((value source)))",
@@ -785,7 +785,7 @@ fn suspended_aggregate_guard_keeps_the_callers_loan_alive() {
         .replace("(#let owner #u64", "(#let-mut owner #u64")
         .replace(
             "(#let second Work::Poll",
-            "(#set owner 99u64)\n(#let second Work::Poll",
+            "(#set owner 99u64)\n  (#let second Work::Poll",
         );
     let scratch = support::Scratch::new("async-graph-aggregate-guard-conflict");
     let error = lim::compile_source_to_assembly(
@@ -866,11 +866,11 @@ fn run_guard_cancellation_matrix_with_borrow(declarations: &str, label: &str, bo
 #[test]
 fn reading_guard_cleanup_resolves_conditional_call_input_provenance() {
     let declarations = guard_cancellation_declarations().replace(
-        "(#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ()))",
-        "(#fn cancel-holder ((holder Holder)) ()
-          (#match holder (#case (Holder.Holding held)
-            (#block (#assert (#u64::eq (#deref held) 42u64)) (#drop held) ())))
-          (#return ()))",
+        "#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ())",
+        "#fn cancel-holder ((holder Holder)) ()
+            (#match holder (#case (Holder.Holding held)
+              (#block (#assert (#u64::eq (#deref held) 42u64)) (#drop held) ())))
+            (#return ())",
     );
     run_guard_cancellation_matrix(&declarations, "async-graph-reading-guard-cleanup");
 }
@@ -889,11 +889,11 @@ fn reading_aggregate_guard_cleanup_preserves_and_releases_nested_loans() {
         .replace("(#deref view)", "(#deref (#get view value))")
         .replace("source-expression-11", "source-expression-17")
         .replace(
-            "(#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ()))",
-            "(#fn cancel-holder ((holder Holder)) ()
-              (#match holder (#case (Holder.Holding held)
-                (#assert (#u64::eq (#deref (#get held value)) 42u64))))
-              (#return ()))",
+            "#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ())",
+            "#fn cancel-holder ((holder Holder)) ()
+                (#match holder (#case (Holder.Holding held)
+                  (#assert (#u64::eq (#deref (#get held value)) 42u64))))
+                (#return ())",
         );
     run_guard_cancellation_matrix(&declarations, "async-graph-reading-aggregate-guard-cleanup");
 }
@@ -904,7 +904,7 @@ fn suspended_reference_guard_does_not_allow_mutating_the_callers_referent() {
         .replace("(#let owner #u64", "(#let-mut owner #u64")
         .replace(
             "(#let second Work::Poll",
-            "(#set owner 99u64)\n(#let second Work::Poll",
+            "(#set owner 99u64)\n  (#let second Work::Poll",
         );
     let scratch = support::Scratch::new("async-graph-reference-guard-conflict");
     let error = lim::compile_source_to_assembly(
@@ -1003,7 +1003,7 @@ fn nested_guard_previews_lend_only_exclusive_fields_regardless_of_order() {
             .replace(
                 "(#enum Holder (#linear) ((Holder.Holding (#ref-mut #u64))))",
                 &format!(
-                    "(#struct View () {fields})\n(#enum Holder (#linear) ((Holder.Holding View)))"
+                    "#struct View () {fields}\n#enum Holder (#linear) ((Holder.Holding View))"
                 ),
             )
             .replace(
@@ -1036,7 +1036,7 @@ fn suspended_exclusive_guard_rejects_shared_and_exclusive_caller_aliases() {
         let source = exclusive_reference_guard_source(&shared_reference_guard_source()).replace(
             "(#let second Work::Poll",
             &format!(
-                "(#let alias ({} #u64) ({borrow} owner))\n(#drop alias)\n(#let second Work::Poll",
+                "(#let alias ({} #u64) ({borrow} owner))\n  (#drop alias)\n  (#let second Work::Poll",
                 if borrow == "#borrow" {
                     "#ref"
                 } else {
@@ -1064,11 +1064,11 @@ fn suspended_exclusive_guard_rejects_shared_and_exclusive_caller_aliases() {
 fn reading_exclusive_guard_cleanup_releases_preview_before_consuming_holder() {
     let declarations = exclusive_reference_guard_source(&guard_cancellation_declarations())
         .replace(
-            "(#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ()))",
-            "(#fn cancel-holder ((holder Holder)) ()
-          (#match holder (#case (Holder.Holding held)
-            (#block (#assert (#u64::eq (#deref held) 42u64)) (#drop held) ())))
-          (#return ()))",
+            "#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ())",
+            "#fn cancel-holder ((holder Holder)) ()
+            (#match holder (#case (Holder.Holding held)
+              (#block (#assert (#u64::eq (#deref held) 42u64)) (#drop held) ())))
+            (#return ())",
         );
     run_guard_cancellation_matrix_with_borrow(
         &declarations,

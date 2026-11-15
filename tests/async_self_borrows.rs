@@ -53,8 +53,10 @@ fn assert_borrow_error(source: &str, label: &str, conflict: &str, occurrence: us
 
 fn rejected(body: &str, label: &str, conflict: &str, occurrence: usize) {
     let source = format!(
-        "{CHILD}\n#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
-            (function (#fn work () #u64 {body})))\n"
+        "{CHILD}
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
+            (function (#fn work () #u64 {body})))
+"
     );
     assert_borrow_error(&source, label, conflict, occurrence);
 }
@@ -238,7 +240,7 @@ fn movable_async_function_cannot_borrow_its_own_local_across_await() {
 fn pinned_local_shared_borrow_survives_repeated_pending_polls() {
     let source = format!(
         "{CHILD}
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
             (function (#fn work () #u64
               (#let owner #u64 40u64)
               (#let view (#ref #u64) (#borrow owner))
@@ -256,7 +258,8 @@ fn pinned_local_shared_borrow_survives_repeated_pending_polls() {
             (#let answer #u64 (#match third
               (#case (Work::Poll.Ready value) value)
               (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-            (#forget task) (#return (#if (#u64::eq answer 42u64) 42u64 0u64))\n"
+            (#forget task) (#return (#if (#u64::eq answer 42u64) 42u64 0u64))
+"
     );
     run_native(&source, "async-self-borrows", 42);
 }
@@ -265,7 +268,7 @@ fn pinned_local_shared_borrow_survives_repeated_pending_polls() {
 fn pinned_local_shared_shared_aliases_are_valid_across_repeated_pending_polls() {
     let source = format!(
         "{CHILD}
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
             (function (#fn work () #u64
               (#let owner #u64 40u64)
               (#let view (#ref #u64) (#borrow owner))
@@ -284,7 +287,8 @@ fn pinned_local_shared_shared_aliases_are_valid_across_repeated_pending_polls() 
             (#let answer #u64 (#match third
               (#case (Work::Poll.Ready value) value)
               (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-            (#forget task) (#return (#if (#u64::eq answer 82u64) 42u64 0u64))\n"
+            (#forget task) (#return (#if (#u64::eq answer 82u64) 42u64 0u64))
+"
     );
     run_native(&source, "async-self-borrow-shared-alias", 42);
 }
@@ -293,7 +297,7 @@ fn pinned_local_shared_shared_aliases_are_valid_across_repeated_pending_polls() 
 fn pinned_local_mutable_borrow_survives_repeated_pending_polls() {
     let source = format!(
         "{CHILD}
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
             (function (#fn work () #u64
               (#let-mut owner #u64 40u64)
               (#let-mut view (#ref-mut #u64) (#borrow-mut owner))
@@ -312,7 +316,8 @@ fn pinned_local_mutable_borrow_survives_repeated_pending_polls() {
             (#let answer #u64 (#match third
               (#case (Work::Poll.Ready value) value)
               (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-            (#forget task) (#return (#if (#u64::eq answer 43u64) 42u64 0u64))\n"
+            (#forget task) (#return (#if (#u64::eq answer 43u64) 42u64 0u64))
+"
     );
     run_native(&source, "async-self-borrow-mutable", 42);
 }
@@ -421,7 +426,7 @@ fn selected_array_elements_source(mutable: bool) -> String {
     let (left_result, right_result, external_value) =
         if mutable { (44, 44, 42) } else { (42, 52, 50) };
     format!("{CHILD}
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
               (function (#fn work ((choose #bool) (external (#ref{suffix} (#array #u64 4)))) #u64
                 (#let-mut owner (#array #u64 3) (#array-of (#array #u64 3) 1u64 40u64 3u64))
                 (#let view (#ref{suffix} #u64) (#if choose
@@ -459,7 +464,8 @@ fn selected_array_elements_source(mutable: bool) -> String {
               (#assert (#u64::eq (#call run ((choose true) (cancel false))) {left_result}u64))
               (#assert (#u64::eq (#call run ((choose false) (cancel false))) {right_result}u64))
               (#assert (#u64::eq (#call run ((choose true) (cancel true))) 42u64))
-              (#return (#call run ((choose false) (cancel true))))\n")
+              (#return (#call run ((choose false) (cancel true))))
+")
 }
 
 #[test]
@@ -554,7 +560,7 @@ fn selected_array_future_keeps_the_callers_array_borrowed() {
 fn dormant_out_of_bounds_array_anchor_is_not_probed() {
     let source = format!(
         "{CHILD}
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
           (function (#fn work ((choose #bool)) #u64
             (#let left (#array #u64 3) (#array-of (#array #u64 3) 1u64 2u64 3u64))
             (#let right (#array #u64 4) (#array-of (#array #u64 4) 4u64 5u64 50u64 7u64))
@@ -568,7 +574,8 @@ fn dormant_out_of_bounds_array_anchor_is_not_probed() {
             (#match (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
               (#case (Work::Poll.Pending next) (#block (#drop next) (#continue)))
               (#case (Work::Poll.Ready value) (#block (#break value))))))
-          (#forget task) (#return answer)\n"
+          (#forget task) (#return answer)
+"
     );
     run_native(&source, "async-dormant-array-anchor", 52);
 }
@@ -590,7 +597,7 @@ fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
         };
         let (left_result, right_result) = if mutable { (44, 44) } else { (42, 52) };
         let source = format!("{CHILD}
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
               (function (#fn work ((choose #bool)) #u64
                 (#let-mut left #u64 40u64)
                 (#let-mut right #u64 50u64)
@@ -615,7 +622,8 @@ fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
 #fn main () #u64
               (#assert (#u64::eq (#call run ((choose true))) {left_result}u64))
               (#assert (#u64::eq (#call run ((choose false))) {right_result}u64))
-              (#return 42u64)\n");
+              (#return 42u64)
+");
         run_native(&source, "async-selected-internal-reference", 42);
     }
 }
@@ -637,7 +645,7 @@ fn mixed_internal_external_reference_retains_caller_storage() {
             "50u64"
         };
         let source = format!("{CHILD}
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
               (function (#fn work ((external (#ref{suffix} #u64)) (choose #bool)) #u64
                 (#let-mut owner #u64 40u64)
                 (#let view (#ref{suffix} #u64) (#if choose (#borrow{suffix} owner) external))
@@ -657,7 +665,8 @@ fn mixed_internal_external_reference_retains_caller_storage() {
               (#forget task) (#assert (#u64::eq external {external_value})) (#return answer)
 #fn main () #u64
               (#assert (#u64::eq (#call run ((choose true))) {inside}u64))
-              (#assert (#u64::eq (#call run ((choose false))) {outside}u64)) (#return 42u64)\n");
+              (#assert (#u64::eq (#call run ((choose false))) {outside}u64)) (#return 42u64)
+");
         run_native(&source, "async-mixed-reference", 42);
     }
 }
@@ -666,7 +675,7 @@ fn mixed_internal_external_reference_retains_caller_storage() {
 fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
     let source = format!("{CHILD}
 #struct Outside () ((other #u64) (selected #u64))
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
           (function (#fn work ((external (#ref-mut Outside)) (choose #bool)) #u64
             (#let-mut owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 80u64 40u64))
             (#let view (#ref-mut #u64) (#if choose
@@ -701,7 +710,8 @@ fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
           (#assert (#u64::eq (#call run ((choose true) (cancel false))) 44u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel false))) 44u64))
           (#assert (#u64::eq (#call run ((choose true) (cancel true))) 42u64))
-          (#assert (#u64::eq (#call run ((choose false) (cancel true))) 42u64)) (#return 42u64)\n");
+          (#assert (#u64::eq (#call run ((choose false) (cancel true))) 42u64)) (#return 42u64)
+");
     run_native(&source, "async-mixed-external-projection", 42);
 }
 
@@ -709,13 +719,14 @@ fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
 fn mixed_selected_future_cannot_erase_a_callers_borrow_or_escape_its_local() {
     let work = format!(
         "{CHILD}
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
           (function (#fn work ((external (#ref #u64)) (choose #bool)) #u64
             (#let owner #u64 40u64)
             (#let view (#ref #u64) (#if choose (#borrow owner) external))
             (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
             (#let answer #u64 (#u64::add-wrap (#deref view) extra))
-            (#drop view) (#return answer))))\n"
+            (#drop view) (#return answer))))
+"
     );
     let conflict = "(#set external 99u64)";
     let source = format!("{work}
@@ -742,7 +753,7 @@ fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
         "{CHILD}
 #struct Values () ((first #u64) (second #u64) (third #u64) (fourth #u64)
           (fifth #u64) (sixth #u64) (seventh #u64) (last #u64))
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
           (function (#fn work ((external (#ref-mut Values)) (choose #bool)) #u64
             (#let-mut owner Values (#struct-literal Values ((first 1u64) (second 2u64)
               (third 3u64) (fourth 4u64) (fifth 5u64) (sixth 6u64) (seventh 7u64) (last 40u64))))
@@ -766,7 +777,8 @@ fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
           (#assert (#u64::eq (#get external last) (#if choose 80u64 42u64))) (#return answer)
 #fn main () #u64
           (#assert (#u64::eq (#call run ((choose true))) 44u64))
-          (#assert (#u64::eq (#call run ((choose false))) 44u64)) (#return 42u64)\n"
+          (#assert (#u64::eq (#call run ((choose false))) 44u64)) (#return 42u64)
+"
     );
     run_native(&source, "async-mixed-aggregate-layout", 42);
 }
@@ -826,7 +838,7 @@ fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
 fn selected_internal_reference_can_switch_owners_on_loop_backedges() {
     let source = format!(
         "{CHILD}
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64 {CANCEL})
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) {CANCEL}
           (function (#fn work () #u64
             (#let left #u64 40u64) (#let right #u64 50u64)
             (#let-mut iteration #u64 0u64) (#let-mut total #u64 0u64)
@@ -843,7 +855,8 @@ fn selected_internal_reference_can_switch_owners_on_loop_backedges() {
               (#case (Work::Poll.Pending next) (#block (#drop next) (#continue)))
               (#case (Work::Poll.Ready value) (#block (#break value))))))
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
-          (#forget task) (#assert (#u64::eq answer 90u64)) (#return 42u64)\n"
+          (#forget task) (#assert (#u64::eq answer 90u64)) (#return 42u64)
+"
     );
     run_native(&source, "async-selected-internal-loop", 42);
 }
