@@ -10274,7 +10274,7 @@ impl FunctionContext<'_> {
         self.output.push_str("    push rax\n");
         self.stack_depth += 1;
         if input {
-            self.output.push_str("    push 0\n");
+            self.output.push_str("    xor eax, eax\n    push rax\n");
         } else {
             self.expression(&items[2])?;
             self.output.push_str("    push rax\n");
@@ -10285,7 +10285,9 @@ impl FunctionContext<'_> {
         self.output.push_str("    syscall\n");
         if input {
             // Tuple result ABI: rax=count/errno, rdx=byte (zero on EOF/error).
-            self.output.push_str("    movzx edx, BYTE PTR [rsp]\n");
+            // The entire slot was zeroed before the kernel wrote its low
+            // byte, so a full-width load is already zero extended.
+            self.output.push_str("    mov rdx, QWORD PTR [rsp]\n");
         }
         self.output.push_str("    add rsp, 16\n");
         self.stack_depth -= 2;

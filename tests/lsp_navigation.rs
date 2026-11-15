@@ -1135,8 +1135,7 @@ fn effect_targets_follow_library_reexports_to_canonical_declarations() {
             ),
             (
                 "library/storage.lim",
-                r#"#export state callback
-#static [[canonical-state|state]] #u64 0u64
+                r#"#static [[canonical-state|state]] #u64 0u64
 #fn [[canonical-function|callback]] {
   #params = (); #returns = (); #effects = (#io-output);
   #body = ((#return ()));
@@ -1155,14 +1154,13 @@ fn effect_targets_follow_library_reexports_to_canonical_declarations() {
 
 #[test]
 fn generator_effect_shaped_data_keeps_existing_qualification_roles() {
-    run(
-        r#"#fn [[leaf|leaf]] {
+    let input = r#"#fn [[leaf|leaf]] {
   #params = (); #returns = (); #body = ((#return ()));
 }
-#gn ignore (value) '()
+#gn ignore (value) (#gn-list)
 #generate ignore (#effects ((#effects-of (
   [[literal|leaf]] [[qualified|@leaf]]))))
-"#,
-        &[("literal", &[]), ("qualified", &["leaf"])],
-    );
+"#;
+    lim::parse_program(&annotated(input).0).unwrap();
+    run(input, &[("literal", &[]), ("qualified", &["leaf"])]);
 }

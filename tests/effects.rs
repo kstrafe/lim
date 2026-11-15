@@ -17,6 +17,7 @@ const STORE: &str = "(#unsafe (#atomic-store (#borrow counter) 1u64 #memory-rela
 fn unannotated_pure_functions_and_compile_time_constants_remain_valid() {
     check("#const answer #u64 42u64\n#fn main { #params = (); #returns = #u64; #body = ( (#return answer) ); }").unwrap();
     check(&function("main", "#effects = ();", "")).unwrap();
+    check("#static counters (#array (#atomic #usize) 2) (#array-of (#array (#atomic #usize) 2) (#atomic-init #usize 0usize) (#atomic-init #usize 0usize))").unwrap();
 }
 
 #[test]
@@ -133,7 +134,7 @@ fn fixed_byte_io_selects_target_syscalls_in_native_lowering() {
     let program = lim::parse_program(BYTE_ECHO).unwrap();
     let x86 = lim::generate_assembly_for_target(&program, lim::TargetDescription::X86_64_SYSTEM_V)
         .unwrap();
-    assert!(x86.contains("movzx edx, BYTE PTR [rsp]"), "{x86}");
+    assert!(x86.contains("xor eax, eax\n    syscall"), "{x86}");
     assert!(x86.contains("mov eax, 1\n    syscall"), "{x86}");
     let arm =
         lim::generate_assembly_for_target(&program, lim::TargetDescription::AARCH64_LINUX).unwrap();
@@ -151,7 +152,6 @@ fn fixed_byte_io_executes_a_real_input_output_round_trip() {
     };
     let scratch = support::Scratch::new("effect-byte-io");
     let input = scratch.path().join("input");
-    fs::write(&input, b"Q").unwrap();
     let program = lim::parse_program(BYTE_ECHO).unwrap();
     let assembly =
         lim::generate_assembly_for_target(&program, lim::TargetDescription::X86_64_SYSTEM_V)
@@ -165,15 +165,18 @@ fn fixed_byte_io_executes_a_real_input_output_round_trip() {
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
     .unwrap();
-    let (status, stdout, stderr) = support::run(
-        &mut Command::new(binary).stdin(Stdio::from(fs::File::open(input).unwrap())),
-        Duration::from_secs(3),
-        1024,
-    )
-    .unwrap();
-    assert_eq!(status.code(), Some(0), "{stderr:?}");
-    assert_eq!(stdout, b"Q");
-    assert!(stderr.is_empty());
+    for bytes in [b"Q".as_slice(), b"\xff".as_slice(), b"".as_slice()] {
+        fs::write(&input, bytes).unwrap();
+        let (status, stdout, stderr) = support::run(
+            &mut Command::new(&binary).stdin(Stdio::from(fs::File::open(&input).unwrap())),
+            Duration::from_secs(3),
+            1024,
+        )
+        .unwrap();
+        assert_eq!(status.code(), Some(i32::from(bytes.is_empty())), "{stderr:?}");
+        assert_eq!(stdout, if bytes.is_empty() { b"\0" } else { bytes });
+        assert!(stderr.is_empty());
+    }
 }
 
 #[test]

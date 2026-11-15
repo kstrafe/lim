@@ -523,7 +523,12 @@ fn check_initializers(
                 Some(Expr::Symbol(head))
                     if crate::is_builtin_head(head)
                         && crate::typed_body::NumericOperation::parse(head).is_none()
-                        && !local_primitive(head) =>
+                        && !local_primitive(head)
+                        // Explicit constructor operands can contain type
+                        // syntax such as (#atomic #usize). These are not
+                        // executed operations. Their children still undergo
+                        // this walk, so runtime operands remain checked.
+                        && crate::parse_type(Some(expr)).is_err() =>
                 {
                     required = Some(Effect::Io)
                 }
