@@ -377,7 +377,7 @@ pub(super) fn observation_type(
     }
 }
 
-pub(super) fn lower(program: &mut Program) -> Result<(), String> {
+pub(super) fn lower(program: &mut Program) -> Result<(), crate::SourceError> {
     // Validate even unused declarations rather than silently dropping an
     // unsupported constraint inside an uninspected container.
     for item in &program.items {
@@ -475,6 +475,7 @@ pub(super) fn lower(program: &mut Program) -> Result<(), String> {
             .result_constraints
             .extend(additions.result_constraints);
     }
+    super::prerequisites::expand(program)?;
     let instrumented = program.contracts.instrumented;
     for (name, f) in originals {
         let clauses = program.contracts.clauses[&name].clone();
@@ -497,9 +498,8 @@ pub(super) fn lower(program: &mut Program) -> Result<(), String> {
         );
         if instrumented {
             entry.extend(
-                clauses
-                    .requires
-                    .iter()
+                program.contracts.effective_requires[&name]
+                    .ordered()
                     .map(|p| assertion(observation(p, &locals, program))),
             );
             let mut old = Vec::new();

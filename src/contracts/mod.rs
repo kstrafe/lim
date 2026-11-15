@@ -1,6 +1,7 @@
 //! Predicate evidence checked by local dataflow. No symbolic execution or solver.
 mod flow;
 mod lowering;
+pub(crate) mod prerequisites;
 mod summaries;
 
 use crate::{Expr, Function, Item, Program, SourceExpression, Statement, Type};
@@ -25,6 +26,8 @@ pub(crate) struct Metadata {
     pub originals: BTreeMap<String, Function>,
     pub clauses: BTreeMap<String, Clauses>,
     pub refinements: BTreeMap<String, Refinement>,
+    /// Written requirements remain in clauses; this graph is rebuilt per parse.
+    pub effective_requires: BTreeMap<String, prerequisites::Requirements>,
     pub instrumented: bool,
     pub lowered_items: Vec<Item>,
     pub planning_originals: BTreeMap<String, Function>,

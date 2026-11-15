@@ -1,7 +1,7 @@
 use super::summaries::{Location, Summary};
 use super::*;
 use crate::typecheck::{AnalysisError, CheckedProgram};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 const FACT_LIMIT: usize = 4096;
 const STEP_LIMIT: usize = 200_000;
@@ -478,6 +478,40 @@ impl Engine<'_, '_> {
         .map_err(|e| self.error(e))
     }
     fn predicate(&mut self, e: &Expr, s: &mut State, assumed: bool) -> Result<Fact, AnalysisError> {
+        let mut fact = self.predicate_base(e, s, assumed)?;
+        if let Some(Expr::Function(name)) = parts(e).first() {
+            let requirements = self.program().contracts.effective_requires[name].clone();
+            if !requirements.nodes.is_empty() {
+                let f = self.program().contracts.originals[name].clone();
+                let mut interface = self.snapshot(s)?;
+                for (parameter, expression) in f.parameters.iter().zip(&parts(e)[1..]) {
+                    let mut value = self.spec_value(expression, s)?;
+                    if matches!(
+                        expression,
+                        Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Float(_)
+                    ) {
+                        value.ty = parameter.ty.clone();
+                    }
+                    interface.values.insert(parameter.name.clone(), value);
+                }
+                // A predicate's validity also depends on the observations that
+                // keep its declared prerequisites valid. Never infer facts from
+                // predicate bodies, and never recursively enumerate DAG paths.
+                let mut dependencies = std::mem::take(&mut fact.dependencies)
+                    .into_iter().collect::<BTreeSet<_>>();
+                for expression in requirements.ordered() {
+                    let prerequisite = self.predicate_base(expression, &mut interface, assumed)?;
+                    for dependency in prerequisite.dependencies {
+                        self.charge(location_weight(&dependency))?;
+                        dependencies.insert(dependency);
+                    }
+                }
+                fact.dependencies = dependencies.into_iter().collect();
+            }
+        }
+        Ok(fact)
+    }
+    fn predicate_base(&mut self, e: &Expr, s: &mut State, assumed: bool) -> Result<Fact, AnalysisError> {
         self.validate_spec(e)?;
         let xs = parts(e);
         if let Some(input_type) = comparison_type(e) {
@@ -515,17 +549,6 @@ impl Engine<'_, '_> {
         if !summary.pure || summary.unknown_write {
             return Err(self.error(format!(
                 "predicate '{name}' must be pure, with explicit stable read dependencies"
-            )));
-        }
-        if self
-            .program()
-            .contracts
-            .clauses
-            .get(name)
-            .is_some_and(|c| !c.requires.is_empty())
-        {
-            return Err(self.error(format!(
-                "predicate '{name}' must accept its base inputs without predicate requirements"
             )));
         }
         if xs.len() != f.parameters.len() + 1 {
@@ -935,13 +958,7 @@ impl Engine<'_, '_> {
             .cloned()
             .ok_or_else(|| self.error(format!("missing function interface for '{name}'")))?;
         let validates = self.resolve(&f.return_type) == Type::Bool
-            && self.summaries.get(name).is_some_and(|s| s.pure)
-            && self
-                .program()
-                .contracts
-                .clauses
-                .get(name)
-                .is_none_or(|c| c.requires.is_empty());
+            && self.summaries.get(name).is_some_and(|s| s.pure);
         if validates {
             self.validation_depth += 1;
         }
@@ -981,9 +998,25 @@ impl Engine<'_, '_> {
         for (param, arg) in f.parameters.iter().zip(&args) {
             interface.values.insert(param.name.clone(), arg.clone());
         }
-        for p in &clauses.requires {
-            let fact = self.predicate(p, &mut interface, false)?;
-            self.require(s, &fact)?;
+        let requirements = self.program().contracts.effective_requires[name].clone();
+        for &node in &requirements.order {
+            let fact = self.predicate(&requirements.nodes[node].expression, &mut interface, false)?;
+            if let Err(mut error) = self.require(s, &fact) {
+                let call = Expr::List(
+                    std::iter::once(Expr::Function(name.into()))
+                        .chain(expressions.iter().cloned())
+                        .collect::<Vec<_>>()
+                        .into(),
+                );
+                error.2 = super::prerequisites::call_span(
+                    self.program(), &self.function, self.span, &call,
+                ).or(error.2);
+                error.0.push_str(&format!(
+                    "; call '{name}' -> root requirement -> prerequisite -> missing fact"
+                ));
+                error.3.extend(requirements.trace(node));
+                return Err(error);
+            }
         }
         let entry = self.snapshot(&interface)?;
         let mut preserved = Vec::new();
@@ -1071,13 +1104,11 @@ impl Engine<'_, '_> {
                     .collect::<Vec<_>>()
                     .into(),
             );
-            // Functions with preconditions are valid calls, but cannot serve as
-            // unconditionally defined predicates.
-            if clauses.requires.is_empty() {
-                result
-                    .truth
-                    .push(self.predicate(&predicate, &mut evidence_state, false)?);
-            }
+            // The call has checked its prerequisites. Only #if-valid consumes
+            // this truth evidence, after the actual predicate succeeds.
+            result
+                .truth
+                .push(self.predicate(&predicate, &mut evidence_state, false)?);
         }
         Ok(result)
     }
@@ -2283,7 +2314,7 @@ pub(super) fn check(checked: &CheckedProgram<'_>) -> Result<(), AnalysisError> {
             s.values.insert(param.name.clone(), value);
         }
         let clauses = p.contracts.clauses.get(name).cloned().unwrap_or_default();
-        for pred in &clauses.requires {
+        for pred in p.contracts.effective_requires[name].ordered() {
             let fact = engine.predicate(pred, &mut s, false)?;
             engine.add(&mut s, fact)?;
         }
