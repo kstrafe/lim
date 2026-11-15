@@ -1,0 +1,15 @@
+#std
+
+#fn main {
+  #params = {};
+  #returns = ();
+  #body:
+    #let greeting (#array #char 13) "Hello, world!";
+    #let message String:
+      #match String::from-chars { text = (#borrow-slice greeting); }
+        (#case (StringCreateResult.StringCreated owned) owned)
+        (#case (StringCreateResult.StringCreateFailed error) (#panic))
+    #assert [#i64; (#println (#borrow message)) == 0i64];
+    String::free { string = message; };
+    #return ();
+}
