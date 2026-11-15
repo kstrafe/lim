@@ -1,0 +1,20 @@
+// Every returned field has an explicit type and an explicit binding or ignore.
+#fn parse-number {
+  #params = ();
+  #returns = { value = #u64; consumed = #usize; };
+  #effects = ();
+  #body = ((#return (#record-literal { value = #u64; consumed = #usize; } {
+          value = 42u64;
+          consumed = 2usize;
+        })));
+}
+
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #effects = ();
+  #body = (
+    (#let { value = (#bind parsed #u64); consumed = (#ignore #usize); } = (parse-number {}))
+    (#return parsed)
+  );
+}

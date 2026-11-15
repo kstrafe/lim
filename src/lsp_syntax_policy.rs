@@ -53,6 +53,7 @@ mod tests {
         "atomic-load",
         "atomic-store",
         "await",
+        "bind", // Typed anonymous field binding; local enters scope after RHS.
         "block",
         "body", // Generic inline/indented ':' is punctuation, excluded from key/reference spans.
         "bool",
@@ -141,6 +142,7 @@ mod tests {
         "i8",
         "if",
         "if-let",
+        "ignore", // Explicit field type only; no binding or marker target.
         "index",
         "index-proven",
         "isize",
@@ -202,6 +204,7 @@ mod tests {
         "ptr-read",
         "ptr-write",
         "range",
+        "record-literal", // Shape types and lexical field values; labels are inert.
         "ref",
         "ref-mut",
         "ref-ptr",

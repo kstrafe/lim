@@ -1126,6 +1126,11 @@ impl Server<'_> {
         name: &str,
         variant_only: bool,
     ) -> Option<String> {
+        // The semantic recovery path must not reinterpret structural source
+        // labels as a jump to a compiler-interned record's whole source range.
+        if crate::anonymous_records::is_record(name) {
+            return None;
+        }
         let span = if variant_only {
             variant_definition_span(program, name)?
         } else {

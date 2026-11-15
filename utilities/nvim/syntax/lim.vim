@@ -33,6 +33,8 @@ syn match limType +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\
 syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|tuple\|pin-ref\|pin-ref-mut\|pin-own\|pin-shared-own\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)::[^[:space:](){}=;\[\]"'`,@#]\++
 syn match limDeclaration +#\%(alias\|fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|dispatch-fn\|dispatch-case\|type\|static\|let\|let-mut\|const\|export\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
+" Anonymous record constructors and typed binding markers use exact tokens.
+syn match limRecord +#\%(bind\|ignore\|record-literal\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limContract +#\%(requires\|ensures\|preserves\|assume\|if-valid\|where\|old\|result\|index-proven\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 " Effect interfaces and fixed byte I/O use exact builtin spellings.
 let s:effect_end = '\ze\%($\|[[:space:](){}=;\[\]"''`,@#]'
@@ -74,7 +76,7 @@ syn match limParen4 "[(){}\[\]]" contained
 syn match limParen5 "[(){}\[\]]" contained
 syn match limParen6 "[(){}\[\]]" contained
 syn cluster limForms contains=limSection,limSeparator,limContract,limKeyword,limBuiltinValue,limGenerated,limExternal,limBundledPath,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
-syn cluster limForms add=limEffect,limIO
+syn cluster limForms add=limEffect,limIO,limRecord
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
 syn region limNest1 transparent start="{" end="}" contains=@limForms,limNest2,limParen1
 syn region limNest1 transparent start="\[" end="\]" contains=@limForms,limNest2,limParen1
@@ -114,6 +116,7 @@ hi def link limDeclaration StorageClass
 hi def link limContract Keyword
 hi def link limEffect Keyword
 hi def link limIO Function
+hi def link limRecord Keyword
 hi def link limConditional Conditional
 hi def link limRepeat Repeat
 hi def link limControl Statement

@@ -346,3 +346,35 @@ inventory together with formatting and diagnostics.
 Resolve its suffix through the ordinary file declaration roles. Standard
 library declarations use canonical file identities and editor snapshots of the
 embedded module, preserving navigation when no source checkout exists.
+
+### Anonymous record return roles
+
+Anonymous return records and the first `#record-literal` operand contain field
+types. Only each field's type expression participates in type navigation;
+structural field labels have no definition target. The second constructor
+operand contains lexical value expressions evaluated in the surrounding
+scope. Its labels remain structural syntax, including when a same-spelled
+local or declaration exists.
+
+In `#let { field = (#bind local Type); other = (#ignore Type); } = value`,
+`local` is a declaration with its authored explicit type. Uses after the
+statement resolve to that binder and hover shows the `#bind` annotation. New
+binders are unavailable on the initializer RHS and outside their lexical
+block. An ignore contributes only a type role and declares no name.
+`#bind`, `#ignore`, `#record-literal`, field labels, and the `=` delimiter have
+no declaration or hover target. Invalid duplicate patterns introduce no
+speculative locals. Compiler-generated layout declarations must not supply
+fallback targets for these intentionally inert source tokens.
+
+Explicit positional parameter constructors can contain record types. Their
+field annotations retain the same roles; `#arg` still targets the whole
+parameter type section and hover preserves its authored type. Source-role
+checks use explicit syntax and declarations, without inferring field types
+from initializer values. Public definition and stdio hover tests cover both
+successful semantic contexts and lexical recovery after an invalid RHS.
+
+Record diagnostics retain authored use-site spans after layout interning:
+duplicates and extra fields underline their label, mismatched binding types
+underline that field's annotation, and a rejected linear ignore underlines
+`#ignore`. A missing field underlines the incomplete value or pattern record.
+Equivalent declarations in other scopes cannot replace those error ranges.

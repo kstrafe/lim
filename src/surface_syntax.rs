@@ -855,7 +855,7 @@ impl<'a> Parser<'a> {
         } else {
             let params = require("#params")?;
             output.push(
-                if crate::positional_parameter_type(&params.expr).is_none() && params
+                if !crate::anonymous_records::positional_type_syntax(&params) && params
                     .children
                     .first()
                     .is_some_and(|node| matches!(node.expr, Expr::Symbol(_)))

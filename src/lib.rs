@@ -10,6 +10,7 @@ use std::{
 
 pub mod aarch64;
 mod analysis_error;
+mod anonymous_records;
 // Retain the lexical model only for differential regression tests. Production
 // borrowing is decided by checked places, callee contracts and typed flow.
 mod borrow_case;
@@ -5325,6 +5326,9 @@ fn is_builtin_form(name: &str) -> bool {
             | "struct"
             | "enum"
             | "enum-literal"
+            | "bind"
+            | "ignore"
+            | "record-literal"
             | "let"
             | "let-else"
             | "const"
@@ -5706,6 +5710,8 @@ fn load_imports_with_sources(
         &mut budget,
         config,
     )?;
+    anonymous_records::lower_source(&mut forms, &source_files)
+        .map_err(|error| error.attach(&source_files))?;
     file_access::resolve(
         &mut forms,
         &mut source_files,

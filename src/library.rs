@@ -312,6 +312,9 @@ impl Visibility {
         use_span: Span,
         representation: bool,
     ) -> Result<(), SourceError> {
+        if crate::anonymous_records::is_record(name) {
+            return Ok(());
+        }
         if !representation
             && self
                 .unstable
@@ -443,6 +446,36 @@ impl Visibility {
         }
         Ok(())
     }
+}
+
+/// Check each authored record shape before equal layouts are interned. Keeping
+/// definition-site authority here prevents deduplication from erasing a private
+/// field-type access, while preserving the authority of generated signatures.
+pub(crate) fn check_record_types(
+    forms: &[SpannedExpr],
+    files: &[SourceFile],
+    origins: &HashMap<u32, Span>,
+    definitions: &HashMap<u32, Span>,
+) -> Result<(), SourceError> {
+    let declarations = forms
+        .iter()
+        .flat_map(|form| {
+            crate::generator_provenance::declared_names(&form.expr)
+                .into_iter()
+                .map(move |name| (name.to_owned(), form.span))
+        })
+        .collect();
+    let mut visibility = Visibility::new(files, origins, declarations)?;
+    visibility.authorities.clone_from(definitions);
+    for form in forms {
+        if matches!(&form.expr, Expr::List(parts)
+            if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#struct")
+            && matches!(parts.get(1), Some(Expr::Symbol(name)) if crate::anonymous_records::is_record(name)))
+        {
+            visibility.syntax(form).map_err(|error| error.attach(files))?;
+        }
+    }
+    Ok(())
 }
 
 /// Check generator and helper access before interpretation erases declarations.
@@ -777,7 +810,9 @@ pub(crate) fn check(
         }
         visibility.signature(
             name,
-            types,
+            types.into_iter().flat_map(|ty| {
+                crate::anonymous_records::signature_types(ty, &declarations.structs)
+            }),
             span,
             program
                 .declaration_expressions

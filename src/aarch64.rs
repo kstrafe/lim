@@ -168,6 +168,66 @@ impl Layout<'_> {
         }
         Ok(words)
     }
+    /// Compile-time native Lim layout, including scalar types whose runtime
+    /// arithmetic is not implemented by this backend. Values use word slots.
+    fn native_layout(&self, ty: &Type, depth: usize) -> Result<(usize, usize)> {
+        if depth > 128 {
+            return Err(unsupported("recursive or deeply nested layout"));
+        }
+        let ty = self.resolve(ty)?;
+        let fields_layout = |fields: &[Type]| -> Result<(usize, usize)> {
+            fields
+                .iter()
+                .try_fold((0usize, 1usize), |(size, align), field| {
+                    let (field_size, field_align) = self.native_layout(field, depth + 1)?;
+                    Ok((
+                        size.checked_add(field_size)
+                            .ok_or("native layout size overflow")?,
+                        align.max(field_align),
+                    ))
+                })
+        };
+        match ty {
+            Type::Unit | Type::Never => Ok((0, 1)),
+            Type::I128 | Type::U128 | Type::Slice(_) | Type::MutableSlice(_) => Ok((16, 8)),
+            Type::Atomic(target) => self.native_layout(&target, depth + 1),
+            Type::Array(element, length) => {
+                let (size, align) = self.native_layout(&element, depth + 1)?;
+                Ok((
+                    size.checked_mul(length)
+                        .ok_or("native layout size overflow")?,
+                    align,
+                ))
+            }
+            Type::Tuple(fields) => fields_layout(&fields),
+            Type::Named(name) => {
+                if let Some(fields) = self.declarations.structs.get(&name) {
+                    fields_layout(
+                        &fields
+                            .iter()
+                            .map(|field| field.ty.clone())
+                            .collect::<Vec<_>>(),
+                    )
+                } else if let Some(variants) = self.declarations.enums.get(&name) {
+                    let mut payload = 0usize;
+                    for variant in variants {
+                        payload = payload.max(fields_layout(&variant.fields)?.0);
+                    }
+                    Ok((
+                        payload
+                            .checked_add(8)
+                            .ok_or("native layout size overflow")?,
+                        8,
+                    ))
+                } else {
+                    Err(unsupported(format!("native layout type '{name}'")))
+                }
+            }
+            Type::Generic(name) => Err(unsupported(format!("generic layout '{name}'"))),
+            _ => Ok((8, 8)),
+        }
+    }
+
     fn indirect(&self, ty: &Type) -> Result<bool> {
         let ty = self.resolve(ty)?;
         Ok(!matches!(ty, Type::Unit | Type::Never) && scalar(&ty).is_none())
@@ -932,6 +992,14 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
         let words = self.words(id)?;
         match head {
             "" if words == 0 => {}
+            "size-of" | "align-of" => {
+                let syntax = self.body.syntax(children[1], false);
+                let target = crate::parse_type(Some(&syntax))?;
+                let (size, align) = self.layout.native_layout(&target, 0)?;
+                let value = if head == "size-of" { size } else { align };
+                self.encoder.constant(9, value as u64);
+                self.store(9, destination);
+            }
             "literal" => {
                 let value = self.literal_bits(children[2])?;
                 self.encoder.constant(9, value);

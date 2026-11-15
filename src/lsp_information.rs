@@ -1,6 +1,6 @@
 //! Editor information uses the navigation resolver's declaration identities.
 //! Presentation reads authored spans instead of exposing compiler-private names.
-use super::navigation::{Index, binding_parts, generator_parameters};
+use super::navigation::{Index, binding_parts, generator_parameters, record_fields};
 use crate::{Expr, SourceFile, Span, SpannedExpr as Node, Type, editor::NavigationContext};
 
 pub(crate) struct Signature {
@@ -63,6 +63,8 @@ fn text(context: &NavigationContext, node: &Node) -> String {
 }
 fn typed(node: &Node) -> bool {
     crate::parse_type(Some(&crate::normalize_keywords(node.expr.clone()))).is_ok()
+        || record_fields(node)
+            .is_some_and(|fields| fields.iter().all(|(_, kind)| typed(kind)))
 }
 fn token(node: &Node, file: u32, byte: usize) -> Option<&Node> {
     if node.span.source_id != file || byte < node.span.start || byte >= node.span.end {
@@ -290,8 +292,8 @@ fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signat
     let ni = name_index(node);
     let name = text(context, node.children.get(ni)?);
     let positional = node.children.get(ni + 1)
-        .and_then(|params| crate::positional_parameter_type(&params.expr));
-    let parameters = if positional.is_some() {
+        .is_some_and(crate::anonymous_records::positional_type_syntax);
+    let parameters = if positional {
         vec![("#arg".into(), text(context, node.children.get(ni + 1)?))]
     } else { node
         .children
@@ -323,7 +325,7 @@ fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signat
     } else {
         format!("#{}", head(node))
     };
-    let label = if positional.is_some() {
+    let label = if positional {
         format!("({prefix} {name} {} {})", parameters[0].1, text(context, return_type))
     } else { format!(
         "({prefix} {name} ({}) {})",
@@ -454,9 +456,12 @@ fn description(context: &NavigationContext, node: &Node, target: Span) -> Option
         );
     }
     let xs = &node.children;
+    if head(node) == "bind" && xs.len() == 3 && xs[1].span == target {
+        return Some(format!("(#bind {} {})", text(context, &xs[1]), text(context, &xs[2])));
+    }
     if is_function(node) {
         if let Some(params) = xs.get(name_index(node) + 1).filter(|params| params.span == target) {
-            if crate::positional_parameter_type(&params.expr).is_some() {
+            if crate::anonymous_records::positional_type_syntax(params) {
                 return Some(format!("#arg {}", text(context, params)));
             }
         }

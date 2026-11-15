@@ -1501,3 +1501,151 @@ fn capability_annotations_resolve_all_implementations_without_using_type_roles()
 #gn emit { type = (ty [[reference|Copy]]); } `()
 "#, &[("reference", &["first", "second"])]);
 }
+
+#[test]
+fn anonymous_record_roles_keep_types_values_and_bindings_separate() {
+    run(
+        r#"
+#type [[number|Number]] #u64
+#type [[count|Count]] #usize
+#fn [[make|parse]] {
+ #params = { [[input|input]] = Number; };
+ #returns = { [[return-label|value]] = [[return-type|Number]]; consumed = Count; };
+ #effects = ();
+ #body = ((#let [[local-value|value]] Number input)
+  (#return (#[[literal-marker|record-literal]]
+   { [[shape-label|value]] = [[literal-type|Number]]; consumed = Count; }
+   { [[value-label|value]] = [[literal-value|value]]; consumed = 2usize; })));
+}
+#fn main { #params = (); #returns = #u64; #effects = (); #body = (
+ (#let [[outer|value]] Number 41u64)
+ (#let { [[pattern-label|value]] = (#[[bind-marker|bind]] [[bound|parsed]] [[bind-type|Number]]);
+          [[ignore-label|consumed]] = (#[[ignore-marker|ignore]] [[ignore-type|Count]]); }
+   [[equals|=]] ([[callee|parse]] { [[call-label|input]] = [[rhs-value|value]]; }))
+ (#return [[later|parsed]])); }
+"#,
+        &[
+            ("return-label", &[]),
+            ("return-type", &["number"]),
+            ("literal-marker", &[]),
+            ("shape-label", &[]),
+            ("literal-type", &["number"]),
+            ("value-label", &[]),
+            ("literal-value", &["local-value"]),
+            ("pattern-label", &[]),
+            ("bind-marker", &[]),
+            ("bound", &["bound"]),
+            ("bind-type", &["number"]),
+            ("ignore-label", &[]),
+            ("ignore-marker", &[]),
+            ("ignore-type", &["count"]),
+            ("equals", &[]),
+            ("callee", &["make"]),
+            ("call-label", &["input"]),
+            ("rhs-value", &["outer"]),
+            ("later", &["bound"]),
+        ],
+    );
+}
+
+#[test]
+fn anonymous_record_binders_enter_scope_after_rhs_and_stay_in_their_block() {
+    run(
+        r#"
+#fn [[make|parse]] { #params = { input = #u64; };
+ #returns = { value = #u64; }; #effects = ();
+ #body = ((#return (#record-literal { value = #u64; } { value = input; }))); }
+#fn main { #params = (); #returns = #u64; #effects = (); #body = (
+ (#let [[outer|seed]] #u64 42u64)
+ (#block
+  (#let { value = (#bind [[inner|parsed]] #u64); } =
+    (parse { input = [[rhs|seed]]; }))
+  (#forget [[inside|parsed]]))
+ (#forget [[outside|parsed]]) (#return seed)); }
+"#,
+        &[
+            ("rhs", &["outer"]),
+            ("inside", &["inner"]),
+            ("outside", &[]),
+        ],
+    );
+    run(
+        r#"
+#fn parse { #params = { input = #u64; }; #returns = { value = #u64; }; #effects = ();
+ #body = ((#return (#record-literal { value = #u64; } { value = input; }))); }
+#fn main { #params = (); #returns = #u64; #effects = (); #body = (
+ (#let { value = (#bind [[bound|parsed]] #u64); } = (parse { input = [[rhs|parsed]]; }))
+ (#return [[later|parsed]])); }
+"#,
+        &[("rhs", &[]), ("later", &["bound"])],
+    );
+}
+
+#[test]
+fn positional_record_type_constructors_keep_aliases_and_arg_roles() {
+    run(
+        r#"
+#type [[alias|Number]] #u64
+#fn read { #params = (#ref { [[label|value]] = [[type-use|Number]]; });
+ #returns = #u64; #effects = (); #body = ((#return (#get #arg value))); }
+#fn second { #params = [[whole|(#tuple (#ref { value = Number; }) #u64)]];
+ #returns = #u64; #effects = (); #body = ((#return (#get [[arg|#arg]] 1))); }
+#fn main { #params = (); #returns = #u64; #effects = (); #body = ((#return 42u64)); }
+"#,
+        &[
+            ("label", &[]),
+            ("type-use", &["alias"]),
+            ("arg", &["whole"]),
+        ],
+    );
+}
+
+#[test]
+fn anonymous_record_imported_aliases_survive_interning_without_label_targets() {
+    run_with_files(
+        r#"
+#alias ValueType = ./schema/lib.lim::Number
+#alias CountType = ./schema/lib.lim::Count
+#alias parse = ./schema/lib.lim::parse
+#type [[result-def|Result]] { [[alias-label|value]] = [[alias-type|ValueType]]; consumed = CountType; }
+#fn mirror { #params = { [[input-def|input]] = ValueType; };
+ #returns = { [[return-label|value]] = [[return-type|ValueType]]; consumed = CountType; }; #effects = ();
+ #body = ((#return (#record-literal
+   { [[shape-label|value]] = [[literal-type|ValueType]]; consumed = CountType; }
+   { [[value-label|value]] = [[literal-value|input]]; consumed = 2usize; })));
+}
+#fn inspect { #params = (#ref [[result-use|Result]]); #returns = #u64; #effects = ();
+ #body = ((#return (#get #arg value))); }
+#fn main { #params = (); #returns = #u64; #effects = (); #body = (
+ (#let { [[bind-label|value]] = (#bind [[bound|parsed]] [[bind-type|ValueType]]);
+   consumed = (#ignore [[ignore-type|CountType]]); } = (parse { input = 42u64; }))
+ (#return [[later|parsed]])); }
+"#,
+        &[(
+            "schema/lib.lim",
+            r#"
+#export Number Count parse
+#type [[number-def|Number]] #u64
+#type [[count-def|Count]] #usize
+#fn parse { #params = { input = Number; }; #returns = { value = Number; consumed = Count; };
+ #effects = (); #body = ((#return (#record-literal
+   { value = Number; consumed = Count; } { value = input; consumed = 2usize; }))); }
+"#,
+        )],
+        &[
+            ("alias-label", &[]),
+            ("alias-type", &["number-def"]),
+            ("return-label", &[]),
+            ("return-type", &["number-def"]),
+            ("shape-label", &[]),
+            ("literal-type", &["number-def"]),
+            ("value-label", &[]),
+            ("literal-value", &["input-def"]),
+            ("result-use", &["result-def"]),
+            ("bind-label", &[]),
+            ("bind-type", &["number-def"]),
+            ("ignore-type", &["count-def"]),
+            ("later", &["bound"]),
+        ],
+    );
+}

@@ -156,7 +156,11 @@ fn record_manifest(artifact: &Artifact, files: &[SourceFile]) {
     });
 }
 
-fn generated_case(form: &SpannedExpr, variant: &str) -> Option<(Span, Span, Span, Span)> {
+fn generated_case(
+    form: &SpannedExpr,
+    variant: &str,
+    handler: &str,
+) -> Option<(Span, Span, Span, Span)> {
     if matches!(
         head(form),
         "#case" | "#case-ref" | "#case-ref-mut" | "#case-pin" | "#case-pin-mut"
@@ -168,18 +172,27 @@ fn generated_case(form: &SpannedExpr, variant: &str) -> Option<(Span, Span, Span
             pattern
         };
         if matches!(&selected.expr, Expr::Symbol(name) if name == variant) {
-            let call = child(form, 2);
+            fn handler_span(form: &SpannedExpr, handler: &str) -> Option<Span> {
+                if head(form) == "#call"
+                    && matches!(&child(form, 1).expr, Expr::Symbol(name) if name == handler)
+                {
+                    return Some(child(form, 1).span);
+                }
+                form.children
+                    .iter()
+                    .find_map(|child| handler_span(child, handler))
+            }
             return Some((
                 form.span,
                 child(form, 0).span,
                 selected.span,
-                child(call, 1).span,
+                handler_span(child(form, 2), handler)?,
             ));
         }
     }
     form.children
         .iter()
-        .find_map(|child| generated_case(child, variant))
+        .find_map(|child| generated_case(child, variant, handler))
 }
 
 /// Current-compilation manifest for editor sidecars. It does not confer
@@ -432,11 +445,148 @@ fn location(files: &[SourceFile], mut span: Span, invocations: &HashMap<u32, Spa
     format!("{}:{}", path.replace(['\r', '\n'], " "), span.line)
 }
 
+/// Render structural schemas rather than compiler-owned interning names. The
+/// resulting source still passes the ordinary record lowering and validation.
+struct RecordSource<'a> {
+    shapes: &'a HashMap<String, Vec<crate::Field>>,
+    aliases: &'a HashMap<String, Type>,
+}
+impl RecordSource<'_> {
+    fn type_expression(&self, ty: &Type) -> Result<Expr, String> {
+        // Equivalent structural layouts may retain field spellings from a
+        // different module. Emit resolved types rather than that module's
+        // private scalar aliases; ordinary underlying-type visibility remains.
+        let resolved = crate::typed_ir::resolve_type(ty, self.aliases)?;
+        Ok(crate::parse(&crate::type_source(&resolved))?.remove(0).expr)
+    }
+
+    fn fields(&self, name: &str) -> Option<&[crate::Field]> {
+        let Type::Named(owner) =
+            crate::typed_ir::resolve_type(&Type::Named(name.into()), self.aliases).ok()?
+        else {
+            return None;
+        };
+        self.shapes.get(&owner).map(Vec::as_slice)
+    }
+
+    fn pairs(&self, expression: &Expr) -> Result<String, String> {
+        let Expr::List(entries) = expression else {
+            return Err("expected generated record pairs".into());
+        };
+        let mut source = String::from("{");
+        for entry in entries {
+            let Expr::List(pair) = entry else {
+                return Err("expected generated record entry".into());
+            };
+            if pair.len() != 2 {
+                return Err("expected generated record key and value".into());
+            }
+            source.push_str(&format!(
+                " {} = {};",
+                crate::expression_source(&pair[0])?,
+                self.expression(&pair[1])?
+            ));
+        }
+        source.push_str(" }");
+        Ok(source)
+    }
+
+    fn expression(&self, expression: &Expr) -> Result<String, String> {
+        if let Expr::Symbol(name) = expression {
+            if let Some(fields) = self.fields(name) {
+                let entries = fields
+                    .iter()
+                    .map(|field| Ok(list([sym(&field.name), self.type_expression(&field.ty)?])))
+                    .collect::<Result<Vec<_>, String>>()?;
+                return self.pairs(&list(entries));
+            }
+        }
+        let Expr::List(parts) = expression else {
+            return crate::expression_source(expression);
+        };
+        match parts.as_slice() {
+            [Expr::Symbol(head), pattern, Expr::Symbol(equal), call]
+                if head == "#let" && equal == "=" =>
+            {
+                Ok(format!(
+                    "(#let {} = {})",
+                    self.pairs(pattern)?,
+                    self.expression(call)?
+                ))
+            }
+            [Expr::Symbol(head), schema, values] if head == "#record-literal" => Ok(format!(
+                "(#record-literal {} {})",
+                self.expression(schema)?,
+                self.pairs(values)?
+            )),
+            _ => Ok(format!(
+                "({})",
+                parts
+                    .iter()
+                    .map(|part| self.expression(part))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(" ")
+            )),
+        }
+    }
+
+    fn function(&self, expression: &Expr) -> Result<String, String> {
+        if self.shapes.is_empty() {
+            return crate::declaration_source(expression);
+        }
+        let Expr::List(parts) = expression else {
+            unreachable!()
+        };
+        let parameters = match &parts[2] {
+            Expr::List(parameters) if parameters.iter().all(|parameter| matches!(parameter,
+                Expr::List(pair) if pair.len() == 2 && matches!(pair.first(), Some(Expr::Symbol(name)) if !name.starts_with('#')))) => self.pairs(&parts[2])?,
+            parameters => self.expression(parameters)?,
+        };
+        let mut source = format!(
+            "#fn {} {{\n  #params = {parameters};\n  #returns = {};\n",
+            crate::expression_source(&parts[1])?,
+            self.expression(&parts[3])?
+        );
+        let mut index = 4;
+        if let Some(Expr::List(clause)) = parts
+            .get(index)
+            .filter(|part| crate::effects::is_clause(part))
+        {
+            source.push_str(&format!("  #effects = {};\n", self.expression(&clause[1])?));
+            index += 1;
+        }
+        let mut contracts: BTreeMap<&str, Vec<Expr>> = BTreeMap::new();
+        while let Some(Expr::List(clause)) = parts.get(index) {
+            let Some(Expr::Symbol(head)) = clause.first() else {
+                break;
+            };
+            if !matches!(head.as_str(), "#requires" | "#ensures" | "#preserves") {
+                break;
+            }
+            contracts.entry(head).or_default().push(clause[1].clone());
+            index += 1;
+        }
+        for (head, predicates) in contracts {
+            source.push_str(&format!(
+                "  {head} = {};\n",
+                self.expression(&list(predicates))?
+            ));
+        }
+        source.push_str("  #body = (\n");
+        for statement in &parts[index..] {
+            source.push_str(&format!("    {}\n", self.expression(statement)?));
+        }
+        source.push_str("  );\n}");
+        Ok(source)
+    }
+}
+
 fn emit(
     declaration: &Declaration,
     variants: &[crate::EnumVariant],
     registrations: &BTreeMap<String, Vec<Registration>>,
     forbidden: &HashSet<String>,
+    records: &RecordSource<'_>,
 ) -> Result<Expr, SourceError> {
     let mut used = forbidden.clone();
     used.extend(
@@ -477,11 +627,40 @@ fn emit(
             Some(payload) => list([sym(&variant.name), sym(&payload)]),
             None => sym(&variant.name),
         };
-        cases.push(list([
-            sym(declaration.mode.case()),
-            pattern,
-            list([sym("#call"), sym(&registration.handler), list(arguments)]),
-        ]));
+        let mut result = list([sym("#call"), sym(&registration.handler), list(arguments)]);
+        let returned =
+            crate::typed_ir::resolve_type(&declaration.function.return_type, records.aliases)
+                .map_err(|message| error(message, declaration.fields["#returns"].span))?;
+        if let Type::Named(owner) = &returned {
+            if let Some(fields) = records.shapes.get(owner) {
+                let mut bindings = Vec::new();
+                let mut values = Vec::new();
+                for field in fields {
+                    let local = loop {
+                        let candidate = format!("dispatch-result-{serial}");
+                        serial += 1;
+                        if used.insert(candidate.clone()) {
+                            break candidate;
+                        }
+                    };
+                    bindings.push(list([
+                        sym(&field.name),
+                        list([
+                            sym("#bind"),
+                            sym(&local),
+                            records.type_expression(&field.ty)?,
+                        ]),
+                    ]));
+                    values.push(list([sym(&field.name), sym(&local)]));
+                }
+                result = list([
+                    sym("#block"),
+                    list([sym("#let"), list(bindings), sym("="), result]),
+                    list([sym("#record-literal"), sym(owner), list(values)]),
+                ]);
+            }
+        }
+        cases.push(list([sym(declaration.mode.case()), pattern, result]));
     }
     let mut function = vec![
         sym("#fn"),
@@ -531,13 +710,18 @@ pub(crate) fn materialize(
     let mut aliases = HashMap::new();
     let mut enums = HashMap::new();
     let mut functions = HashMap::new();
+    let mut record_shapes = HashMap::new();
     let mut forbidden = HashSet::new();
     for form in &forms {
         for name in crate::generator_provenance::declared_names(&form.expr) {
             forbidden.insert(crate::file_access::local_name(name).to_owned());
         }
         match head(form) {
-            "#type" | "#enum" => {
+            "#type" | "#enum" | "#struct"
+                if head(form) != "#struct"
+                    || matches!(&child(form, 1).expr,
+                    Expr::Symbol(name) if crate::anonymous_records::is_record(name)) =>
+            {
                 let item = crate::parse_item(&crate::normalize_keywords(form.expr.clone()))
                     .map_err(|message| error(message, form.span))?;
                 match item {
@@ -546,6 +730,11 @@ pub(crate) fn materialize(
                     }
                     Item::Enum { name, variants, .. } => {
                         enums.insert(name, (variants, form.clone()));
+                    }
+                    Item::Struct { name, fields, .. }
+                        if crate::anonymous_records::is_record(&name) =>
+                    {
+                        record_shapes.insert(name, fields);
                     }
                     _ => {}
                 }
@@ -804,7 +993,17 @@ pub(crate) fn materialize(
                 ));
             }
         }
-        let expression = emit(&declaration, variants, &registrations, &forbidden)?;
+        let record_source = RecordSource {
+            shapes: &record_shapes,
+            aliases: &aliases,
+        };
+        let expression = emit(
+            &declaration,
+            variants,
+            &registrations,
+            &forbidden,
+            &record_source,
+        )?;
         let definition = crate::generator_authority::source_context(
             declaration.source.span,
             &origins.definitions,
@@ -854,8 +1053,11 @@ pub(crate) fn materialize(
                 ))
             })
             .collect::<Result<Vec<_>, String>>()?;
-        let key = format!("lim-distributed-dispatch-v1\ncompiler={}\nimplementation={}\ndeclaration={:?}\nenum={:?}\nresolved-enum={resolved_enum:?}\ncases={resolved_cases:?}\nlowering={:032x}\ncontext={context_header}", env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), declaration.source.expr, enum_source.expr, crate::generator::stable_hash(include_bytes!("distributed_dispatch.rs")));
-        let raw = format!("{header}\n{}", crate::declaration_source(&expression)?);
+        let raw = format!("{header}\n{}", record_source.function(&expression)?);
+        // Alias names alone do not identify an expanded structural schema.
+        // Hash the actual emitted implementation before origin comments so a
+        // warm cache cannot retain an earlier return layout behind that alias.
+        let key = format!("lim-distributed-dispatch-v1\ncompiler={}\nimplementation={}\ndeclaration={:?}\nenum={:?}\nresolved-enum={resolved_enum:?}\ncases={resolved_cases:?}\nsource={:032x}\nlowering={:032x}\ncontext={context_header}", env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), declaration.source.expr, enum_source.expr, crate::generator::stable_hash(raw.as_bytes()), crate::generator::stable_hash(include_bytes!("distributed_dispatch.rs")));
         let text = if let Some(cache) = cache {
             crate::generator::cached_generated_source_with_origins(cache, &key, &locations, || {
                 Ok(raw.clone())
@@ -884,12 +1086,13 @@ pub(crate) fn materialize(
         crate::set_source_id(&mut generated, source_id);
         for registration in &mut registrations {
             let (case, keyword, variant, handler) =
-                generated_case(&generated, &registration.variant).ok_or_else(|| {
-                    error(
-                        "missing generated dispatch case origin",
-                        registration.source.span,
-                    )
-                })?;
+                generated_case(&generated, &registration.variant, &registration.handler)
+                    .ok_or_else(|| {
+                        error(
+                            "missing generated dispatch case origin",
+                            registration.source.span,
+                        )
+                    })?;
             registration.generated_case = Some(case);
             registration.generated_case_keyword = Some(keyword);
             registration.generated_variant = Some(variant);

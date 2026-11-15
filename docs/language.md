@@ -2038,6 +2038,69 @@ or reborrowed with the same borrow origins as a named parameter. To give the
 input a descriptive local name, use an explicit typed binding such as
 `#let count : #u64 = #arg;`. Unsafe functions retain explicit `#unsafe-call`.
 
+### Anonymous record returns
+
+A record in `#returns` declares every field's static type. Construct it with
+`#record-literal`, stating the field-type record separately from the value
+record. Field types are explicit throughout; neither return declarations nor
+bindings discover types from values.
+
+An empty structural record is unit: `{}` and `()` denote the same empty
+product. `#let {} = value` explicitly evaluates a unit result without
+introducing locals. This also keeps generated and formatted syntax equivalent.
+
+```lisp run=42
+// Every returned field has an explicit type and an explicit binding or ignore.
+#fn parse-number {
+  #params = ();
+  #returns = { value = #u64; consumed = #usize; };
+  #effects = ();
+  #body = (
+    (#return (#record-literal
+      { value = #u64; consumed = #usize; }
+      { value = 42u64; consumed = 2usize; }))
+  );
+}
+
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #effects = ();
+  #body = (
+    (#let {
+      value = (#bind parsed #u64);
+      consumed = (#ignore #usize);
+    } = (parse-number {}))
+    (#return parsed)
+  );
+}
+```
+
+Every call returning a nonempty anonymous record must initialize an exhaustive typed
+record binding. `(#bind local Type)` renames a field into a local;
+`(#ignore Type)` explicitly ignores a non-linear field. Each returned field
+must appear exactly once with its type. Duplicate, missing, extra, and
+mistyped fields are errors. There are no rest patterns or default fields.
+The initializer runs exactly once, before any new binding enters scope.
+`#let-mut` makes the bound locals mutable under the ordinary assignment rules.
+
+The constructor's field values run in written order. Type identity and layout
+use field names in alphabetical order and their resolved concrete types;
+reordering fields or spelling a type through an ordinary alias preserves
+identity. Layout is the same fixed representation used by an ordinary struct
+with that field order. Records introduce no runtime dictionary or allocation.
+Record types can also appear in type aliases and nested explicit types,
+including single positional reference or tuple parameter types.
+
+Ignoring a linear field is rejected, including through aliases or nested
+linear aggregates. Bind that field and explicitly consume it. Shared and
+mutable reference fields keep their separate borrow origins and lifetime
+checks through construction, calls, and destructuring. Exported record shapes
+are public structural interfaces; their field types still obey export and
+file-alias permissions, and opaque field values keep their representation
+private. Record type aliases must be acyclic. To forward a record-returning
+call, bind its fields first and explicitly construct the returned record.
+
 ### Explicit effects
 
 An omitted `#effects` field permits no IO or runtime-global access. Declare
@@ -3120,6 +3183,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#atomic-load` | `(#atomic-load reference order)` | `(#atomic-load (#borrow counter) #memory-acquire)` (expression) | Atomically reads a value using an allowed load ordering. |
 | `#atomic-store` | `(#atomic-store reference value order)` | `(#atomic-store (#borrow counter) 4u64 #memory-release)` (statement) | Atomically stores a value using an allowed store ordering. |
 | `#await` | `(#await Protocol child-expression)`; explicit expanded forms can list the result/task types, variants and poll function | `(#let value #u64 (#await StepAwait child))` (inside `#generate #async-fn`, with a declared `StepAwait` bundle) | Marks a sequential suspension point for `#generate #async-fn` or `#generate #async-fn-pinned`; the protocol supplies concrete types and poll operations. Live captures are inferred from the continuation, and the form is not valid in an ordinary function. |
+| `#bind` | `(#bind local Type)` inside a record binding | `(#let { value = (#bind answer #u64); } = (parse {}))` (binding) | Explicitly types and renames one returned field; the local enters scope after the initializer. |
 | `#block` | `(#block statement... final-expression)` | `(#block (#let x #u64 2u64) (#u64::add-wrap x 1u64))` (expression) | Evaluates statements in order and yields the final expression, or unit for a side-effect-only block. |
 | `#body` | `#body = (forms...);` | `#fn main { #params = {}; #returns = (); #body: #return (); }` (top level) | Required function body as a form list or indentation list. |
 | `#bool` | `#bool` | `#fn identity { #params = ((value #bool)); #returns = #bool; #body = ( (#return value) ); }` (function signature) | Boolean scalar type; values are `true` and `false`. |
@@ -3201,6 +3265,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#if` | `#if { #condition = condition; #then = value; #else = fallback; }` | `(#if { #condition = ready; #then = 1u64; #else = 0u64; })` (expression) | Evaluates the condition once and selects one branch. All three record fields are required; colon branches contain statements in a block. Canonical generator trees may use `(#if condition then [else])`, with a unit then branch when else is omitted. |
 | `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
 | `#if-valid` | `#if-valid { #condition = predicate; #then = success; #else = failure; }` | `(#if-valid { #condition = (valid { value; }); #then = (submit { value; }); #else = (); })` (expression) | Uses the same record fields and branch blocks as `#if`; only the successful branch receives validated evidence. Canonical generator trees may retain `(#if-valid condition success [failure])`. |
+| `#ignore` | `(#ignore Type)` inside a record binding | `(#let { value = (#bind answer #u64); consumed = (#ignore #usize); } = (parse {}))` (binding) | Explicitly accounts for one returned non-linear field without declaring a local. Linear fields must be bound and explicitly consumed. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
 | `#index-proven` | `(#index-proven array-reference usize-index)` | `(#index-proven values position)` (expression) | Requires exact `#usize::lt` evidence for the fixed-array length; omits the production bounds check and audits the access in instrumented builds. |
 | `#io` | `#io` in `#effects` | `(#effects (#io))` (function signature clause) | Permits input, output and opaque IO boundaries; does not itself grant memory permissions. |
@@ -3270,6 +3335,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#ptr-write` | `(#ptr-write mutable-pointer value)` | `(#unsafe (#ptr-write p 7u8))` (statement) | Writes the pointee without bounds/validity checks. |
 | `#range` | `(#range lower upper)` | `(#case (#range 1u32 4u32) 1u64)` (pattern) | Matches integer/character values in an inclusive interval: both endpoints match. |
 | `#read-global` | `(#read-global global)` | `(#effects ((#read-global counter)))` (function signature clause) | Permits reads of the named canonical runtime global, including through aliases. |
+| `#record-literal` | `(#record-literal { field = Type; ... } { field = value; ... })` | `(#record-literal { value = #u64; consumed = #usize; } { value = 42u64; consumed = 2usize; })` (expression) | Constructs a statically typed anonymous record; value fields are exhaustive and evaluate once in written order. |
 | `#ref` | `(#ref TargetType)` | `(#let r (#ref #u64) (#borrow value))` (type/binding) | Shared-reference type. |
 | `#ref-mut` | `(#ref-mut TargetType)` | `(#let r (#ref-mut #u64) (#borrow-mut value))` (type/binding) | Mutable-reference type. |
 | `#ref-ptr` | `(#ref-ptr reference)` | `(#let p (#ptr-mut Node) (#ref-ptr pinned))` (expression) | Safely extracts a thin ordinary or pinned reference's raw pointer with the same pointee and mutability. Lends the input handle without moving or duplicating it; the pointer retains no loan and does not extend the pointee lifetime or pinning guarantee. Slices are rejected. Raw memory access and pointer-to-reference borrowing still require unsafe context and valid lifetime/aliasing proofs. Raw pointers do not automatically implement Send or Sync. |

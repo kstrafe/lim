@@ -2,7 +2,7 @@
 //! through explicit types, never by searching for a matching spelling.
 
 use crate::{Expr, Program, Span, SpannedExpr as Node, Type};
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
@@ -51,6 +51,177 @@ pub(super) fn binding_parts(node: &Node) -> (Option<&Node>, Option<&Node>) {
         }
     }
     (node.children.get(2), node.children.get(3))
+}
+
+// Anonymous record labels are structural syntax, never lexical references.
+pub(super) fn record_fields(node: &Node) -> Option<Vec<(&Node, &Node)>> {
+    if !matches!(node.expr, Expr::List(_)) {
+        return None;
+    }
+    node.children
+        .iter()
+        .map(|pair| {
+            let [key, value] = pair.children.as_slice() else {
+                return None;
+            };
+            symbol(key).filter(|name| !name.starts_with('#'))?;
+            Some((key, value))
+        })
+        .collect()
+}
+
+pub(super) struct RecordBinding<'a> {
+    pub binding: Option<&'a Node>,
+    pub kind: &'a Node,
+}
+pub(super) fn record_bindings(node: &Node) -> Option<Vec<RecordBinding<'_>>> {
+    if !matches!(head(node), "let" | "let-mut")
+        || node.children.len() != 4
+        || node.children.get(2).and_then(symbol) != Some("=")
+    {
+        return None;
+    }
+    let fields = record_fields(&node.children[1])?;
+    let mut keys = HashSet::new();
+    let mut names = HashSet::new();
+    let mut bindings = Vec::new();
+    for (key, specification) in fields {
+        if !keys.insert(symbol(key)?) {
+            return None;
+        }
+        let (binding, kind) = match (
+            specification.children.first().and_then(symbol),
+            specification.children.as_slice(),
+        ) {
+            (Some("#bind"), [_, binding, kind])
+                if symbol(binding).is_some_and(|name| {
+                    crate::names::value_name(name) && name != "_" && !name.starts_with('#')
+                }) =>
+            {
+                if !names.insert(symbol(binding)?) {
+                    return None;
+                }
+                (Some(binding), kind)
+            }
+            (Some("#ignore"), [_, kind]) => (None, kind),
+            _ => return None,
+        };
+        bindings.push(RecordBinding { binding, kind });
+    }
+    Some(bindings)
+}
+
+/// The import loader resolves names through lowered records. Restore only
+/// their authored source trees for editor roles, retaining resolved identities
+/// by exact token span and type aliases through the already checked file scope.
+pub(crate) fn authored_record_forms(forms: &mut Vec<Node>, files: &[crate::SourceFile]) {
+    fn contains_record(node: &Node) -> bool {
+        symbol(node).is_some_and(crate::anonymous_records::is_record)
+            || node.children.iter().any(contains_record)
+    }
+    fn remember(node: &Node, names: &mut HashMap<Span, String>) {
+        if let Some(name) = symbol(node) {
+            if !crate::anonymous_records::is_record(name)
+                && (!name.starts_with('#') || crate::file_access::split(name).is_some())
+            {
+                names.entry(node.span).or_insert_with(|| name.to_owned());
+            }
+        }
+        for child in &node.children {
+            remember(child, names);
+        }
+    }
+    fn find(node: &Node, span: Span) -> Option<Node> {
+        if node.span.start == span.start && node.span.end == span.end {
+            return Some(node.clone());
+        }
+        node.children.iter().find_map(|child| find(child, span))
+    }
+    fn restore(
+        node: &mut Node,
+        names: &HashMap<Span, String>,
+        file: &crate::SourceFile,
+        in_type: bool,
+    ) {
+        if matches!(node.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
+            return;
+        }
+        if let Some(name) = symbol(node) {
+            if name.starts_with('#') && crate::file_access::split(name).is_none() {
+                return;
+            }
+            let resolved = names.get(&node.span).or_else(|| {
+                in_type
+                    .then(|| file.file_scope.as_ref()?.names.get(name))
+                    .flatten()
+            });
+            if let Some(resolved) = resolved {
+                node.expr = Expr::Symbol(resolved.clone());
+            }
+            return;
+        }
+        let kind = head(node).to_owned();
+        let named_fields = record_fields(node).is_some();
+        if named_fields {
+            for pair in &mut node.children {
+                restore(&mut pair.children[1], names, file, in_type);
+                pair.expr = Expr::List(pair.children.iter().map(|n| n.expr.clone()).collect());
+            }
+        } else {
+            let params = if kind == "extern-fn" { 3 } else { 2 };
+            for (index, child) in node.children.iter_mut().enumerate() {
+                let type_role = in_type
+                    || matches!(kind.as_str(), "fn" | "unsafe-fn" | "extern-fn")
+                        && matches!(index, n if n == params || n == params + 1)
+                    || kind == "record-literal" && index == 1
+                    || kind == "bind" && index == 2
+                    || kind == "ignore" && index == 1
+                    || matches!(
+                        kind.as_str(),
+                        "type" | "let" | "let-mut" | "const" | "static"
+                    ) && index == 2
+                    || kind == "struct" && index == 3;
+                restore(child, names, file, type_role);
+            }
+        }
+        if matches!(node.expr, Expr::List(_)) && !node.children.is_empty() {
+            node.expr = Expr::List(node.children.iter().map(|n| n.expr.clone()).collect());
+        }
+    }
+    if !forms.iter().any(contains_record) {
+        return;
+    }
+    let mut names = HashMap::new();
+    for form in forms.iter().filter(|form| contains_record(form)) {
+        remember(form, &mut names);
+    }
+    let mut sources = HashMap::new();
+    forms.retain_mut(|form| {
+        if head(form) == "struct"
+            && form
+                .children
+                .get(1)
+                .and_then(symbol)
+                .is_some_and(crate::anonymous_records::is_record)
+        {
+            return false;
+        }
+        if !contains_record(form) {
+            return true;
+        }
+        let Some(file) = files.get(form.span.source_id as usize) else {
+            return true;
+        };
+        let raw = sources
+            .entry(form.span.source_id)
+            .or_insert_with(|| crate::parse_source_unit(&file.source).unwrap_or_default());
+        if let Some(mut authored) = raw.iter().find_map(|node| find(node, form.span)) {
+            crate::set_source_id(&mut authored, form.span.source_id);
+            restore(&mut authored, &names, file, false);
+            *form = authored;
+        }
+        true
+    });
 }
 
 // Named generator patterns have two distinct declaration roles. Keys are
@@ -112,6 +283,7 @@ pub(crate) struct Index<'a> {
     file: u32,
     byte: usize,
     explicit_locals: RefCell<HashSet<Span>>,
+    record_role: Cell<bool>,
     checked_types: OnceCell<HashMap<Span, Vec<Type>>>,
     binding_types: RefCell<HashMap<Span, Type>>,
     intrinsic_information: RefCell<Option<(Span, String, Option<String>)>>,
@@ -127,6 +299,7 @@ impl<'a> Index<'a> {
             file,
             byte,
             explicit_locals: RefCell::new(HashSet::new()),
+            record_role: Cell::new(false),
             checked_types: OnceCell::new(),
             binding_types: RefCell::new(HashMap::new()),
             intrinsic_information: RefCell::new(None),
@@ -216,6 +389,11 @@ impl<'a> Index<'a> {
         (nodes.len() == 1).then_some(nodes[0])
     }
     fn global(&self, name: &str) -> Vec<Span> {
+        // Interned layouts have no authored declaration token. User-written
+        // aliases still resolve to their own ordinary #type declaration.
+        if crate::anonymous_records::is_record(self.scoped_name(name)) {
+            return vec![];
+        }
         self.declaration(name)
             .and_then(|node| node.children.get(name_index(node)))
             .map(|node| vec![node.span])
@@ -766,6 +944,19 @@ impl<'a> Index<'a> {
         }
     }
     fn bind_let_pattern(&self, node: &Node, pattern: &Node, scope: &mut Scope) -> Vec<Span> {
+        if let Some(fields) = record_bindings(node) {
+            let mut target = vec![];
+            for field in fields {
+                if let Some(binding) = field.binding {
+                    self.explicit_locals.borrow_mut().insert(binding.span);
+                    target.extend(self.bind_pattern(binding, ty(field.kind), scope));
+                }
+            }
+            return target;
+        }
+        if node.children.get(2).and_then(symbol) == Some("=") {
+            return vec![];
+        }
         let kind = binding_parts(node).0.and_then(ty);
         self.bind_pattern(pattern, kind, scope)
     }
@@ -786,6 +977,13 @@ impl<'a> Index<'a> {
         }
         if let Some(name) = symbol(node) {
             return self.global(name);
+        }
+        if let Some(fields) = record_fields(node) {
+            self.record_role.set(true);
+            for (_, kind) in fields {
+                if self.contains(kind) { return self.type_reference(kind); }
+            }
+            return vec![];
         }
         if head(node) == "where" {
             let mut scope = Scope::new();
@@ -970,9 +1168,10 @@ impl<'a> Index<'a> {
             return vec![name.span];
         }
         if let Some(args) = node.children.get(ni + 1) {
-            if let Some(kind) = crate::positional_parameter_type(&args.expr) {
-                scope.insert("#arg".into(), Binding { spans: vec![args.span], ty: Some(kind.clone()) });
-                self.binding_types.borrow_mut().insert(args.span, kind);
+            if crate::anonymous_records::positional_type_syntax(args) {
+                let kind = ty(args);
+                scope.insert("#arg".into(), Binding { spans: vec![args.span], ty: kind.clone() });
+                if let Some(kind) = kind { self.binding_types.borrow_mut().insert(args.span, kind); }
                 if self.contains(args) { return self.type_reference(args); }
             } else {
                 for arg in &args.children {
@@ -1014,8 +1213,8 @@ impl<'a> Index<'a> {
             _ => return None,
         };
         let declaration = self.declaration(symbol(callee)?)?;
-        crate::positional_parameter_type(&declaration.children.get(name_index(declaration) + 1)?.expr)?;
-        Some((callee, argument))
+        crate::anonymous_records::positional_type_syntax(declaration.children.get(name_index(declaration) + 1)?)
+            .then_some((callee, argument))
     }
     fn walk(&self, node: &Node, scope: &mut Scope, labels: &Scope) -> Vec<Span> {
         if let Some((callee, argument)) = self.positional_call(node) {
@@ -1104,6 +1303,23 @@ impl<'a> Index<'a> {
                 return self.bundle(xs.get(2).unwrap_or(node));
             }
             "let" | "let-mut" | "const" | "static" | "let-else" => {
+                if matches!(head(node), "let" | "let-mut")
+                    && xs.get(2).and_then(symbol) == Some("=")
+                {
+                    self.record_role.set(true);
+                    if let Some(initializer) = xs.get(3).filter(|value| self.contains(value)) {
+                        return self.walk(initializer, scope, labels);
+                    }
+                    if let Some(fields) = record_bindings(node) {
+                        for field in fields {
+                            if self.contains(field.kind) { return self.type_reference(field.kind); }
+                            if let Some(binding) = field.binding.filter(|binding| self.contains(binding)) {
+                                return self.bind_pattern(binding, ty(field.kind), &mut scope.clone());
+                            }
+                        }
+                    }
+                    return vec![];
+                }
                 if head(node) == "let-else" && xs.len() == 4 && head(&xs[3]) == "else" {
                     if self.contains(&xs[2]) {
                         return self.walk(&xs[2], scope, labels);
@@ -1334,6 +1550,18 @@ impl<'a> Index<'a> {
                 }
                 if let Some(payload) = xs.get(2).filter(|payload| self.contains(payload)) {
                     return self.walk(payload, scope, labels);
+                }
+                return vec![];
+            }
+            "record-literal" => {
+                self.record_role.set(true);
+                if let Some(kind) = xs.get(1).filter(|kind| self.contains(kind)) {
+                    return self.type_reference(kind);
+                }
+                if let Some(fields) = xs.get(2).and_then(record_fields) {
+                    for (_, value) in fields {
+                        if self.contains(value) { return self.walk(value, scope, labels); }
+                    }
                 }
                 return vec![];
             }
@@ -1878,7 +2106,7 @@ impl<'a> Index<'a> {
         }
         if let Some(program) = self.program {
             // Generated editor snapshots have no corresponding handwritten form.
-            if result.is_empty() {
+            if result.is_empty() && !self.record_role.get() {
                 for node in program.declaration_expressions.values() {
                     if node.span.source_id == self.file {
                         result.extend(self.source_form(node));

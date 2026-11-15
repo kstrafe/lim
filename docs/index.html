@@ -85,6 +85,7 @@
 <li><a href="#top-level-declarations" id="toc-top-level-declarations">Top-level declarations</a>
 <ul>
 <li><a href="#single-positional-parameters" id="toc-single-positional-parameters">Single positional parameters</a></li>
+<li><a href="#anonymous-record-returns" id="toc-anonymous-record-returns">Anonymous record returns</a></li>
 <li><a href="#explicit-effects" id="toc-explicit-effects">Explicit effects</a></li>
 <li><a href="#predicate-contracts-and-constrained-types" id="toc-predicate-contracts-and-constrained-types">Predicate contracts and constrained types</a></li>
 <li><a href="#functions" id="toc-functions">Functions</a></li>
@@ -1282,6 +1283,38 @@ Choice.Ready</code></pre>
 <p><code>increment 41u64;</code> and <code>#call increment 41u64;</code> call the same concrete function. The signature supplies the explicit argument type; there is no overloading or inference of a parameter type. <code>#arg</code> is unavailable in named or zero-parameter functions. Binding it as a local or writing <code>(#arg)</code> is an error. Named arguments cannot be supplied to a positional signature.</p>
 <p><code>#arg</code> is the parameter&#39;s place, not a newly produced value. Reading Copy inputs copies them; moving linear inputs consumes them once, and a linear parameter must be consumed before returning. <code>(#borrow #arg)</code> borrows its storage, with ordinary escape checks. A reference parameter can be forwarded or reborrowed with the same borrow origins as a named parameter. To give the input a descriptive local name, use an explicit typed binding such as <code>#let count : #u64 = #arg;</code>. Unsafe functions retain explicit <code>#unsafe-call</code>.</p>
 </section>
+<section id="anonymous-record-returns" class="level3">
+<h3>Anonymous record returns</h3>
+<p>A record in <code>#returns</code> declares every field&#39;s static type. Construct it with <code>#record-literal</code>, stating the field-type record separately from the value record. Field types are explicit throughout; neither return declarations nor bindings discover types from values.</p>
+<p>An empty structural record is unit: <code>{}</code> and <code>()</code> denote the same empty product. <code>#let {} = value</code> explicitly evaluates a unit result without introducing locals. This also keeps generated and formatted syntax equivalent.</p>
+<pre class="lisp"><code><span class="lim-comment">// Every returned field has an explicit type and an explicit binding or ignore.</span>
+<span class="lim-keyword">#fn</span> parse-number {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> { value <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; consumed <span class="lim-operator">=</span> <span class="lim-type">#usize</span>; };
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
+    (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#record-literal</span>
+      { value <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; consumed <span class="lim-operator">=</span> <span class="lim-type">#usize</span>; }
+      { value <span class="lim-operator">=</span> <span class="lim-literal">42u64</span>; consumed <span class="lim-operator">=</span> <span class="lim-literal">2usize</span>; }))
+  );
+}
+
+<span class="lim-keyword">#fn</span> main {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
+    (<span class="lim-keyword">#let</span> {
+      value <span class="lim-operator">=</span> (<span class="lim-keyword">#bind</span> parsed <span class="lim-type">#u64</span>);
+      consumed <span class="lim-operator">=</span> (<span class="lim-keyword">#ignore</span> <span class="lim-type">#usize</span>);
+    } <span class="lim-operator">=</span> (parse-number {}))
+    (<span class="lim-keyword">#return</span> parsed)
+  );
+}</code></pre>
+<p>Every call returning a nonempty anonymous record must initialize an exhaustive typed record binding. <code>(#bind local Type)</code> renames a field into a local; <code>(#ignore Type)</code> explicitly ignores a non-linear field. Each returned field must appear exactly once with its type. Duplicate, missing, extra, and mistyped fields are errors. There are no rest patterns or default fields. The initializer runs exactly once, before any new binding enters scope. <code>#let-mut</code> makes the bound locals mutable under the ordinary assignment rules.</p>
+<p>The constructor&#39;s field values run in written order. Type identity and layout use field names in alphabetical order and their resolved concrete types; reordering fields or spelling a type through an ordinary alias preserves identity. Layout is the same fixed representation used by an ordinary struct with that field order. Records introduce no runtime dictionary or allocation. Record types can also appear in type aliases and nested explicit types, including single positional reference or tuple parameter types.</p>
+<p>Ignoring a linear field is rejected, including through aliases or nested linear aggregates. Bind that field and explicitly consume it. Shared and mutable reference fields keep their separate borrow origins and lifetime checks through construction, calls, and destructuring. Exported record shapes are public structural interfaces; their field types still obey export and file-alias permissions, and opaque field values keep their representation private. Record type aliases must be acyclic. To forward a record-returning call, bind its fields first and explicitly construct the returned record.</p>
+</section>
 <section id="explicit-effects" class="level3">
 <h3>Explicit effects</h3>
 <p>An omitted <code>#effects</code> field permits no IO or runtime-global access. Declare permissions on each effectful function; a call requires its callee&#39;s declared set to be contained in the caller&#39;s set. Declaring a permission neither proves predicate evidence nor removes unsafe, ownership, or borrow checks.</p>
@@ -2016,6 +2049,12 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td>Marks a sequential suspension point for <code>#generate #async-fn</code> or <code>#generate #async-fn-pinned</code>; the protocol supplies concrete types and poll operations. Live captures are inferred from the continuation, and the form is not valid in an ordinary function.</td>
 </tr>
 <tr>
+<td><code>#bind</code></td>
+<td><code>(#bind local Type)</code> inside a record binding</td>
+<td><code>(#let { value = (#bind answer #u64); } = (parse {}))</code> (binding)</td>
+<td>Explicitly types and renames one returned field; the local enters scope after the initializer.</td>
+</tr>
+<tr>
 <td><code>#block</code></td>
 <td><code>(#block statement... final-expression)</code></td>
 <td><code>(#block (#let x #u64 2u64) (#u64::add-wrap x 1u64))</code> (expression)</td>
@@ -2502,6 +2541,12 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td>Uses the same record fields and branch blocks as <code>#if</code>; only the successful branch receives validated evidence. Canonical generator trees may retain <code>(#if-valid condition success [failure])</code>.</td>
 </tr>
 <tr>
+<td><code>#ignore</code></td>
+<td><code>(#ignore Type)</code> inside a record binding</td>
+<td><code>(#let { value = (#bind answer #u64); consumed = (#ignore #usize); } = (parse {}))</code> (binding)</td>
+<td>Explicitly accounts for one returned non-linear field without declaring a local. Linear fields must be bound and explicitly consumed.</td>
+</tr>
+<tr>
 <td><code>#index</code></td>
 <td><code>(#index array usize-index)</code></td>
 <td><code>(#index values 1usize)</code> (expression)</td>
@@ -2914,6 +2959,12 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td><code>(#read-global global)</code></td>
 <td><code>(#effects ((#read-global counter)))</code> (function signature clause)</td>
 <td>Permits reads of the named canonical runtime global, including through aliases.</td>
+</tr>
+<tr>
+<td><code>#record-literal</code></td>
+<td><code>(#record-literal { field = Type; ... } { field = value; ... })</code></td>
+<td><code>(#record-literal { value = #u64; consumed = #usize; } { value = 42u64; consumed = 2usize; })</code> (expression)</td>
+<td>Constructs a statically typed anonymous record; value fields are exhaustive and evaluate once in written order.</td>
 </tr>
 <tr>
 <td><code>#ref</code></td>

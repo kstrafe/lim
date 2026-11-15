@@ -1632,7 +1632,41 @@ pub(crate) fn format_generated_syntax(source: &str) -> Result<String, String> {
 }
 
 pub(crate) fn format_generated_source(source: &str) -> Result<String, String> {
-    render_generated_forms(&crate::parse_source_unit(source)?)
+    let forms = crate::parse_source_unit(source)?;
+    fn schema(node: &SpannedExpr, source: &str) -> bool {
+        source.as_bytes().get(node.span.start) == Some(&b'{')
+            || node.children.iter().any(|child| schema(child, source))
+    }
+    fn retains_records(node: &SpannedExpr, source: &str) -> bool {
+        let head = match node.children.first().map(|node| &node.expr) {
+            Some(Expr::Symbol(name)) => name.as_str(),
+            _ => "",
+        };
+        let typed = |index| node.children.get(index).is_some_and(|node| schema(node, source));
+        if head == "#record-literal"
+            || matches!(head, "#fn" | "#unsafe-fn") && (
+                typed(3) || node.children.get(2).is_some_and(|parameters| {
+                    if crate::anonymous_records::positional_type_syntax(parameters) {
+                        schema(parameters, source)
+                    } else {
+                        parameters.children.iter().any(|parameter|
+                            parameter.children.last().is_some_and(|ty| schema(ty, source)))
+                    }
+                }))
+            || matches!(head, "#let" | "#let-mut") && (typed(1) || typed(2))
+            || head == "#type" && typed(2)
+        {
+            return true;
+        }
+        node.children.iter().any(|child| retains_records(child, source))
+    }
+    // Keep structural schemas readable as records in inspectable artifacts
+    // instead of erasing their braces through the generic AST renderer.
+    if forms.iter().any(|form| retains_records(form, source)) {
+        crate::format_source(source)
+    } else {
+        render_generated_forms(&forms)
+    }
 }
 
 fn render_generated_forms(forms: &[SpannedExpr]) -> Result<String, String> {

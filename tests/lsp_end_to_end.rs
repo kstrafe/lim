@@ -2543,3 +2543,60 @@ fn aliased_contract_information_uses_declaration_identity_and_private_names_over
     assert_eq!(fs::read_to_string(&implementation).unwrap(), library);
     client.shutdown();
 }
+
+#[test]
+fn anonymous_record_hover_uses_authored_field_types_and_binding_names() {
+    let fixture = Fixture::new("anonymous-record-information");
+    let source = r#"
+#type Number #u64
+#type Count #usize
+#fn parse { #params = { input = Number; };
+ #returns = { value = Number; consumed = Count; }; #effects = ();
+ #body = ((#return (#record-literal { value = Number; consumed = Count; }
+   { value = input; consumed = 2usize; }))); }
+#fn main { #params = (); #returns = #u64; #effects = (); #body = (
+ (#let original Number 42u64)
+ (#let { value = (#bind parsed Number); consumed = (#ignore Count); }
+   = (parse { input = original; }))
+ (#return parsed)); }
+"#;
+    let path = fixture.write("main.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    let hover = client.hover(&path, source, "parsed Number", "parsed");
+    assert!(hover.contains("#bind parsed Number"), "{hover}");
+    let hover = client.hover_at(&path, source, source.rfind("parsed").unwrap(), "parsed");
+    assert!(hover.contains("#bind parsed Number"), "{hover}");
+    let hover = client.hover(&path, source, "Number; consumed", "Number");
+    assert!(
+        hover.contains("Number") && hover.contains("#u64"),
+        "{hover}"
+    );
+    let hover = client.hover(&path, source, "Count);", "Count");
+    assert!(
+        hover.contains("Count") && hover.contains("#usize"),
+        "{hover}"
+    );
+    let hover = client.hover(&path, source, "input; consumed", "input");
+    assert!(
+        hover.contains("input") && hover.contains("Number"),
+        "{hover}"
+    );
+    for needle in [
+        "#record-literal",
+        "#bind",
+        "#ignore",
+        "value = (#bind",
+        "consumed = (#ignore",
+    ] {
+        let result = client.at(
+            "textDocument/hover",
+            &path,
+            source,
+            source.find(needle).unwrap(),
+        );
+        assert_eq!(result, Json::Null, "{needle}: {result:?}");
+    }
+    client.clear(&path);
+    client.shutdown();
+}

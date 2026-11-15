@@ -70,6 +70,13 @@ call s:check('"#dispatch-fn #dispatch-case #dispatch-on"', 'limString')
 call setline(1, '// #dispatch-fn #dispatch-case #dispatch-on')
 call assert_equal('limComment', synIDattr(synID(1, 4, 1), 'name'))
 
+" Structural field markers are exact builtins, not longer keyword prefixes.
+for s:record in ['bind', 'ignore', 'record-literal']
+  call s:check('#' . s:record, 'limRecord')
+  call s:check(s:record, '')
+  call s:check('#' . s:record . '-custom', 'limKeyword')
+endfor
+
 " Contract forms use exact tokens; keywords never consume identifier suffixes.
 for s:contract in ['requires', 'ensures', 'preserves', 'assume', 'if-valid', 'where', 'old', 'result', 'index-proven']
   call s:check('#' . s:contract, 'limContract')

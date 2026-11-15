@@ -8331,9 +8331,9 @@ impl FunctionContext<'_> {
                 if words > VALUE_REGISTERS.len() {
                     return Err("native struct return has too many fields".into());
                 }
-                for (index, field) in items[1..].iter().enumerate() {
-                    self.push_value_words(field, &fields[index].ty, false)?;
-                }
+                // Direct returns must use the same written evaluation order
+                // as struct initialization, projection, and indirect returns.
+                self.push_struct_fields(items, &fields, false)?;
                 for register in VALUE_REGISTERS[..words].iter().rev() {
                     self.output.push_str(&format!("    pop {register}\n"));
                     self.stack_depth -= 1;

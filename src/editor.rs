@@ -206,6 +206,7 @@ fn navigation_context_impl(
             let (mut forms, files) =
                 crate::load_imports_with_sources(entry_source, base, Some(entry), config)
                     .map_err(|error| crate::generator_diagnostic(error, entry, entry_source))?;
+            crate::lsp::navigation::authored_record_forms(&mut forms, &files);
             if let Some(file) = files
                 .iter()
                 .position(|file| path_key(&file.path) == path_key(path))

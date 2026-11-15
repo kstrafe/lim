@@ -564,6 +564,7 @@ pub(crate) fn prepare_program_syntax(
     }
     let (mut loaded, mut source_files) =
         load_imports_with_sources(source, base, source_path, config)?;
+    let record_names = crate::anonymous_records::temporary_names(&loaded);
     let visibility = crate::library::check_generators(&loaded, &source_files)?;
     let qualified = crate::library::qualify(&mut loaded, &visibility, &source_files)?;
     let dependency_context = generator_dependency_context(&loaded, config);
@@ -677,6 +678,8 @@ pub(crate) fn prepare_program_syntax(
     )?;
     let mut expressions = crate::distributed_enum::merge(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
+    crate::anonymous_records::lower_generated(&mut expressions, &source_files, &record_names)
+        .map_err(|error| error.attach(&source_files))?;
     let invocation_keys = expressions.iter().map(|form| {
         if matches!(&form.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Generate))) {
             expression_source(&form.expr).map(Some)
@@ -758,7 +761,45 @@ pub(crate) fn prepare_program_syntax(
             }
         }
     }
-    let (expressions, dispatch_artifacts) = crate::distributed_dispatch::materialize(
+    let record_invocations = expressions
+        .iter()
+        .filter_map(|form| {
+            if matches!(&form.expr, Expr::List(parts) if matches!(parts.first(), Some(Expr::Generate))) {
+                Some(expression_source(&form.expr))
+            } else {
+                None
+            }
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    crate::anonymous_records::canonicalize(
+        &mut expressions,
+        &source_files,
+        &generated_source_invocations,
+        &generator_origins.definitions,
+    )
+    .map_err(|error| error.attach(&source_files))?;
+    // Interning removes only duplicate struct declarations. Invocation order
+    // stays intact, including generated invocations sharing one source span.
+    for (form, old) in expressions
+        .iter()
+        .filter(|form| {
+            matches!(&form.expr, Expr::List(parts) if matches!(parts.first(), Some(Expr::Generate)))
+        })
+        .zip(record_invocations)
+    {
+        let resolved = expression_source(&form.expr)?;
+        if resolved != old {
+            generator_origins.generation.rewrite_builtin(&old, &resolved);
+            if let Some(origins) = generator_origins.builtins.remove(&old) {
+                generator_origins
+                    .builtins
+                    .entry(resolved)
+                    .or_default()
+                    .extend(origins);
+            }
+        }
+    }
+    let (mut expressions, dispatch_artifacts) = crate::distributed_dispatch::materialize(
         expressions,
         &mut source_files,
         &mut generated_source_invocations,
@@ -766,6 +807,36 @@ pub(crate) fn prepare_program_syntax(
         cache_directory,
     )
     .map_err(|error| error.attach(&source_files))?;
+    if !dispatch_artifacts.is_empty() {
+        // Dispatch emits readable schemas and exhaustive typed record bindings.
+        // Lower only the new artifact forms, retaining their source IDs and
+        // definition/invocation authority. Canonical interning then coalesces
+        // their layouts with the already resolved source declarations.
+        let issued = crate::anonymous_records::temporary_names(&expressions);
+        let sources = dispatch_artifacts
+            .iter()
+            .map(|artifact| artifact.source_id)
+            .collect::<HashSet<_>>();
+        let mut schemas = Vec::new();
+        for expression in &mut expressions {
+            if !sources.contains(&expression.span.source_id) {
+                continue;
+            }
+            let mut generated = vec![expression.clone()];
+            crate::anonymous_records::lower_generated(&mut generated, &source_files, &issued)
+                .map_err(|error| error.attach(&source_files))?;
+            *expression = generated.remove(0);
+            schemas.extend(generated);
+        }
+        expressions.extend(schemas);
+        crate::anonymous_records::canonicalize(
+            &mut expressions,
+            &source_files,
+            &generated_source_invocations,
+            &generator_origins.definitions,
+        )
+        .map_err(|error| error.attach(&source_files))?;
+    }
     let (expressions, generation_requirements) = crate::generator_provenance::extract(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
     let mut with_protocols = Vec::with_capacity(expressions.len());
@@ -1279,6 +1350,7 @@ pub(crate) fn parse_prepared_program_items(
         program.contracts.instrumented = prepared.contract_checks;
         crate::contracts::erase_planning(&mut program)?;
     }
+    crate::anonymous_records::validate(&program)?;
     async_source::attach_validation(&mut program, &async_functions);
     if expand_async {
         crate::file_access::validate(&program)?;
