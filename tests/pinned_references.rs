@@ -77,7 +77,7 @@ fn returned_projections_through_stored_references_keep_the_actual_pointee_borrow
         .unwrap_err();
         assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
         let span = error.span.unwrap();
-        assert_eq!(span.line, 9, "{error:?}");
+        assert_eq!(span.line, 17, "{error:?}");
         assert_eq!(&source[span.start..span.end], "#set", "{error:?}");
     }
 }

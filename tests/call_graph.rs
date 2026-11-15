@@ -64,7 +64,7 @@ fn executing_lines_distinguish_repeated_calls() {
     (#return 42u64)\n  );\n}\n";
     assert_eq!(
         run(source),
-        "main:8 -> second:5 -> third:2\nmain:9 -> second:5 -> third:2\n"
+        "main:21 -> second:13 -> third:5\nmain:22 -> second:13 -> third:5\n"
     );
 }
 
@@ -79,7 +79,7 @@ fn main_trace_and_live_distinct_trace_sites() {
     (#call print-trace ((text first)))
     (#call print-trace ((text second)))
     (#return 42u64)\n  );\n}\n";
-    assert_eq!(run(source), "main:2\nmain:3\n");
+    assert_eq!(run(source), "main:5\nmain:6\n");
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn only_the_executed_branch_appears() {
     (#return 42u64)\n  );\n}\n";
     assert_eq!(
         run(source),
-        "main:14 -> choose:11 -> left:5 -> leaf:2\nmain:15 -> choose:11 -> right:8 -> leaf:2\n"
+        "main:37 -> choose:29 -> left:13 -> leaf:5\nmain:38 -> choose:29 -> right:21 -> leaf:5\n"
     );
 }
 
@@ -147,7 +147,7 @@ fn implicit_clone_hooks_participate_in_the_chain() {
     (#let value Value (#struct-literal Value ((number 42u64))))
     (#let copied Value (#clone value))
     (#return (#get copied number))\n  );\n}\n";
-    assert_eq!(run(source), "main:7 -> Value::clone:3\n");
+    assert_eq!(run(source), "main:15 -> Value::clone:6\n");
 }
 
 #[test]
@@ -171,7 +171,7 @@ fn thread_workers_receive_owned_caller_contexts() {
     (#return (#match (#call Task::join ((task running)))
       (#case (Task::JoinResult.Ok answer) answer)
       (#case (Task::JoinResult.Error (#tuple retry error)) (#panic))))\n  );\n}\n";
-    assert_eq!(run(source), "main:7 -> worker:2\n");
+    assert_eq!(run(source), "main:15 -> worker:5\n");
 }
 
 #[test]
@@ -197,8 +197,8 @@ fn async_validation_witnesses_keep_their_original_checks() {
       (#case (Work::Poll.Ready value) value)
       (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))\n  );\n}\n";
     let output = run(source);
-    assert!(output.starts_with("main:10 -> Work::poll:"), "{output}");
-    assert!(output.ends_with(" -> report:2\n"), "{output}");
+    assert!(output.starts_with("main:18 -> Work::poll:"), "{output}");
+    assert!(output.ends_with(" -> report:5\n"), "{output}");
 }
 
 #[test]

@@ -79,7 +79,11 @@ fn shorthand_keeps_mutability_and_type_errors_on_the_original_expression() {
             .bytes()
             .filter(|byte| *byte == b'\n')
             .count();
-        assert_eq!(line, 2, "{error:?}");
+        let expected_line = source
+            .lines()
+            .position(|line| line.contains("#call take"))
+            .expect("the shorthand argument is written at the take call");
+        assert_eq!(line, expected_line, "{error:?}");
     }
 }
 

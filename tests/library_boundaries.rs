@@ -668,7 +668,7 @@ fn private_field_diagnostics_underline_the_exact_source_token() {
     )
     .unwrap_err();
     let span = error.span.unwrap();
-    assert_eq!(span.line, 6);
+    assert_eq!(span.line, 9);
     assert_eq!(&source[span.start..span.end], "capacity");
     let rendered = lim::render_diagnostic(&error, source, path.to_str().unwrap());
     assert!(rendered.contains("capacity"));

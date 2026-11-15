@@ -120,7 +120,7 @@ fn invalid_pin_argument_preserves_structured_diagnostic_span_and_cache() {
     let span = diagnostic.span.unwrap();
     assert_eq!(&source[span.start..span.end], "42u64");
     assert_eq!(span.start, source.find("42u64").unwrap());
-    assert_eq!(span.line, 2);
+    assert_eq!(span.line, 5);
 }
 
 #[test]

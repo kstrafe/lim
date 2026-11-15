@@ -104,6 +104,6 @@ fn reserved_binding_error_points_to_the_identifier_not_the_function_header() {
     let source = "#fn ordinary {\n  #params = ();\n  #returns = ();\n  #body = (\n    (#let #local #u64 1u64)\n    (#return ())\n  );\n}\n";
     let error = compile(source).unwrap_err();
     let span = error.span.unwrap();
-    assert_eq!(span.line, 2);
+    assert_eq!(span.line, 5);
     assert_eq!(&source[span.start..span.end], "#local");
 }

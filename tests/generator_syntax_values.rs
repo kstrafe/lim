@@ -119,7 +119,7 @@ fn source_cannot_claim_gensym_identity_and_parser_can_inspect_generated_syntax()
     assert!(error.message.contains("reserved"), "{error:?}");
     let span = error.span.unwrap();
     assert_eq!(&source[span.start..span.end], "lim.gensym.fake");
-    assert_eq!(span.line, 2);
+    assert_eq!(span.line, 5);
 }
 
 #[test]

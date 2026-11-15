@@ -384,7 +384,7 @@ fn unsupported_codegen_errors_include_the_offending_source_line() {
         assert!(!output.status.success());
         let error = String::from_utf8_lossy(&output.stderr);
         assert!(error.contains("error[E5000]"), "{error}");
-        assert!(error.contains("2 |"), "{error}");
+        assert!(error.contains("5 |"), "{error}");
         assert!(error.contains("^"), "{error}");
         assert!(!binary.exists());
     }

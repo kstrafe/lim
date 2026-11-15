@@ -826,7 +826,7 @@ fn missing_foreign_symbol_preserves_existing_binary() {
         .unwrap();
     assert!(!compilation.status.success());
     let diagnostic = String::from_utf8_lossy(&compilation.stderr);
-    assert!(diagnostic.contains("missing.lim:2:"), "{diagnostic}");
+    assert!(diagnostic.contains("missing.lim:9:"), "{diagnostic}");
     assert!(
         diagnostic.contains("#unsafe-call lim_symbol_that_does_not_exist"),
         "{diagnostic}"
