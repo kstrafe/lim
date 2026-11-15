@@ -3780,6 +3780,13 @@ and acceptance coverage.
   subprocess stderr does not corrupt the diagnostic stream. Preserve the
   existing human-readable mode.
 
+- [x] **TOOL-02: Show editor hover information and named signature help.**
+  Reuse source-role navigation and compiler declaration identities for explicit
+  types, named parameters, return types and contracts, including aliases and
+  generated declarations. Select active parameters by name across supported call
+  spellings and bounded suffix recovery during incomplete edits. Preserve compiler
+  semantics and read-only queries; cover real stdio sessions and UTF-16 ranges.
+
 ### Explicit concurrency and language terminology
 
 - [x] **SYNC-01: Add atomic compare-exchange and exchange.**

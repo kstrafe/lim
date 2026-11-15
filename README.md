@@ -265,7 +265,10 @@ to the new artifact even when older files remain in `.lim/generated`.
 
 Run `lim lsp` to serve LSP over stdin/stdout. It provides live compiler
 diagnostics for unsaved buffers and imports, formatting, document symbols,
-and source-role definitions across the selected dependency graph.
+source-role definitions, hover information, and signature help across the selected
+dependency graph. Hover shows explicit binding and field types, and function
+parameters, return types and contracts. Signature help follows named argument
+labels even when arguments are reordered, including surface call notation.
 Navigation on an alias target or direct file reference opens its declaration,
 including declarations in unsaved buffers. Relative `./` paths use the source
 file's directory; `project::` paths use the entry point's nearest `lim.project`

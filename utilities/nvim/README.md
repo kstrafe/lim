@@ -74,6 +74,22 @@ unique function declaration across explicit file dependencies, and declaration
 names to their own span. Explicit type annotations, aggregate field types and
 struct-literal types also navigate to their declarations. Aliases preserve the
 original file's declaration identity and parameter labels.
+Hover (`vim.lsp.buf.hover()`) shows explicit parameter, local and field types,
+function signatures and their `#requires`, `#ensures` and `#preserves` contracts.
+Signature help (`vim.lsp.buf.signature_help()`) shows named parameter types,
+return types and contracts, and selects the parameter by its argument label
+instead of its position in the call. It supports explicit `#call` and
+`#unsafe-call`, named pair lists, records, colon groups and indentation notation,
+including nested calls and `$` shorthand. Aliases and generated declarations use
+the same declaration identities as navigation. Distinct signatures from separate
+compilation contexts remain separate alternatives.
+Scalar intrinsics show their compiler-provided parameter and return types in both
+named calls and direct positional calls.
+Trailing incomplete lists and records are completed only for editor queries;
+source buffers and compiler parsing are unchanged. Malformed syntax elsewhere,
+unknown declarations and ambiguous duplicates can return no information.
+Deferred async declarations may require a complete buffer before their signatures
+become available.
 Enum variant names in all five `#case` forms also navigate to their exact
 declaration token, including fieldless variants, `#or` patterns, generated
 enums, and distributed-enum contributions. Payload bindings and `_` do not
@@ -121,7 +137,8 @@ URIs and rejects remote authorities and malformed percent escapes.
 Run the LSP regression suites from the repository root:
 
 ```sh
-nix develop -c cargo test --test lsp --test lsp_context --test lsp_end_to_end --test lsp_navigation
+bash scripts/limited-run.sh nix develop -c cargo test --lib lsp::
+bash scripts/limited-run.sh nix develop -c cargo test --test lsp --test lsp_context --test lsp_end_to_end --test lsp_navigation
 ```
 
 The end-to-end suite launches the actual `lim lsp` executable and exercises
@@ -129,7 +146,8 @@ complete editing sessions with bounded response waits. It covers transitive
 file aliases and project-root paths, conditional compilation, exact UTF-16 ranges and Unicode
 paths, FFI/type navigation, unsaved edits and versioning, context reloads,
 generated snapshot reuse and protection, diagnostics, formatting, document
-symbols, malformed protocol recovery, ambiguous definitions, and shutdown.
+symbols, hover types and contracts, named signature help during incomplete edits,
+malformed protocol recovery, ambiguous definitions, and shutdown.
 Fixtures use isolated temporary projects; neither user configuration nor
 repository examples are modified. This supplements the in-memory protocol
 and compilation-context tests, rather than claiming exhaustive LSP coverage.

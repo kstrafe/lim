@@ -111,6 +111,46 @@ publication path, including generated distributed-enum contributions. A request
 must not overwrite edited snapshots or create a generated target from an
 invalid expansion. Ordinary checking remains source/cache-write-free.
 
+## Hover and signature help
+
+Hover and signature help share the source-role resolver and declaration metadata
+used by definition navigation. They must preserve canonical alias and generated
+identities, lexical scope and owner-type selection. A matching spelling alone
+does not provide information. Hover ranges select the authored token in UTF-16;
+explicit binding, parameter and field types retain their source notation.
+Function information includes named parameters, return types and the declaration's
+`#requires`, `#ensures` and `#preserves` contracts without checking or changing their
+meaning. Information queries do not publish generated source or write buffers.
+When an unfinished named call prevents normal expansion from completing,
+display-only queries can reuse the existing declaration planner before call
+normalization, retaining generated signatures and canonical file scopes. This
+metadata is not a validation result and cannot publish navigation snapshots.
+Deferred async expansions may remain unavailable until the buffer is complete.
+
+Signature help selects the innermost runtime call containing the cursor. Explicit
+`#call`/`#unsafe-call` and surface named calls use the same callee roles. Select the
+active parameter by the current argument's name, including reordered arguments
+and `$` puns; an unknown label must not select a parameter by ordinal position.
+Direct positional scalar intrinsic calls use the compiler's parameter order;
+source operators lowered from infix notation do not become signature-help calls.
+Clients advertising `signatureInformation.noActiveParameterSupport` receive
+`activeParameter: null` for unknown labels; older clients receive no index and
+may apply their protocol default. Responses follow the
+[LSP signature-help schema](https://github.com/microsoft/language-server-protocol/blob/gh-pages/_specifications/lsp/3.18/language/signatureHelp.md).
+Strings, comments, quoted templates and literal generator inputs are not calls.
+Independent compilation contexts contribute distinct signatures and hover blocks;
+identical information is deduplicated, and failed entries do not erase valid ones.
+Hover content and signature contract documentation honor each client's supported
+markup formats and default to plaintext when no preference is advertised.
+
+Editor-only suffix recovery may complete unfinished delimiters or argument values
+so a call being typed can resolve against existing compiler metadata. Recovery
+preserves every authored byte offset, is bounded, never rewrites the document,
+and does not accept malformed syntax in the middle of a buffer. Compiler parsing,
+type checking and evaluation order remain unchanged. End-to-end stdio tests must
+cover surface call spellings, incomplete edits, aliases/generated declarations,
+negative source roles and Unicode/UTF-16 positions.
+
 ## New syntax acceptance checklist
 
 Every syntax addition or change must include all of the following:
