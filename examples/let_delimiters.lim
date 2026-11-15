@@ -1,0 +1,18 @@
+#fn read-value {
+  #params = { value = (#ref #u64); };
+  #returns = #u64;
+  #body:
+    #return (#deref value);
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-mut count : #u64 = 40u64;
+    #let step : #u64 = 2u64;
+    #set count [#u64 #wrap; count + step];
+    #let snapshot : (#ref #u64) = (#borrow count);
+    #let answer : #u64 = (read-value { value = snapshot; });
+    #return answer;
+}

@@ -1,7 +1,7 @@
 //! Editor information uses the navigation resolver's declaration identities.
 //! Presentation reads authored spans instead of exposing compiler-private names.
-use super::navigation::Index;
-use crate::{editor::NavigationContext, Expr, SourceFile, Span, SpannedExpr as Node, Type};
+use super::navigation::{Index, binding_parts};
+use crate::{Expr, SourceFile, Span, SpannedExpr as Node, Type, editor::NavigationContext};
 
 pub(crate) struct Signature {
     pub label: String,
@@ -23,11 +23,7 @@ fn head(node: &Node) -> &str {
         .trim_start_matches('#')
 }
 fn name_index(node: &Node) -> usize {
-    if head(node) == "extern-fn" {
-        2
-    } else {
-        1
-    }
+    if head(node) == "extern-fn" { 2 } else { 1 }
 }
 fn is_function(node: &Node) -> bool {
     matches!(
@@ -271,7 +267,7 @@ fn description(context: &NavigationContext, node: &Node, target: Span) -> Option
     if xs.get(1).is_some_and(|name| name.span == target) {
         match head(node) {
             "let" | "let-mut" | "const" | "static" => {
-                let kind = xs.get(2).filter(|kind| typed(kind))?;
+                let kind = binding_parts(node).0.filter(|kind| typed(kind))?;
                 return Some(format!(
                     "(#{} {} {})",
                     head(node),
@@ -280,7 +276,7 @@ fn description(context: &NavigationContext, node: &Node, target: Span) -> Option
                 ));
             }
             "type" | "struct" | "enum" | "distributed-enum" | "capability" => {
-                return Some(text(context, node))
+                return Some(text(context, node));
             }
             "gn" | "gn-fn" => {
                 return Some(format!(
@@ -288,7 +284,7 @@ fn description(context: &NavigationContext, node: &Node, target: Span) -> Option
                     head(node),
                     text(context, &xs[1]),
                     text(context, xs.get(2)?)
-                ))
+                ));
             }
             "syntax" => return Some(format!("(#syntax {})", text(context, &xs[1]))),
             _ => {}

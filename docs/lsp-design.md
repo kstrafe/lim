@@ -61,6 +61,15 @@ see success bindings; nested blocks, arms and loops do not export bindings.
 No-shadowing does not remove the need for scope: separate functions can reuse
 parameter names, and unrelated structs can reuse field names.
 
+Delimited bindings such as `#let value : Type = initializer;` retain the
+reader's nested `(Type = initializer)` source tree. Resolve the type inside
+that specification as a type, and the initializer as an expression evaluated
+before the new binding enters scope. The `:` and `=` delimiters have no
+definition target. Navigation, hover, and initializer signature help must also
+handle `#let-mut`, compound types, and multiline specifications while retaining
+the exact authored spans. The checked binding representation remains the same
+as for canonical positional generator syntax.
+
 Fields resolve through the receiver's declared type, aliases, reference/pointer
 wrappers, function signatures and projections. Named call labels resolve to the
 selected function's parameters. Struct-literal labels resolve to that struct's

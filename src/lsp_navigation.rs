@@ -35,12 +35,22 @@ fn head(node: &Node) -> &str {
         .unwrap_or("")
         .trim_start_matches('#')
 }
-fn name_index(node: &Node) -> usize {
-    if head(node) == "extern-fn" {
-        2
-    } else {
-        1
+
+pub(super) fn binding_parts(node: &Node) -> (Option<&Node>, Option<&Node>) {
+    if matches!(head(node), "let" | "let-mut") && node.children.len() == 3 {
+        let specification = &node.children[2];
+        if specification.children.get(1).and_then(symbol) == Some("=") {
+            return (
+                specification.children.first(),
+                specification.children.get(2),
+            );
+        }
     }
+    (node.children.get(2), node.children.get(3))
+}
+
+fn name_index(node: &Node) -> usize {
+    if head(node) == "extern-fn" { 2 } else { 1 }
 }
 fn ty(node: &Node) -> Option<Type> {
     crate::parse_type(Some(&crate::normalize_keywords(node.expr.clone()))).ok()
@@ -297,6 +307,19 @@ impl<'a> Index<'a> {
             vec![span]
         }
     }
+    fn tuple_type_operand<'n>(&self, node: &'n Node, scope: &Scope) -> Option<&'n Node> {
+        let operand = node.children.get(1)?;
+        if matches!(ty(operand), Some(Type::Tuple(_))) {
+            return Some(operand);
+        }
+        let name = symbol(operand)?;
+        (!scope.contains_key(name)
+            && self
+                .declaration(name)
+                .is_some_and(|declaration| head(declaration) == "type"))
+        .then_some(operand)
+    }
+
     fn value_type(&self, node: &Node, scope: &Scope) -> Option<Type> {
         if let Some((callee, _)) = named_call(node) {
             if let Some(intrinsic) = crate::intrinsics::declaration(symbol(callee)?)
@@ -314,7 +337,7 @@ impl<'a> Index<'a> {
             }
             if let Some(declaration) = self.declaration(name) {
                 if matches!(head(declaration), "let" | "let-mut" | "const" | "static") {
-                    return ty(declaration.children.get(2)?);
+                    return binding_parts(declaration).0.and_then(ty);
                 }
             }
             return self.variant_type(name);
@@ -335,7 +358,11 @@ impl<'a> Index<'a> {
             "struct-literal" => Some(Type::Named(symbol(xs.get(1)?)?.to_owned())),
             "enum-literal" => self.variant_type(symbol(xs.get(1)?)?),
             "as" => ty(xs.get(2)?),
-            "literal" | "array-of" | "tuple" | "ptr-null" | "word-read" | "word-take" | "asm"
+            "tuple" => self
+                .tuple_type_operand(node, scope)
+                .and_then(ty)
+                .or_else(|| self.checked_type(node)),
+            "literal" | "array-of" | "ptr-null" | "word-read" | "word-take" | "asm"
             | "linux-syscall" | "atomic-init" => ty(xs.get(1)?),
             "get" => {
                 let owner = at(1)?;
@@ -597,7 +624,7 @@ impl<'a> Index<'a> {
         }
     }
     fn bind_let_pattern(&self, node: &Node, pattern: &Node, scope: &mut Scope) -> Vec<Span> {
-        let kind = node.children.get(2).and_then(ty);
+        let kind = binding_parts(node).0.and_then(ty);
         self.bind_pattern(pattern, kind, scope)
     }
     fn sequence(&self, nodes: &[Node], scope: &mut Scope, labels: &Scope) -> Vec<Span> {
@@ -741,7 +768,7 @@ impl<'a> Index<'a> {
             }
             "result" => return vec![],
             "fn" | "unsafe-fn" | "extern-fn" | "thread-task-spawn" | "thread-task-join" => {
-                return self.function(node)
+                return self.function(node);
             }
             "gn" | "gn-fn" => return self.generator(node),
             "export" => {
@@ -786,10 +813,11 @@ impl<'a> Index<'a> {
                     }
                     return self.bind_let_pattern(node, &xs[1], scope);
                 }
-                if let Some(kind) = xs.get(2).filter(|kind| self.contains(kind)) {
+                let (kind, initializer) = binding_parts(node);
+                if let Some(kind) = kind.filter(|kind| self.contains(kind)) {
                     return self.type_reference(kind);
                 }
-                if let Some(initializer) = xs.get(3).filter(|value| self.contains(value)) {
+                if let Some(initializer) = initializer.filter(|value| self.contains(value)) {
                     return self.walk(initializer, scope, labels);
                 }
                 if head(node).starts_with("let-else") {
@@ -941,7 +969,7 @@ impl<'a> Index<'a> {
                 return self.sequence(xs.get(2..).unwrap_or_default(), &mut scope.clone(), labels);
             }
             "block" | "unsafe" | "loop" => {
-                return self.sequence(&xs[1..], &mut scope.clone(), labels)
+                return self.sequence(&xs[1..], &mut scope.clone(), labels);
             }
             "label" => {
                 let mut inner = labels.clone();
@@ -1199,9 +1227,10 @@ impl<'a> Index<'a> {
         }
         let type_index = match head(node) {
             "as" => Some(2),
-            "size-of" | "align-of" | "offset-of" | "literal" | "array-of" | "tuple"
-            | "atomic-init" | "ptr-null" | "word-read" | "word-take" | "word-write"
-            | "word-view" | "word-forget" | "asm" | "linux-syscall" => Some(1),
+            "tuple" => self.tuple_type_operand(node, scope).map(|_| 1),
+            "size-of" | "align-of" | "offset-of" | "literal" | "array-of" | "atomic-init"
+            | "ptr-null" | "word-read" | "word-take" | "word-write" | "word-view"
+            | "word-forget" | "asm" | "linux-syscall" => Some(1),
             _ => None,
         };
         if let Some(kind) = type_index
@@ -1394,21 +1423,21 @@ impl<'a> Index<'a> {
                     .children
                     .first()
                     .map(|node| self.generator_expr(node, scope))
-                    .unwrap_or_default()
+                    .unwrap_or_default();
             }
             Expr::Unquote(_) | Expr::UnquoteSplicing(_) => {
                 return node
                     .children
                     .first()
                     .map(|node| self.template(node, scope, depth - 1))
-                    .unwrap_or_default()
+                    .unwrap_or_default();
             }
             Expr::QuasiQuote(_) => {
                 return node
                     .children
                     .first()
                     .map(|node| self.template(node, scope, depth + 1))
-                    .unwrap_or_default()
+                    .unwrap_or_default();
             }
             Expr::Quote(_) => return vec![],
             _ => {}

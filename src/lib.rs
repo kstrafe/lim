@@ -1090,9 +1090,12 @@ pub(crate) fn source_value_expression(expression: &SpannedExpr) -> &SpannedExpr 
     let Some(Expr::Symbol(head)) = items.first() else {
         return expression;
     };
+    if matches!(head.as_str(), "#let" | "#let-mut" | "let" | "let-mut") {
+        return source_let_initializer(expression).unwrap_or(expression);
+    }
     let value_index = match head.as_str() {
         "#let-else" | "let-else" if items.len() == 4 && is_form(&items[3], "else") => Some(2),
-        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" => Some(3),
+        "#let-else" | "let-else" => Some(3),
         "#return" | "return" | "#break" | "break" | "#break-to" => Some(1),
         "#set" | "set" => Some(2),
         "#set-field" | "set-field" | "#set-index" | "set-index" => Some(3),
@@ -1102,6 +1105,16 @@ pub(crate) fn source_value_expression(expression: &SpannedExpr) -> &SpannedExpr 
     value_index
         .and_then(|index| expression.children.get(index))
         .unwrap_or(expression)
+}
+
+/// Locate a binding initializer without flattening its original source tree.
+/// Callers must first identify a #let or #let-mut form.
+pub(crate) fn source_let_initializer(expression: &SpannedExpr) -> Option<&SpannedExpr> {
+    if expression.children.len() == 3 {
+        expression.children.get(2)?.children.get(2)
+    } else {
+        expression.children.get(3)
+    }
 }
 
 pub(crate) fn source_value_span(expression: &SpannedExpr) -> Span {
@@ -1509,6 +1522,7 @@ fn pretty_spanned_expression(
             let layout_header = match items.first() {
                 Some(Expr::Symbol(head)) => match head.as_str() {
                     "#call" | "#unsafe-call" | "#struct-literal" | "#enum-literal" => 2,
+                    "#let" | "#let-mut" if items.len() == 3 => 2,
                     "#let" | "#let-mut" | "#const" | "#static" => 3,
                     _ => 1,
                 },
@@ -3024,6 +3038,36 @@ fn collect_function_statement_spans(
 }
 
 fn precise_parse_error_span(expression: &SpannedExpr, error: &str) -> Option<Span> {
+    if error.starts_with("delimited let binding") {
+        fn binding_error_span(node: &SpannedExpr, error: &str) -> Option<Span> {
+            if let Expr::List(items) = &node.expr {
+                if matches!(items.first(), Some(Expr::Symbol(head))
+                    if matches!(head.as_str(), "#let" | "#let-mut"))
+                    && let_type_and_initializer(items).err().as_deref() == Some(error)
+                {
+                    let specification = node.children.get(2)?;
+                    let child = if error.contains("duplicate") {
+                        specification.children.iter().skip(2).find(|child| {
+                            matches!(&child.expr, Expr::Symbol(symbol) if symbol == "=")
+                        })
+                    } else if error.contains("exactly one initializer") {
+                        specification.children.get(3)
+                    } else if error.contains("literal '='") {
+                        specification.children.get(1)
+                    } else if error.contains("initializer after '='") {
+                        specification.children.last()
+                    } else {
+                        None
+                    };
+                    return Some(child.unwrap_or(specification).span);
+                }
+            }
+            node.children
+                .iter()
+                .find_map(|child| binding_error_span(child, error))
+        }
+        return binding_error_span(expression, error);
+    }
     if error == "#std is only valid as a top-level declaration" {
         return source_form_head_span(expression, &["#std"]);
     }
@@ -3188,7 +3232,8 @@ fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span
     };
     match head {
         Some("#quote" | "#quasiquote" | "#literal") => None,
-        Some("#let" | "#let-mut") => visit(3),
+        Some("#let" | "#let-mut") => source_let_initializer(expression)
+            .and_then(|value| source_value_symbol_span(value, name)),
         Some("#let-else") if children.len() == 4 && is_form(&children[3].expr, "else") => {
             visit(3).or_else(|| visit(2))
         }
@@ -4152,7 +4197,16 @@ pub(crate) fn function_shadowing_span(
                 }
                 declare(&children[1], name, bound)
             }
-            "#let" | "#let-mut" | "#let-else" if children.len() >= 4 => {
+            "#let" | "#let-mut" if children.len() >= 3 => {
+                // Initializers execute before their new binding is visible.
+                if let Some(span) = source_let_initializer(node)
+                    .and_then(|value| visit(value, name, bound))
+                {
+                    return Some(span);
+                }
+                declare(&children[1], name, bound)
+            }
+            "#let-else" if children.len() >= 4 => {
                 // Initializers execute before their new binding is visible.
                 if let Some(span) = visit(&children[3], name, bound) {
                     return Some(span);
@@ -5468,6 +5522,29 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
             }
         }
         Expr::List(mut items) => {
+            // A delimited binding's middle token is literal syntax. Do not let
+            // keyword normalization turn #= into the accepted delimiter =.
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(head))
+                    if matches!(head.as_str(), "#let" | "#let-mut" | "let" | "let-mut"))
+                && matches!(items.get(1), Some(Expr::Symbol(_)))
+            {
+                if let Expr::List(specification) = &mut items[2] {
+                    *specification = specification
+                        .iter()
+                        .enumerate()
+                        .map(|(index, item)| {
+                            if index == 1 {
+                                item.clone()
+                            } else {
+                                normalize_keywords(item.clone())
+                            }
+                        })
+                        .collect();
+                    items[0] = normalize_keywords(items[0].clone());
+                    return Expr::List(items);
+                }
+            }
             // Generator names are identifiers, not runtime keywords. Preserve
             // their reserved spelling when normalizing the invocation values.
             if matches!(items.first(), Some(Expr::Generate)) {
@@ -8657,28 +8734,54 @@ struct LetBinding {
     mutable: bool,
 }
 
+/// Accept the existing canonical operands or the reader's nested (Type = value).
+/// This only selects operands; it never rewrites the source syntax tree.
+fn let_type_and_initializer(items: &[Expr]) -> Result<(&Expr, &Expr), String> {
+    if items.len() == 4 {
+        return Ok((&items[2], &items[3]));
+    }
+    if items.len() != 3 {
+        return Err("let requires the form (#let or #let-mut name Type value)".into());
+    }
+    let Expr::List(specification) = &items[2] else {
+        return Err("delimited let binding requires (Type = initializer)".into());
+    };
+    if !matches!(specification.get(1), Some(Expr::Symbol(delimiter)) if delimiter == "=") {
+        return Err("delimited let binding requires literal '=' after the type".into());
+    }
+    if specification
+        .iter()
+        .skip(2)
+        .any(|item| matches!(item, Expr::Symbol(delimiter) if delimiter == "="))
+    {
+        return Err("delimited let binding has duplicate '=' delimiter".into());
+    }
+    if specification.len() < 3 {
+        return Err("delimited let binding requires an initializer after '='".into());
+    }
+    if specification.len() != 3 {
+        return Err("delimited let binding requires exactly one initializer after '='".into());
+    }
+    Ok((&specification[0], &specification[2]))
+}
+
 fn parse_let(items: &[Expr]) -> Result<LetBinding, String> {
     let keyword = match items.first() {
         Some(Expr::Symbol(keyword)) => keyword.as_str(),
         _ => "",
     };
-    if !matches!(keyword, "let" | "let-mut") || items.len() != 4 {
+    if !matches!(keyword, "let" | "let-mut") {
         return Err("let requires the form (#let or #let-mut name Type value)".into());
     }
     let mutable = keyword == "let-mut";
     if !mutable && matches!(items.get(1), Some(Expr::Symbol(keyword)) if keyword == "mut") {
         return Err("mutable bindings must use #let-mut".into());
     }
-    let name_index = 1;
-    let type_index = name_index + 1;
-    let value_index = type_index + 1;
-    if mutable && items.len() != 4 {
-        return Err("mutable let requires the form (#let-mut name Type value)".into());
-    }
+    let (ty, value) = let_type_and_initializer(items)?;
     Ok(LetBinding {
-        name: expect_symbol(items.get(name_index), "binding name")?.to_owned(),
-        ty: parse_type(items.get(type_index))?,
-        value: lower_expr(&items[value_index])?,
+        name: expect_symbol(items.get(1), "binding name")?.to_owned(),
+        ty: parse_type(Some(ty))?,
+        value: lower_expr(value)?,
         mutable,
     })
 }
@@ -8744,13 +8847,13 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
         let name_index = 1;
         let type_index = name_index + 1;
         let value_index = type_index + 1;
-        if items.len() != value_index + 1 {
-            return Err("let requires the form (#let or #let-mut name Type value)".into());
-        }
         if !mutable && matches!(items.get(1), Some(Expr::Symbol(keyword)) if keyword == "mut") {
             return Err("mutable bindings must use #let-mut".into());
         }
         if !matches!(items.get(name_index), Some(Expr::Symbol(_))) {
+            if items.len() != value_index + 1 {
+                return Err("let requires the form (#let or #let-mut name Type value)".into());
+            }
             return Ok(Statement::Destructure {
                 pattern: items[name_index].clone(),
                 ty: parse_type(items.get(type_index))?,

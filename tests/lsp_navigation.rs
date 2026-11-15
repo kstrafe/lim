@@ -975,3 +975,112 @@ fn postcondition_result_has_return_type_for_member_navigation() {
         &[("result", &[]), ("projection", &["field"])],
     );
 }
+
+#[test]
+fn delimited_let_bindings_keep_local_type_and_initializer_navigation() {
+    for keyword in ["#let", "#let-mut"] {
+        let source = r#"#type [[number|Number]] #u64
+#fn [[identity|identity]] {
+  #params = { [[parameter|value]] = Number; };
+  #returns = Number;
+  #body: #return value;
+}
+#fn main {
+  #params = {}; #returns = Number;
+  #body = (
+    #let [[input|input]] : Number = 42u64;
+    #let-kind [[binding|count]] [[colon|:]] [[type-use|Number]] [[equals|=]] [[callee|identity]] { [[label|value]] = [[argument|input]]; };
+    #return [[later-use|count]];
+  );
+}
+"#
+        .replace("#let-kind", keyword);
+        run(
+            &source,
+            &[
+                ("binding", &["binding"]),
+                ("type-use", &["number"]),
+                ("colon", &[]),
+                ("equals", &[]),
+                ("callee", &["identity"]),
+                ("label", &["parameter"]),
+                ("argument", &["input"]),
+                ("later-use", &["binding"]),
+            ],
+        );
+    }
+}
+
+#[test]
+fn delimited_let_compound_types_keep_exact_user_type_targets() {
+    run(
+        r#"#struct [[row-type|Row]] () (([[field|value]] #u64))
+#fn main {
+  #params = {}; #returns = #u64;
+  #body = (
+    #let [[row|row]] : [[named-type|Row]] = (#struct-literal [[constructor-type|Row]] ((value 42u64)));
+    #let [[view|view]] [[ref-colon|:]] (#ref [[referent-type|Row]]) [[ref-equals|=]] (#borrow [[owner-use|row]]);
+    #let-mut [[pair|pair]] [[tuple-colon|:]] (#tuple [[left-type|Row]] [[right-type|Row]]) [[tuple-equals|=]] (#tuple [[left-value|row]] [[right-value|row]]);
+    #forget [[pair-use|pair]];
+    #return (#get [[view-use|view]] [[field-use|value]]);
+  );
+}
+"#,
+        &[
+            ("named-type", &["row-type"]),
+            ("constructor-type", &["row-type"]),
+            ("referent-type", &["row-type"]),
+            ("left-type", &["row-type"]),
+            ("right-type", &["row-type"]),
+            ("ref-colon", &[]),
+            ("ref-equals", &[]),
+            ("tuple-colon", &[]),
+            ("tuple-equals", &[]),
+            ("owner-use", &["row"]),
+            ("left-value", &["row"]),
+            ("right-value", &["row"]),
+            ("pair", &["pair"]),
+            ("pair-use", &["pair"]),
+            ("view-use", &["view"]),
+            ("field-use", &["field"]),
+        ],
+    );
+}
+
+#[test]
+fn delimited_let_multiline_initializers_keep_callees_and_named_arguments() {
+    for keyword in ["#let", "#let-mut"] {
+        let source = r#"#fn [[choose|choose]] {
+  #params = { [[first|first]] = #u64; [[second|second]] = #u64; };
+  #returns = #u64;
+  #body: #return (#u64::add-wrap first second);
+}
+#fn main {
+  #params = {}; #returns = #u64;
+  #body = (
+    #let [[input|input]] : #u64 = 21u64;
+    #let-kind [[binding|answer]] [[colon|:]] #u64 [[equals|=]] (#call [[callee|choose]] (
+        ([[second-label|second]] [[second-argument|input]])
+        ([[first-label|first]] [[first-argument|input]])
+      ));
+    #return [[later-use|answer]];
+  );
+}
+"#
+        .replace("#let-kind", keyword);
+        run(
+            &source,
+            &[
+                ("binding", &["binding"]),
+                ("colon", &[]),
+                ("equals", &[]),
+                ("callee", &["choose"]),
+                ("second-label", &["second"]),
+                ("second-argument", &["input"]),
+                ("first-label", &["first"]),
+                ("first-argument", &["input"]),
+                ("later-use", &["binding"]),
+            ],
+        );
+    }
+}

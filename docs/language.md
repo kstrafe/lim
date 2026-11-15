@@ -62,6 +62,12 @@ remain valid inside declarations and in quoted generator syntax trees.
 The executable [surface example](../examples/surface_syntax.lim) combines
 generated arrays, contracts, infix expressions and local indentation lists.
 
+An **experimental binding form** puts the type and initializer in a nested
+`Type = initializer` shape: `#let count : #u64 = 42u64;` or
+`#let-mut count : #u64 = 0u64;`. The colon introduces the type, and `=`
+introduces its initializer. Existing `#let count #u64 42u64;` and
+`#let-mut count #u64 0u64;` spellings remain valid during this experiment.
+
 ```lisp run=42
 #fn increment {
   #params = { value = #u64; };

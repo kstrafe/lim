@@ -2321,3 +2321,56 @@ fn record_function_contracts_and_refinement_named_calls_have_information_over_st
     assert!(!fixture.0.join(".lim").exists());
     client.shutdown();
 }
+
+#[test]
+fn delimited_let_hover_and_initializer_signature_help_preserve_source_ranges_over_stdio() {
+    let fixture = Fixture::new("delimited-let-information");
+    for keyword in ["#let", "#let-mut"] {
+        let source = r#"#type Number #u64
+#fn choose {
+  #params = { first = Number; second = Number; };
+  #returns = Number;
+  #body: #return (#u64::add-wrap first second);
+}
+#fn main {
+  #params = {}; #returns = Number;
+  #body = (
+    #let-kind answer : Number = choose {
+      second = 22u64;
+      first = 20u64;
+    };
+    #let-kind pair : (#tuple Number Number) = (#tuple answer 0u64);
+    #return (#get pair 0);
+  );
+}
+"#
+        .replace("#let-kind", keyword);
+        let path = fixture.write("main.lim", &source);
+        let mut client = Client::start(&fixture.0);
+        client.open(&path, &source);
+        for (needle, name, ty) in [
+            ("answer :", "answer", "Number"),
+            ("answer 0u64", "answer", "Number"),
+            ("pair :", "pair", "(#tuple Number Number)"),
+            ("pair 0)", "pair", "(#tuple Number Number)"),
+        ] {
+            let hover = client.hover(&path, &source, needle, name);
+            assert!(hover.contains(ty), "{keyword}: {hover}");
+        }
+        for (needle, active) in [("22u64", 1), ("20u64", 0)] {
+            let signature = client.signature(&path, &source, source.find(needle).unwrap());
+            assert_signature(&signature, "choose", &["first", "second"], Some(active));
+        }
+        for needle in [": Number = choose", "= choose", ": (#tuple", "= (#tuple answer"] {
+            let byte = source.find(needle).unwrap();
+            assert_eq!(
+                client.at("textDocument/hover", &path, &source, byte),
+                Json::Null,
+                "{keyword}: {needle}"
+            );
+        }
+        client.clear(&path);
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+        client.shutdown();
+    }
+}
