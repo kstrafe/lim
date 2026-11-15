@@ -9643,7 +9643,7 @@ mod tests {
         let diagnostic = structured_type_error(&program);
         let rendered = render_diagnostic(&diagnostic, source, "borrow-read.lim");
         assert!(rendered.contains("E4100"), "{rendered}");
-        assert!(rendered.contains(":4:12"), "{rendered}");
+        assert!(rendered.contains(":4:14"), "{rendered}");
     }
 
     #[test]
@@ -9653,8 +9653,8 @@ mod tests {
         let diagnostic = structured_type_error(&program);
         let rendered = render_diagnostic(&diagnostic, source, "borrow-write.lim");
         assert!(rendered.contains("E4100"), "{rendered}");
-        assert!(rendered.contains(":4:4"), "{rendered}");
-        assert!(rendered.contains(":3:32"), "{rendered}");
+        assert!(rendered.contains(":4:6"), "{rendered}");
+        assert!(rendered.contains(":3:34"), "{rendered}");
     }
 
     #[test]
@@ -9709,8 +9709,8 @@ mod tests {
         let diagnostic = structured_type_error(&program);
         let rendered = render_diagnostic(&diagnostic, source, "borrow-field.lim");
         assert!(rendered.contains("E4100"), "{rendered}");
-        assert!(rendered.contains(":6:4"), "{rendered}");
-        assert!(rendered.contains(":5:32"), "{rendered}");
+        assert!(rendered.contains(":6:6"), "{rendered}");
+        assert!(rendered.contains(":5:34"), "{rendered}");
     }
 
     #[test]
@@ -9719,7 +9719,7 @@ mod tests {
         let program = parse_program(source).unwrap();
         let span = program.statement_spans.get(&("main".into(), 1)).unwrap();
         assert_eq!(&source[span.start..span.end], "(#return missing)");
-        assert_eq!((span.line, span.column), (3, 3));
+        assert_eq!((span.line, span.column), (3, 5));
     }
 
     #[test]
@@ -9729,7 +9729,7 @@ mod tests {
         let diagnostic = structured_type_error(&program);
         let rendered = render_diagnostic(&diagnostic, source, "type-error.lim");
         assert!(rendered.contains("unknown variable or enum variant 'missing'"));
-        assert!(rendered.contains(":3:12"), "{rendered}");
+        assert!(rendered.contains(":3:14"), "{rendered}");
         assert!(rendered.contains("^^^^^^^ here"), "{rendered}");
         assert!(rendered.contains("(#return missing)"), "{rendered}");
     }
@@ -9900,7 +9900,7 @@ mod tests {
 
     #[test]
     fn formatter_preserves_comments_and_is_idempotent_for_generator_templates() {
-        let commented = "// module note\n#fn main () #u64\n    (#let value #u64 0u64)\n    // return the named value\n    (#return value)\n // trailing note\n";
+        let commented = "// module note\n#fn main () #u64\n    (#let value #u64 0u64)\n    // return the named value\n    (#return value)\n// trailing note\n";
         let formatted = format_source(commented).unwrap();
         assert_eq!(formatted, commented);
         assert!(formatted.contains("// module note\n"));
@@ -9945,24 +9945,24 @@ mod tests {
         assert!(tokens
             .iter()
             .any(|token| token.kind == TokenKind::Symbol("#u32::add-wrap".into())));
-        let program = parse_program("(#fn main () #u32 (#return (#u32::add-wrap 20 22)))").unwrap();
+        let program = parse_program("#fn main () #u32 (#return (#u32::add-wrap 20 22))\n").unwrap();
         assert!(check_types(&program).is_ok(), "{:?}", check_types(&program));
         assert!(generate_assembly(&program).unwrap().contains("add"));
-        let plain = parse_program("(#fn main () #u32 (#return (#u32::add 20 22)))").unwrap();
+        let plain = parse_program("#fn main () #u32 (#return (#u32::add 20 22))\n").unwrap();
         assert!(check_types(&plain).is_err());
         let bare_keyword =
-            parse_program("(#fn main () #u32 (#return (if true 42 0)))").unwrap_err();
+            parse_program("#fn main () #u32 (#return (if true 42 0))\n").unwrap_err();
         assert!(bare_keyword.contains("must use its '#' prefix"));
-        let bare_operator = parse_program("(#fn main () #u32 (#return (+ 20 22)))").unwrap_err();
+        let bare_operator = parse_program("#fn main () #u32 (#return (+ 20 22))\n").unwrap_err();
         assert!(bare_operator.contains("must use its '#' prefix"));
         let bare_division =
-            parse_program("(#fn main () #u128 (#return (/ 100u128 7u128)))").unwrap_err();
+            parse_program("#fn main () #u128 (#return (/ 100u128 7u128))\n").unwrap_err();
         assert!(bare_division.contains("must use its '#' prefix"));
         let qualified_division =
-            parse_program("(#fn main () #u128 (#return (#u128::div-wrap 100u128 7u128)))");
+            parse_program("#fn main () #u128 (#return (#u128::div-wrap 100u128 7u128))\n");
         assert!(qualified_division.is_ok());
         let qualified_remainder =
-            parse_program("(#fn main () #u128 (#return (#u128::rem-wrap 100u128 7u128)))");
+            parse_program("#fn main () #u128 (#return (#u128::rem-wrap 100u128 7u128))\n");
         assert!(qualified_remainder.is_ok());
         assert_eq!(
             lex("(#bool::and true false)").unwrap()[1].kind,
@@ -10264,7 +10264,7 @@ mod tests {
         );
         let rendered = render_diagnostic(&diagnostic, root_source, "root.lim");
         assert!(rendered.contains("--> "));
-        assert!(rendered.contains("module.lim:2:12"), "{rendered}");
+        assert!(rendered.contains("module.lim:2:14"), "{rendered}");
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -10283,7 +10283,7 @@ mod tests {
         assert_eq!(diagnostic.span, Some(span));
         assert_eq!(diagnostic.code, DiagnosticCode::Type);
 
-        let global_source = "(#let total #u64 false)";
+        let global_source = "#let total #u64 false\n";
         let global_program = parse_program(global_source).unwrap();
         let (message, _, span, _) = typecheck::check_types_with_span(&global_program).unwrap_err();
         assert!(!message.contains("source span "));
@@ -10341,7 +10341,7 @@ mod tests {
         let span = diagnostic.span.unwrap();
         assert_eq!(
             &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
-            "\"bad token)\n)"
+            "\"bad token)\n"
         );
         assert_eq!(
             diagnostic.source_name.as_deref(),
@@ -10366,7 +10366,7 @@ mod tests {
         let span = diagnostic.span.unwrap();
         assert_eq!(
             &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
-            "\"bad \\\" token)\n)"
+            "\"bad \\\" token)\n"
         );
         assert_eq!(span.source_id, 1);
         assert_eq!(
@@ -10403,7 +10403,7 @@ mod tests {
         let first = compile();
         assert!(first.message.contains("return"), "{}", first.message);
         let second = compile();
-        let invocation_start = source.find("(#generate bad generated)").unwrap();
+        let invocation_start = source.find("#generate bad generated").unwrap();
         assert!(first.span.is_some(), "{first:?}");
         assert_eq!(first.span, second.span);
         let generated_span = first.span.unwrap();
@@ -10416,11 +10416,11 @@ mod tests {
         assert_eq!(invocation.span.start, invocation_start);
         assert_eq!(
             invocation.span.end,
-            invocation_start + "#generate bad generated\n".len()
+            invocation_start + "#generate bad generated".len()
         );
         assert_eq!(
             &invocation.source_text.as_deref().unwrap()[invocation.span.start..invocation.span.end],
-            "#generate bad generated\n"
+            "#generate bad generated"
         );
         assert_eq!(first.span, second.span);
         assert_eq!(first.labels, second.labels);
@@ -10451,7 +10451,7 @@ mod tests {
         assert_eq!(span.source_id, 1);
         assert_eq!(
             &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
-            "#generate fail\n"
+            "#generate fail"
         );
         assert!(diagnostic
             .source_name
@@ -11133,7 +11133,7 @@ mod tests {
     #[test]
     fn returns_and_dereferences_references() {
         let program = parse_program(
-            "(#let answer #u64 42) (#fn identity ((value (#ref #u64))) (#ref #u64) (#return value)) (#fn get-answer () (#ref #u64) (#return (#borrow answer))) (#fn main () #u64 (#return (#deref (#call identity ((value (#call get-answer ())))))))",
+            "#let answer #u64 42\n#fn identity ((value (#ref #u64))) (#ref #u64) (#return value)\n#fn get-answer () (#ref #u64) (#return (#borrow answer))\n#fn main () #u64 (#return (#deref (#call identity ((value (#call get-answer ()))))))\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -11618,7 +11618,7 @@ mod tests {
 
     #[test]
     fn rejects_legacy_forms() {
-        let missing_prefix = parse_program("(fn main () #u64 (#return 42))").unwrap_err();
+        let missing_prefix = parse_program("fn main () #u64 (#return 42)").unwrap_err();
         assert!(missing_prefix.contains("must use its '#' prefix"));
         let missing_return = parse_program("#fn main () #u64 42\n").unwrap_err();
         assert!(missing_return.contains("explicit"));
@@ -11859,7 +11859,7 @@ mod tests {
             );
             let label = expression.children[0].span;
             assert_eq!(&source[label.start..label.end], "owner");
-            assert_eq!(format_source(&source).unwrap(), format!("{source}\n"));
+            assert_eq!(format_syntax(&source).unwrap(), format!("{source}\n"));
         }
         for source in [
             "($ (#borrow (#get owner value)))",
@@ -12205,13 +12205,13 @@ mod tests {
 
     #[test]
     fn rejects_malformed_let_and_functions() {
-        assert!(parse_program("(#let value #u32)")
+        assert!(parse_program("#let value #u32\n")
             .unwrap_err()
             .contains("let requires"));
         assert!(parse_program("#fn broken ((value #u32)) #u32\n")
             .unwrap_err()
             .contains("explicit"));
-        assert!(parse_program("(unknown form)")
+        assert!(parse_program("#unknown form")
             .unwrap_err()
             .contains("unknown top-level"));
         assert!(parse_program("#fn empty () ()\n")
@@ -12316,7 +12316,7 @@ mod tests {
     #[test]
     fn rejects_parameters_that_shadow_globals() {
         let error = parse_program(
-            "(#let value #u64 10) (#fn read ((value #u64)) #u64 (#return value)) (#fn main () #u64 (#return (#call read ((value 42)))))",
+            "#let value #u64 10\n#fn read ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (#call read ((value 42))))\n",
         )
         .unwrap_err();
         assert!(error.contains("binding 'value' shadows an existing binding"));
@@ -12575,7 +12575,7 @@ mod tests {
     #[test]
     fn normalizes_typed_global_constants() {
         let program =
-            parse_program("(#let wRAPPED #u8 (#u8::add-wrap 255 1)) (#fn main () #u64 (#return (#if (#u8::eq wRAPPED 0) 42 0)))")
+            parse_program("#let wRAPPED #u8 (#u8::add-wrap 255 1)\n#fn main () #u64 (#return (#if (#u8::eq wRAPPED 0) 42 0))\n")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
@@ -12646,7 +12646,7 @@ mod tests {
     #[test]
     fn lowers_wide_integer_globals() {
         let program = parse_program(
-            "(#let vALUE #u128 42) (#fn main () #u64 (#return (#if (#u128::eq  vALUE 42) 42 0)))",
+            "#let vALUE #u128 42\n#fn main () #u64 (#return (#if (#u128::eq  vALUE 42) 42 0))\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12661,7 +12661,7 @@ mod tests {
     #[test]
     fn lowers_high_unsigned_wide_global_literals() {
         let program = parse_program(
-            "(#let vALUE #u128 340282366920938463463374607431768211455) (#fn main () #u64 (#return (#if (#u128::eq  vALUE (#as -1 #u128)) 42 0)))",
+            "#let vALUE #u128 340282366920938463463374607431768211455\n#fn main () #u64 (#return (#if (#u128::eq  vALUE (#as -1 #u128)) 42 0))\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12984,36 +12984,36 @@ mod tests {
     fn builtin_generators_require_complete_named_arguments() {
         let cases = [
             (
-                "#generate #optional ((name Maybe) (type #u64))\n",
-                "#generate #optional #u64 Maybe\n",
+                "(#generate #optional ((name Maybe) (type #u64)))",
+                "(#generate #optional #u64 Maybe)",
             ),
             (
-                "#generate #result ((name Outcome) (error #u32) (ok #u64))\n",
-                "#generate #result #u64 #u32 Outcome\n",
+                "(#generate #result ((name Outcome) (error #u32) (ok #u64)))",
+                "(#generate #result #u64 #u32 Outcome)",
             ),
             (
-                "#generate #thread-spawn ((worker work) (task Task))\n",
-                "#generate #thread-spawn Task work\n",
+                "(#generate #thread-spawn ((worker work) (task Task)))",
+                "(#generate #thread-spawn Task work)",
             ),
             (
-                "#generate #vec ((name VecU64) (allocator Arena) (element #u64))\n",
-                "#generate #vec #u64 Arena VecU64\n",
+                "(#generate #vec ((name VecU64) (allocator Arena) (element #u64)))",
+                "(#generate #vec #u64 Arena VecU64)",
             ),
             (
-                "#generate #vec-sort ((comparator less) (vector VecU64) (element #u64))\n",
-                "#generate #vec-sort #u64 VecU64 less\n",
+                "(#generate #vec-sort ((comparator less) (vector VecU64) (element #u64)))",
+                "(#generate #vec-sort #u64 VecU64 less)",
             ),
             (
-                "#generate #vec-alloc ((destroy drop-item) (vector VecU64) (allocator Arena::Allocator) (element #u64))\n",
-                "#generate #vec-alloc #u64 Arena::Allocator VecU64 drop-item\n",
+                "(#generate #vec-alloc ((destroy drop-item) (vector VecU64) (allocator Arena::Allocator) (element #u64)))",
+                "(#generate #vec-alloc #u64 Arena::Allocator VecU64 drop-item)",
             ),
             (
-                "#generate #async-fn ((function (#fn work () #u64 (#return 1))) (protocol WorkAwait) (waker Wake))\n",
-                "#generate #async-fn (Work::Task Work::Poll Work::Poll.Pending Work::Poll.Ready Work::poll WorkAwait) Wake (#fn work () #u64 (#return 1))\n",
+                "(#generate #async-fn ((function (#fn work () #u64 (#return 1))) (protocol WorkAwait) (waker Wake)))",
+                "(#generate #async-fn (Work::Task Work::Poll Work::Poll.Pending Work::Poll.Ready Work::poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
             ),
             (
-                "#generate #async-fn-pinned ((protocol WorkAwait) (waker Wake) (function (#fn work () #u64 (#return 1))))\n",
-                "#generate #async-fn-pinned (Work::Frame Work::Poll Work::Poll.Pending Work::Poll.Ready Work::poll WorkAwait) Wake (#fn work () #u64 (#return 1))\n",
+                "(#generate #async-fn-pinned ((protocol WorkAwait) (waker Wake) (function (#fn work () #u64 (#return 1)))))",
+                "(#generate #async-fn-pinned (Work::Frame Work::Poll Work::Poll.Pending Work::Poll.Ready Work::poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
             ),
         ];
         for (source, expected) in cases {
@@ -13117,7 +13117,7 @@ mod tests {
         assert_eq!(warm_report.matches("\"kind\":\"syntax\"").count(), 3);
         assert!(!warm_report.contains("\"missing-entry\""));
         assert!(warm_report.contains("\"kind\":\"source\""));
-        assert!(warm_report.contains("lim-inspectable-async-graph-v4"));
+        assert!(warm_report.contains("lim-inspectable-async-graph-v5-bare-roots"));
         let artifact = fs::read_dir(generator::generated_source_directory(&cache))
             .unwrap()
             .map(|entry| entry.unwrap().path())
@@ -13230,7 +13230,10 @@ mod tests {
 #generate #optional ((name Maybe) (type {payload}))
  {marker}"
             );
-            let nested = parse_generated_source_items(&source).unwrap();
+            let tree_data = parse_source_unit(&source).unwrap().iter()
+                .map(|form| expression_source(&form.expr).unwrap())
+                .collect::<Vec<_>>().join("\n");
+            let nested = parse_generated_source_items(&tree_data).unwrap();
             let top_level = parse_program(&source).unwrap();
             let names = |items: &[Item]| {
                 items
@@ -13288,7 +13291,7 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .starts_with("generated-"));
-        assert!(generated.contains("(#type CachedType #u64)"));
+        assert!(generated.contains("#type CachedType #u64"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -13307,7 +13310,7 @@ mod tests {
             .to_string_lossy()
             .starts_with("generated-"));
         assert!(!directory.join("thread-spawn-0.lim").exists());
-        assert!(generated.contains("(#thread-task Task worker"));
+        assert!(generated.contains("#thread-task Task worker"));
         assert!(
             generated.contains("(#thread-task-spawn Task::spawn ((value #u64)) Task::SpawnResult)")
         );
@@ -13318,7 +13321,7 @@ mod tests {
         assert!(generated.contains("Task::JoinResult.Error"));
 
         let lowered = parse_program(&format!(
-            "#fn worker ((value #u64)) #u64 (#return value)\n {}",
+            "#fn worker ((value #u64)) #u64 (#return value)\n{}",
             generator_authority::without_header(&generated)
         ))
         .unwrap();
@@ -13944,7 +13947,7 @@ mod tests {
     #[test]
     fn lowers_zero_sized_globals() {
         let program = parse_program(
-            "(#let uNIT () ()) (#fn consume ((value ())) #u64 (#return 41)) (#fn main () #u64 (#return (#call consume ((value uNIT)))))",
+            "#let uNIT () ()\n#fn consume ((value ())) #u64 (#return 41)\n#fn main () #u64 (#return (#call consume ((value uNIT))))\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -15170,7 +15173,7 @@ mod tests {
     #[test]
     fn lowers_immutable_globals() {
         let program = parse_program(
-            "(#let aNSWER #u64 40) (#fn main () #u64 (#return (#u64::add-wrap  aNSWER 2)))",
+            "#let aNSWER #u64 40\n#fn main () #u64 (#return (#u64::add-wrap  aNSWER 2))\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -15178,7 +15181,7 @@ mod tests {
             .unwrap()
             .contains("[rip+aNSWER]"));
         let invalid =
-            parse_program("(#let-mut aNSWER #u64 40) (#fn main () #u64 (#return aNSWER))").unwrap();
+            parse_program("#let-mut aNSWER #u64 40\n#fn main () #u64 (#return aNSWER)\n").unwrap();
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("cannot be mutable"));
@@ -15187,7 +15190,7 @@ mod tests {
     #[test]
     fn lowers_float_and_char_globals() {
         let program = parse_program(
-            "(#let scale #f32 1.5) (#let pi #f64 3.25) (#let letter #char #\\a) (#fn main () #u64 (#return (#if (#bool::and (#f32::gt scale 1.0) (#bool::and (#f64::gt pi 3.0) (#char::eq letter #\\a))) 42 0)))",
+            "#let scale #f32 1.5\n#let pi #f64 3.25\n#let letter #char #\\a\n#fn main () #u64 (#return (#if (#bool::and (#f32::gt scale 1.0) (#bool::and (#f64::gt pi 3.0) (#char::eq letter #\\a))) 42 0))\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

@@ -1136,7 +1136,7 @@ mod tests {
 
     fn prepare(context: &str, source: &str) -> (Program, SpannedExpr, Lowered) {
         let text = format!("{context}\n{source}");
-        let original = crate::parse(&text).unwrap().pop().unwrap();
+        let original = crate::parse_source_unit(&text).unwrap().pop().unwrap();
         let mut base = crate::parse_program(context).unwrap();
         base.source = Some(text.clone());
         base.source_files[0].source = text;
@@ -1359,7 +1359,7 @@ mod tests {
         ] {
             let source = format!("{CONTEXT}\n#fn work () #u64 (#return {awaited})\n");
             let base = crate::parse_program(CONTEXT).unwrap();
-            let original = crate::parse(&source).unwrap().pop().unwrap();
+            let original = crate::parse_source_unit(&source).unwrap().pop().unwrap();
             let error = lower(&original, Type::U64, &base).err().unwrap();
             assert_eq!(&source[error.span.start..error.span.end], offending);
         }

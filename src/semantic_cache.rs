@@ -713,7 +713,7 @@ mod tests {
             "#static aAA #u64 1u64
 #struct AAAHolder () ((value #u64))
 #enum AAAChoice () ((AAAChoice.AAAFound #u64))
- {source}"
+{source}"
         ));
         let field = before
             .field_id(&Type::Named("Holder".into()), "value")

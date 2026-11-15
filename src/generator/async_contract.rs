@@ -311,7 +311,7 @@ mod tests {
     use super::*;
 
     fn check_source(source: &str) -> Option<Error> {
-        let forms = crate::parse(source).unwrap();
+        let forms = crate::parse_source_unit(source).unwrap();
         let environment = crate::generator::frontend::async_type_environment(&forms);
         check(forms.last().unwrap(), &environment)
     }

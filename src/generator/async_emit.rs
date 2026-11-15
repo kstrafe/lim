@@ -7899,7 +7899,8 @@ mod tests {
             (#case (Child.Resume value) (ChildPoll.ChildReady value))))\n";
 
     fn prepare(body: &str, main: &str) -> Planning {
-        prepare_function(&format!("#fn work ((seed #u64)) #u64 {body}\n"), main)
+        let body = body.lines().map(|line| format!("  {line}")).collect::<Vec<_>>().join("\n");
+        prepare_function(&format!("#fn work ((seed #u64)) #u64\n{body}\n"), main)
     }
 
     fn prepare_function(function: &str, main: &str) -> Planning {
@@ -7915,6 +7916,13 @@ mod tests {
         function: &str,
         main: &str,
     ) -> Result<Planning, crate::source_error::SourceError> {
+        // One source spelling at the input boundary; serialize its checked
+        // tree explicitly when placing it inside the generator's literal data.
+        let syntax = crate::parse_source_unit(function).unwrap();
+        assert_eq!(syntax.len(), 1, "one function source declaration: {function}");
+        assert!(matches!(&syntax[0].expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#fn")));
+        let function = crate::expression_source(&syntax[0].expr).unwrap();
         let fn_name = function
             .split("#fn ")
             .nth(1)
@@ -7924,7 +7932,7 @@ mod tests {
             "{CONTEXT}
 #generate {generator} ((protocol {fn_name}-await) (waker #u64)
               (function {function}))
-          {main}"
+{main}"
         );
         let syntax = crate::prepare_program_syntax(
             &source,
@@ -9280,6 +9288,7 @@ mod tests {
             let index = emitter.add_slot("test-typed-owner".into(), Type::Named("Child".into()));
             let definitions = emitter.slot_definitions();
             let definitions = definitions.strip_prefix(&before).unwrap();
+            let definitions = crate::generator::format_generated_syntax(definitions).unwrap();
             let slot = &emitter.slots[index];
             let constructor = if occupied {
                 format!("({} (Child.Start 1u64))", slot.full)
@@ -9434,7 +9443,7 @@ mod tests {
             "#struct Leaf (#linear) ((number #u64) (enabled #bool))
 #struct Container (#linear) ((leaf Leaf) (items (#array #u64 2)))
 #enum Owned (#linear) ((Owned.Packed Container) Owned.Absent)
-          {RUN}"
+{RUN}"
         );
         runtime(
             "(#let owned Owned (Owned.Packed (#struct-literal Container
@@ -9466,7 +9475,7 @@ mod tests {
 
     #[test]
     fn rejected_linear_tests_retain_owners_and_short_circuit_payload_access() {
-        let main = format!("#type OwnedTuple (#tuple Child #u64)\n {RUN}");
+        let main = format!("#type OwnedTuple (#tuple Child #u64)\n{RUN}");
         for (number, expected) in [(3u64, 42), (8, 42), (9, 41)] {
             runtime(
                 &format!(
@@ -9498,7 +9507,7 @@ mod tests {
             "#type Pair (#tuple #u64 #u64)
 #struct Inner (#linear) ((padding #u64) (empty ()) (pair Pair))
 #struct Owner (#linear) ((padding #u64) (inner Inner))
-          {RUN}"
+{RUN}"
         );
         runtime(
             "(#let owner Owner (#struct-literal Owner
@@ -9521,7 +9530,7 @@ mod tests {
             "#type Pair (#array #u64 2)
 #fn sum ((items Pair)) #u64
               (#return (#u64::add-wrap (#index items 0usize) (#index items 1usize)))
-          {RUN}"
+{RUN}"
         );
         let generated = runtime(
             "(#let items Pair (#array-of Pair seed
@@ -9557,7 +9566,7 @@ mod tests {
             }
         }
         let mut heads = Vec::new();
-        for expression in crate::parse(&generated[0].source).unwrap() {
+        for expression in crate::parse_source_unit(&generated[0].source).unwrap() {
             if let Expr::List(items) = &expression.expr {
                 if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#fn" || head == "#unsafe-fn")
                 {
@@ -10327,7 +10336,7 @@ mod tests {
             "missing graph cleanup handler for source slot 'await-0'"
         );
         let original = &planning.program.source_files[error.span.source_id as usize].source;
-        assert!(original[error.span.start..error.span.end].starts_with("#fn work"));
+        assert!(original[error.span.start..error.span.end].starts_with("(#fn work"));
     }
 
     #[test]
@@ -10814,9 +10823,9 @@ mod tests {
             ),
         ] {
             let function = format!(
-                "(#fn work ((view ({parent} Source))) #u64
+                "#fn work ((view ({parent} Source))) #u64
               {destination} (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 40u64)))
-              (#return (#u64::add-wrap (#get view amount) 2u64)))"
+              (#return (#u64::add-wrap (#get view amount) 2u64))\n"
             );
             let main = format!("#struct Source (#linear) ((padding #u64) (amount #u64))
 #fn main () #u64 (#let waker #u64 0u64)
@@ -11438,7 +11447,7 @@ mod tests {
 
     #[test]
     fn copy_projected_operands_survive_pending_without_moving_the_owner() {
-        let main = format!("#struct Owner (#linear) ((value #u64))\n  {RUN}");
+        let main = format!("#struct Owner (#linear) ((value #u64))\n{RUN}");
         runtime(
             "(#let owner Owner (#struct-literal Owner ((value seed))))
           (#let result #u64 (#u64::add-wrap (#get owner value)
@@ -11453,7 +11462,7 @@ mod tests {
     #[test]
     fn copy_fields_are_updated_after_rhs_awaits_without_moving_the_owner() {
         let main =
-            format!("#struct Owner (#linear) ((padding #u64) (empty ()) (value #u64))\n  {RUN}");
+            format!("#struct Owner (#linear) ((padding #u64) (empty ()) (value #u64))\n{RUN}");
         let generated = runtime(
             "(#let-mut owner Owner (#struct-literal Owner ((padding 77u64) (empty ()) (value 0u64))))
           (#set-field owner value (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))
@@ -11507,7 +11516,7 @@ mod tests {
             "(#let-mut owner Owner (#struct-literal Owner ((value seed))))
              (#let result #u64 (#get owner value))
              (#forget owner) (#return result)",
-            &format!("#struct Owner (#linear) ((value #u64))\n  {RUN}"),
+            &format!("#struct Owner (#linear) ((value #u64))\n{RUN}"),
         );
         let function = &mut planning.functions[0];
         let body = &planning.declarations.bodies[&function.model.body_name];
@@ -11554,7 +11563,7 @@ mod tests {
         let declarations = format!(
             "#struct Resource (#linear) ((value #u64))
 #struct Pair () ((left Resource) (right Resource))
- {RUN}"
+{RUN}"
         );
         for function in [
             function.to_owned(),
@@ -11609,7 +11618,7 @@ mod tests {
             "#struct Resource (#linear) ((value #u64))
 #struct Pair () ((left Resource) (right Resource))
 #struct Outer () ((inner Pair))
- {RUN}"
+{RUN}"
         );
         for function in [
             function.to_owned(),
@@ -11664,7 +11673,7 @@ mod tests {
             "#struct Resource (#linear) ((value #u64))
 #struct Holder (#linear) ((data (#array #u64 2)))
 #struct Pair () ((left Resource) (right Holder))
- {RUN}"
+{RUN}"
         );
         let mut planning = prepare_function(function, &declarations);
         assert!(generate(&planning).is_ok());
@@ -11711,7 +11720,7 @@ mod tests {
                       (#let-mut owner Owner (#struct-literal Owner ((value seed))))
                       {body} (#forget owner) (#return 42u64)\n"
                 ),
-                &format!("#struct Owner (#linear) ((value #u64))\n  {RUN}"),
+                &format!("#struct Owner (#linear) ((value #u64))\n{RUN}"),
             )
             .err()
             .expect("a consumed owner cannot supply a projection");
@@ -11729,7 +11738,7 @@ mod tests {
           (#set-field owner value (#u64::add-wrap (#get owner value)
             (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64))))
           (#let result #u64 (#get owner value)) (#forget owner) (#return result)",
-            &format!("#struct Owner (#linear) ((value #u64))\n  {RUN}"),
+            &format!("#struct Owner (#linear) ((value #u64))\n{RUN}"),
             42,
         );
     }
@@ -11744,7 +11753,7 @@ mod tests {
               (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 1u64)))))
           (#assert (#u64::eq (#get owner padding) 77u64))
           (#let result #u64 (#get owner value)) (#forget owner) (#return result)",
-            &format!("#struct Owner (#linear) ((padding #u64) (value #u64))\n  {RUN}"),
+            &format!("#struct Owner (#linear) ((padding #u64) (value #u64))\n{RUN}"),
             42,
         );
     }
@@ -11934,7 +11943,7 @@ mod tests {
             "#struct Counter () ((value #u64))
 #fn touch ((target (#ref-mut #u64))) ()
               (#deref-set target (#u64::add-wrap (#deref target) 1u64)) (#return ())
-          {RUN}"
+{RUN}"
         );
         for body in [
             "(#let-mut total #u64 seed)
@@ -12071,7 +12080,7 @@ mod tests {
         ] {
             let planning = prepare(
                 body,
-                &format!("#struct Holder () ((view (#ref #u64)))\n {RUN}"),
+                &format!("#struct Holder () ((view (#ref #u64)))\n{RUN}"),
             );
             let error = generate(&planning)
                 .err()

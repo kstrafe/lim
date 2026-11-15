@@ -3086,7 +3086,7 @@ mod tests {
         for forms in [forms.to_vec(), forms.into_iter().rev().collect()] {
             let source = format!(
                 "{}#fn main () #u64 (#return alpha-answer)\n",
-                forms.join(" ")
+                forms.join("")
             );
             let program = crate::parse_program(&source).unwrap();
             let checked = crate::CheckedProgram::validate(&program).unwrap();

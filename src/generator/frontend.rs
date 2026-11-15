@@ -1914,7 +1914,7 @@ mod async_migration_tests {
         let normalized = normalize_builtin_generator_invocation(&invocation.expr).unwrap();
         output.source.push_str(&format!(
             "\n{}\n",
-            expression_source(
+            crate::declaration_source(
                 &super::super::async_interfaces::protocol_declaration(&normalized).unwrap(),
             )
             .unwrap()

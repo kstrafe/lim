@@ -126,7 +126,14 @@ mod protocol_tests {
     use super::*;
 
     fn expression(source: &str) -> Expr {
-        crate::parse(source).unwrap().remove(0).expr
+        let tree = if source.trim_start().starts_with("#generate ")
+            || source.trim_start().starts_with("#syntax ")
+        {
+            format!("({source})")
+        } else {
+            source.to_owned()
+        };
+        crate::parse(&tree).unwrap().remove(0).expr
     }
 
     #[test]

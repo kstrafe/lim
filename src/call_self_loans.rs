@@ -2198,8 +2198,8 @@ mod tests {
     #[test]
     fn loaded_internal_child_can_survive_a_proven_disjoint_owner_call() {
         let source = SOURCE.replace(
-            "(#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n        (#set running updated)",
-            "(#let held (#pin-ref #u64) (#get running view))\n        (#let sibling #u32 (#get running state)) (#forget sibling)\n        (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n        (#set running updated)\n        (#let observed #u64 (#deref held)) (#forget observed) (#drop held)",
+            "(#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n          (#set running updated)",
+            "(#let held (#pin-ref #u64) (#get running view))\n          (#let sibling #u32 (#get running state)) (#forget sibling)\n          (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n          (#set running updated)\n          (#let observed #u64 (#deref held)) (#forget observed) (#drop held)",
         );
         let declarations = fixture(&source);
         let body = &declarations.bodies["driver"];
@@ -2247,8 +2247,8 @@ mod tests {
                 "(#pin-set-field target value 2u64)",
             )
             .replace(
-                "(#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n        (#set running updated)",
-                "(#let held (#pin-ref #u64) (#get running view))\n        (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n        (#set running updated)\n        (#let observed #u64 (#deref held)) (#forget observed) (#drop held)",
+                "(#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n          (#set running updated)",
+                "(#let held (#pin-ref #u64) (#get running view))\n          (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n          (#set running updated)\n          (#let observed #u64 (#deref held)) (#forget observed) (#drop held)",
             );
         let declarations = fixture(&source);
         let body = &declarations.bodies["driver"];
@@ -2275,8 +2275,8 @@ mod tests {
     #[test]
     fn loaded_internal_child_suspends_only_overlapping_parent_access() {
         let source = SOURCE.replace(
-            "(#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n        (#set running updated)",
-            "(#let held (#pin-ref #u64) (#get running view))\n        (#let forbidden #u64 (#get running value)) (#forget forbidden)\n        (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n        (#set running updated)\n        (#let observed #u64 (#deref held)) (#forget observed) (#drop held)",
+            "(#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n          (#set running updated)",
+            "(#let held (#pin-ref #u64) (#get running view))\n          (#let forbidden #u64 (#get running value)) (#forget forbidden)\n          (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n          (#set running updated)\n          (#let observed #u64 (#deref held)) (#forget observed) (#drop held)",
         );
         let program = crate::parse_program(&source).unwrap();
         let (_, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
@@ -2287,7 +2287,7 @@ mod tests {
     #[test]
     fn external_pointees_and_cleared_self_loans_are_not_owner_aliases() {
         for source in [
-            SOURCE.replace("(#let installed (#pin-ref-mut Link) (#call install ((target running))))\n        (#set running installed)", ""),
+            SOURCE.replace("(#let installed (#pin-ref-mut Link) (#call install ((target running))))\n          (#set running installed)", ""),
             SOURCE.replace("(#let updated (#pin-ref-mut Link) (#call tick ((target running))))",
                 "(#pin-set-field running view outside) (#let updated (#pin-ref-mut Link) (#call tick ((target running))))"),
         ] {
@@ -2372,7 +2372,7 @@ mod tests {
             "(#pin-set-field target value 99u64)"
         );
         // An external child pointer does not borrow the owner's value field.
-        let external = source.replace("(#let installed (#pin-ref-mut Link) (#call install ((target running))))\n        (#set running installed)", "");
+        let external = source.replace("(#let installed (#pin-ref-mut Link) (#call install ((target running))))\n          (#set running installed)", "");
         let declarations = fixture(&external);
         call_plan(&declarations, "driver", "tick")
             .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
@@ -2609,7 +2609,7 @@ mod tests {
         format!(
             "{}#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
               {statements} (#return target)
- {}",
+{}",
             &source[..start],
             &source[end..]
         )
@@ -2930,7 +2930,7 @@ mod tests {
         let source = format!(
             "#static count #u64 0u64
 #fn touch () () (#unsafe (#forget count)) (#return ())
- {}",
+{}",
             SOURCE.replace(
                 "(#pin-set-field target state 2u32)",
                 "(#call touch ()) (#pin-set-field target state 2u32)"
@@ -2984,8 +2984,8 @@ mod tests {
     #[test]
     fn staged_check_locates_destructive_calls_with_temporary_parent_origins() {
         let source = SOURCE.replace(
-            "(#let-mut running (#pin-ref-mut Link) (#pin-borrow-mut link))\n        (#let installed (#pin-ref-mut Link) (#call install ((target running))))\n        (#set running installed)\n        (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n        (#set running updated)\n        (#pin-set-field running view outside)\n        (#drop running)",
-            "(#let running (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))\n        (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n        (#pin-set-field updated view outside) (#drop updated)",
+            "(#let-mut running (#pin-ref-mut Link) (#pin-borrow-mut link))\n          (#let installed (#pin-ref-mut Link) (#call install ((target running))))\n          (#set running installed)\n          (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n          (#set running updated)\n          (#pin-set-field running view outside)\n          (#drop running)",
+            "(#let running (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))\n          (#let updated (#pin-ref-mut Link) (#call tick ((target running))))\n          (#pin-set-field updated view outside) (#drop updated)",
         );
         let program = crate::parse_program(&source).unwrap();
         crate::CheckedProgram::validate(&program)
@@ -3230,8 +3230,8 @@ mod tests {
     fn separate_incoming_families_at_one_address_retire_independently() {
         let source = SOURCE
             .replace(
-                "(view (#pin-ref #u64))))",
-                "(view (#pin-ref #u64)) (second (#pin-ref #u64))))",
+                "(view (#pin-ref #u64)))",
+                "(view (#pin-ref #u64)) (second (#pin-ref #u64)))",
             )
             .replace("(view outside)", "(view outside) (second outside)")
             .replace(

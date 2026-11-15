@@ -2980,7 +2980,7 @@ mod tests {
     }
 
     fn prepare_with_context(extra: &str, source: &str) -> (Lowered, Declarations) {
-        let original = crate::parse(source).unwrap().remove(0);
+        let original = crate::parse_source_unit(source).unwrap().remove(0);
         let base = crate::parse_program(&format!("{CONTEXT}\n{extra}")).unwrap();
         let lowered = async_source::lower(&original, Type::U64, &base).unwrap();
         let program = lowered.program(&base).unwrap();

@@ -492,7 +492,7 @@ mod tests {
              (#let returned (#tuple (#pin-own #u64)) (#call pass ((item wrapped))))
              (#let moved (#pin-own #u64) (#get returned 0))",
         );
-        let source = format!("#fn pass ((item (#tuple (#pin-own #u64)))) (#tuple (#pin-own #u64)) (#return item)\n {source}");
+        let source = format!("#fn pass ((item (#tuple (#pin-own #u64)))) (#tuple (#pin-own #u64)) (#return item)\n{source}");
         check(&source).unwrap();
         assert!(check(&source.replace("(#forget view)", "()"))
             .unwrap_err()

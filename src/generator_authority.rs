@@ -113,11 +113,11 @@ pub(crate) fn restore(expressions: Vec<Expr>) -> Vec<Syntax> {
 
 #[cfg(test)]
 pub(crate) fn without_header(source: &str) -> String {
-    crate::parse(source)
+    crate::parse_source_unit(source)
         .unwrap()
         .into_iter()
         .filter(|form| !is_header(&form.expr))
-        .map(|form| crate::expression_source(&form.expr).unwrap())
+        .map(|form| crate::declaration_source(&form.expr).unwrap())
         .collect::<Vec<_>>()
         .join("\n")
 }

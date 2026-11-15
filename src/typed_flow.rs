@@ -20712,14 +20712,14 @@ mod tests {
             String::from("#struct Token (#linear) ((value #u64))\n \n#fn work () #u64\n  ");
         for index in 0..count {
             source.push_str(&format!(
-                "(#let-mut owner{index} Token (#struct-literal Token ((value 42u64))))
+                "  (#let-mut owner{index} Token (#struct-literal Token ((value 42u64))))
               (#let pin{index} (#pin-ref-mut Token) (#pin-borrow-mut owner{index}))
               (#let taken{index} Token (#unsafe (#pin-read pin{index})))
               (#unsafe (#pin-write pin{index} taken{index}))
               (#drop pin{index}) (#forget owner{index})\n"
             ));
         }
-        source.push_str("(#return 42u64))");
+        source.push_str("  (#return 42u64)\n");
         crate::parse_program(&source).unwrap()
     }
 
@@ -24577,14 +24577,14 @@ mod tests {
 #fn mutate ((slot (#pin-ref-mut Choice))) ()
                   (#unsafe (#forget global)) (#return ())\n",
         ] {
-            let call_keyword = if effect.starts_with("(#extern-fn") {
+            let call_keyword = if effect.starts_with("#extern-fn") {
                 "#unsafe-call"
             } else {
                 "#call"
             };
             let source = format!(
                 "#enum Choice () ((Choice.Empty) (Choice.Full #u64))
- {effect}
+{effect}
 #fn main () ()
                   (#let-mut cell Choice (Choice.Empty)) (#let-mut target Choice (Choice.Empty))
                   (#unsafe ({call_keyword} mutate ((slot (#pin-borrow-mut target)))))
@@ -26435,7 +26435,7 @@ mod tests {
         for index in 0..129 {
             wide.push_str(&format!("(#forget value{index}) "));
         }
-        wide.push_str("(#return value129))");
+        wide.push_str("(#return value129)\n");
         for source in [
             "#fn main () #u64 (#return 42u64)\n",
             wide.as_str(),
@@ -26487,7 +26487,7 @@ mod tests {
         for index in 0..129 {
             source.push_str(&format!("(#forget value{index}) "));
         }
-        source.push_str("(#return value129))");
+        source.push_str("(#return value129)\n");
         let program = crate::parse_program(&source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];

@@ -173,7 +173,7 @@ mod tests {
             if source.contains("(b a-b)") {
                 assert_eq!(
                     original.2.unwrap().start,
-                    source.find("(b a-b)").unwrap() + 3
+                    source.find("(a a-b)").unwrap() + 3
                 );
                 assert!(!changed.3.is_empty(), "prior move must be labeled");
             }

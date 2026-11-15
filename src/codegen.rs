@@ -5944,14 +5944,14 @@ fn checked_generated_patterns_allocate_by_identity_without_source_alpha_renaming
     // Generated ordinary declarations also enter via parse_item, without
     // parse_program's source-name hygiene. BindingId storage must stand on
     // its own, not depend on an earlier spelling rewrite.
-    let source = "#enum Small () ((Small.Number #u64) Small.Zero)
-#enum Wide () ((Wide.Words (#tuple #u64 #u64 #u64 #u64)) Wide.Absent)
-#fn main () #u64
-          (#let small Small (Small.Number 20u64))
-          (#let wide Wide (Wide.Words (#tuple (#tuple #u64 #u64 #u64 #u64) 22u64 3u64 4u64 5u64)))
-          (#let first #u64 (#match small (#case (Small.Number value) value) (#case Small.Zero 0u64)))
-          (#let second #u64 (#match wide (#case (Wide.Words value) (#get value 0)) (#case Wide.Absent 0u64)))
-          (#return (#u64::add-wrap first second))\n";
+    let source = "(#enum Small () ((Small.Number #u64) Small.Zero))
+      (#enum Wide () ((Wide.Words (#tuple #u64 #u64 #u64 #u64)) Wide.Absent))
+      (#fn main () #u64
+        (#let small Small (Small.Number 20u64))
+        (#let wide Wide (Wide.Words (#tuple (#tuple #u64 #u64 #u64 #u64) 22u64 3u64 4u64 5u64)))
+        (#let first #u64 (#match small (#case (Small.Number value) value) (#case Small.Zero 0u64)))
+        (#let second #u64 (#match wide (#case (Wide.Words value) (#get value 0)) (#case Wide.Absent 0u64)))
+        (#return (#u64::add-wrap first second)))";
     let mut program = crate::parse_program("").unwrap();
     for syntax in crate::parse(source).unwrap() {
         let mut expression = crate::normalize_keywords(syntax.expr);

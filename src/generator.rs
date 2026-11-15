@@ -174,7 +174,7 @@ fn declared_lim_function_signatures(
 #[test]
 fn capability_signature_scan_does_not_parse_function_bodies() {
     let source = "#fn answer ((value #u64)) #u64 (#not-a-builtin value)\n";
-    let signatures = declared_lim_function_signatures(&crate::parse(source).unwrap()).unwrap();
+    let signatures = declared_lim_function_signatures(&crate::parse_source_unit(source).unwrap()).unwrap();
     assert_eq!(signatures["answer"], "[U64]->U64");
     // Skipping bodies here must not skip ordinary compilation validation.
     assert!(crate::parse_program(source).is_err());
@@ -1575,9 +1575,7 @@ pub(crate) fn cached_generated_source(
     key: &str,
     generate: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
-    cached_generated_source_with_origins(directory, key, &[], || {
-        format_generated_syntax(&generate()?)
-    })
+    cached_generated_source_with_origins(directory, key, &[], generate)
 }
 
 pub(crate) fn cached_generated_source_with_origins(
@@ -2704,7 +2702,7 @@ mod tests {
             "#gn bad (items) (#gn-for-each items items (#gn-first items))\n#generate bad (one)\n",
             "#gn bad (items) (#gn-for-each item items (#gn-for-each item items (#gn-first item)))\n#generate bad (one)\n",
         ] {
-            let error = expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "")
+            let error = expand_with_generated_cached_and_hits(crate::parse_source_unit(source).unwrap(), None, "")
                 .unwrap_err();
             assert!(
                 error.message.contains("shadowing is not allowed"),
@@ -2883,7 +2881,7 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         fs::create_dir(directory.join("generated")).unwrap();
         let header = "#generated-context ((producer \"expected\"))\n";
-        let key = format!("lim-generator-cache-v15\ncontext={header}");
+        let key = format!("lim-generator-cache-v15\ncontext=({})", header.trim());
         let wrong = "#generated-context ((producer \"other\"))\n#type Value #u64\n";
         publish_generated_expansion(&directory, &key, wrong).unwrap();
         assert!(load_generated_expansion(&directory, &key)
@@ -3071,7 +3069,7 @@ mod tests {
 #gn outer () `((#generate inner) (#generate #optional ((type #u64) (name OuterOnly))))
 #gn other () `((#generate inner))\n#generate outer\n#generate other\n#generate other\n";
         let mut origins = Origins::default();
-        expand_with_origins(crate::parse(source).unwrap(), None, "", &mut origins).unwrap();
+        expand_with_origins(crate::parse_source_unit(source).unwrap(), None, "", &mut origins).unwrap();
         let sites = |name: &str| {
             let (_, spans) = origins
                 .builtins
@@ -3169,7 +3167,7 @@ mod tests {
 #gn parent (name) (#gn-call forward name (#gn-gensym \"task\"))\n#generate parent first\n#generate parent second\n#generate parent first\n";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
-                crate::parse(source).unwrap(),
+                crate::parse_source_unit(source).unwrap(),
                 Some(&directory),
                 "test-context",
             )
@@ -3240,7 +3238,7 @@ mod tests {
         let source = "#gn emit () `((#type ,(#gn-gensym \"task\") #u64))\n#generate emit\n";
         let expand = || {
             expand_with_generated_cached_and_hits(
-                crate::parse(source).unwrap(),
+                crate::parse_source_unit(source).unwrap(),
                 Some(&directory),
                 "",
             )
@@ -3287,7 +3285,7 @@ mod tests {
 #gn emit () `((#type ,(#gn-call fresh) #u64) (#type ,(#gn-call fresh) #u64))
 #generate emit\n";
         let ((forms, _), _) =
-            expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
+            expand_with_generated_cached_and_hits(crate::parse_source_unit(source).unwrap(), None, "").unwrap();
         assert_eq!(forms.len(), 2);
         let Expr::List(first) = &forms[0].expr else {
             panic!()
@@ -3345,7 +3343,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-cache-{}", std::process::id()));
         let source = "#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#gn-fn make-alias (name) `,(#gn-call make-type name)\n#gn-fn unused (name) (#gn-list name)\n#gn alias (name) (#gn-call make-alias name)\n#gn forward (call) (#gn-list call)\n#gn spare (name) (#gn-list name)\n#generate forward (#generate alias CachedType)\n#generate alias CachedType\n";
-        let parse_forms = |source: &str| crate::parse(source).unwrap();
+        let parse_forms = |source: &str| crate::parse_source_unit(source).unwrap();
 
         let ((first, _), first_hits) =
             expand_with_generated_cached_and_hits(parse_forms(source), Some(&directory), "")
@@ -3441,7 +3439,7 @@ mod tests {
 #generate error-case Second #u32\n";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
-                crate::parse(source).unwrap(),
+                crate::parse_source_unit(source).unwrap(),
                 Some(&directory),
                 "",
             )
@@ -3466,7 +3464,7 @@ mod tests {
 #generate alias (#u64)
 #generate alias (#u64)\n";
         let ((forms, _), _) =
-            expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
+            expand_with_generated_cached_and_hits(crate::parse_source_unit(source).unwrap(), None, "").unwrap();
         assert_eq!(forms.len(), 1);
         assert!(format!("{:?}", forms[0].expr).contains("Alias"));
     }
@@ -3476,13 +3474,13 @@ mod tests {
         let source = "#gn alias (entry) `((#type Alias ,entry))
 #generate alias Entries\n";
         let ((forms, _), _) =
-            expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
+            expand_with_generated_cached_and_hits(crate::parse_source_unit(source).unwrap(), None, "").unwrap();
         assert!(format!("{:?}", forms[0].expr).contains("Entries"));
     }
 
     #[test]
     fn old_generator_keyword_is_not_accepted() {
-        let source = "(#generator alias (name) `((#type ,name #u64))) (#generate alias Old)";
+        let source = "#generator alias (name) `((#type ,name #u64))\n#generate alias Old\n";
         assert!(crate::parse_program(source).is_err());
     }
 
@@ -3498,7 +3496,7 @@ mod tests {
             )
         };
         let expand = |text: &str| {
-            expand_with_generated_cached_and_hits(crate::parse(text).unwrap(), Some(&directory), "")
+            expand_with_generated_cached_and_hits(crate::parse_source_unit(text).unwrap(), Some(&directory), "")
                 .unwrap()
         };
 
@@ -3523,7 +3521,7 @@ mod tests {
             std::env::temp_dir().join(format!("lim-generator-context-{}", std::process::id()));
         let source =
             "#gn make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#generate make ContextType\n";
-        let parse_forms = |source: &str| crate::parse(source).unwrap();
+        let parse_forms = |source: &str| crate::parse_source_unit(source).unwrap();
 
         let ((first, _), first_hits) = expand_with_generated_cached_and_hits(
             parse_forms(source),

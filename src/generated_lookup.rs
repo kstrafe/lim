@@ -239,12 +239,12 @@ mod tests {
 #gn outer () `((#generate inner) (#generate #optional ((type #u64) (name OuterOnly))))
 #gn other () `((#generate inner))\n#generate outer\n#generate other\n#generate other\n";
         for _ in 0..2 {
-            let outer = source.find("(#generate outer)").unwrap();
+            let outer = source.find("#generate outer").unwrap();
             let paths = scratch.lookup(source, outer, outer);
             assert_eq!(paths.len(), 4, "{paths:?}");
             for position in [
-                source.find("(#generate other)").unwrap(),
-                source.rfind("(#generate other)").unwrap(),
+                source.find("#generate other").unwrap(),
+                source.rfind("#generate other").unwrap(),
             ] {
                 let other = scratch.lookup(source, position, position);
                 assert_eq!(other.len(), 3, "{other:?}");
@@ -266,8 +266,8 @@ mod tests {
                  #gn outer () `((#generate inner))\n{calls}"
             );
             for _ in 0..2 {
-                let outer = source.rfind("(#generate outer)").unwrap();
-                let inner = source.rfind("(#generate inner)").unwrap();
+                let outer = source.rfind("#generate outer").unwrap();
+                let inner = source.rfind("#generate inner").unwrap();
                 let details = scratch.details(&source, outer, outer);
                 assert_eq!(details.len(), 2);
                 assert_eq!(
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn details_track_builtin_origins_through_user_reuse_and_cache() {
-        let builtin = "#generate #optional ((type #u64) (name Shared))\n";
+        let builtin = "(#generate #optional ((type #u64) (name Shared)))";
         // Distinct inputs stay distinct even when both use the same builtin.
         let direct_builtin = "#generate #optional ((type #u64) (name Direct))\n";
         for calls in [

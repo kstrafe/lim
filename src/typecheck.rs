@@ -855,7 +855,7 @@ mod checked_program_tests {
         let generated = &program.source_files[span.source_id as usize].source;
         assert!(generated[span.start..span.end].starts_with("(#return"));
         assert!(labels.iter().any(|(label, _)| {
-            label.source_id == 0 && &source[label.start..label.end] == "#generate make generated\n"
+            label.source_id == 0 && &source[label.start..label.end] == "#generate make generated"
         }));
     }
 
@@ -11464,7 +11464,7 @@ mod generation_planning_tests {
         let source = format!(
             "#generate #async-fn ((protocol start-await) (waker #u64)
                   (function (#fn start () #u64 (#return 1u64))))
- {body}"
+{body}"
         );
         let prepared = crate::prepare_program_syntax(
             &source,
@@ -11557,9 +11557,9 @@ mod generation_planning_tests {
     #[test]
     fn planning_skips_nonselected_bodies_and_global_initializers_not_types() {
         plan(
-            "(#let unchecked #u64 true)
-             (#fn ignored () #u64 (#return true))
-             (#fn main () #u64 (#return 1u64))",
+            "#let unchecked #u64 true
+#fn ignored () #u64 (#return true)
+#fn main () #u64 (#return 1u64)\n",
         )
         .unwrap();
         let (message, code, span, _) = plan(
@@ -12658,7 +12658,7 @@ mod typed_ownership_tests {
               (#deref-set target (#struct-literal Holder ((value (#borrow c)))))
               (#forget target) (#forget left) (#forget right) (#return ())\n";
         let computed = format!(
-            "#fn identity ((value (#ref-mut Holder))) (#ref-mut Holder) (#return value)\n {source}"
+            "#fn identity ((value (#ref-mut Holder))) (#ref-mut Holder) (#return value)\n{source}"
         )
         .replace(
             "(#deref-set target",
@@ -15314,7 +15314,7 @@ mod typed_ownership_tests {
         ] {
             let source = format!(
                 "#struct Resource (#linear) ((number #u64))
-  {declaration}
+{declaration}
 #fn consume ((holder Holder)) ()
                      (#forget (#deref {getter})) (#forget holder) (#return ())
 #fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource))
@@ -18732,7 +18732,7 @@ mod typed_ownership_tests {
                 "#struct Holder () ((view (#ref #u64)))
 #fn replace ((target ({target_type} Holder)) (value (#ref #u64)) (selected #bool)) ()
                     {write} (#return ())
- {relay}
+{relay}
 #fn main () #u64
                     (#let old #u64 7u64) (#let-mut value #u64 42u64)
                     (#let-mut holder Holder (#struct-literal Holder ((view (#borrow old)))))
@@ -19497,7 +19497,7 @@ mod typed_ownership_tests {
                 let assignment = format!("({setter} {resource})");
                 let source = format!(
                     "#struct Resource (#linear) ((number #u64))
-                     {declaration}
+{declaration}
 #fn main () #u64
                          (#let-mut owner {ty} {constructor})
                          {before}
@@ -20311,7 +20311,7 @@ mod typed_ownership_tests {
 #struct Envelope () ((choice Choice))
 #fn choose ((view (#ref #u64)) (selected #bool)) Choice
               (#return {expression})
- {consumer}"
+{consumer}"
                 );
                 let program = crate::parse_program(&source).unwrap();
                 crate::check_types(&program).unwrap();
@@ -21900,7 +21900,7 @@ mod typed_ownership_tests {
                 let source = format!(
                 "#struct Resource (#linear) ((number #u64))
 #enum Outcome () ((Outcome.Restored) (Outcome.Consumed))
-                 {declarations}
+{declarations}
 #fn worker ((target (#ref-mut Resource)) (choose #bool)) {result_type}
                      (#forget (#deref target))
                      (#return (#if choose
@@ -22297,8 +22297,8 @@ mod typed_ownership_tests {
                 "(#let output (#ref-mut Resource) (#if choose",
             )
             .replace(
-                "(#block (#forget (#deref first)) second))))",
-                "(#block (#forget (#deref first)) second))) (#return output))",
+                "(#block (#forget (#deref first)) second)))",
+                "(#block (#forget (#deref first)) second))) (#return output)",
             );
         for source in [
             aliased.clone(),
@@ -23226,7 +23226,7 @@ mod typed_ownership_tests {
         ] {
             let source = format!(
                 "#enum Holder (#linear) ((Holder.Filled (#ref #u64)) (Holder.Empty))
-          {declarations_source}
+{declarations_source}
 #fn worker ((target (#ref-mut {target_type}))) ()
               (#forget (#deref target)) {write} (#return ())
 #generate #thread-spawn ((task Task) (worker worker))
@@ -25614,7 +25614,7 @@ mod typed_ownership_tests {
             };
             let source = format!(
                 "#struct Outer () ((refs (#array (#ref #u64) 2)))
-                 {load}
+{load}
 #fn identity ((values (#array (#ref #u64) 2))) (#array (#ref #u64) 2)
                      (#return values)
 #fn select ((outer (#ref Outer)) (index #usize)) (#ref #u64)

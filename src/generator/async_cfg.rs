@@ -975,7 +975,7 @@ mod tests {
     use super::*;
 
     fn parsed(source: &str) -> Vec<SpannedExpr> {
-        crate::parse(source).unwrap()
+        crate::parse_source_unit(source).unwrap()
     }
 
     fn source_text<'a>(source: &'a str, node: &Node<'_>) -> &'a str {
@@ -1009,7 +1009,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             source_text(source, await_node),
-            "(#await #u64 Child Pending Ready poll\n            (#call make ((value saved))))"
+            "(#await #u64 Child Pending Ready poll\n              (#call make ((value saved))))"
         );
         assert_eq!(
             await_node

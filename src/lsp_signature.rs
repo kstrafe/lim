@@ -368,7 +368,24 @@ fn runtime(node: &Node, byte: usize, source: &str) -> Option<(Span, Option<Strin
 mod tests {
     use super::*;
 
+    // Runtime expressions are probed inside a source declaration; raw quoted
+    // syntax in the expression remains data for the signature scanner.
+    fn source_unit(source: &str) -> String {
+        if source.trim_start().starts_with('#') {
+            source.to_owned()
+        } else {
+            format!(
+                "#fn probe () #u64\n{}",
+                source.lines()
+                    .map(|line| format!("  {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        }
+    }
+
     fn locate(source: &str) -> (String, Option<String>) {
+        let source = source_unit(source);
         let byte = source.find('|').unwrap();
         let source = source.replacen('|', "", 1);
         let call = call(&source, byte).unwrap_or_else(|| panic!("no call: {source}"));
@@ -477,6 +494,7 @@ mod tests {
             "'(#u64::add-wrap 1 2|)",
             "#generate generator ((value (#u64::add-wrap 1 2|)))\n",
         ] {
+            let source = source_unit(source);
             let byte = source.find('|').unwrap();
             let source = source.replacen('|', "", 1);
             assert!(call(&source, byte).is_none(), "{source}");
@@ -511,6 +529,7 @@ mod tests {
             "// (#call choose ((right 2|)))",
             "(#call choose ((right 2)))|",
         ] {
+            let source = source_unit(source);
             let byte = source.find('|').unwrap();
             let source = source.replacen('|', "", 1);
             assert!(call(&source, byte).is_none(), "{source}");

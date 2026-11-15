@@ -620,7 +620,7 @@ mod tests {
         for _ in 0..128 {
             source.push_str(" (#assert (#u64::ge (#deref view-0) 0u64))");
         }
-        source.push_str(" (#return (#deref view-31)))");
+        source.push_str(" (#return (#deref view-31))");
         let program = crate::parse_program(&source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
         let body = &declarations.bodies["work"];

@@ -4384,8 +4384,8 @@ mod tests {
         let program = crate::parse_program(source).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
         let invalid = source.replace(
-            "(#forget frame)\n            (#set owner 42u64)",
-            "(#set owner 99u64) (#forget frame)\n            (#set owner 42u64)",
+            "(#forget frame)\n              (#set owner 42u64)",
+            "(#set owner 99u64) (#forget frame)\n              (#set owner 42u64)",
         );
         assert_ne!(invalid, source);
         let program = crate::parse_program(&invalid).unwrap();
