@@ -64,6 +64,23 @@ for s:contract in ['requires', 'ensures', 'preserves', 'assume', 'if-valid', 'wh
   call s:check(s:contract, '')
   call s:check('#' . s:contract . '-custom', 'limKeyword')
 endfor
+" Metadata and byte I/O must not color identifiers or longer keywords.
+for s:effect in ['effects', 'effects-of', 'io', 'io-input',
+      \ 'io-output', 'global-access', 'read-global', 'write-global']
+  call s:check('#' . s:effect, 'limEffect')
+  call s:check(s:effect, '')
+  call s:check('#' . s:effect . '-custom', 'limKeyword')
+  call s:check('#' . s:effect . '::custom', 'limKeyword')
+endfor
+for s:io in ['io-input-byte', 'io-output-byte']
+  call s:check('#' . s:io, 'limIO')
+  call s:check(s:io, '')
+  call s:check('#' . s:io . '-custom', 'limKeyword')
+endfor
+call s:check('"#effects #io-output-byte"', 'limString')
+call setline(1, '// #effects #io-output-byte')
+call assert_equal('limComment', synIDattr(synID(1, 4, 1), 'name'))
+
 call s:check('#theorem', 'limKeyword')
 call s:check('#proof-contract', 'limKeyword')
 call s:check('#proof-requires-validation-unknown', 'limKeyword')
@@ -100,6 +117,7 @@ for [s:token, s:group] in [['#return', 'limControl'], [':', 'limSeparator'], ['#
   call assert_equal(s:group, synIDattr(synID(1, s:column, 1), 'name'))
 endfor
 for [s:token, s:group] in [['#body', 'limSection'], ['#requires', 'limContract'],
+      \ ['#effects', 'limEffect'],
       \ ['#loop', 'limRepeat'], ['#for-range', 'limRepeat']]
   call setline(1, '{ ' . s:token . ':')
   for s:column in range(3, 2 + strlen(s:token))

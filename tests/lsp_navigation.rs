@@ -190,9 +190,37 @@ fn annotated(input: &str) -> (String, HashMap<String, (usize, usize)>) {
     (source, marks)
 }
 fn run(input: &str, expected: &[(&str, &[&str])]) {
+    run_with_files(input, &[], expected);
+}
+
+fn run_with_files(
+    input: &str,
+    files: &[(&str, &str)],
+    expected: &[(&str, &[&str])],
+) {
     let scratch = support::Scratch::new("lsp-navigation");
     let uri = lsp::path_to_uri(&scratch.path().join("main.lim")).unwrap();
     let (source, marks) = annotated(input);
+    let mut imported = HashMap::new();
+    for (name, input) in files {
+        let path = scratch.path().join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let (text, targets) = annotated(input);
+        std::fs::write(&path, &text).unwrap();
+        let uri = lsp::path_to_uri(&path).unwrap();
+        for (label, span) in targets {
+            assert!(!marks.contains_key(&label));
+            assert!(imported
+                .insert(label, (uri.clone(), text.clone(), span))
+                .is_none());
+        }
+    }
+    if !files.is_empty() {
+        let path = scratch.path().join("main.lim");
+        let program = lim::parse_program_from_path(&source, &path)
+            .unwrap();
+        lim::check_types(&program).unwrap();
+    }
     lim::parse_source_unit(&source).unwrap();
     let mut input = Vec::new();
     for body in [
@@ -244,13 +272,22 @@ fn run(input: &str, expected: &[(&str, &[&str])]) {
         };
         assert_eq!(actual.len(), targets.len(), "{query}: {result:?}\n{source}");
         for target in *targets {
-            let (start, end) = marks[*target];
-            let (line, character) = lsp::byte_position(&source, start);
-            let (end_line, end_character) = lsp::byte_position(&source, end);
+            let (target_uri, text, (start, end)) = imported
+                .get(*target)
+                .map(|(uri, text, span)| {
+                    (uri.as_str(), text.as_str(), *span)
+                })
+                .unwrap_or_else(|| {
+                    (uri.as_str(), source.as_str(), marks[*target])
+                });
+            let (line, character) = lsp::byte_position(text, start);
+            let (end_line, end_character) =
+                lsp::byte_position(text, end);
             assert!(
                 actual.iter().any(|item| {
                     let range = item.get("range").unwrap();
-                    item.get("uri").and_then(Json::string) == Some(uri.as_str())
+                    item.get("uri").and_then(Json::string)
+                        == Some(target_uri)
                         && range
                             .get("start")
                             .unwrap()
@@ -973,5 +1010,159 @@ fn postcondition_result_has_return_type_for_member_navigation() {
 }
 ",
         &[("result", &[]), ("projection", &["field"])],
+    );
+}
+
+#[test]
+fn effects_metadata_has_declaration_targets_and_no_keyword_targets() {
+    run(
+        r#"#static [[state|state]] #u64 0u64
+#fn [[leaf|leaf]] {
+  #params = (); #returns = (); #effects = (#io-output);
+  #body = ((#return ()));
+}
+#fn wrapper {
+  #params = (); #returns = ();
+  #[[effects-key|effects]] = (
+    #[[io|io]] #[[input|io-input]] #[[output|io-output]]
+    #[[global|global-access]]
+    (#[[of|effects-of]] [[bare-function|leaf]])
+    (#effects-of (([[qualified-function|@leaf]] ())
+                  ([[grouped-function|leaf]])))
+    (#[[read|read-global]] [[read-state|state]])
+    (#[[write|write-global]] [[write-state|@state]])
+  );
+  #body = ((#return ()));
+}
+"#,
+        &[
+            ("effects-key", &[]), ("io", &[]), ("input", &[]),
+            ("output", &[]), ("global", &[]), ("of", &[]),
+            ("read", &[]), ("write", &[]),
+            ("bare-function", &["leaf"]),
+            ("qualified-function", &["leaf"]),
+            ("grouped-function", &["leaf"]),
+            ("read-state", &["state"]),
+            ("write-state", &["state"]),
+        ],
+    );
+}
+
+#[test]
+fn effects_metadata_does_not_navigate_wrong_declaration_kinds() {
+    run(
+        r#"#static state #u64 0u64
+#const answer #u64 42u64
+#fn leaf {
+  #params = (); #returns = (); #body = ((#return ()));
+}
+#fn wrapper {
+  #params = ((local #u64)); #returns = ();
+  #effects = (
+    (#effects-of [[static-as-function|@state]])
+    (#effects-of [[constant-as-function|answer]])
+    (#effects-of [[local-as-function|local]])
+    (#read-global [[function-as-static|leaf]])
+    (#write-global [[qualified-function-as-static|@leaf]])
+    (#read-global [[constant-as-static|answer]])
+    (#read-global [[missing-static|missing]])
+    (#effects-of '[[quoted-function|@leaf]])
+  );
+  #body = ((#return ()));
+}
+"#,
+        &[
+            ("static-as-function", &[]),
+            ("constant-as-function", &[]),
+            ("local-as-function", &[]),
+            ("function-as-static", &[]),
+            ("qualified-function-as-static", &[]),
+            ("constant-as-static", &[]),
+            ("missing-static", &[]),
+            ("quoted-function", &[]),
+        ],
+    );
+}
+
+#[test]
+fn byte_io_builtin_heads_have_no_targets_but_operands_do() {
+    run(
+        r#"#fn read {
+  #params = (([[input-fd|descriptor]] #i64));
+  #returns = (#tuple #i64 #u8); #effects = (#io-input);
+  #body = ((#return
+    (#[[input-builtin|io-input-byte]] [[input-use|descriptor]])));
+}
+#fn write {
+  #params = (([[output-fd|descriptor]] #i64)
+             ([[byte|byte]] #u8));
+  #returns = #i64; #effects = (#io-output);
+  #body = ((#return (#[[output-builtin|io-output-byte]]
+    [[output-use|descriptor]] [[byte-use|byte]])));
+}
+"#,
+        &[
+            ("input-builtin", &[]), ("output-builtin", &[]),
+            ("input-use", &["input-fd"]),
+            ("output-use", &["output-fd"]),
+            ("byte-use", &["byte"]),
+        ],
+    );
+}
+
+#[test]
+fn effect_targets_follow_library_reexports_to_canonical_declarations() {
+    run_with_files(
+        r#"#alias count = ./library/lib.lim::counter
+#alias action = ./library/lib.lim::invoke
+#fn main {
+  #params = (); #returns = ();
+  #effects = (
+    (#read-global [[read-alias|count]])
+    (#write-global [[write-alias|@count]])
+    (#effects-of ([[qualified-alias|@action]]
+                  ([[bare-alias|action]])))
+  );
+  #body = ((#return ()));
+}
+"#,
+        &[
+            (
+                "library/lib.lim",
+                "#alias counter = ./storage.lim::state\n\
+                 #alias invoke = ./storage.lim::callback\n\
+                 #export counter invoke\n",
+            ),
+            (
+                "library/storage.lim",
+                r#"#export state callback
+#static [[canonical-state|state]] #u64 0u64
+#fn [[canonical-function|callback]] {
+  #params = (); #returns = (); #effects = (#io-output);
+  #body = ((#return ()));
+}
+"#,
+            ),
+        ],
+        &[
+            ("read-alias", &["canonical-state"]),
+            ("write-alias", &["canonical-state"]),
+            ("qualified-alias", &["canonical-function"]),
+            ("bare-alias", &["canonical-function"]),
+        ],
+    );
+}
+
+#[test]
+fn generator_effect_shaped_data_keeps_existing_qualification_roles() {
+    run(
+        r#"#fn [[leaf|leaf]] {
+  #params = (); #returns = (); #body = ((#return ()));
+}
+#gn ignore (value) '()
+#generate ignore (#effects ((#effects-of (
+  [[literal|leaf]] [[qualified|@leaf]]))))
+"#,
+        &[("literal", &[]), ("qualified", &["leaf"])],
     );
 }

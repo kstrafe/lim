@@ -30,6 +30,16 @@ syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|
 syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)::[^[:space:](){}=;\[\]"'`,@#]\++
 syn match limDeclaration +#\%(alias\|fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|type\|static\|let\|let-mut\|const\|export\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limContract +#\%(requires\|ensures\|preserves\|assume\|if-valid\|where\|old\|result\|index-proven\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
+" Effect interfaces and fixed byte I/O use exact builtin spellings.
+let s:effect_end = '\ze\%($\|[[:space:](){}=;\[\]"''`,@#]'
+      \ . '\|:\%($\|[[:space:]]\)\)'
+execute 'syn match limEffect +#\%('
+      \ . join(['effects', 'effects-of', 'io', 'io-input',
+      \         'io-output', 'global-access', 'read-global',
+      \         'write-global'], '\|') . '\)' . s:effect_end . '+'
+execute 'syn match limIO +#\%(io-input-byte\|io-output-byte\)'
+      \ . s:effect_end . '+'
+unlet s:effect_end
 syn match limConditional +#\%(if\|if-let\|match\|case\|case-pin\|case-pin-mut\|case-ref\|case-ref-mut\|let-else\|else\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
@@ -57,6 +67,7 @@ syn match limParen4 "[(){}\[\]]" contained
 syn match limParen5 "[(){}\[\]]" contained
 syn match limParen6 "[(){}\[\]]" contained
 syn cluster limForms contains=limSection,limSeparator,limContract,limKeyword,limGenerated,limExternal,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn cluster limForms add=limEffect,limIO
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
 syn region limNest1 transparent start="{" end="}" contains=@limForms,limNest2,limParen1
 syn region limNest1 transparent start="\[" end="\]" contains=@limForms,limNest2,limParen1
@@ -92,6 +103,8 @@ hi def link limTypeForm Type
 hi def link limOperator Operator
 hi def link limDeclaration StorageClass
 hi def link limContract Keyword
+hi def link limEffect Keyword
+hi def link limIO Function
 hi def link limConditional Conditional
 hi def link limRepeat Repeat
 hi def link limControl Statement
