@@ -20,11 +20,16 @@ breaking a loop introduced inside the failure branch does not satisfy this.
 #generate #result ((ok #u64) (error #u32) (name Input))
 #generate #result ((ok #bool) (error #u32) (name Output))
 
-#fn convert ((value Input)) Output
+#fn convert {
+  #params = ((value Input));
+  #returns = Output;
+  #body = (
     (#let-else (Input.Ok number) Input value
       (#else (Input.Err error)
         (#return (#call Output::err ((error error))))))
     (#return (#call Output::ok ((value (#u64::eq number 42u64)))))
+  );
+}
 ```
 
 The general syntax is

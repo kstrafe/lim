@@ -32,7 +32,10 @@ reallocation path, then releases the successful allocation:
 
 ```lisp run=42
 #std
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let allocation SystemAllocationResult
       (#unsafe (#unsafe-call system-reallocate
         ((pointer (#ptr-null (#ptr-mut #u8))) (size 16usize)))))
@@ -43,6 +46,8 @@ reallocation path, then releases the successful allocation:
           42u64))
       (#case (SystemAllocationResult.SystemAllocationFailed error)
         (#block (#drop error) 0u64))))
+  );
+}
 ```
 
 Allocations are aligned to `SYSTEM-ALLOCATION-ALIGNMENT` (16 bytes). Sizes

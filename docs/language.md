@@ -1159,9 +1159,19 @@ directly, with an optional final `#cfg-else` branch:
 
 ```lisp library
 #cfg-if (#cfg-and (#cfg-is #platform linux) (#cfg-is #feature fast))
-    (#fn selected () #u64 (#return 1u64))
+    (#fn selected {
+      #params = ();
+      #returns = #u64;
+      #body = ( (#return 1u64)
+      );
+    })
     (#cfg-else
-      (#fn selected () #u64 (#return 0u64)))
+      (#fn selected {
+        #params = ();
+        #returns = #u64;
+        #body = ( (#return 0u64)
+        );
+      }))
 ```
 
 `#platform` and `#os` are populated automatically from the compiler host OS
@@ -1279,8 +1289,13 @@ Capabilities are explicit declarations for generator requirements. A concrete
 type opts in with `#capability`, and a generator parameter can require one:
 
 ```lisp library
-#fn u64-less ((left (#ref #u64)) (right (#ref #u64))) #bool
+#fn u64-less {
+  #params = ((left (#ref #u64)) (right (#ref #u64)));
+  #returns = #bool;
+  #body = (
     (#return (#u64::lt (#deref left) (#deref right)))
+  );
+}
 #capability sortable #u64
     ((u64-less ((#ref #u64) (#ref #u64)) #bool))
 #gn make-sortable ((element sortable))
@@ -2104,9 +2119,14 @@ Functions are always free-standing; Lim has no methods or `impl` blocks.
 A function may retain an explicit positional signature and body payload:
 
 ```lisp library
-#fn add ((left #u32) (right #u32)) #u32
+#fn add {
+  #params = ((left #u32) (right #u32));
+  #returns = #u32;
+  #body = (
     (#let total #u32 (#u32::add-wrap left right))
     (#return total)
+  );
+}
 ```
 
 The parameter list is a list of `(name Type)` pairs. Function records also
@@ -2247,7 +2267,11 @@ pointers only. By-value aggregate FFI signatures remain rejected. Calls are
 unsafe FFI boundaries and must use `#unsafe-call` inside `#unsafe`:
 
 ```lisp run=42
-#extern-fn #abi-c abs ((value #i32)) #i32
+#extern-fn  abs {
+  #abi = #abi-c;
+  #params = ((value #i32));
+  #returns = #i32;
+}
 
 #fn main {
   #params = {};
@@ -2725,10 +2749,15 @@ example:
 
 ```lisp syntax
 #struct Buffer () ((allocation Allocation))
-#fn Buffer::destroy ((buffer Buffer)) ()
+#fn Buffer::destroy {
+  #params = ((buffer Buffer));
+  #returns = ();
+  #body = (
     (Allocation::release (#get buffer allocation))
     (#forget buffer)
     (#return ())
+  );
+}
 ```
 
 Destruction is an ordinary explicit call, not a type hook. A destructor takes
@@ -2887,8 +2916,13 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 
 #generate make-alias Answer
 
-#fn main () Answer
+#fn main {
+  #params = ();
+  #returns = Answer;
+  #body = (
     (#return 42u64)
+  );
+}
 ```
 
 | Builtin | Syntax | Example (context) | Meaning |
@@ -3386,13 +3420,23 @@ No wildcard is needed when integer patterns cover the entire domain. This
 example tests the inclusive boundary between two ranges:
 
 ```lim run=42
-#fn classify ((value #u8)) #u64
+#fn classify {
+  #params = ((value #u8));
+  #returns = #u64;
+  #body = (
     (#return (#match value
       (#case (#range 0u8 127u8) 0u64)
       (#case (#range 128u8 255u8) 42u64)))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#assert (#u64::eq (#call classify ((value 127u8))) 0u64))
     (#return (#call classify ((value 128u8))))
+  );
+}
 ```
 
 Destructuring uses the same aggregate pattern shapes:
@@ -3443,7 +3487,10 @@ handle. This is a generator limitation, not a restriction on ordinary functions;
 
 ```lim run=42
 #enum Choice () ((Choice.Full #u64) Choice.Empty Choice.Other)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut choice Choice (Choice.Full 41u64))
     (#let observed #u64 (#match (#borrow choice)
       (#case-ref (Choice.Full payload) (#deref payload))
@@ -3455,12 +3502,17 @@ handle. This is a generator limitation, not a restriction on ordinary functions;
       (#case _ 0u64)))
     (#assert (#u64::eq observed 41u64))
     (#return updated)
+  );
+}
 ```
 
 ```lim run=42
 #struct Payload () ((value #u64))
 #enum Choice () ((Choice.Full Payload) Choice.Empty)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut choice Choice (Choice.Full (#struct-literal Payload ((value 41u64)))))
     (#let pin (#pin-ref-mut Choice) (#pin choice))
     (#let answer #u64 (#match pin
@@ -3472,6 +3524,8 @@ handle. This is a generator limitation, not a restriction on ordinary functions;
     (#forget pin)
     (#forget choice)
     (#return answer)
+  );
+}
 ```
 
 ## Generated declarations

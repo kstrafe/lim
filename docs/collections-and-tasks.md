@@ -171,11 +171,26 @@ The three user-supplied callbacks are ordinary functions with these exact
 signatures (substitute the concrete type names):
 
 ```lisp syntax
-#fn counter-notify ((executor (#ref WakeCounter))
-                       (metadata (#ref WakeMetadata))) () ...
-#fn metadata-clone ((metadata (#ref WakeMetadata))) WakeMetadata ...
-#fn metadata-destroy ((executor (#ref WakeCounter))
-                         (metadata WakeMetadata)) () ...
+#fn counter-notify {
+  #params = ((executor (#ref WakeCounter))
+                       (metadata (#ref WakeMetadata)));
+  #returns = ();
+  #body = ( ...
+  );
+}
+#fn metadata-clone {
+  #params = ((metadata (#ref WakeMetadata)));
+  #returns = WakeMetadata;
+  #body = ( ...
+  );
+}
+#fn metadata-destroy {
+  #params = ((executor (#ref WakeCounter))
+                         (metadata WakeMetadata));
+  #returns = ();
+  #body = ( ...
+  );
+}
 ```
 
 The handle is only a *local wake adapter*. Its fields are public, so callback
