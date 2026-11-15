@@ -5329,6 +5329,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "unsafe"
             | "asm"
             | "linux-syscall"
+            | "io-input-byte"
+            | "io-output-byte"
             | "addr-of"
             | "addr-of-mut"
             | "ptr-read"
@@ -7652,6 +7654,7 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
    (capacity-slot (#ref-mut #usize))
    (requested #usize))
   {name}::ReserveResult
+  (#effects (#io #global-access (#effects-of ({alloc} {grow}))))
   (#let capacity #usize (#deref capacity-slot))
   (#let element-size #usize (#size-of {element}))
   (#return
@@ -7695,11 +7698,13 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 (#fn {name}::reserve
   ((vector (#ref-mut {name})) (requested #usize))
   {name}::ReserveResult
+  (#effects ((#effects-of {name}::reserve-fields)))
   (#return
     (#call {name}::reserve-fields ((allocator (#clone (#get vector allocator))) (pointer-slot (#borrow-mut (#get vector pointer))) (capacity-slot (#borrow-mut (#get vector capacity))) (requested requested)))))
 (#fn {name}::push
   ((vector (#ref-mut {name})) (element {element}))
   {name}::PushResult
+  (#effects (#io #global-access (#effects-of {name}::reserve-fields)))
   (#let length #usize (#get vector length))
   (#let requested #usize (#usize::add-saturate length 1usize))
   (#return
@@ -7727,6 +7732,7 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 (#fn {name}::get
   ((vector (#ref {name})) (index #usize))
   {name}::GetResult
+  (#effects (#io #global-access))
   (#let length #usize (#get vector length))
   (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
   (#return
@@ -7737,6 +7743,7 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 (#fn {name}::get-mut
   ((vector (#ref-mut {name})) (index #usize))
   {name}::GetMutResult
+  (#effects (#io #global-access))
   (#let length #usize (#get vector length))
   (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
   (#return
@@ -7747,6 +7754,7 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 (#fn {name}::set
   ((vector (#ref-mut {name})) (index #usize) (value {element}))
   {name}::SetResult
+  (#effects (#io #global-access (#effects-of {destroy})))
   (#let length #usize (#get vector length))
   (#return
     (#if (#usize::lt index length)
@@ -7764,6 +7772,7 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 (#fn {name}::pop
   ((vector (#ref-mut {name})))
   {name}::PopResult
+  (#effects (#io #global-access))
   (#let length #usize (#get vector length))
   (#return
     (#if (#usize::eq length 0usize)
@@ -7778,6 +7787,7 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
         (#deref-set (#borrow-mut (#get vector length)) new-length)
         ({name}::PopResult.Some value)))))
 (#fn {name}::free ((vector {name})) ()
+  (#effects (#io #global-access (#effects-of ({destroy} {dealloc}))))
   (#let allocator (#ref {allocator}) (#clone (#get vector allocator)))
   (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
   (#let length #usize (#get vector length))
@@ -7827,6 +7837,7 @@ fn generated_vec_sort_source_parts(
     Ok(format!(
         r#"
 (#fn {vector}::sort ((vector (#ref-mut {vector}))) ()
+  (#effects (#io #global-access (#effects-of {comparator})))
   (#let length #usize (#get vector length))
   (#let element-size #usize (#size-of {element}))
   (#if

@@ -60,6 +60,7 @@
 #gn #executor (run result jobs)
     `((#struct ,result () ,(#gn-for-each job jobs (#gn-call @executor-field job)))
       (#fn ,run ,(#gn-for-each job jobs (#gn-call @executor-parameter job)) ,result
+        (#effects ((#effects-of ,(#gn-for-each job jobs (#gn-call @task-sixth job)))))
         ,@(#gn-for-each job jobs
           (#gn-call @executor-initialize job))
         (#let-mut lim-executor-waiting #bool true)
@@ -213,6 +214,8 @@
           ((,(#gn-call @task-second wait-spec) #u32)
             (,(#gn-call @task-third wait-spec) ,(#gn-call @task-fourth wait-spec))))
         (#fn ,run (,@(#gn-for-each job jobs (#gn-call @wake-executor-task-parameter-form (#gn-first task-spec) job)) ,@(#gn-for-each job jobs (#gn-call @wake-executor-waker-parameter-form (#gn-call @task-seventh task-spec) job)) ,(#gn-call @task-sixth wait-spec)) ,(#gn-call @task-second outputs)
+          (#effects ((#effects-of (,(#gn-call @task-sixth task-spec)
+                                  ,(#gn-call @task-fifth wait-spec) ,cancel-function))))
           ,@(#gn-for-each job jobs
             (#gn-call
               wake-executor-initialize
@@ -286,9 +289,14 @@
           (#case (,(#gn-call @task-fourth (#gn-call @task-second stage)) lim-async-value)
             ,(#gn-call @async-complete names (#gn-call @task-third stage)))))
       (#gn-error "async stage requires (#await Task Pending Ready poll-function)"))
+#gn-fn async-stage-effects (stage)
+    `(,(#gn-call @task-fifth (#gn-call @task-second stage))
+      ,(#gn-if (#gn-equal (#gn-first (#gn-call @task-third stage)) #then)
+        (#gn-call @task-third (#gn-call @task-third stage)) ()))
 #gn #async (names result stages)
     `((#generate #task ,names ,result ,(#gn-for-each stage stages (#gn-call @async-state stage)))
       (#fn ,(#gn-call @task-fifth names) ((task ,(#gn-first names))) ,(#gn-call @task-second names)
+        (#effects ((#effects-of ,(#gn-for-each stage stages (#gn-call @async-stage-effects stage)))))
         (#return
           (#match task
             ,@(#gn-for-each stage stages
@@ -308,6 +316,7 @@
 #gn #async-wake (names result stages waker)
     `((#generate #task ,names ,result ,(#gn-for-each stage stages (#gn-call @async-state stage)))
       (#fn ,(#gn-call @task-fifth names) ((task ,(#gn-first names)) (waker (#ref ,waker))) ,(#gn-call @task-second names)
+        (#effects ((#effects-of ,(#gn-for-each stage stages (#gn-call @async-stage-effects stage)))))
         (#return
           (#match task
             ,@(#gn-for-each stage stages
@@ -335,7 +344,9 @@
         (#gn-error
           "task cancellation state requires (Variant handler) or (Variant handler ((field Type) ...))")))
 #gn #task-cancel (cancel task states)
-    `((#fn ,cancel ((task ,task)) () (#return (#match task ,@(#gn-for-each entry states (#gn-call @task-cancel-case entry))))))
+    `((#fn ,cancel ((task ,task)) ()
+        (#effects ((#effects-of ,(#gn-for-each entry states (#gn-call @task-second entry)))))
+        (#return (#match task ,@(#gn-for-each entry states (#gn-call @task-cancel-case entry))))))
 //; Choice.One explicit OS worker owns this executor and its fixed set of task slots.
 //; Existing #generate #thread-spawn Send checks, errors, and mandatory joining apply.
 #gn #threaded-executor (run result jobs thread)

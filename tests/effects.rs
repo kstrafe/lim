@@ -92,6 +92,91 @@ fn unknown_syscalls_cannot_be_narrowed_by_a_declaration() {
 }
 
 #[test]
+fn fixed_byte_io_requires_real_input_or_output_permission() {
+    let input = "#fn read { #params = (); #returns = (#tuple #i64 #u8); #effects = (#io-input); #body = ((#return (#io-input-byte 0i64))); }";
+    let output = "#fn write { #params = (); #returns = #i64; #effects = (#io-output); #body = ((#return (#io-output-byte 1i64 65u8))); }";
+    check(input).unwrap();
+    check(output).unwrap();
+    let error = check(&input.replace("#effects = (#io-input);", "")).unwrap_err();
+    assert!(error.contains("#io-input"), "{error}");
+    let error = check(&output.replace("#io-output);", "#io-input);")).unwrap_err();
+    assert!(error.contains("qualification #io-output"), "{error}");
+    let error = check(&input.replace("#io-input);", "#io-output);")).unwrap_err();
+    assert!(error.contains("qualification #io-input"), "{error}");
+    check(&input.replace("#io-input);", "#io);")).unwrap();
+    check(&output.replace("#io-output);", "#io);")).unwrap();
+}
+
+#[test]
+fn fixed_byte_io_accepts_no_raw_buffer_or_syscall_selector() {
+    let source = "#fn write { #params = ((pointer (#ptr #u8))); #returns = #i64; #effects = (#io-output); #body = ((#return (#io-output-byte 1i64 pointer))); }";
+    assert!(check(source).unwrap_err().contains("value must be #u8"));
+    let source = "#fn read { #params = (); #returns = (#tuple #i64 #u8); #effects = (#io-input); #body = ((#return (#io-input-byte 0i64 1usize))); }";
+    assert!(check(source).is_err());
+}
+
+#[test]
+fn standard_byte_io_interfaces_are_actually_narrow() {
+    check("#std\n#fn read { #params = (); #returns = StdReadCharResult; #effects = (#io-input); #body = ((#return (#call std-read-one-char ()))); }").unwrap();
+    check("#std\n#fn write { #params = (); #returns = #i64; #effects = (#io-output); #body = ((#return (#call std-write-one-char ((value 65u8))))); }").unwrap();
+    let error = check("#std\n#fn write { #params = (); #returns = #i64; #effects = (#io-input); #body = ((#return (#call std-write-one-char ((value 65u8))))); }").unwrap_err();
+    assert!(error.contains("#io-output"), "{error}");
+}
+
+const BYTE_ECHO: &str = "#fn main { #params = (); #returns = #u64; #effects = (#io-input #io-output); #body = (
+  (#let sample (#tuple #i64 #u8) (#io-input-byte 0i64))
+  (#let written #i64 (#io-output-byte 1i64 (#get sample 1)))
+  (#return (#if (#bool::and (#i64::eq (#get sample 0) 1i64) (#i64::eq written 1i64)) 0u64 1u64)) ); }";
+
+#[test]
+fn fixed_byte_io_selects_target_syscalls_in_native_lowering() {
+    let program = lim::parse_program(BYTE_ECHO).unwrap();
+    let x86 = lim::generate_assembly_for_target(&program, lim::TargetDescription::X86_64_SYSTEM_V)
+        .unwrap();
+    assert!(x86.contains("movzx edx, BYTE PTR [rsp]"), "{x86}");
+    assert!(x86.contains("mov eax, 1\n    syscall"), "{x86}");
+    let arm =
+        lim::generate_assembly_for_target(&program, lim::TargetDescription::AARCH64_LINUX).unwrap();
+    assert!(arm.contains("movz x8, #63"), "{arm}");
+    assert!(arm.contains("movz x8, #64"), "{arm}");
+}
+
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fixed_byte_io_executes_a_real_input_output_round_trip() {
+    use std::{
+        fs,
+        process::{Command, Stdio},
+        time::Duration,
+    };
+    let scratch = support::Scratch::new("effect-byte-io");
+    let input = scratch.path().join("input");
+    fs::write(&input, b"Q").unwrap();
+    let program = lim::parse_program(BYTE_ECHO).unwrap();
+    let assembly =
+        lim::generate_assembly_for_target(&program, lim::TargetDescription::X86_64_SYSTEM_V)
+            .unwrap();
+    let binary = scratch.path().join("echo");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    let (status, stdout, stderr) = support::run(
+        &mut Command::new(binary).stdin(Stdio::from(fs::File::open(input).unwrap())),
+        Duration::from_secs(3),
+        1024,
+    )
+    .unwrap();
+    assert_eq!(status.code(), Some(0), "{stderr:?}");
+    assert_eq!(stdout, b"Q");
+    assert!(stderr.is_empty());
+}
+
+#[test]
 fn global_reads_require_permission_and_writes_do_not_accept_read_only() {
     let error = check(&format!("{COUNTER}{}", function("main", "", LOAD))).unwrap_err();
     assert!(error.contains("(#read-global counter)"), "{error}");
@@ -199,6 +284,49 @@ fn cyclic_declared_inclusions_reach_a_fixed_point_without_inventing_effects() {
     ))
     .unwrap_err();
     assert!(error.contains("#io-output"), "{error}");
+}
+
+#[test]
+fn explicit_callback_groups_support_template_sets_without_inference() {
+    let input = function("input", "#effects = (#io-input);", "");
+    let output = function("output", "#effects = (#io-output);", "");
+    let wrapper = function(
+        "wrapper",
+        "#effects = ((#effects-of ((@input ()) (@output @input))));",
+        "(#call input ()) (#call output ())",
+    );
+    check(&format!(
+        "{input}{output}{wrapper}{}",
+        function("main", "#effects = (#io);", "(#call wrapper ())")
+    ))
+    .unwrap();
+    let error = check(&format!(
+        "{input}{output}{wrapper}{}",
+        function("main", "#effects = (#io-input);", "(#call wrapper ())")
+    ))
+    .unwrap_err();
+    assert!(error.contains("#io-output"), "{error}");
+    check(&function(
+        "empty",
+        "#effects = ((#effects-of (() ())));",
+        "",
+    ))
+    .unwrap();
+}
+
+#[test]
+fn generated_storage_grants_cannot_authorize_unannotated_async_source() {
+    let source = format!("#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 {SYSCALL} (#return 1u64))))\n");
+    let error = check(&source).unwrap_err();
+    assert!(
+        error.contains("explicit effect qualification") && error.contains("#io"),
+        "{error}"
+    );
+    check(&source.replace(
+        "#fn work () #u64",
+        "#fn work () #u64 (#effects (#io #global-access))",
+    ))
+    .unwrap();
 }
 
 #[test]
@@ -327,6 +455,11 @@ fn authorized_io_still_invalidates_predicate_evidence() {
     let error = check(&source).unwrap_err();
     assert!(error.contains("missing evidence"), "{error}");
     check(&source.replace(SYSCALL, "")).unwrap();
+    let output_only = source
+        .replace(SYSCALL, "(#let ignored #i64 (#io-output-byte 1i64 65u8))")
+        .replace("#io #global-access", "#io-output");
+    let error = check(&output_only).unwrap_err();
+    assert!(error.contains("missing evidence"), "{error}");
 }
 
 #[test]

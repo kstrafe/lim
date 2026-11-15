@@ -313,6 +313,8 @@ struct Emitter<'a> {
     physical_current: RefCell<Option<Vec<bool>>>,
     preview_aliases: crate::generator::async_preview_alias::Plan,
     active_preview_aliases: HashSet<BindingId>,
+    /// Selected raw reconstruction templates, not inferred source effects.
+    raw_reconstruction: Cell<bool>,
 }
 
 fn atom(name: &str) -> Expr {
@@ -437,6 +439,7 @@ impl<'a> Emitter<'a> {
             )
             .map_err(|message| fail(function, message))?,
             active_preview_aliases: HashSet::new(),
+            raw_reconstruction: Cell::new(false),
             types,
             render: crate::generator::async_render::RenderContext::new(
                 body,
@@ -1391,6 +1394,7 @@ impl<'a> Emitter<'a> {
                 ) {
                     format!("(#borrow (#deref {anchor}))")
                 } else {
+                    self.raw_reconstruction.set(true);
                     format!(
                         "(#block (#let {shared} (#pin-ref {}) (#borrow (#deref {anchor})))
                      (#unsafe (#ptr-borrow {shared} (#ref-ptr {shared}))))",
@@ -2660,7 +2664,7 @@ impl<'a> Emitter<'a> {
             if self.recover_nested_reference(slot) {
                 let Type::Reference { target, .. } = crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases).unwrap() else { unreachable!() };
                 let target = crate::type_source(&target);
-                lend.push_str(&format!("(#fn {} (({} (#pin-ref {target}))) (#ref {target})\n  (#return (#unsafe (#ptr-borrow {} (#ref-ptr {})))))\n",
+                lend.push_str(&format!("(#fn {} (({} (#pin-ref {target}))) (#ref {target})\n  (#effects (#io #global-access))\n  (#return (#unsafe (#ptr-borrow {} (#ref-ptr {})))))\n",
                     slot.recover, slot.recover_argument, slot.recover_argument, slot.recover_argument));
             }
             let occupied = if slot.linear {
@@ -4410,7 +4414,7 @@ impl<'a> Emitter<'a> {
             mutable,
             target: Box::new(target),
         };
-        self.projections.push(format!("(#fn {helper} (({input} {})) {} (#return (#unsafe (#ptr-borrow{} {input} (#ref-ptr {input})))))",
+        self.projections.push(format!("(#fn {helper} (({input} {})) {} (#effects (#io #global-access)) (#return (#unsafe (#ptr-borrow{} {input} (#ref-ptr {input})))))",
             crate::type_source(&input_ty), crate::type_source(&output_ty), if mutable { "-mut" } else { "" }));
         Ok(format!("(#call {helper} (({input} {place})))"))
     }
@@ -4438,7 +4442,7 @@ impl<'a> Emitter<'a> {
         let argument = self.fresh("owner-project-array-input");
         let suffix = if mutable { "-mut" } else { "" };
         self.projections.push(format!(
-            "(#fn {name} (({argument} {})) {} (#return (#unsafe (#ptr-borrow{suffix} {argument} (#ref-ptr {argument})))))",
+            "(#fn {name} (({argument} {})) {} (#effects (#io #global-access)) (#return (#unsafe (#ptr-borrow{suffix} {argument} (#ref-ptr {argument})))))",
             crate::type_source(&input),
             crate::type_source(&output),
         ));
@@ -5249,9 +5253,10 @@ impl<'a> Emitter<'a> {
                 "computed clone disagrees with its checked leaf type",
             ));
         }
+        let clone_effects = super::effects::clone_clause(&ty, &self.planning.declarations);
         let ty = crate::type_source(&ty);
         self.projections.push(format!(
-            "(#fn {helper} ({}) {ty}\n  (#return (#clone {projected})))",
+            "(#fn {helper} ({}) {ty}\n  {clone_effects}\n  (#return (#clone {projected})))",
             signature.join(" ")
         ));
         let slot = &self.slots[self.values[&value]];
@@ -5503,13 +5508,14 @@ impl<'a> Emitter<'a> {
                                 let helper = self.fresh("clone-computed");
                                 let argument = self.fresh("clone-input");
                                 let ty = crate::type_source(&descriptor.ty);
+                                let clone_effects = super::effects::clone_clause(&descriptor.ty, &self.planning.declarations);
                                 // Clone from the existing stationary cell.
                                 // Reference-bearing clones retain their checked
                                 // origins through the typed helper. Preserve a
                                 // reused original; consume only sole-use inputs
                                 // so a loop can refill their cells.
                                 self.projections.push(format!(
-                                    "(#fn {helper} (({argument} (#pin-ref {ty}))) {ty}\n  (#return (#clone (#deref {argument}))))"
+                                    "(#fn {helper} (({argument} (#pin-ref {ty}))) {ty}\n  {clone_effects}\n  (#return (#clone (#deref {argument}))))"
                                 ));
                                 let cloned = self.fresh("cloned-temporary");
                                 let retire = if used_elsewhere {
@@ -5609,10 +5615,11 @@ impl<'a> Emitter<'a> {
                                 LoadKind::Clone => {
                                     let slot = &self.slots[index];
                                     let ty = crate::type_source(&slot.ty);
+                                    let clone_effects = super::effects::clone_clause(&slot.ty, &self.planning.declarations);
                                     let input = self.fresh("aggregate-clone-input");
                                     let helper = self.fresh("aggregate-clone");
                                     let reference = self.payload_ref(slot, false);
-                                    self.projections.push(format!("(#fn {helper} (({input} (#pin-ref {ty}))) {ty} (#return (#clone (#deref {input}))))"));
+                                    self.projections.push(format!("(#fn {helper} (({input} (#pin-ref {ty}))) {ty} {clone_effects} (#return (#clone (#deref {input}))))"));
                                     format!("(#call {helper} (({input} {reference})))")
                                 }
                             };
@@ -5724,10 +5731,11 @@ impl<'a> Emitter<'a> {
                         let slot = &self.slots[*slot];
                         let reference = self.payload_ref(slot, false);
                         let ty = crate::type_source(&slot.ty);
+                        let clone_effects = super::effects::clone_clause(&slot.ty, &self.planning.declarations);
                         let helper = self.fresh("clone-owner");
                         let argument = self.fresh("clone-owner-input");
                         self.projections.push(format!(
-                            "(#fn {helper} (({argument} (#pin-ref {ty}))) {ty}\n  (#return (#clone (#deref {argument}))))"
+                            "(#fn {helper} (({argument} (#pin-ref {ty}))) {ty}\n  {clone_effects}\n  (#return (#clone (#deref {argument}))))"
                         ));
                         format!("(#call {helper} (({argument} {reference})))")
                     }
@@ -6001,7 +6009,7 @@ impl<'a> Emitter<'a> {
                         let helper = self.fresh("selected-source-borrow");
                         let input = self.fresh("selected-source-input");
                         self.projections.push(format!(
-                            "(#fn {helper} (({input} {})) {} (#return (#unsafe (#ptr-borrow{} {input} (#ref-ptr {input})))))",
+                            "(#fn {helper} (({input} {})) {} (#effects (#io #global-access)) (#return (#unsafe (#ptr-borrow{} {input} (#ref-ptr {input})))))",
                             crate::type_source(&self.slots[address].ty), crate::type_source(&expected),
                             if *mutable { "-mut" } else { "" },
                         ));
@@ -6952,9 +6960,18 @@ impl<'a> Emitter<'a> {
         } else {
             format!("(#let-mut state {} task)", self.frame)
         };
+        let configured_handlers = if self.function.cancel.is_some() {
+            self.cancellation_handlers()?
+        } else { HashMap::new() };
+        let cleanup_handlers = public.iter().filter(|(_, _, _, _, dependent)| self.pinned && *dependent)
+            .filter_map(|(field, ..)| configured_handlers.get(field).cloned()).collect::<Vec<_>>();
+        let cleanup_effects = super::effects::clause(
+            None, !self.word_buffers().is_empty() || self.raw_reconstruction.get(), cleanup_handlers,
+        ).map_err(|message| fail(self.function, message))?;
         let mut source = format!(
             "{}\n(#struct {cleanup} (#linear) ({}))\n\
             (#fn {}::cleanup ((task {receiver})) {cleanup}\n\
+              {cleanup_effects}\n\
               {extraction}\n{}\n\
               (#forget state) (#return (#struct-literal {cleanup} ({}))))",
             definitions.join("\n"),
@@ -6975,6 +6992,7 @@ impl<'a> Emitter<'a> {
             };
             let mut handlers = self.cancellation_handlers()?;
             let mut calls = Vec::new();
+            let mut called_handlers = Vec::new();
             for (field, empty, full, ty, dependent) in &public {
                 let handler = handlers.remove(field).ok_or_else(|| {
                     fail(
@@ -7006,6 +7024,7 @@ impl<'a> Emitter<'a> {
                     return Err(fail(self.function, format!("graph cleanup handler '{handler}' must safely consume one {} and return ()", crate::type_source(ty))));
                 }
                 let payload = self.fresh("cleanup-owned");
+                called_handlers.push(handler.clone());
                 calls.push(format!("(#match (#get task {field}) (#case {empty} ()) (#case ({full} {payload}) (#call {handler} (({} {payload})))))", declaration.parameters[0].name));
             }
             if let Some(slot) = handlers.keys().min() {
@@ -7014,8 +7033,10 @@ impl<'a> Emitter<'a> {
                     format!("unknown graph cleanup source slot '{slot}'"),
                 ));
             }
+            let dispatch_effects = super::effects::clause(None, false, called_handlers.clone())
+                .map_err(|message| fail(self.function, message))?;
             source.push_str(&format!(
-                "\n(#fn {dispatch} ((task {cleanup})) () {} (#forget task) (#return ()))",
+                "\n(#fn {dispatch} ((task {cleanup})) () {dispatch_effects} {} (#forget task) (#return ()))",
                 calls.join("\n")
             ));
             if self.pinned {
@@ -7023,7 +7044,11 @@ impl<'a> Emitter<'a> {
                 // entry point too. An aggregate call summary does not encode
                 // that ordering, whereas ordinary statements do.
                 let destruction = calls.join("\n").replace("(#get task ", "(#get cleanup ");
-                source.push_str(&format!("\n(#fn {}::destroy ((task {receiver})) ()\n{extraction}\n{}\n(#forget state)\n(#let cleanup {cleanup} (#struct-literal {cleanup} ({})))\n{destruction}\n(#forget cleanup)\n(#return ()))", self.poll_type, transfers.join("\n"), captures.join(" ")));
+                called_handlers.extend(configured_handlers.values().cloned());
+                let destroy_effects = super::effects::clause(None,
+                    !self.word_buffers().is_empty() || self.raw_reconstruction.get(), called_handlers)
+                    .map_err(|message| fail(self.function, message))?;
+                source.push_str(&format!("\n(#fn {}::destroy ((task {receiver})) ()\n{destroy_effects}\n{extraction}\n{}\n(#forget state)\n(#let cleanup {cleanup} (#struct-literal {cleanup} ({})))\n{destruction}\n(#forget cleanup)\n(#return ()))", self.poll_type, transfers.join("\n"), captures.join(" ")));
             }
         }
         Ok(source)
@@ -7215,7 +7240,7 @@ impl<'a> Emitter<'a> {
         }
         cases.push(format!("(#case {}u32 ())", u32::MAX));
         cases.push("(#case _ (#unreachable))".into());
-        Ok(format!("// Caller proves exact stationary layout and initialized dispatcher state.\n// Only occupied handler payloads are read; discarded captures are retired.\n(#unsafe-fn {}::destroy-words ((task (#slice-mut #u64))) ()\n(#assert (#usize::eq (#slice-mut-len task) {}usize))\n(#match (#unsafe (#word-read #u32 {})) {})\n(#unsafe (#word-forget (#array #u64 {}) {}))\n(#unsafe (#word-write #u32 {} {}u32))\n(#forget task) (#return ()))",
+        Ok(format!("// Caller proves exact stationary layout and initialized dispatcher state.\n// Only occupied handler payloads are read; discarded captures are retired.\n(#unsafe-fn {}::destroy-words ((task (#slice-mut #u64))) ()\n(#effects (#io #global-access))\n(#assert (#usize::eq (#slice-mut-len task) {}usize))\n(#match (#unsafe (#word-read #u32 {})) {})\n(#unsafe (#word-forget (#array #u64 {}) {}))\n(#unsafe (#word-write #u32 {} {}u32))\n(#forget task) (#return ()))",
             self.poll_type, layout.words, Layout::slice(0, 1), cases.join("\n"), layout.words, Layout::slice(0, layout.words), Layout::slice(0, 1), u32::MAX))
     }
 
@@ -7289,8 +7314,10 @@ impl<'a> Emitter<'a> {
             if let Some(region) = &slot.words {
                 definitions.push(format!(
                     "(#fn {name}::replace ((task (#pin-ref-mut {})) (value {ty})) ()
+                  (#effects (#io #global-access))
                   {guards} (#unsafe (#word-write {ty} {} value)) (#return ()))
                   (#fn {name}::read ((task (#pin-ref {}))) {ty}
+                  (#effects (#io #global-access))
                   {guards} (#return (#unsafe (#word-read {ty} {}))))",
                     self.frame,
                     self.word_slice(region, true),
@@ -7532,6 +7559,7 @@ impl<'a> Emitter<'a> {
             };
             initial.push(format!("({} {})", slot.field, value));
         }
+        let mut factory_word_write = false;
         for region in self.word_buffers() {
             let buffer = self.fresh("initial-words");
             factory_captures.push(format!(
@@ -7571,6 +7599,7 @@ impl<'a> Emitter<'a> {
                 } else {
                     part.clone()
                 };
+                factory_word_write = true;
                 factory_captures.push(format!("(#unsafe (#word-write {} (#borrow-slice-mut {buffer} {}usize {}usize) {physical}))",
                     crate::type_source(&slot.storage), word.start, word.start + word.length));
             }
@@ -7607,19 +7636,31 @@ impl<'a> Emitter<'a> {
         } else {
             self.frame.clone()
         };
+        let slot_definitions = self.slot_definitions();
+        let helpers = super::effects::declared_helpers(&[
+            slot_definitions.clone(), self.projections.join("\n"),
+        ]).map_err(|message| fail(self.function, message))?;
+        let poll_effects = super::effects::clause(
+            self.function.source.function.children.get(4),
+            !self.word_buffers().is_empty() || self.raw_reconstruction.get(),
+            helpers,
+        ).map_err(|message| fail(self.function, message))?;
+        let factory_effects = if factory_word_write { super::effects::RAW_BOUNDARY } else { "" };
         let source = format!(
             "{}\n\
           (#struct {} (#linear) ((pc #u32) {fields}))\n(#opaque {})\n\
           (#enum {} () (({} {}) ({} {})))\n\
           (#fn {} ({signature}) {}\n\
+            {factory_effects}\n\
             {}\n\
             (#return (#struct-literal {} ((pc {}u32) {}))))\n\
           (#fn {} ((task {})) ()\n\
             {finish_fields}\n(#forget task)\n(#return ()))\n\
           (#fn {} ((#mut task {}) (waker (#ref {}))) {}\n\
+            {poll_effects}\n\
             (#loop (#match (#get task pc) {} (#case _ (#unreachable))))\n\
             (#return (#unreachable)))\n",
-            self.slot_definitions(),
+            slot_definitions,
             self.frame,
             self.frame,
             self.poll_type,

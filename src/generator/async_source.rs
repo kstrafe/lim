@@ -534,6 +534,7 @@ impl Builder<'_> {
             node.span,
             format!(
                 "({declaration} {driver} ((#mut task {}) (waker (#ref {}))) {}\n\
+              (#effects ((#effects-of {poll_name})))\n\
               (#loop\n\
                 (#let {polled} {poll_return} {call})\n\
                 (#match {polled}\n\

@@ -41,6 +41,7 @@
 #fn aio-owned-context-create {
   #params = ();
   #returns = AioOwnedContextCreate;
+  #effects = ((#effects-of linux-io-setup));
   #body = (
     (#let-mut id #usize 0usize)
     (#let result #i64
@@ -56,6 +57,7 @@
 #fn aio-owned-context-destroy {
   #params = ((context AioOwnedContext));
   #returns = #i64;
+  #effects = ((#effects-of linux-io-destroy));
   #body = (
     (#let (AioOwnedContext id local-marker) AioOwnedContext context)
     (#forget local-marker)
@@ -69,6 +71,7 @@
 #fn aio-owned-read-submit {
   #params = ((context (#ref AioOwnedContext)) (fd #i64) (length #usize) (offset #i64));
   #returns = AioOwnedSubmit;
+  #effects = (#global-access #io (#effects-of linux-io-submit) (#effects-of linux-mmap) (#effects-of linux-munmap));
   #body = (
     (#return (#if (#bool::or (#usize::eq length 0usize) (#usize::gt length 512usize))
       (AioOwnedSubmit.AioOwnedSubmitFailed -22i64)
@@ -110,6 +113,7 @@
 #fn aio-owned-poll-submit {
   #params = ((context (#ref AioOwnedContext)) (fd #i64) (events #u16));
   #returns = AioOwnedSubmit;
+  #effects = (#global-access #io (#effects-of linux-io-submit) (#effects-of linux-mmap) (#effects-of linux-munmap));
   #body = (
     (#let memory (#ptr-mut #u8)
       (#unsafe (#unsafe-call linux-mmap
@@ -146,6 +150,7 @@
 #fn aio-owned-wait {
   #params = ((operation AioOwnedPending));
   #returns = AioOwnedWait;
+  #effects = (#global-access #io (#effects-of linux-io-getevents));
   #body = (
     (#let (AioOwnedPending context memory length) AioOwnedPending operation)
     (#let events (#ptr-mut #u8) (#unsafe (#ptr-offset memory 128usize)))
@@ -196,6 +201,7 @@
 #fn aio-owned-cancel-wait {
   #params = ((operation AioOwnedPending));
   #returns = AioOwnedCancel;
+  #effects = (#global-access #io (#effects-of aio-owned-wait) (#effects-of linux-io-cancel));
   #body = (
     (#let (AioOwnedPending context memory length) AioOwnedPending operation)
     (#let request (#ptr-mut #u8) memory)
@@ -224,6 +230,7 @@
 #fn aio-owned-completed-byte {
   #params = ((operation (#ref AioOwnedCompleted)) (index #usize));
   #returns = #u8;
+  #effects = (#global-access #io);
   #body = (
     (#assert (#i64::ge (#get operation result) 0i64))
     (#assert (#usize::lt index (#as (#get operation result) #usize)))
@@ -245,6 +252,7 @@
 #fn aio-owned-completed-destroy {
   #params = ((operation AioOwnedCompleted));
   #returns = #i64;
+  #effects = ((#effects-of linux-munmap));
   #body = (
     (#let (AioOwnedCompleted context memory length result)
       AioOwnedCompleted operation)

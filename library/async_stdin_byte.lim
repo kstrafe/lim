@@ -58,6 +58,7 @@
 #fn async-byte-read1-enable-nonblocking {
   #params = ((fd #i64));
   #returns = #i64;
+  #effects = ((#effects-of linux-fcntl));
   #body = (
     (#let flags #i64 (#unsafe (#unsafe-call linux-fcntl
       ((fd fd) (command lINUX-FCNTL-F_GETFL) (argument 0usize)))))
@@ -72,6 +73,7 @@
 #fn async-byte-read1-create {
   #params = ((fd #i64) (destination (#ref-mut #u8)));
   #returns = AsyncByteReadCreate1;
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-fcntl) (#effects-of linux-mmap));
   #body = (
     (#let flags #i64 (#unsafe (#unsafe-call linux-fcntl
       ((fd fd) (command lINUX-FCNTL-F_GETFL) (argument 0usize)))))
@@ -124,6 +126,7 @@
 #fn async-byte-read1-wait {
   #params = ((task (#ref AsyncByteRead1)));
   #returns = AsyncByteReadWait1;
+  #effects = ((#effects-of async-poll4-wait));
   #body = (
     (#let source AsyncPollSource4
       (#call async-byte-read1-source ((task task))))
@@ -144,6 +147,7 @@
 #fn async-byte-read1-poll {
   #params = ((task (#ref-mut AsyncByteRead1)));
   #returns = AsyncByteReadPoll1;
+  #effects = ((#effects-of linux-read-byte-from));
   #body = (
     (#return (#if (#call wake-ready4-take
                   ((queue (#borrow (#get task queue))) (token (#get task token))))
@@ -166,6 +170,7 @@
 #fn async-byte-read1-destroy {
   #params = ((task AsyncByteRead1));
   #returns = #i64;
+  #effects = ((#effects-of linux-close) (#effects-of linux-munmap));
   #body = (
     (#let (AsyncByteRead1 fd destination memory queue token) AsyncByteRead1 task)
     (#let-mut queue-mut WakeReady4 queue)

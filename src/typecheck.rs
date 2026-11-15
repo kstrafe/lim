@@ -7340,6 +7340,26 @@ fn list_expression(
     let (qualifier, operator, mode) = typed_operator_parts(raw_operator);
     let operator_type = qualifier.map(Type::from_name);
     match operator {
+        "io-input-byte" | "io-output-byte" => {
+            require_arity(operator, items, if operator == "io-input-byte" { 2 } else { 3 })?;
+            let descriptor = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, Some(&Type::I64),
+            )?;
+            if descriptor != Type::I64 {
+                return Err(format!("#{operator} descriptor must be #i64").into());
+            }
+            if operator == "io-output-byte" {
+                let value = expression(
+                    &items[2], variables, functions, structs, enums, mutable, aliases, Some(&Type::U8),
+                )?;
+                if value != Type::U8 {
+                    return Err("#io-output-byte value must be #u8".into());
+                }
+                Ok(Type::I64)
+            } else {
+                Ok(Type::Tuple(vec![Type::I64, Type::U8]))
+            }
+        }
         "linux-syscall" => {
             if items.len() != 4 {
                 return Err(

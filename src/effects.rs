@@ -43,6 +43,48 @@ impl Declaration {
         };
         let mut qualifications = BTreeSet::new();
         for entry in entries {
+            // Templates can explicitly union callback sets, including optional
+            // empty groups. Only written declaration names are expanded here;
+            // no function body or inferred permission is consulted.
+            if let Expr::List(parts) = entry {
+                if parts.first().and_then(symbol) == Some("effects-of") && parts.len() == 2 {
+                    if let Expr::List(_) = &parts[1] {
+                        fn targets(
+                            value: &Expr,
+                            depth: usize,
+                            output: &mut BTreeSet<String>,
+                        ) -> Result<(), String> {
+                            if depth > 128 {
+                                return Err(
+                                    "#effects-of callback groups exceed nesting limit".into()
+                                );
+                            }
+                            match value {
+                                Expr::List(values) => {
+                                    for value in values {
+                                        targets(value, depth + 1, output)?;
+                                    }
+                                }
+                                Expr::Symbol(name) | Expr::Function(name)
+                                    if !name.starts_with('#')
+                                        && !name.trim_start_matches('@').is_empty() =>
+                                {
+                                    output.insert(name.trim_start_matches('@').to_owned());
+                                }
+                                _ => return Err(
+                                    "#effects-of groups contain only function declaration names"
+                                        .into(),
+                                ),
+                            }
+                            Ok(())
+                        }
+                        let mut names = BTreeSet::new();
+                        targets(&parts[1], 0, &mut names)?;
+                        qualifications.extend(names.into_iter().map(Qualification::Of));
+                        continue;
+                    }
+                }
+            }
             let qualification = match symbol(entry) {
                 Some("io") => Qualification::Io,
                 Some("io-input") => Qualification::Input,
@@ -548,8 +590,16 @@ fn immutable_constant(
 pub(crate) fn check(
     checked: &crate::typecheck::CheckedProgram<'_>,
 ) -> Result<(), crate::typecheck::AnalysisError> {
-    let program = checked.program();
-    let declarations = checked.declarations();
+    check_resolved(checked.program(), checked.declarations())
+}
+
+/// Also used for retained source witnesses before generator erasure. Witness
+/// permissions remain their written source interfaces, independently of any
+/// broad grants needed by generated representation helpers.
+pub(crate) fn check_resolved(
+    program: &Program,
+    declarations: &Declarations,
+) -> Result<(), crate::typecheck::AnalysisError> {
     let declared = resolve(program, declarations)?;
     check_initializers(program, declarations, &declared)?;
     let constants = program
@@ -677,7 +727,11 @@ pub(crate) fn check(
                 }) {
                     continue;
                 }
-                if !local_primitive(head) {
+                if head == "io-input-byte" {
+                    accesses.require(Effect::Input, span, head);
+                } else if head == "io-output-byte" {
+                    accesses.require(Effect::Output, span, head);
+                } else if !local_primitive(head) {
                     accesses.require(Effect::Io, span, head);
                     accesses.require(Effect::GlobalAccess, span, head);
                 }

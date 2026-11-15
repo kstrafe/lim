@@ -10263,6 +10263,35 @@ impl FunctionContext<'_> {
         }
     }
 
+    /// Fixed Linux byte IO. The kernel sees only a private one-byte temporary;
+    /// no caller pointer or reference can enlarge the memory footprint.
+    fn byte_io_expression(&mut self, items: &[Expr], input: bool) -> Result<(), String> {
+        let expected = if input { 2 } else { 3 };
+        if items.len() != expected {
+            return Err("invalid checked byte IO arity".into());
+        }
+        self.expression(&items[1])?;
+        self.output.push_str("    push rax\n");
+        self.stack_depth += 1;
+        if input {
+            self.output.push_str("    push 0\n");
+        } else {
+            self.expression(&items[2])?;
+            self.output.push_str("    push rax\n");
+        }
+        self.stack_depth += 1;
+        self.output.push_str("    mov rdi, QWORD PTR [rsp+8]\n    mov rsi, rsp\n    mov edx, 1\n");
+        self.output.push_str(if input { "    xor eax, eax\n" } else { "    mov eax, 1\n" });
+        self.output.push_str("    syscall\n");
+        if input {
+            // Tuple result ABI: rax=count/errno, rdx=byte (zero on EOF/error).
+            self.output.push_str("    movzx edx, BYTE PTR [rsp]\n");
+        }
+        self.output.push_str("    add rsp, 16\n");
+        self.stack_depth -= 2;
+        Ok(())
+    }
+
     fn linux_syscall_expression(&mut self, items: &[Expr]) -> Result<(), String> {
         if items.len() != 4 {
             return Err(
@@ -10396,6 +10425,9 @@ impl FunctionContext<'_> {
         };
         if operator == "linux-syscall" {
             return self.linux_syscall_expression(items);
+        }
+        if matches!(operator, "io-input-byte" | "io-output-byte") {
+            return self.byte_io_expression(items, operator == "io-input-byte");
         }
         if operator == "asm" {
             return self.asm_expression(items);

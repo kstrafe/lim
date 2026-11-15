@@ -320,9 +320,10 @@ impl Borrow {
             value
         };
         format!(
-            "(#fn {name} (({argument} {})) {} (#return {value}))",
+            "(#fn {name} (({argument} {})) {} {} (#return {value}))",
             crate::type_source(&self.input),
-            crate::type_source(&self.output)
+            crate::type_source(&self.output),
+            if matches!(self.output, Type::Reference { .. }) { super::effects::RAW_BOUNDARY } else { "" },
         )
     }
 

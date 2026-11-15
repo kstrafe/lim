@@ -30,6 +30,7 @@
     (#unsafe-fn file-open-descriptor {
       #params = ((path (#ptr-mut #u8)) (flags #u32) (permissions #u32));
       #returns = #i64;
+      #effects = (#global-access #io);
       #body = (
       (#return (#unsafe (#linux-syscall #i64 257usize (-100i64 path flags permissions))))
       );
@@ -37,6 +38,7 @@
     (#fn file-close-descriptor {
       #params = ((descriptor #i64));
       #returns = #i64;
+      #effects = (#global-access #io);
       #body = (
       (#return (#unsafe (#linux-syscall #i64 3usize (descriptor))))
       );
@@ -44,6 +46,7 @@
     (#unsafe-fn File::read-raw {
       #params = ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (capacity #usize));
       #returns = #i64;
+      #effects = (#global-access #io);
       #body = (
       (#return (#unsafe (#linux-syscall #i64 0usize ((#get file descriptor) buffer capacity))))
       );
@@ -51,6 +54,7 @@
     (#unsafe-fn file-write-raw {
       #params = ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (length #usize));
       #returns = #i64;
+      #effects = (#global-access #io);
       #body = (
       (#return (#unsafe (#linux-syscall #i64 1usize ((#get file descriptor) buffer length))))
       );
@@ -87,6 +91,7 @@
 #fn File::open-with-flags {
   #params = ((path (#ref String)) (flags #u32) (permissions #u32));
   #returns = FileOpenResult;
+  #effects = ((#effects-of String::byte-at) (#effects-of String::free) (#effects-of String::push-char) (#effects-of String::try-clone) (#effects-of file-open-descriptor));
   #body = (
     (#let length #usize (#call String::len ((string path))))
     (#let-mut index #usize 0usize)
@@ -118,6 +123,7 @@
 #fn File::open-read {
   #params = ((path (#ref String)));
   #returns = FileOpenResult;
+  #effects = ((#effects-of File::open-with-flags));
   #body = (
     (#return (#call File::open-with-flags ((path path) (flags 524288u32) (permissions 0u32))))
   );
@@ -126,6 +132,7 @@
 #fn File::create {
   #params = ((path (#ref String)) (permissions #u32));
   #returns = FileOpenResult;
+  #effects = ((#effects-of File::open-with-flags));
   #body = (
     (#return (#call File::open-with-flags ((path path) (flags 524865u32) (permissions permissions))))
   );
@@ -133,6 +140,7 @@
 #fn File::close {
   #params = ((file File));
   #returns = FileStatus;
+  #effects = ((#effects-of file-close-descriptor));
   #body = (
     (#let result #i64 (#call file-close-descriptor ((descriptor (#get file descriptor)))))
     (#forget file)
@@ -144,6 +152,7 @@
 #fn File::write-string {
   #params = ((file (#ref-mut File)) (text (#ref String)));
   #returns = FileWriteResult;
+  #effects = ((#effects-of file-write-raw));
   #body = (
     (#let length #usize (#call String::len ((string text))))
     (#let pointer (#ptr-mut #u8) (#unsafe (#unsafe-call String::data-pointer ((string text)))))
@@ -184,6 +193,7 @@
 #fn FileReader::create {
   #params = ((file File) (capacity #usize));
   #returns = FileReaderCreateResult;
+  #effects = ((#effects-of system-allocate));
   #body = (
     (#return (#match (#call system-allocate ((size capacity)))
       (#case (SystemAllocationResult.SystemAllocationFailed error) (FileReaderCreateResult.FileReaderCreateFailed
@@ -197,6 +207,7 @@
 #fn FileReader::next-byte {
   #params = ((reader (#ref-mut FileReader)));
   #returns = FileByteResult;
+  #effects = (#global-access #io (#effects-of File::read-raw));
   #body = (
     (#if (#usize::eq (#get reader position) (#get reader length))
       (#block
@@ -221,6 +232,7 @@
 #fn FileReader::close {
   #params = ((reader FileReader));
   #returns = FileStatus;
+  #effects = ((#effects-of File::close) (#effects-of system-deallocate));
   #body = (
     (#unsafe (#unsafe-call system-deallocate ((pointer (#get reader buffer)))))
     (#let file File (#get reader file))

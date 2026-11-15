@@ -16,7 +16,7 @@ use std::{
 use crate::generator_authority::Syntax;
 use crate::{Expr, Span, SpannedExpr};
 
-pub(crate) const GENERATED_SOURCE_FORMAT: &str = "lim-generated-source-format-v3-record-functions";
+pub(crate) const GENERATED_SOURCE_FORMAT: &str = "lim-generated-source-format-v4-explicit-effects";
 const MAX_EVALUATION_STEPS: usize = 200_000;
 const MAX_GENERATED_NODES: usize = 1_000_000;
 const MAX_EXPANSION_DEPTH: usize = 128;
@@ -97,6 +97,7 @@ pub(crate) mod async_source;
 pub(crate) mod async_types;
 mod async_word_cleanup;
 pub(crate) mod builtins;
+mod effects;
 pub(crate) mod frontend;
 pub(crate) use crate::capture_storage as async_storage;
 pub(crate) mod async_values;
