@@ -1,15 +1,14 @@
-#static values (#array (#array #u64 7) 2)
-    (#array (#array (#array #u64 7) 2)
-      (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)
-      (#array (#array #u64 7) 10u64 20u64 30u64 40u64 50u64 60u64 42u64))
+#static values (#array (#array #u64 7) 2) (#array (#array (#array #u64 7) 2) (#array
+    (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64) (#array (#array #u64 7) 10u64 20u64 30u64
+    40u64 50u64 60u64 42u64))
 
 #fn make {
   #params = ();
   #returns = (#array (#array #u64 7) 2);
   #effects = ((#read-global values));
-  #body = (
-    (#return (#unsafe values))
-  );
+  #body = ((#return (#unsafe
+        values
+      )));
 }
 
 #fn main {
@@ -20,9 +19,10 @@
     (#let local-values (#array (#array #u64 7) 2) (#call make ()))
     (#let local-item (#array #u64 7) (#index local-values 1u64))
     (#let returned-item (#array #u64 7) (#index (#call make ()) 1u64))
-    (#let static-item (#array #u64 7) (#index (#unsafe values) 1u64))
-    (#return (#u64::add-wrap
-      (#index local-item 6u64)
-      (#u64::add-wrap (#index returned-item 6u64) (#index static-item 6u64))))
+    (#let static-item (#array #u64 7) (#index (#unsafe
+          values
+        ) 1u64))
+    (#return (#u64::add-wrap (#index local-item 6u64) (#u64::add-wrap (#index returned-item 6u64)
+          (#index static-item 6u64))))
   );
 }

@@ -1,68 +1,65 @@
 #struct Point () ((x #u64) (y #u64))
-#static static-values (#array #u64 3)
-    (#array-of (#array #u64 3) 10u64 20u64 30u64)
+#static static-values (#array #u64 3) (#array-of (#array #u64 3) 10u64 20u64 30u64)
 #static origin Point (#struct-literal Point ((x 7) (y 9)))
-#static pair (#tuple #u64 #f64)
-    (#tuple (#tuple #u64 #f64) 4 2.5)
+#static pair (#tuple #u64 #f64) (#tuple (#tuple #u64 #f64) 4 2.5)
 #enum Maybe () ((Maybe.Some #u64) Maybe.None)
 #static static-choice Maybe (#enum-literal Maybe.Some 12u64)
 
 #fn take {
   #params = ((values (#array #u64 3)) (point Point));
   #returns = #u64;
-  #body = (
-    (#return
-      (#u64::add-wrap
-        (#index values 1)
-        (#get point y)))
-  );
+  #body = ((#return (#u64::add-wrap (#index values 1) (#get point y))));
 }
 
 #fn return-values {
   #params = ();
   #returns = (#array #u64 3);
   #effects = ((#read-global static-values));
-  #body = (
-    (#return (#unsafe static-values))
-  );
+  #body = ((#return (#unsafe
+        static-values
+      )));
 }
 
 #fn read-choice {
   #params = ((choice Maybe));
   #returns = #u64;
-  #body = (
-    (#return
-      (#match choice
-        (#case (Maybe.Some value) value)
-        (#case Maybe.None 0)))
-  );
+  #body = ((#return (#match choice
+        (#case (Maybe.Some value)
+          value
+        )
+        (#case Maybe.None
+          0
+        )
+      )));
 }
 
 #fn return-choice {
   #params = ();
   #returns = Maybe;
   #effects = ((#read-global static-choice));
-  #body = (
-    (#return (#unsafe static-choice))
-  );
+  #body = ((#return (#unsafe
+        static-choice
+      )));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = ((#effects-of return-choice) (#effects-of return-values) (#read-global origin) (#read-global static-choice) (#read-global static-values));
+  #effects = ((#effects-of return-choice) (#effects-of return-values) (#read-global origin)
+    (#read-global static-choice) (#read-global static-values));
   #body = (
-    (#let copied (#array #u64 3) (#unsafe static-values))
-    (#let copied-choice Maybe (#unsafe static-choice))
-    (#return
-      (#u64::add-wrap
-        (#index copied 0)
-        (#u64::add-wrap
-          (#index (#call return-values ()) 2)
-          (#u64::add-wrap
-            (#call take ((values (#unsafe static-values)) (point (#unsafe origin))))
-            (#u64::add-wrap
-              (#call read-choice ((choice copied-choice)))
-              (#call read-choice ((choice (#call return-choice ())))))))))
+    (#let copied (#array #u64 3) (#unsafe
+        static-values
+      ))
+    (#let copied-choice Maybe (#unsafe
+        static-choice
+      ))
+    (#return (#u64::add-wrap (#index copied 0) (#u64::add-wrap (#index (#call return-values ()) 2)
+          (#u64::add-wrap (#call take ((values (#unsafe
+                    static-values
+                  )) (point (#unsafe
+                    origin
+                  )))) (#u64::add-wrap (#call read-choice ((choice copied-choice))) (#call
+                read-choice ((choice (#call return-choice ())))))))))
   );
 }

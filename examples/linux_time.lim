@@ -11,7 +11,9 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = (#global-access #io (#effects-of linux-clock-getres) (#effects-of linux-clock-nanosleep) (#effects-of linux-gettimeofday) (#effects-of linux-time) (#effects-of linux-times));
+  #effects = (#global-access #io (#effects-of linux-clock-getres) (#effects-of
+      linux-clock-nanosleep) (#effects-of linux-gettimeofday) (#effects-of linux-time)
+    (#effects-of linux-times));
   #body = (
     (#let memory (#ptr-mut #i64) (#unsafe
         (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64

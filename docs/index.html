@@ -85,6 +85,7 @@
 <li><a href="#top-level-declarations" id="toc-top-level-declarations">Top-level declarations</a>
 <ul>
 <li><a href="#single-positional-parameters" id="toc-single-positional-parameters">Single positional parameters</a></li>
+<li><a href="#explicit-effects" id="toc-explicit-effects">Explicit effects</a></li>
 <li><a href="#predicate-contracts-and-constrained-types" id="toc-predicate-contracts-and-constrained-types">Predicate contracts and constrained types</a></li>
 <li><a href="#functions" id="toc-functions">Functions</a></li>
 <li><a href="#c-aggregate-layout" id="toc-c-aggregate-layout">C aggregate layout</a></li>
@@ -278,6 +279,11 @@ cargo build --release
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (
+    (<span class="lim-keyword">#effects-of</span> String::from-chars)
+    (<span class="lim-keyword">#effects-of</span> std-println)
+    (<span class="lim-keyword">#effects-of</span> String::free)
+  );
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#let</span> greeting (<span class="lim-keyword">#array</span> <span class="lim-type">#char</span> <span class="lim-literal">13</span>) <span class="lim-string">&quot;Hello, world!&quot;</span>;
     <span class="lim-keyword">#let</span> message String<span class="lim-operator">:</span>
@@ -289,6 +295,7 @@ cargo build --release
     <span class="lim-keyword">#return</span> ();
 }</code></pre>
 <p><code>#std</code> opts into the bundled String and stdout modules. <code>String::from-chars</code> returns a result, so the program handles both success and failure. <code>#println</code> borrows the string, writes its UTF-8 text and a newline, and returns zero on success; the assertion checks that status. The string remains owned until <code>String::free</code> releases it.</p>
+<p><code>#effects</code> explicitly includes the allocation, printing, and cleanup APIs used by <code>main</code>. These permissions are separate from predicate preconditions; omitting them does not make an effectful function pure.</p>
 <p><code>#fn</code> declares a function. <code>#params</code> is a record of parameter names and types; this function has none. <code>#returns</code> is always explicit, and <code>#body</code> contains the function’s forms. A function with no value uses <code>#returns = ();</code> and <code>#return ();</code>.</p>
 </section>
 <section id="return-value-tutorial" class="level2">
@@ -516,7 +523,7 @@ cargo build
     <span class="lim-keyword">#let</span> value MaybeNumber<span class="lim-operator">:</span> MaybeNumber::construct { value <span class="lim-operator">=</span> <span class="lim-literal">42u64</span>; };
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> <span class="lim-keyword">#match</span> value (<span class="lim-keyword">#case</span> (MaybeNumber.Some number) number) (<span class="lim-keyword">#case</span> MaybeNumber.None <span class="lim-literal">0u64</span>);
 }</code></pre>
-<p>Generated source is inspectable in <code>.lim/generated/</code>. Builtin and library generators use reserved names such as <code>#optional</code>; user generators use ordinary names. The pure generator language uses <code>#gn</code>, <code>#gn-fn</code> and the restricted <code>#gn-*</code> operations. All emitted runtime code still passes ordinary validation.</p>
+<p>Generated source is inspectable in <code>.lim/generated/</code>. Compiler builtin generators use reserved names such as <code>#optional</code>. Standard-library generators use ordinary names through reserved paths, such as <code>#std/cell.lim::cell</code>; user generators also use ordinary names. The pure generator language uses <code>#gn</code>, <code>#gn-fn</code> and the restricted <code>#gn-*</code> operations. Generators declare named record patterns, such as <code>#gn make-record { name; } ...</code>, and calls supply an exhaustive named record, such as <code>#generate make-record { name = Record; }</code>. Field order does not select argument roles. All emitted runtime code still passes ordinary validation.</p>
 <p>Use the <a href="#user-defined-generators">generator reference</a> for syntax bundles, quoting, generated declarations, validation witnesses and file authority. Generating a type does not make it an opaque mathematical proof.</p>
 </section>
 <section id="diagnostics-tutorial" class="level2">
@@ -624,10 +631,16 @@ Lim compilation pipeline
 <section id="shared-allocator-state-and-cells" class="level2">
 <h2>Shared allocator state and cells</h2>
 <p>Dynamic allocation follows the concrete allocator ABI in <a href="allocator.md">allocator.md</a>. Allocator values are passed explicitly and generated collections retain an immutable allocator reference; interior mutability belongs to the allocator implementation.</p>
-<p><code>#generate #cell</code> is a standard-library generator in <code>library/cell.lim</code>, not a builtin type. Each invocation explicitly names the concrete type and three free-standing functions. It currently accepts the integer widths supported by <code>#atomic</code> (<code>#i8/#i16/#i32/#i64</code>, <code>#u8/#u16/#u32/#u64</code>, and <code>#usize</code>); it does not support floats, pointers, or enums. The generated get/set functions take a shared reference to the concrete cell and never return a reference to its contents:</p>
-<pre class="lisp"><code><span class="lim-keyword">#alias</span> cell-generator <span class="lim-operator">=</span> ..<span class="lim-operator">/</span>library<span class="lim-operator">/</span>cell.lim::#cell
+<p><code>#std/cell.lim::cell</code> names a standard-library generator, not a builtin type. Each invocation explicitly names the concrete type and three free-standing functions. It currently accepts the integer widths supported by <code>#atomic</code> (<code>#i8/#i16/#i32/#i64</code>, <code>#u8/#u16/#u32/#u64</code>, and <code>#usize</code>); it does not support floats, pointers, or enums. The generated get/set functions take a shared reference to the concrete cell and never return a reference to its contents:</p>
+<pre class="lisp"><code><span class="lim-keyword">#alias</span> cell-generator <span class="lim-operator">=</span> <span class="lim-keyword">#std</span><span class="lim-operator">/</span>cell.lim::cell
 
-<span class="lim-keyword">#generate</span> cell-generator <span class="lim-type">#u64</span> CellU64 CellU64::create CellU64::get CellU64::set
+<span class="lim-keyword">#generate</span> cell-generator {
+  value-type <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  name <span class="lim-operator">=</span> CellU64;
+  create <span class="lim-operator">=</span> CellU64::create;
+  get <span class="lim-operator">=</span> CellU64::get;
+  set <span class="lim-operator">=</span> CellU64::set;
+}
 
 <span class="lim-keyword">#struct</span> Arena () { cursor <span class="lim-operator">=</span> CellU64; }
 
@@ -659,7 +672,7 @@ Lim compilation pipeline
 <ul>
 <li>Scalar types are <code>Send + Sync</code>.</li>
 <li>Raw pointers are neither <code>Send</code> nor <code>Sync</code>.</li>
-<li>Generated <code>#generate #cell</code> types use relaxed atomic storage and are <code>Send + Sync</code> for their supported integer widths.</li>
+<li>Generated <code>#std/cell.lim::cell</code> types use relaxed atomic storage and are <code>Send + Sync</code> for their supported integer widths.</li>
 <li><code>(#atomic T)</code> is both <code>Send</code> and <code>Sync</code> only for the supported atomic integer widths listed below.</li>
 <li><code>(#ref T)</code> is <code>Send</code> when <code>T</code> is <code>Sync</code>, and is <code>Sync</code> when <code>T</code> is <code>Sync</code>.</li>
 <li><code>(#ref-mut T)</code> is <code>Send</code> when <code>T</code> is <code>Send</code>, and <code>Sync</code> when <code>T</code> is <code>Sync</code>.</li>
@@ -711,6 +724,7 @@ Lim compilation pipeline
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (<span class="lim-keyword">#io</span> <span class="lim-keyword">#global-access</span>);
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#let-mut</span> value <span class="lim-type">#u64</span> <span class="lim-literal">40</span>;
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span>
@@ -724,6 +738,7 @@ Lim compilation pipeline
 <pre class="lisp"><code><span class="lim-keyword">#unsafe-fn</span> read-byte {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { pointer <span class="lim-operator">=</span> (<span class="lim-keyword">#ptr</span> <span class="lim-type">#u8</span>); };
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u8</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (<span class="lim-keyword">#io</span> <span class="lim-keyword">#global-access</span>);
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> <span class="lim-keyword">#unsafe</span> (<span class="lim-keyword">#ptr-read</span> pointer);
 }
@@ -731,6 +746,7 @@ Lim compilation pipeline
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> ((<span class="lim-keyword">#effects-of</span> read-byte));
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#let</span> value <span class="lim-type">#u8</span> <span class="lim-literal">42u8</span>;
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> <span class="lim-keyword">#as</span> (<span class="lim-keyword">#unsafe</span> (<span class="lim-keyword">#unsafe-call</span> read-byte { pointer <span class="lim-operator">=</span> (<span class="lim-keyword">#addr-of</span> value); })) <span class="lim-type">#u64</span>;
@@ -738,10 +754,14 @@ Lim compilation pipeline
 <p>Imports and generated declarations preserve the calling requirement. Implicit entry points (<code>main</code>, aggregate clone hooks, and thread workers) must be safe; use a safe wrapper that explicitly discharges the unsafe function&#39;s obligations. Generator capability contracts currently describe safe operations, so an unsafe operation does not satisfy one. The Linux library uses this contract for all raw-pointer wrappers and integer-only APIs with hidden memory or execution-state obligations. Reference-bounded byte/time helpers remain safe. See the <a href="syscall-coverage.md#caller-safety-contracts">syscall caller contracts</a>.</p>
 <p>The operations are <code>#addr-of</code>, <code>#addr-of-mut</code>, <code>#ptr-read</code>, <code>#ptr-write</code>, and <code>(#ptr-offset pointer element-index)</code>. <code>(#ptr-null (#ptr-mut T))</code> or <code>(#ptr-null (#ptr T))</code> constructs a typed null pointer; constructing one is safe, but dereferencing it is not. <code>(#ptr-is-null pointer)</code> safely tests whether a raw pointer is null without consuming it. <code>(#ptr-address pointer)</code> returns the machine address as <code>#usize</code> without dereferencing it; it can check Linux error-pointer returns before any access. The offset consumes a raw pointer and returns a pointer with the same mutability and pointee type; its index must be <code>#usize</code>. Offsets use the pointee&#39;s byte width (for example, <code>*mut u8</code> advances one byte). Byte-offset multiplication and address addition are checked for overflow and trap on overflow. Reads and writes access only the pointee&#39;s width. Writing requires <code>(#ptr-mut T)</code>. Reads and writes do not check allocation bounds, and raw-pointer operations are rejected outside <code>#unsafe</code>; callers must uphold pointer validity and bounds themselves. <code>#ptr-borrow</code> and <code>#ptr-borrow-mut</code> also require <code>#unsafe</code>; their first argument is a reference used as the inferred lifetime anchor, and the second is the pointer to the referenced value. The <code>#pin-ptr-borrow</code> variants require a pinned-reference anchor and preserve the pinned-reference type/provenance. The caller must ensure the pointer is valid, stable, and uniquely accessible as required for the full anchor lifetime. These forms do not make allocation or pointer validity safe by themselves.</p>
 <p>Pinning is exposed through generated opaque objects rather than a special binding statement. Import <code>library/pin.lim</code> and declare a concrete API:</p>
-<pre class="lisp"><code><span class="lim-keyword">#generate</span> <span class="lim-keyword">#pin</span> ((type Frame) (name PinnedFrame) (fields ((value <span class="lim-type">#u64</span>))))
-<span class="lim-keyword">#generate</span> <span class="lim-keyword">#pin-scope</span> ((type Frame) (pin PinnedFrame) (name with-pinned-frame)
-    (run drive-frame) (destroy destroy-frame) (result <span class="lim-type">#u64</span>))</code></pre>
-<p><code>#generate #pin</code> emits opaque <code>PinnedFrame</code> and <code>PinnedFrame::Shared</code> handles, unsafe constructors, and <code>PinnedFrame::Read::value</code> / <code>PinnedFrame::Write::value</code> free functions (plus the shared reader). Field types are literal generator inputs; ordinary checking verifies them and rejects moving linear fields or replacing fields that do not satisfy the pinned-field restrictions. Optional <code>copy true</code> emits whole-value readers and a writer only after checking a structural Copy proof. All implementation functions are inspectable in the generated cache. For linear fields, <code>projections ((child PinnedChild))</code> generates <code>PinnedFrame::Project::child</code> and <code>PinnedFrame::ProjectMut::child</code>, returning the existing concrete child pin handles without moving the field. Shared handles also get a shared projection. Projection consumes the parent handle; it does not leave a second mutable handle to the same storage. Derived handles retain their source&#39;s borrow and cannot outlive it. Unsafe <code>PinnedFrame::into-view</code> consumes a handle and exposes its low-level pinned reference for trusted implementations; it does not unpin or move the referent.</p>
+<pre class="lisp"><code><span class="lim-keyword">#generate</span> <span class="lim-keyword">#std</span><span class="lim-operator">/</span>pin.lim::pin {
+  options <span class="lim-operator">=</span> ((type Frame) (name PinnedFrame) (fields ((value <span class="lim-type">#u64</span>))));
+}
+<span class="lim-keyword">#generate</span> <span class="lim-keyword">#std</span><span class="lim-operator">/</span>pin.lim::pin-scope {
+  options <span class="lim-operator">=</span> ((type Frame) (pin PinnedFrame) (name with-pinned-frame)
+    (run drive-frame) (destroy destroy-frame) (result <span class="lim-type">#u64</span>));
+}</code></pre>
+<p><code>#generate #std/pin.lim::pin</code> emits opaque <code>PinnedFrame</code> and <code>PinnedFrame::Shared</code> handles, unsafe constructors, and <code>PinnedFrame::Read::value</code> / <code>PinnedFrame::Write::value</code> free functions (plus the shared reader). Field types are literal generator inputs; ordinary checking verifies them and rejects moving linear fields or replacing fields that do not satisfy the pinned-field restrictions. Optional <code>copy true</code> emits whole-value readers and a writer only after checking a structural Copy proof. All implementation functions are inspectable in the generated cache. For linear fields, <code>projections ((child PinnedChild))</code> generates <code>PinnedFrame::Project::child</code> and <code>PinnedFrame::ProjectMut::child</code>, returning the existing concrete child pin handles without moving the field. Shared handles also get a shared projection. Projection consumes the parent handle; it does not leave a second mutable handle to the same storage. Derived handles retain their source&#39;s borrow and cannot outlive it. Unsafe <code>PinnedFrame::into-view</code> consumes a handle and exposes its low-level pinned reference for trusted implementations; it does not unpin or move the referent.</p>
 <p>The same declarations also generate <code>PinnedFrame::BorrowMut::child</code>, taking <code>((pin (#ref-mut PinnedFrame)))</code>, and <code>PinnedFrame::Borrow::child</code>, taking <code>((pin (#ref PinnedFrame)))</code>. Shared wrappers have their own shared <code>::borrow</code> function. These reborrow the child without consuming the parent handle. Disjoint mutable child fields can coexist, as can overlapping shared views; overlapping exclusive access is rejected at the offending call argument. Callee footprints follow the wrapper&#39;s actual pinned pointer slot, including helper calls and transferred child arguments, not just its stack address. Forgetting a wrapper does not unpin or destroy its referent: child views still retain that referent, and prevent scope escape or heap release. See <code>examples/pin_projection_borrows.lim</code> for two independently writable children.</p>
 <p><code>with-pinned-frame</code> takes <code>value Frame</code>, initializes private stack storage, and calls <code>drive-frame</code> with <code>pin PinnedFrame</code>. It then calls <code>destroy-frame</code> with a fresh pin handle before retiring that storage in place. The run function returns the specified result type; the destruction function returns unit. Both functions must consume their handles explicitly. The original storage is inaccessible to callbacks, even if they forget their handles. Returned borrows cannot escape the scope, and cancellation/resource cleanup must be implemented in the destruction callback. No function pointers, lambdas, <code>#let-pin</code>, or <code>#pin-end</code> are needed. See <code>examples/stationary_pin.lim</code>.</p>
 <p>For an initialized local, <code>(#pin local)</code> creates an exclusive <code>(#pin-ref-mut T)</code> and requires a <code>#let-mut</code> binding. <code>(#pin-shared local)</code> creates a shared <code>(#pin-ref T)</code> and also accepts immutable locals. Neither accepts a temporary, projection, reference variable, top-level constant, or static: use <code>#pin-borrow</code>/<code>#pin-borrow-mut</code> for projection reborrows. Both local operations permanently freeze the original storage, including Copy locals. Forgetting the reference ends its loan, but does not allow moving or assigning the original local again. A branch that may pin a local also freezes it after the branch joins. Copy values can still be read or copied from frozen storage when normal loan rules permit: copying a Copy value does not move the storage itself. Whole-local assignment remains forbidden. Each new loop iteration initializes fresh local storage; explicitly end the previous iteration&#39;s local after its views end.</p>
@@ -761,8 +781,8 @@ Lim compilation pipeline
 }</code></pre>
 <p>Ordinary named functions can take pinned references, so multiple local pins can be selected and polled in branches without callbacks or generated wrappers. An ordinary reference does not satisfy a pinned-reference parameter. Local pins cannot escape their storage scope, and overlapping mutable loans are rejected. After all references end, explicit <code>#forget owner</code> ends the local in place; it is not a destructor and performs no resource cleanup. Perform any required in-place cleanup first. Local pinning does not change <code>#pin-own</code>: that heap owner remains movable because its allocation stays stationary.</p>
 <p>Low-level pinned-reference operations remain compiler primitives for generated code and unsafe implementations. Ordinary <code>#pin-borrow</code> permanently prevents moving a linear local after its first pin, even after its last view is forgotten; explicit <code>#forget</code>/<code>#drop</code> ends that local&#39;s lifetime. Plain Copy referents retain short-lived borrow rules. Nonmoving Copy field operations on pinned linear locals remain allowed, subject to the existing field-loan checks.</p>
-<p><code>(#pin-own T)</code> is a linear, movable owner of stationary heap storage. Unsafe <code>#pin-own-of pointer value</code> initializes uniquely owned writable allocation storage using Lim&#39;s native value layout and adopts it; safe <code>#pin-own-borrow</code> and <code>#pin-own-borrow-mut</code> borrow the allocation identity, not the handle&#39;s address. Views remain valid across handle moves, aggregate moves, and function returns. An optional allocator-reference argument keeps the allocator borrowed for the entire view lifetime. Forgetting an owner leaks the allocation rather than moving, freeing, or unpinning its contents. In-place cleanup precedes unsafe <code>#pin-release</code>, which returns the pointer for deallocation. Retained views block release, including release in called helpers. Calls that obtain conflicting pointee access also reject retained views; a pure owner-forwarding function does not. The opaque owner generated by <code>#generate #pin-box</code> exposes native pinned references; its destruction callback accepts <code>pin</code> with type <code>(#pin-ref-mut T)</code> for in-place cleanup. Transferring an owning allocation to a thread requires retirement of its existing pointee views. The caller still guarantees validity, alignment, unique raw ownership, and retirement of untracked raw pointers. Reference-bearing and nested owning-pin pointees retain their contents&#39; loans through owner moves, return summaries, and field projections. Allocating storage does not extend a referent&#39;s lifetime. Heap writes, including helper-call writes, update retained loans in the owning allocation. A definite write to one concrete field retires that field&#39;s old loan and records its replacement; uncertain writes and control-flow joins keep all possible referents. A reference already loaded from the old field remains an independent live loan. <code>library/pin_box.lim</code> defines the <code>#generate #pin-box</code> generator, which takes exactly the named options <code>type</code>, <code>allocator</code>, <code>name</code>, and <code>destroy</code>. <code>allocator</code> is a literal bundle root exposing <code>::State</code>, <code>::Error</code>, byte-pointer <code>::Allocation</code>, safe <code>::allocate</code>, and unsafe <code>::deallocate</code>. Its private typed adapter converts the byte pointers. It generates an opaque named linear heap-owner type and create, shared-borrow, mutable-borrow, and destroy functions. Its borrow functions return native <code>#pin-ref</code> and <code>#pin-ref-mut</code> values. <code>examples/pin_box.lim</code> demonstrates moving a handle while a view stays live. For an owner <code>Box</code>, generated symbols include <code>Box::CreateResult</code>, <code>Box::created</code>, <code>Box::allocation-failed</code>, and <code>Box::create</code> / <code>Box::borrow</code> / <code>Box::borrow-mut</code> / <code>Box::destroy</code>.</p>
-<p><code>library/pin_rc.lim</code> defines <code>#generate #pin-rc</code> with the same named options and allocator bundle convention, and generates named linear reference-counted owners with create, clone, shared-borrow, mutable-borrow, and destroy functions. This Rc is single-threaded and is neither <code>Send</code> nor <code>Sync</code>; it has no weak-reference handles. Mutable borrowing is available only while the handle is the unique strong owner. Destroy every borrowed view before destroying a handle, because the final handle destruction runs the pointee destructor in place and releases the allocation. For an owner <code>Shared</code>, generated symbols include <code>Shared::Allocation</code>, <code>Shared::CreateResult</code>, <code>Shared::MutResult</code>, and <code>Shared::create</code> / <code>Shared::clone</code> / <code>Shared::borrow</code> / <code>Shared::borrow-mut</code> / <code>Shared::destroy</code>; enum cases include <code>Shared::unique</code> and <code>Shared::Shared</code>.</p>
+<p><code>(#pin-own T)</code> is a linear, movable owner of stationary heap storage. Unsafe <code>#pin-own-of pointer value</code> initializes uniquely owned writable allocation storage using Lim&#39;s native value layout and adopts it; safe <code>#pin-own-borrow</code> and <code>#pin-own-borrow-mut</code> borrow the allocation identity, not the handle&#39;s address. Views remain valid across handle moves, aggregate moves, and function returns. An optional allocator-reference argument keeps the allocator borrowed for the entire view lifetime. Forgetting an owner leaks the allocation rather than moving, freeing, or unpinning its contents. In-place cleanup precedes unsafe <code>#pin-release</code>, which returns the pointer for deallocation. Retained views block release, including release in called helpers. Calls that obtain conflicting pointee access also reject retained views; a pure owner-forwarding function does not. The opaque owner generated by <code>#generate #std/pin_box.lim::pin-box</code> exposes native pinned references; its destruction callback accepts <code>pin</code> with type <code>(#pin-ref-mut T)</code> for in-place cleanup. Transferring an owning allocation to a thread requires retirement of its existing pointee views. The caller still guarantees validity, alignment, unique raw ownership, and retirement of untracked raw pointers. Reference-bearing and nested owning-pin pointees retain their contents&#39; loans through owner moves, return summaries, and field projections. Allocating storage does not extend a referent&#39;s lifetime. Heap writes, including helper-call writes, update retained loans in the owning allocation. A definite write to one concrete field retires that field&#39;s old loan and records its replacement; uncertain writes and control-flow joins keep all possible referents. A reference already loaded from the old field remains an independent live loan. <code>#std/pin_box.lim::pin-box</code> takes one <code>options</code> field containing exactly the literal pairs <code>type</code>, <code>allocator</code>, <code>name</code>, and <code>destroy</code>. <code>allocator</code> is a literal bundle root exposing <code>::State</code>, <code>::Error</code>, byte-pointer <code>::Allocation</code>, safe <code>::allocate</code>, and unsafe <code>::deallocate</code>. Its private typed adapter converts the byte pointers. It generates an opaque named linear heap-owner type and create, shared-borrow, mutable-borrow, and destroy functions. Its borrow functions return native <code>#pin-ref</code> and <code>#pin-ref-mut</code> values. <code>examples/pin_box.lim</code> demonstrates moving a handle while a view stays live. For an owner <code>Box</code>, generated symbols include <code>Box::CreateResult</code>, <code>Box::created</code>, <code>Box::allocation-failed</code>, and <code>Box::create</code> / <code>Box::borrow</code> / <code>Box::borrow-mut</code> / <code>Box::destroy</code>.</p>
+<p><code>#std/pin_rc.lim::pin-rc</code> takes the same <code>options</code> record and allocator bundle convention, and generates named linear reference-counted owners with create, clone, shared-borrow, mutable-borrow, and destroy functions. This Rc is single-threaded and is neither <code>Send</code> nor <code>Sync</code>; it has no weak-reference handles. Mutable borrowing is available only while the handle is the unique strong owner. Destroy every borrowed view before destroying a handle, because the final handle destruction runs the pointee destructor in place and releases the allocation. For an owner <code>Shared</code>, generated symbols include <code>Shared::Allocation</code>, <code>Shared::CreateResult</code>, <code>Shared::MutResult</code>, and <code>Shared::create</code> / <code>Shared::clone</code> / <code>Shared::borrow</code> / <code>Shared::borrow-mut</code> / <code>Shared::destroy</code>; enum cases include <code>Shared::unique</code> and <code>Shared::Shared</code>.</p>
 <p>For an owner named <code>PinnedFrameRc</code>, a private adapter converts the bundle&#39;s <code>(#ptr-mut #u8)</code> success payload to a pointer to the generated <code>PinnedFrameRc::Allocation</code> control block. The generated functions pass that block&#39;s size and alignment to the allocator and deallocator. Both Box and Rc request only allocate and deallocate adapters; their bundles may omit grow. Destruction hooks are explicit safe functions taking <code>((allocator (#ref Root::State)) (pin (#pin-ref-mut Element)))</code> and must perform explicit in-place cleanup. <code>examples/pinned_box_async.lim</code> and <code>examples/pinned_rc_async.lim</code> poll generated futures through these native pinned references, including after moving the owning handle.</p>
 <p>An async function can initialize an owner containing an external reference after an await and retain it across later suspension. Its source remains borrowed through Pending; Ready or explicit state-specific cancellation must consume the owner before the source can be modified. Structural reference tracking includes references inside nested owning pins, not just inline fields. <code>examples/async_heap_reference.lim</code> demonstrates this case. It is not a frame-local self-reference: general delayed frame-owner initialization and named pinned poll-handle recycling remain separate checked-analysis work.</p>
 <p><code>#pin-read</code> and <code>#pin-write</code> are lower-level unsafe operations for compiler- generated pinned state machines. They access aggregate referents at their existing storage address. A read can duplicate a linear value, and a write can invalidate references derived from the pinned value; callers must prove exclusive access, preserve any displaced ownership they need, and ensure no derived references remain. Ordinary code should use safe field operations instead; safe code cannot replace a pinned referent.</p>
@@ -777,6 +797,7 @@ Lim compilation pipeline
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> process-id {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#i64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (<span class="lim-keyword">#io</span> <span class="lim-keyword">#global-access</span>);
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> <span class="lim-keyword">#unsafe</span><span class="lim-operator">:</span> <span class="lim-keyword">#linux-syscall</span> <span class="lim-type">#i64</span> <span class="lim-literal">39usize</span> ();
 }</code></pre>
@@ -785,6 +806,7 @@ Lim compilation pipeline
 <span class="lim-keyword">#unsafe-fn</span> read-buffer {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { fd <span class="lim-operator">=</span> <span class="lim-type">#i64</span>; destination <span class="lim-operator">=</span> (<span class="lim-keyword">#ptr-mut</span> <span class="lim-type">#u8</span>); count <span class="lim-operator">=</span> <span class="lim-type">#usize</span>; };
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#i64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> ((<span class="lim-keyword">#effects-of</span> linux-read));
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span>
       <span class="lim-keyword">#unsafe</span> (<span class="lim-keyword">#unsafe-call</span> linux-read { fd <span class="lim-operator">=</span> fd; destination <span class="lim-operator">=</span> destination; count <span class="lim-operator">=</span> count; })
@@ -889,7 +911,8 @@ nix develop --command cargo run -- fmt examples/modules/main.lim</code></pre>
 <section id="generator-declarations" class="level3">
 <h3>Generator declarations</h3>
 <p>Generators are compile-time syntax functions. Their parameters receive the invocation arguments literally; generator values are immutable syntax nodes: symbols, literals, or lists. A generator returns a list of top-level forms, which are expanded before ordinary Lim parsing and type checking.</p>
-<p>Language and standard-library generator names are reserved and start with <code>#</code>: for example, <code>#generate #optional ((type #u64) (name MaybeU64))</code>, <code>#generate #cell</code>, and <code>#generate #utf8-view</code>. User generators use ordinary names, such as <code>#generate make-record</code>. The <code>#generate</code> keyword invokes generation/import; a generator name&#39;s <code>#</code> identifies a reserved name, not a different execution or caching mechanism. Standard-library generators remain ordinary immutable Lim declarations and must be imported before use. Their shipped declarations cannot be redefined. All <code>#</code>-prefixed names are unavailable for user declarations, including declarations emitted by generators. There are no compatibility aliases for the old unprefixed builtin spellings; unprefixed names belong to users, including names such as <code>optional</code> or <code>cell</code>.</p>
+<p>Compiler built-in generators keep keyword names, for example <code>#generate #optional { type = #u64; name = MaybeU64; }</code>. Standard-library items have ordinary names and are addressed through the reserved <code>#std/</code> root: <code>#generate #std/cell.lim::cell { ... }</code>. The root selects immutable bundled sources independently of project paths or the working directory. Modules can be aliased with normal <code>#alias</code>, and different source files retain distinct canonical declaration identities. No per-item standard-library keyword registry or shipped-source privilege exception is needed.</p>
+<p>All <code>#</code>-prefixed declaration names remain reserved for the language. A generator cannot manufacture a user declaration with such a name. Standard-library names such as <code>cell</code>, <code>pin-box</code>, and <code>utf8-view</code> follow ordinary naming, visibility, source-provenance and caching rules.</p>
 <p>Capabilities are explicit declarations for generator requirements. A concrete type opts in with <code>#capability</code>, and a generator parameter can require one:</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> u64-less {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ((left (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)) (right (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)));
@@ -900,31 +923,33 @@ nix develop --command cargo run -- fmt examples/modules/main.lim</code></pre>
 }
 <span class="lim-keyword">#capability</span> sortable <span class="lim-type">#u64</span>
     ((u64-less ((<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>) (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)) <span class="lim-type">#bool</span>))
-<span class="lim-keyword">#gn</span> make-sortable ((element sortable))
+<span class="lim-keyword">#gn</span> make-sortable { element <span class="lim-operator">=</span> (element sortable); }
     `((<span class="lim-keyword">#type</span> Sortable ,element))
-<span class="lim-keyword">#generate</span> make-sortable <span class="lim-type">#u64</span></code></pre>
-<p>The list after a generator&#39;s name is its parameter declaration list, not a pattern match. A bare symbol such as <code>name</code> declares an ordinary literal-syntax parameter. A pair such as <code>(element sortable)</code> declares one parameter that requires a capability; it does not destructure the invocation argument. All invocation arguments are literal syntax; there is no implicit registry lookup or distributed syntax expansion. This mirrors function signatures, where each nested pair declares one named parameter and its type.</p>
-<pre class="text"><code>parameters := (parameter ...)
-parameter  := name | (name capability-name ...)</code></pre>
-<p>For example, <code>#gn alias (name target) ...</code> has two literal-syntax parameters. <code>#gn sortable ((element sortable)) ...</code> has one parameter named <code>element</code> requiring the <code>sortable</code> capability. Likewise, <code>((left right))</code> declares one parameter named <code>left</code> with a capability annotation <code>right</code>; it never binds two names. Nested lists in the name or annotation position are rejected as malformed declarations. No implicit destructuring takes place; use <code>#gn-first</code>, <code>#gn-rest</code>, or <code>#gn-for-each</code> inside the generator body to inspect literal list arguments.</p>
+<span class="lim-keyword">#generate</span> make-sortable { element <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; }</code></pre>
+<p>A generator declares one named-record pattern. Each field binds a literal syntax value; field order at the call site does not determine argument roles. <code>{ name; target; }</code> binds two fields with matching local names. A field can rename its binding, as in <code>{ type = element; }</code>. A capability requirement uses an annotated binding, as in <code>{ type = (element sortable); }</code>.</p>
+<pre class="text"><code>parameters := { (label = binding; | binding;) ... }
+binding    := name | (name capability-name ...)</code></pre>
+<p>A call supplies exactly those labels in one record. Missing, unknown and duplicate labels are errors, as are duplicate local binding names. There are no defaults and no positional argument path. Record punning works at the call site too. For example, <code>#generate alias { target = #u64; name = Word; }</code> names each argument independently of its position. Reordering fields reuses the same cached expansion; resolved value provenance remains part of cache identity.</p>
+<p>All <code>#generate</code> values are literal syntax. Named-record binding does not implicitly inspect nested lists: a <code>pairs</code> field containing <code>((Byte #u8) (Word #u16))</code> remains one syntax value. Use <code>#gn-first</code>, <code>#gn-rest</code> or <code>#gn-for-each</code> in the body to inspect it. There is no implicit registry lookup, distributed syntax expansion, runtime dictionary or type inference.</p>
 <p>Each capability declaration lists concrete free-standing operations and their full argument/return types. Before any generator runs, the compiler verifies that every named function exists and exactly matches its declared signature. A missing capability reports the parameter, capability, and concrete type; there are no implicit structural or interface requirements hidden inside a generator. Capability definitions are part of the generated-code cache key, so changing an operation contract cannot reuse expansions made under an older contract.</p>
-<pre class="lisp"><code><span class="lim-keyword">#gn</span> aliases (pairs)
+<pre class="lisp"><code><span class="lim-keyword">#gn</span> aliases { pairs; }
     (<span class="lim-keyword">#gn-for-each</span> pair pairs
       (<span class="lim-keyword">#gn-list</span>
         (<span class="lim-keyword">#gn-symbol</span> <span class="lim-string">&quot;#type&quot;</span>)
         (<span class="lim-keyword">#gn-first</span> pair)
         (<span class="lim-keyword">#gn-first</span> (<span class="lim-keyword">#gn-rest</span> pair))))
 
-<span class="lim-keyword">#generate</span> aliases ((Byte <span class="lim-type">#u8</span>) (Word <span class="lim-type">#u16</span>))</code></pre>
-<p>Generator helpers can be declared with <code>#gn-fn</code> and called with <code>#gn-call</code>. They take and return only syntax values (symbols, literals, or lists), so predicate booleans remain internal to conditionals. Helpers may call other helpers, but direct or indirect recursive calls are rejected. For example:</p>
-<pre class="lisp"><code><span class="lim-keyword">#gn-fn</span> make-alias (name target)
+<span class="lim-keyword">#generate</span> aliases { pairs <span class="lim-operator">=</span> ((Byte <span class="lim-type">#u8</span>) (Word <span class="lim-type">#u16</span>)); }</code></pre>
+<p>Generator helpers can be declared with <code>#gn-fn</code> and called with <code>#gn-call</code>. They take and return only syntax values (symbols, literals, or lists), so predicate booleans remain internal to conditionals. Helpers may call other helpers, but direct or indirect recursive calls are rejected. Helper calls also use named records; their field values are generator expressions evaluated once in written order, then bound by label. For example:</p>
+<pre class="lisp"><code><span class="lim-keyword">#gn-fn</span> make-alias { name; target; }
     `(<span class="lim-keyword">#type</span> ,name ,target)
 
-<span class="lim-keyword">#gn</span> aliases (pairs)
+<span class="lim-keyword">#gn</span> aliases { pairs; }
     `(,@(<span class="lim-keyword">#gn-for-each</span> pair pairs
-         (<span class="lim-keyword">#gn-call</span> make-alias
-           (<span class="lim-keyword">#gn-first</span> pair)
-           (<span class="lim-keyword">#gn-first</span> (<span class="lim-keyword">#gn-rest</span> pair)))))</code></pre>
+         (<span class="lim-keyword">#gn-call</span> make-alias {
+           name <span class="lim-operator">=</span> (<span class="lim-keyword">#gn-first</span> pair);
+           target <span class="lim-operator">=</span> (<span class="lim-keyword">#gn-first</span> (<span class="lim-keyword">#gn-rest</span> pair));
+         })))</code></pre>
 <p>Backtick starts a syntax template, comma evaluates one generator expression inside it, and comma-at splices a list of syntax values into a template list. Unquote and splice are valid only within a backtick template, and splicing a non-list is an error. Nested templates preserve nested unquotes. These reader forms are generator-only; they do not evaluate Lim code or add runtime values. The lower-level <code>#gn-list</code> and <code>#gn-symbol</code> operations remain available.</p>
 <p><code>#gn-gensym</code> evaluates its string hint and returns a fresh syntax symbol. The hint must parse as exactly one non-keyword ordinary identifier. Generated symbols remain ordinary syntax-symbol values, so they can be reused in the generated declaration and its references; they do not introduce a new syntax datatype. Each evaluation is fresh within its deterministic invocation scope. Use a <code>#gn-fn</code> helper to pass one generated symbol through all places that need to refer to the same binding. Identical generator invocations still deduplicate, and cold or warm cache runs produce the same output.</p>
 <p>Names beginning with the compiler-owned <code>lim.gensym.</code> prefix are reserved. Source code cannot name them, and <code>#gn-symbol</code> and <code>#gn-symbol-append</code> cannot forge or alter them. This facility does not automatically make ordinary generated symbols hygienic: public API names passed to a generator remain literal names, and ordinary generated identifiers still undergo the usual duplicate-name, parsing, type, and borrow checks. Source no-shadowing rules are unchanged, and generated output is validated as well. See <code>examples/gensym.lim</code> for a helper that reuses one fresh local name in a generated function.</p>
@@ -967,7 +992,7 @@ parameter  := name | (name capability-name ...)</code></pre>
 <p>This compiler-owned header is checked against the current generator and invocation on cache reuse. It contains no serialized source IDs or per-symbol permission comments. Copying a header into source, supplying one to a generator, or manufacturing one with generator operations is rejected. A generator cannot manufacture late <code>@</code> qualification either: qualification is a source operation. Files outside a <code>lib.lim</code> boundary share the <code>&lt;global&gt;</code> module; physical invocation locations remain in the existing generated-file origin comments and do not prevent equivalent expansions in that module from sharing a cache artifact.</p>
 <p>For example, an exported <code>counter-reader</code> generator can emit a call to a private <code>counter-value</code> helper. The consumer still cannot invoke that helper directly:</p>
 <pre class="lisp"><code><span class="lim-keyword">#alias</span> counter-reader <span class="lim-operator">=</span> .<span class="lim-operator">/</span>encapsulation<span class="lim-operator">/</span>lib.lim::counter-reader
-<span class="lim-keyword">#generate</span> counter-reader read-generated-counter</code></pre>
+<span class="lim-keyword">#generate</span> counter-reader { name <span class="lim-operator">=</span> read-generated-counter; }</code></pre>
 <p>See <code>examples/generator_private_helpers.lim</code> for a complete executable example.</p>
 <p>An expansion instance includes the invoking file&#39;s identity, generator, and literal arguments. Identical calls in one file can reuse a generated declaration; calls in different files retain separate declaration identities. Cache keys also include resolved references, dependency contents, and validated definition/caller contexts. Multiple aliases to one source share that source; separate dependency versions occupy different source paths.</p>
 <p>An exported generator may invoke its library-private generator helpers, including nested generators. Syntax equality and argument deduplication compare values, not the way symbols were constructed. Builtin expansions also distinguish producing definition contexts. Cache keys include definition/invocation context headers as well as generator/dependency identities, and digests cover the complete generated file. Cached authority is reconstructed from the current expansion, not accepted from a file&#39;s self-asserted claims. <code>#std</code> remains one compiler-provided prelude. Its facade explicitly lists its declarations; parameter labels retain their original source spelling. See <code>examples/library_boundary.lim</code> and <code>examples/encapsulation/test.lim</code>.</p>
@@ -1070,6 +1095,10 @@ Choice.Ready</code></pre>
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (
+    (<span class="lim-keyword">#effects-of</span> String::from-chars)
+    (<span class="lim-keyword">#effects-of</span> String::free)
+  );
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#let</span> text (<span class="lim-keyword">#array</span> <span class="lim-type">#char</span> <span class="lim-literal">3</span>) <span class="lim-string">&quot;Aé🙂&quot;</span>;
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span>
@@ -1091,6 +1120,13 @@ Choice.Ready</code></pre>
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (
+    (<span class="lim-keyword">#effects-of</span> String::from-chars)
+    (<span class="lim-keyword">#effects-of</span> String::push-string)
+    (<span class="lim-keyword">#effects-of</span> String::push-char)
+    (<span class="lim-keyword">#effects-of</span> std-println)
+    (<span class="lim-keyword">#effects-of</span> String::free)
+  );
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#let</span> greeting (<span class="lim-keyword">#array</span> <span class="lim-type">#char</span> <span class="lim-literal">5</span>) <span class="lim-string">&quot;Hello&quot;</span>;
     <span class="lim-keyword">#let</span> suffix (<span class="lim-keyword">#array</span> <span class="lim-type">#char</span> <span class="lim-literal">9</span>) <span class="lim-string">&quot;, world 🙂&quot;</span>;
@@ -1124,10 +1160,12 @@ Choice.Ready</code></pre>
 <section id="borrowed-utf-8-views" class="level3">
 <h3>Borrowed UTF-8 views</h3>
 <p><code>#std</code> also provides <code>StringView</code> and <code>Utf8Slice</code>: opaque, allocation-free UTF-8 views that retain a shared borrow of their source. <code>String::view ((string (#ref String)))</code> borrows the complete String in constant time, since safe String operations already guarantee valid UTF-8. <code>Utf8Slice::from-owner ((owner (#slice #u8)))</code> validates the complete byte slice and returns <code>(Utf8Slice::Result.Valid view)</code> or <code>Utf8Slice::Result.InvalidUtf8</code>, without allocating or copying the bytes. Empty input and embedded NUL are valid.</p>
-<p>Both APIs come from an ordinary library generator. To declare another concrete view, choose its public name and source layout explicitly:</p>
+<p>Both APIs come from an ordinary library generator. Its single <code>config</code> field contains literal <code>name</code> and <code>owner</code> pairs. To declare another concrete view, choose its public name and source layout explicitly:</p>
 <pre class="lisp"><code><span class="lim-keyword">#std</span>
 
-<span class="lim-keyword">#generate</span> <span class="lim-keyword">#utf8-view</span> { name <span class="lim-operator">=</span> BorrowedText; owner <span class="lim-operator">=</span> (<span class="lim-keyword">#slice</span> <span class="lim-type">#u8</span>); }
+<span class="lim-keyword">#generate</span> <span class="lim-keyword">#std</span><span class="lim-operator">/</span>utf8_view.lim::utf8-view {
+  config <span class="lim-operator">=</span> ((name BorrowedText) (owner (<span class="lim-keyword">#slice</span> <span class="lim-type">#u8</span>)));
+}
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1148,7 +1186,12 @@ Choice.Ready</code></pre>
     <span class="lim-keyword">#forget</span> iterator;
     <span class="lim-keyword">#return</span> <span class="lim-literal">42u64</span>;
 }</code></pre>
-<p>For a generated name <code>V</code>, the public operations are:</p>
+<p>For the canonical standard-library <code>String</code> type, write <code>@String</code> explicitly inside the generator&#39;s literal owner configuration. The <code>#std</code> prelude supplies the alias; <code>@String</code> retains its resolved declaration identity when the syntax is passed to the generator:</p>
+<pre class="lisp"><code><span class="lim-keyword">#std</span>
+<span class="lim-keyword">#generate</span> <span class="lim-keyword">#std</span><span class="lim-operator">/</span>utf8_view.lim::utf8-view {
+  config <span class="lim-operator">=</span> ((name BorrowedStringText) (owner (<span class="lim-keyword">#ref</span> @String)));
+}</code></pre>
+<p>Ordinary runtime type annotations and calls still use their declared names. For a generated name <code>V</code>, the public operations are:</p>
 <table>
 <colgroup>
 <col style="width: 33%" />
@@ -1237,6 +1280,27 @@ Choice.Ready</code></pre>
 }</code></pre>
 <p><code>increment 41u64;</code> and <code>#call increment 41u64;</code> call the same concrete function. The signature supplies the explicit argument type; there is no overloading or inference of a parameter type. <code>#arg</code> is unavailable in named or zero-parameter functions. Binding it as a local or writing <code>(#arg)</code> is an error. Named arguments cannot be supplied to a positional signature.</p>
 <p><code>#arg</code> is the parameter&#39;s place, not a newly produced value. Reading Copy inputs copies them; moving linear inputs consumes them once, and a linear parameter must be consumed before returning. <code>(#borrow #arg)</code> borrows its storage, with ordinary escape checks. A reference parameter can be forwarded or reborrowed with the same borrow origins as a named parameter. To give the input a descriptive local name, use an explicit typed binding such as <code>#let count : #u64 = #arg;</code>. Unsafe functions retain explicit <code>#unsafe-call</code>.</p>
+</section>
+<section id="explicit-effects" class="level3">
+<h3>Explicit effects</h3>
+<p>An omitted <code>#effects</code> field permits no IO or runtime-global access. Declare permissions on each effectful function; a call requires its callee&#39;s declared set to be contained in the caller&#39;s set. Declaring a permission neither proves predicate evidence nor removes unsafe, ownership, or borrow checks.</p>
+<pre class="lisp"><code><span class="lim-keyword">#fn</span> write-byte {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { value <span class="lim-operator">=</span> <span class="lim-type">#u8</span>; };
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#i64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (<span class="lim-keyword">#io-output</span>);
+  <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
+    <span class="lim-keyword">#return</span> (<span class="lim-keyword">#io-output-byte</span> <span class="lim-literal">1i64</span> value);
+}
+
+<span class="lim-keyword">#fn</span> forward-byte {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { value <span class="lim-operator">=</span> <span class="lim-type">#u8</span>; };
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#i64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> ((<span class="lim-keyword">#effects-of</span> write-byte));
+  <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
+    <span class="lim-keyword">#return</span> (write-byte { value; });
+}</code></pre>
+<p><code>#io-input</code> and <code>#io-output</code> are distinct; <code>#io</code> covers both and opaque IO. <code>(#read-global name)</code> permits only reads of that global. <code>(#write-global name)</code> also permits writes; <code>#global-access</code> covers all globals. Permissions use canonical identities, so aliases do not create new globals. <code>#effects-of</code> explicitly forwards another function&#39;s declared set, including private globals it uses, without making that memory accessible. Unknown raw memory, assembly, foreign calls and arbitrary syscalls conservatively require both <code>#io</code> and <code>#global-access</code>. Global initializers have no ambient permissions.</p>
+<p>The fixed native byte IO primitives and standard <code>std-read-one-char</code> and <code>std-write-one-char</code> APIs support narrow input/output grants. Bulk raw IO and allocation wrappers retain their declared broader boundaries. Actual write summaries, not permission declarations, control evidence invalidation. See <a href="effects-migration.md">the effect migration notes</a> for the precise boundary.</p>
 </section>
 <section id="predicate-contracts-and-constrained-types" class="level3">
 <h3>Predicate contracts and constrained types</h3>
@@ -1437,11 +1501,13 @@ add { left <span class="lim-operator">=</span> <span class="lim-literal">20u32</
   <span class="lim-keyword">#abi</span> <span class="lim-operator">=</span> <span class="lim-keyword">#abi-c</span>;
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ((value <span class="lim-type">#i32</span>));
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#i32</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (<span class="lim-keyword">#io</span> <span class="lim-keyword">#global-access</span>);
 }
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> ((<span class="lim-keyword">#effects-of</span> abs));
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> <span class="lim-keyword">#as</span> (<span class="lim-keyword">#unsafe</span> (<span class="lim-keyword">#unsafe-call</span> abs { value <span class="lim-operator">=</span> <span class="lim-literal">-42i32</span>; })) <span class="lim-type">#u64</span>;
 }</code></pre>
@@ -1497,6 +1563,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <span class="lim-keyword">#fn</span> first-value {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> ((<span class="lim-keyword">#read-global</span> values));
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> <span class="lim-keyword">#unsafe</span> (<span class="lim-keyword">#index</span> values <span class="lim-literal">0u64</span>);
 }</code></pre>
@@ -1507,6 +1574,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <span class="lim-keyword">#fn</span> increment-counter {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> ((<span class="lim-keyword">#write-global</span> counter));
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> <span class="lim-keyword">#unsafe</span> (<span class="lim-keyword">#atomic-fetch-add</span> (<span class="lim-keyword">#borrow</span> counter) <span class="lim-literal">1u64</span> <span class="lim-keyword">#memory-relaxed</span>);
 }</code></pre>
@@ -1571,17 +1639,14 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
     <span class="lim-keyword">#return</span> answer;
 }</code></pre>
 <p>The named variant determines its declared owning enum; the value must have that type. This is declaration lookup, not inference from the value. The value is evaluated exactly once; use <code>#block</code> for a multi-statement computation. Success bindings become available only after the statement, never inside <code>#else</code>. Every failure path must return, break/continue an enclosing loop, or otherwise diverge. Exiting a loop created inside <code>#else</code> is not sufficient: it must be impossible to reach the following statement on failure.</p>
-<p><code>#std</code> provides <code>#generate #enum-project</code>, a generator rather than a runtime projection keyword. It accepts <code>((enum Enum) (variant Variant) (payload Payload) (mode ReferenceMode) (name Name))</code> and emits <code>Name::Some</code>/<code>Name::None</code> plus exactly one function, <code>Name::project</code>. The required mode is <code>#ref</code>, <code>#ref-mut</code>, <code>#pin-ref</code>, or <code>#pin-ref-mut</code>. Both the function&#39;s <code>source</code> parameter and its optional payload use that reference mode, around <code>Enum</code> and <code>Payload</code> respectively. Its ordinary safe <code>#match</code> body uses <code>#case-ref</code>, <code>#case-ref-mut</code>, <code>#case-pin</code>, or <code>#case-pin-mut</code> and returns <code>None</code> on a different variant. No allocation, payload move, unchecked projection, or asserting getter is involved. The optional reference retains its owner&#39;s loan through ordinary <code>#let-else</code>:</p>
+<p><code>#std/enum_project.lim::enum-project</code> is a generator rather than a runtime projection keyword. It takes one <code>options</code> field containing <code>((enum Enum) (variant Variant) (payload Payload) (mode ReferenceMode) (name Name))</code> and emits <code>Name::Some</code>/<code>Name::None</code> plus exactly one function, <code>Name::project</code>. The required mode is <code>#ref</code>, <code>#ref-mut</code>, <code>#pin-ref</code>, or <code>#pin-ref-mut</code>. Both the function&#39;s <code>source</code> parameter and its optional payload use that reference mode, around <code>Enum</code> and <code>Payload</code> respectively. Its ordinary safe <code>#match</code> body uses <code>#case-ref</code>, <code>#case-ref-mut</code>, <code>#case-pin</code>, or <code>#case-pin-mut</code> and returns <code>None</code> on a different variant. No allocation, payload move, unchecked projection, or asserting getter is involved. The optional reference retains its owner&#39;s loan through ordinary <code>#let-else</code>:</p>
 <pre class="lisp"><code><span class="lim-keyword">#std</span>
 
 <span class="lim-keyword">#enum</span> Task () ((Task.Work <span class="lim-type">#u64</span>) Task.Idle)
 
-<span class="lim-keyword">#generate</span> <span class="lim-keyword">#enum-project</span> {
-  enum <span class="lim-operator">=</span> Task;
-  variant <span class="lim-operator">=</span> Task.Work;
-  payload <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
-  mode <span class="lim-operator">=</span> <span class="lim-keyword">#pin-ref-mut</span>;
-  name <span class="lim-operator">=</span> WorkProjection;
+<span class="lim-keyword">#generate</span> <span class="lim-keyword">#std</span><span class="lim-operator">/</span>enum_project.lim::enum-project {
+  options <span class="lim-operator">=</span> ((enum Task) (variant Task.Work) (payload <span class="lim-type">#u64</span>)
+    (mode <span class="lim-keyword">#pin-ref-mut</span>) (name WorkProjection));
 }
 
 <span class="lim-keyword">#fn</span> main {
@@ -1772,15 +1837,15 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> increment { value <span class="lim-operator">=</span> <span class="lim-literal">41u64</span>; };
 }</code></pre>
 <p>Generator expressions instead run at compile time. Here a helper checks its syntax input, reports an error for a non-symbol, and emits a concrete type alias. Quasiquote and unquote are syntax punctuation, not <code>#</code> builtins:</p>
-<pre class="lisp"><code><span class="lim-keyword">#gn-fn</span> alias-declaration (name)
+<pre class="lisp"><code><span class="lim-keyword">#gn-fn</span> alias-declaration { name; }
     (<span class="lim-keyword">#gn-if</span> (#gn-symbol? name)
       `(<span class="lim-keyword">#type</span> ,name <span class="lim-type">#u64</span>)
       (<span class="lim-keyword">#gn-error</span> <span class="lim-string">&quot;alias name must be a symbol&quot;</span>))
 
-<span class="lim-keyword">#gn</span> make-alias (name)
-    (<span class="lim-keyword">#gn-list</span> (<span class="lim-keyword">#gn-call</span> alias-declaration name))
+<span class="lim-keyword">#gn</span> make-alias { name; }
+    (<span class="lim-keyword">#gn-list</span> (<span class="lim-keyword">#gn-call</span> alias-declaration { name; }))
 
-<span class="lim-keyword">#generate</span> make-alias Answer
+<span class="lim-keyword">#generate</span> make-alias { name <span class="lim-operator">=</span> Answer; }
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ();
@@ -2148,6 +2213,18 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td>Explicitly discards a value without calling user destruction code. Dropping a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable.</td>
 </tr>
 <tr>
+<td><code>#effects</code></td>
+<td><code>#effects = (Qualification...);</code></td>
+<td><code>(#effects (#io-output))</code> (function signature clause)</td>
+<td>Declares permitted IO and global accesses; omission permits none.</td>
+</tr>
+<tr>
+<td><code>#effects-of</code></td>
+<td><code>(#effects-of function-or-group)</code></td>
+<td><code>(#effects ((#effects-of write-message)))</code> (function signature clause)</td>
+<td>Explicitly includes the named functions&#39; declared effect sets, without granting private-memory access.</td>
+</tr>
+<tr>
 <td><code>#ensures</code></td>
 <td><code>#ensures = (predicates...);</code></td>
 <td><code>#fn accept { #params = { value = #u64; }; #returns = #u64; #ensures = ((#call valid ((value (#result))))); #body: #return value; }</code> (top level)</td>
@@ -2221,9 +2298,9 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#generate</code></td>
-<td><code>#generate generator arguments...</code></td>
-<td><code>#generate #optional ((type #u64) (name Number))</code> (top level)</td>
-<td>Expands a generator into inspectable, cached Lim declarations. Arguments are literal syntax, with named lists for builtin generators.</td>
+<td><code>#generate generator { parameter = literal; ... }</code></td>
+<td><code>#generate #optional { type = #u64; name = Number; }</code> (top level)</td>
+<td>Binds literal syntax by declared labels and expands inspectable, cached Lim declarations.</td>
 </tr>
 <tr>
 <td><code>#generated-context</code></td>
@@ -2244,16 +2321,22 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td>Projects a statically selected enum payload field.</td>
 </tr>
 <tr>
+<td><code>#global-access</code></td>
+<td><code>#global-access</code> in <code>#effects</code></td>
+<td><code>(#effects (#global-access))</code> (function signature clause)</td>
+<td>Permits reading and writing any runtime global; unsafe rules still apply.</td>
+</tr>
+<tr>
 <td><code>#gn</code></td>
-<td><code>#gn name (name-or-(name capability...)...) body</code></td>
-<td><code>#gn make-alias (name) `((#type ,name #u64))</code> (top level)</td>
-<td>Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values.</td>
+<td><code>#gn name { label = binding; ... } body</code></td>
+<td><code>#gn make-alias { name; } `((#type ,name #u64))</code> (top level)</td>
+<td>Declares a pure interpreted syntax generator with an exhaustive named-record parameter pattern.</td>
 </tr>
 <tr>
 <td><code>#gn-call</code></td>
-<td><code>(#gn-call function syntax-arg...)</code></td>
-<td><code>(#gn-call make-alias name target)</code> (generator body)</td>
-<td>Calls a <code>#gn-fn</code> helper during generator interpretation.</td>
+<td><code>(#gn-call function { label = expression; ... })</code></td>
+<td><code>(#gn-call make-alias { name; target; })</code> (generator body)</td>
+<td>Evaluates named field expressions once in written order and invokes a generator-time helper.</td>
 </tr>
 <tr>
 <td><code>#gn-equal</code></td>
@@ -2275,9 +2358,9 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#gn-fn</code></td>
-<td><code>#gn-fn name (parameter...) body</code></td>
-<td><code>#gn-fn identity (value) value</code> (top level)</td>
-<td>Declares a reusable generator-time function with one syntax-producing body.</td>
+<td><code>#gn-fn name { label = binding; ... } body</code></td>
+<td><code>#gn-fn identity { value; } value</code> (top level)</td>
+<td>Declares a reusable syntax-producing helper with named record bindings.</td>
 </tr>
 <tr>
 <td><code>#gn-for-each</code></td>
@@ -2410,6 +2493,36 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td><code>(#index-proven array-reference usize-index)</code></td>
 <td><code>(#index-proven values position)</code> (expression)</td>
 <td>Requires exact <code>#usize::lt</code> evidence for the fixed-array length; omits the production bounds check and audits the access in instrumented builds.</td>
+</tr>
+<tr>
+<td><code>#io</code></td>
+<td><code>#io</code> in <code>#effects</code></td>
+<td><code>(#effects (#io))</code> (function signature clause)</td>
+<td>Permits input, output and opaque IO boundaries; does not itself grant memory permissions.</td>
+</tr>
+<tr>
+<td><code>#io-input</code></td>
+<td><code>#io-input</code> in <code>#effects</code></td>
+<td><code>(#effects (#io-input))</code> (function signature clause)</td>
+<td>Permits audited input operations and input-only calls, without output permission.</td>
+</tr>
+<tr>
+<td><code>#io-input-byte</code></td>
+<td><code>(#io-input-byte descriptor)</code></td>
+<td><code>(#let sample (#tuple #i64 #u8) (#io-input-byte 0i64))</code> (function body declaring <code>#io-input</code>)</td>
+<td>Reads one byte into a private temporary; returns count or negative errno and an unsigned byte, zero on EOF or error.</td>
+</tr>
+<tr>
+<td><code>#io-output</code></td>
+<td><code>#io-output</code> in <code>#effects</code></td>
+<td><code>(#effects (#io-output))</code> (function signature clause)</td>
+<td>Permits audited output operations and output-only calls, without input permission.</td>
+</tr>
+<tr>
+<td><code>#io-output-byte</code></td>
+<td><code>(#io-output-byte descriptor value)</code></td>
+<td><code>(#let written #i64 (#io-output-byte 1i64 65u8))</code> (function body declaring <code>#io-output</code>)</td>
+<td>Writes one byte from a private temporary; returns count or negative errno.</td>
 </tr>
 <tr>
 <td><code>#isize</code></td>
@@ -2778,6 +2891,12 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td>Matches integer/character values in an inclusive interval: both endpoints match.</td>
 </tr>
 <tr>
+<td><code>#read-global</code></td>
+<td><code>(#read-global global)</code></td>
+<td><code>(#effects ((#read-global counter)))</code> (function signature clause)</td>
+<td>Permits reads of the named canonical runtime global, including through aliases.</td>
+</tr>
+<tr>
 <td><code>#ref</code></td>
 <td><code>(#ref TargetType)</code></td>
 <td><code>(#let r (#ref #u64) (#borrow value))</code> (type/binding)</td>
@@ -2947,9 +3066,9 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#std</code></td>
-<td><code>#std</code></td>
-<td><code>#std</code> (top level)</td>
-<td>Loads the embedded standard String and stdout modules into the program. This is explicit opt-in and works without a source checkout.</td>
+<td><code>#std</code> or <code>#std/module.lim::name</code></td>
+<td><code>#alias cell = #std/cell.lim::cell</code> (top level)</td>
+<td>Selects immutable bundled library sources; ordinary item names need no keyword reservation. The bare prelude explicitly imports common aliases.</td>
 </tr>
 <tr>
 <td><code>#struct</code></td>
@@ -3160,6 +3279,12 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td><code>[#I #wrap; expression]</code></td>
 <td><code>[#u8 #wrap; 255 + 1]</code> (infix expression)</td>
 <td>Wrapping arithmetic in this expression and directly nested math groups.</td>
+</tr>
+<tr>
+<td><code>#write-global</code></td>
+<td><code>(#write-global global)</code></td>
+<td><code>(#effects ((#write-global counter)))</code> (function signature clause)</td>
+<td>Permits reads and writes of the named canonical runtime global.</td>
 </tr>
 </tbody>
 </table>
@@ -3741,6 +3866,7 @@ identifier    = { letter | digit | &quot;_&quot; | &quot;-&quot; | &quot;.&quot;
 <span class="lim-keyword">#fn</span> read-value {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { words <span class="lim-operator">=</span> (<span class="lim-keyword">#slice</span> <span class="lim-type">#u64</span>); };
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (<span class="lim-keyword">#io</span> <span class="lim-keyword">#global-access</span>);
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#let</span> restored RefValue<span class="lim-operator">:</span> <span class="lim-keyword">#unsafe</span> (<span class="lim-keyword">#word-read</span> RefValue words);
     <span class="lim-keyword">#let</span> answer <span class="lim-type">#u64</span><span class="lim-operator">:</span> <span class="lim-keyword">#deref</span> (<span class="lim-keyword">#get</span> restored value);
@@ -3751,6 +3877,7 @@ identifier    = { letter | digit | &quot;_&quot; | &quot;-&quot; | &quot;.&quot;
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#effects</span> <span class="lim-operator">=</span> (<span class="lim-keyword">#io</span> <span class="lim-keyword">#global-access</span>);
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
     <span class="lim-keyword">#let</span> seed <span class="lim-type">#u64</span> <span class="lim-literal">42u64</span>;
     <span class="lim-keyword">#let-mut</span> words (<span class="lim-keyword">#array</span> <span class="lim-type">#u64</span> <span class="lim-literal">1</span>)<span class="lim-operator">:</span> <span class="lim-keyword">#array-repeat</span> <span class="lim-literal">0u64</span>;

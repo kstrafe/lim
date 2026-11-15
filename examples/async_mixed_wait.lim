@@ -24,7 +24,10 @@
 #fn main {
   #params = ();
   #returns = #i32;
-  #effects = ((#effects-of async-byte-read1-create) (#effects-of async-byte-read1-destroy) (#effects-of async-byte-read1-enable-nonblocking) (#effects-of async-byte-read1-poll) (#effects-of async-poll4-wait) (#effects-of timer-reactor1-cancel) (#effects-of timer-reactor1-create) (#effects-of timer-reactor1-poll));
+  #effects = ((#effects-of async-byte-read1-create) (#effects-of async-byte-read1-destroy)
+    (#effects-of async-byte-read1-enable-nonblocking) (#effects-of async-byte-read1-poll)
+    (#effects-of async-poll4-wait) (#effects-of timer-reactor1-cancel) (#effects-of
+      timer-reactor1-create) (#effects-of timer-reactor1-poll));
   #body = (
     (#let timer-created TimerCreate1 (#call timer-reactor1-create ((nanoseconds 100000000u64))))
     (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))

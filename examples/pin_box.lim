@@ -4,8 +4,8 @@
 
 #std
 
-#generate lim-gen-pin-box { options = ((type #u64) (allocator SystemAllocator::Allocator) (name PinU64Box)
-  (destroy destroy-u64)); }
+#generate lim-gen-pin-box { options = ((type #u64) (allocator SystemAllocator::Allocator) (name
+      PinU64Box) (destroy destroy-u64)); }
 
 #fn destroy-u64 {
   #params = ((allocator (#ref SystemAllocator)) (pin (#pin-ref-mut #u64)));

@@ -7,10 +7,10 @@
 
 
 #generate lim-gen-pin { options = ((type Number) (name PinnedNumber) (fields ((value #u64)))); }
-#generate lim-gen-pin { options = ((type Pair) (name PinnedPair) (projections ((left PinnedNumber) (right
-        PinnedNumber)))); }
-#generate lim-gen-pin-scope { options = ((type Pair) (pin PinnedPair) (name with-pair) (run sum-pair) (destroy
-    destroy-pair) (result #u64)); }
+#generate lim-gen-pin { options = ((type Pair) (name PinnedPair) (projections ((left PinnedNumber)
+        (right PinnedNumber)))); }
+#generate lim-gen-pin-scope { options = ((type Pair) (pin PinnedPair) (name with-pair) (run
+      sum-pair) (destroy destroy-pair) (result #u64)); }
 
 #fn sum-pair {
   #params = ((pin PinnedPair));

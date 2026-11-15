@@ -11,7 +11,8 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = ((#effects-of String::free) (#effects-of String::from-chars) (#effects-of String::push-char) (#effects-of String::push-string) (#effects-of std-println));
+  #effects = ((#effects-of String::free) (#effects-of String::from-chars) (#effects-of
+      String::push-char) (#effects-of String::push-string) (#effects-of std-println));
   #body = (
     (#let greeting (#array #char 5) "Hello")
     (#let suffix (#array #char 9) ", world 🙂")

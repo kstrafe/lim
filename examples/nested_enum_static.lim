@@ -5,10 +5,14 @@
   #params = ();
   #returns = #u64;
   #effects = ((#read-global value));
-  #body = (
-    (#return
-      (#match (#unsafe value)
-        (#case (Boxed.Wrapped (#tuple left right)) (#u64::add-wrap left right))
-        (#case Boxed.Empty 0)))
-  );
+  #body = ((#return (#match (#unsafe
+        value
+      )
+        (#case (Boxed.Wrapped (#tuple left right))
+          (#u64::add-wrap left right)
+        )
+        (#case Boxed.Empty
+          0
+        )
+      )));
 }

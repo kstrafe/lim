@@ -2,18 +2,17 @@
 #enum Child (#linear) ((Child.Waiting #u64))
 
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+
 #fn child-poll {
   #params = ((task Child) (waker (#ref #u64)));
   #returns = ChildPoll;
-  #body = (
-    (#return (ChildPoll.ChildPending task))
-  );
+  #body = ((#return (ChildPoll.ChildPending task)));
 }
+
 #fn child-cancel {
   #params = ((task Child));
   #returns = ();
-  #body = ( (#forget task) (#return ())
-  );
+  #body = ((#forget task) (#return ()));
 }
 
 #enum Token (#linear) ((Token.TokenValue #u64))
@@ -21,39 +20,25 @@
 #fn destroy-token {
   #params = ((task Token));
   #returns = ();
-  #body = ( (#forget task) (#return ())
-  );
+  #body = ((#forget task) (#return ()));
 }
 
-#generate #async-fn
-    ( (protocol WorkAwait)
-     (waker #u64)
-     (cancel (cancel-work
-       ((token destroy-token)
-        (await-0 child-cancel))))
-     (function
-     (#fn work ((token Token)) #u64
-       (#let child-result #u64
-         (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
-       (#call destroy-token ((task token)))
-       (#return 42u64))))
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (cancel (cancel-work ((token destroy-token)
+        (await-0 child-cancel)))) (function (#fn work ((token Token)) #u64 (#let child-result #u64
+        (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting
+            0u64))) (#call destroy-token ((task token))) (#return 42u64))))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll));
-  #body = (
-    (#let waker #u64 0u64)
+  #body = ((#let waker #u64 0u64)
     // Cancel a task before its first poll.
-    (#call cancel-work ((task (#call Work::Poll::cleanup
-      ((task (#call work ((token (Token.TokenValue 1u64))))))))))
+    (#call cancel-work ((task (#call Work::Poll::cleanup ((task (#call work ((token
+                      (Token.TokenValue 1u64))))))))))
     // Cancel another task after its child has returned Pending.
-    (#let task Work::Task (#call work ((token (Token.TokenValue 2u64)))))
-    (#let outcome Work::Poll
-      (#call Work::poll ((task task) (waker (#borrow waker)))))
-    (#let-else (Work::Poll.Pending pending) Work::Poll outcome (#unreachable))
-    (#call cancel-work ((task (#call Work::Poll::cleanup ((task pending))))))
-    (#forget waker)
-    (#return 42u64)
-  );
+    (#let task Work::Task (#call work ((token (Token.TokenValue 2u64))))) (#let outcome Work::Poll
+      (#call Work::poll ((task task) (waker (#borrow waker))))) (#let-else (Work::Poll.Pending
+        pending) Work::Poll outcome (#unreachable)) (#call cancel-work ((task (#call
+            Work::Poll::cleanup ((task pending)))))) (#forget waker) (#return 42u64));
 }

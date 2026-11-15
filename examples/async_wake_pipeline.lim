@@ -3,7 +3,13 @@
 #alias lim-gen-local-waker = #std/local_waker.lim::local-waker
 #alias lim-gen-task = #std/tasks.lim::task
 
-#generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }
+#generate lim-gen-cell {
+  value-type = #u64;
+  name = CellU64;
+  create = CellU64::create;
+  get = CellU64::get;
+  set = CellU64::set;
+}
 
 #struct WakeExecutor () ((notifications CellU64))
 #struct WakeMetadata (#linear) ((amount #u64))
@@ -32,12 +38,18 @@
   #body = ((#forget metadata) (#return ()));
 }
 
-#generate lim-gen-local-waker { names = (LocalWaker local-waker-create local-waker-wake
-  local-waker-wake-by-ref local-waker-clone local-waker-destroy); types = (WakeExecutor WakeMetadata);
-  callbacks = (notify clone-metadata destroy-metadata); }
+#generate lim-gen-local-waker {
+  names = (LocalWaker local-waker-create local-waker-wake local-waker-wake-by-ref
+    local-waker-clone local-waker-destroy);
+  types = (WakeExecutor WakeMetadata);
+  callbacks = (notify clone-metadata destroy-metadata);
+}
 
-#generate lim-gen-task { names = (Step StepPoll StepPoll.StepPending StepPoll.StepReady); result = #u64; states = ((Step.Waiting
-    #u64)); }
+#generate lim-gen-task {
+  names = (Step StepPoll StepPoll.StepPending StepPoll.StepReady);
+  result = #u64;
+  states = ((Step.Waiting #u64));
+}
 
 #fn step-poll {
   #params = ((task Step) (waker (#ref LocalWaker)));
@@ -58,9 +70,14 @@
       )));
 }
 
-#generate lim-gen-async-wake { names = (Pipeline PipelinePoll PipelinePoll.PipelinePending
-  PipelinePoll.PipelineReady pipeline-poll); result = #u64; stages = ((Pipeline.Only (#await Step StepPoll.StepPending
-      StepPoll.StepReady step-poll) (#return))); waker = LocalWaker; }
+#generate lim-gen-async-wake {
+  names = (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady
+    pipeline-poll);
+  result = #u64;
+  stages = ((Pipeline.Only (#await Step StepPoll.StepPending StepPoll.StepReady step-poll)
+      (#return)));
+  waker = LocalWaker;
+}
 
 #fn main {
   #params = ();

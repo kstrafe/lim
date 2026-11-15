@@ -35,7 +35,15 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-close-range) (#effects-of linux-dup) (#effects-of linux-dup2) (#effects-of linux-dup3) (#effects-of linux-fadvise64) (#effects-of linux-fallocate) (#effects-of linux-fchmod) (#effects-of linux-fchown) (#effects-of linux-fcntl) (#effects-of linux-fdatasync) (#effects-of linux-flock) (#effects-of linux-fstat) (#effects-of linux-fsync) (#effects-of linux-ftruncate) (#effects-of linux-getgid) (#effects-of linux-getuid) (#effects-of linux-lseek) (#effects-of linux-memfd-create) (#effects-of linux-pread64) (#effects-of linux-pwrite64) (#effects-of linux-readahead) (#effects-of linux-sync-file-range) (#effects-of linux-syncfs) (#effects-of linux-write));
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-close-range)
+    (#effects-of linux-dup) (#effects-of linux-dup2) (#effects-of linux-dup3) (#effects-of
+      linux-fadvise64) (#effects-of linux-fallocate) (#effects-of linux-fchmod) (#effects-of
+      linux-fchown) (#effects-of linux-fcntl) (#effects-of linux-fdatasync) (#effects-of
+      linux-flock) (#effects-of linux-fstat) (#effects-of linux-fsync)
+    (#effects-of linux-ftruncate) (#effects-of linux-getgid) (#effects-of linux-getuid)
+    (#effects-of linux-lseek) (#effects-of linux-memfd-create) (#effects-of linux-pread64)
+    (#effects-of linux-pwrite64) (#effects-of linux-readahead) (#effects-of linux-sync-file-range)
+    (#effects-of linux-syncfs) (#effects-of linux-write));
   #body = (
     (#let path-memory (#ptr-mut #u8) (#unsafe
         (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP

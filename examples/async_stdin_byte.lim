@@ -17,7 +17,9 @@
 #fn main {
   #params = ();
   #returns = #i32;
-  #effects = ((#effects-of async-byte-read1-create) (#effects-of async-byte-read1-destroy) (#effects-of async-byte-read1-enable-nonblocking) (#effects-of async-byte-read1-poll) (#effects-of async-byte-read1-wait) (#effects-of linux-close) (#effects-of linux-write-byte));
+  #effects = ((#effects-of async-byte-read1-create) (#effects-of async-byte-read1-destroy)
+    (#effects-of async-byte-read1-enable-nonblocking) (#effects-of async-byte-read1-poll)
+    (#effects-of async-byte-read1-wait) (#effects-of linux-close) (#effects-of linux-write-byte));
   #body = (
     (#let-mut byte #u8 0u8)
     (#let blocking AsyncByteReadCreate1 (#call async-byte-read1-create ((fd 0i64) (destination

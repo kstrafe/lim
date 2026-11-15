@@ -13,7 +13,9 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-lseek) (#effects-of linux-memfd-create) (#effects-of linux-pipe2) (#effects-of linux-sendfile) (#effects-of linux-splice) (#effects-of linux-tee));
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-lseek) (#effects-of
+      linux-memfd-create) (#effects-of linux-pipe2) (#effects-of linux-sendfile) (#effects-of
+      linux-splice) (#effects-of linux-tee));
   #body = (
     (#let name-memory (#ptr-mut #u8) (#unsafe
         (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP

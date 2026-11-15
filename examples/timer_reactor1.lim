@@ -9,7 +9,8 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = ((#effects-of timer-reactor1-cancel) (#effects-of timer-reactor1-create) (#effects-of timer-reactor1-poll) (#effects-of timer-reactor1-wait));
+  #effects = ((#effects-of timer-reactor1-cancel) (#effects-of timer-reactor1-create) (#effects-of
+      timer-reactor1-poll) (#effects-of timer-reactor1-wait));
   #body = (
     (#let invalid TimerCreate1 (#call timer-reactor1-create ((nanoseconds 0u64))))
     (#assert (#match invalid

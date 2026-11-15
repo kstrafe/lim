@@ -1,15 +1,15 @@
-#extern-fn  abs {
+#extern-fn abs {
   #abi = #abi-c;
   #params = ((value #i32));
   #returns = #i32;
-#effects = (#global-access #io);
+  #effects = (#global-access #io);
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
   #effects = ((#effects-of abs));
-  #body = (
-    (#return (#as (#unsafe (#unsafe-call abs ((value -42)))) #u64))
-  );
+  #body = ((#return (#as (#unsafe
+          (#unsafe-call abs ((value -42)))
+        ) #u64)));
 }

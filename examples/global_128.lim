@@ -1,19 +1,11 @@
 #let vALUE #u128 42
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #effects = ((#read-global vALUE));
-  #body = (
-    (
-      #return
-      (
-        #if
-        (#u128::eq  vALUE 42)
+  #body = ((#return (#if (#u128::eq vALUE 42)
         42
         0
-      )
-    )
-  );
+      )));
 }

@@ -4,13 +4,10 @@
 #alias lim-gen-pin-box = #std/pin_box.lim::pin-box
 
 #std
-
-
 // Registration consumes only literal names. It never inspects unfinished enums.
 #distributed-enum ExecutorTask ()
 
-#gn register-future { executor; future; variant; }
-    `(
+#gn register-future { executor; future; variant; } `(
       (#require-generated
         ,(#gn-symbol-append future "Frame")
         #async-fn-pinned
@@ -24,12 +21,8 @@
         (,(#gn-variant executor variant) ,(#gn-symbol-append future "Frame"))))
 
 #generate register-future { executor = @ExecutorTask; future = @Work; variant = Work; }
-#generate #async-fn-pinned
-    ((protocol Work::Await)
-     (waker #u64)
-     (cancel (cancel-work ()))
-     (function (#fn work () #u64
-         (#return 42u64))))
+#generate #async-fn-pinned ((protocol Work::Await) (waker #u64) (cancel (cancel-work ()))
+  (function (#fn work () #u64 (#return 42u64))))
 
 #fn destroy-executor-task {
   #params = ((allocator (#ref SystemAllocator)) (pin (#pin-ref-mut ExecutorTask)));
@@ -37,28 +30,24 @@
   #effects = ((#effects-of Work::Poll::cleanup));
   #body = (
     (#match pin
-      (#case-pin-mut (ExecutorTask.Work frame)
-        (#call cancel-work ((task (#call Work::Poll::cleanup ((task frame))))))))
+      (#case-pin-mut (ExecutorTask.Work frame) (#call cancel-work ((task (#call
+                Work::Poll::cleanup ((task frame)))))))
+    )
     (#forget pin)
     (#return ())
   );
 }
 
-#generate lim-gen-pin-box
-    { options = ((type ExecutorTask)
-     (allocator SystemAllocator::Allocator)
-     (name PinnedExecutorTaskBox)
-     (destroy destroy-executor-task)); }
+#generate lim-gen-pin-box { options = ((type ExecutorTask) (allocator SystemAllocator::Allocator)
+    (name PinnedExecutorTaskBox) (destroy destroy-executor-task)); }
 
 #fn poll-executor-task {
   #params = ((pin (#pin-ref-mut ExecutorTask)) (waker (#ref #u64)));
   #returns = Work::Poll;
   #effects = ((#effects-of Work::poll));
-  #body = (
-    (#return
-      (#match pin
-        (#case-pin-mut (ExecutorTask.Work frame) (#call Work::poll ((task frame) ($ waker))))))
-  );
+  #body = ((#return (#match pin
+        (#case-pin-mut (ExecutorTask.Work frame) (#call Work::poll ((task frame) ($ waker))))
+      )));
 }
 
 #fn dispose-executor-task {
@@ -78,36 +67,37 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = ((#effects-of PinnedExecutorTaskBox::create) (#effects-of PinnedExecutorTaskBox::destroy) (#effects-of dispose-executor-task) (#effects-of poll-executor-task));
-  #body = (
-    (#let arena SystemAllocator (#struct-literal SystemAllocator ()))
+  #effects = ((#effects-of PinnedExecutorTaskBox::create) (#effects-of
+      PinnedExecutorTaskBox::destroy) (#effects-of dispose-executor-task) (#effects-of
+      poll-executor-task));
+  #body = ((#let arena SystemAllocator (#struct-literal SystemAllocator ()))
     // Build the registered task and move its enum owner into stable heap storage.
-    (#let task ExecutorTask (ExecutorTask.Work (#call work ())))
-    (#let created PinnedExecutorTaskBox::CreateResult
-      (#call PinnedExecutorTaskBox::create ((allocator (#borrow arena)) (value task))))
-    (#let-mut owner PinnedExecutorTaskBox
-      (#match created
-        (#case (PinnedExecutorTaskBox::CreateResult.Created box) box)
+    (#let task ExecutorTask (ExecutorTask.Work (#call work ()))) (#let created
+      PinnedExecutorTaskBox::CreateResult (#call PinnedExecutorTaskBox::create ((allocator
+            (#borrow arena)) (value task)))) (#let-mut owner PinnedExecutorTaskBox (#match created
+        (#case (PinnedExecutorTaskBox::CreateResult.Created box)
+          box
+        )
         (#case (PinnedExecutorTaskBox::CreateResult.Allocation-failed failure)
           (#let (#tuple error failed-task) (#tuple SystemAllocationError ExecutorTask) failure)
           (#forget error)
           (#call dispose-executor-task ((allocator (#borrow arena)) (task failed-task)))
-          (#return 0u64))))
-    (#let waker #u64 0u64)
+          (#return 0u64)
+        )
+      )) (#let waker #u64 0u64)
     // Borrow the boxed enum mutably; the polling helper projects its frame in place.
-    (#let pin (#pin-ref-mut ExecutorTask)
-      (#call PinnedExecutorTaskBox::borrow-mut ((owner (#borrow-mut owner)))))
-    (#let result Work::Poll (#call poll-executor-task (($ pin) ($ (#borrow waker)))))
-    (#let answer #u64
-      (#match result
-        (#case (Work::Poll.Ready value) value)
+    (#let pin (#pin-ref-mut ExecutorTask) (#call PinnedExecutorTaskBox::borrow-mut ((owner
+            (#borrow-mut owner))))) (#let result Work::Poll (#call poll-executor-task (($ pin) ($
+            (#borrow waker))))) (#let answer #u64 (#match result
+        (#case (Work::Poll.Ready value)
+          value
+        )
         (#case (Work::Poll.Pending pending)
           (#forget pending)
-          0u64)))
+          0u64
+        )
+      ))
     // Release the projected borrow before cleanup and allocator-backed destruction.
-    (#forget pin)
-    (#call PinnedExecutorTaskBox::destroy (($ owner)))
-    (#forget arena)
-    (#return answer)
-  );
+    (#forget pin) (#call PinnedExecutorTaskBox::destroy (($ owner))) (#forget arena) (#return
+      answer));
 }

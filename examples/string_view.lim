@@ -17,7 +17,9 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = ((#effects-of String::free) (#effects-of String::from-chars) (#effects-of String::view) (#effects-of StringView::subview) (#effects-of StringView::Chars::next));
+  #effects = ((#effects-of String::free) (#effects-of String::from-chars)
+    (#effects-of String::view) (#effects-of StringView::subview) (#effects-of
+      StringView::Chars::next));
   #body = (
     (#let source (#array #char 4) "Aλ😀!")
     (#let text String (#match (#call String::from-chars ((text (#borrow-slice source))))

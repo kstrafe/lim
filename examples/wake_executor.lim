@@ -43,12 +43,18 @@
   #body = ((#forget metadata) (#return ()));
 }
 
-#generate lim-gen-local-waker { names = (LocalWaker local-waker-create local-waker-wake
-  local-waker-wake-by-ref local-waker-clone local-waker-destroy); types = (WakeExecutor WakeMetadata);
-  callbacks = (notify clone-metadata destroy-metadata); }
+#generate lim-gen-local-waker {
+  names = (LocalWaker local-waker-create local-waker-wake local-waker-wake-by-ref
+    local-waker-clone local-waker-destroy);
+  types = (WakeExecutor WakeMetadata);
+  callbacks = (notify clone-metadata destroy-metadata);
+}
 
-#generate lim-gen-task { names = (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady); result = #u64; states = ((JobTask.First
-    #u64) (JobTask.Second #u64)); }
+#generate lim-gen-task {
+  names = (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady);
+  result = #u64;
+  states = ((JobTask.First #u64) (JobTask.Second #u64));
+}
 
 #fn job-poll {
   #params = ((task JobTask) (waker (#ref LocalWaker)));
@@ -117,17 +123,23 @@
   );
 }
 
-#generate lim-gen-wake-executor { run = run-jobs; outputs = (JobResults JobOutcome JobLifecycle
-  JobLifecycle.JobRunning JobOutcome.JobComplete JobLifecycle.JobCancelling JobOutcome.JobStopped);
-  task-spec = (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady #u64 job-poll LocalWaker); wait-spec = (WaitResult
-  WaitResult.WaitReady WaitResult.WaitStopped #i64 wait-ready (context (#ref-mut WakeWaitContext)));
-  cancel-function = cancel-job-poll; jobs = ((first-state first-task first-waker first 0u32) (second-state second-task
-    second-waker second 1u32)); }
+#generate lim-gen-wake-executor {
+  run = run-jobs;
+  outputs = (JobResults JobOutcome JobLifecycle JobLifecycle.JobRunning JobOutcome.JobComplete
+    JobLifecycle.JobCancelling JobOutcome.JobStopped);
+  task-spec = (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady #u64 job-poll LocalWaker);
+  wait-spec = (WaitResult WaitResult.WaitReady WaitResult.WaitStopped #i64 wait-ready (context
+      (#ref-mut WakeWaitContext)));
+  cancel-function = cancel-job-poll;
+  jobs = ((first-state first-task first-waker first 0u32) (second-state second-task second-waker
+      second 1u32));
+}
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = ((#effects-of run-jobs) (#effects-of timer-reactor1-cancel) (#effects-of timer-reactor1-create));
+  #effects = ((#effects-of run-jobs) (#effects-of timer-reactor1-cancel) (#effects-of
+      timer-reactor1-create));
   #body = (
     (#let timer-created TimerCreate1 (#call timer-reactor1-create ((nanoseconds 20000000u64))))
     (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))

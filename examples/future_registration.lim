@@ -16,8 +16,8 @@
 // Forward references are checked after expansion; they do not schedule it.
 
 #generate register-future { executor = @ExecutorTask; future = @Work; variant = Work; }
-#generate lim-gen-enum-project { options = ((enum ExecutorTask) (variant ExecutorTask.Work) (payload
-    Work::Frame) (mode #pin-ref-mut) (name WorkProjection)); }
+#generate lim-gen-enum-project { options = ((enum ExecutorTask) (variant ExecutorTask.Work)
+    (payload Work::Frame) (mode #pin-ref-mut) (name WorkProjection)); }
 
 #generate #async-fn-pinned ((protocol Work::Await) (waker #u64) (function (#fn work () #u64
       (#return 42u64))))

@@ -2,7 +2,10 @@
        (#let ,temporary #u64 task)
        (#return (#u64::add-wrap task ,temporary))))
 
-#gn make-function { name; } (#gn-call emit-function { name = name; temporary = (#gn-gensym "task"); })
+#gn make-function { name; } (#gn-call emit-function {
+    name = name;
+    temporary = (#gn-gensym "task");
+  })
 
 #generate make-function { name = first; }
 #generate make-function { name = second; }

@@ -1,13 +1,11 @@
-#static values (#array (#array #u64 2) 2)
-    (#array (#array (#array #u64 2) 2)
-      (#array (#array #u64 2) 10 20)
-      (#array (#array #u64 2) 30 40))
+#static values (#array (#array #u64 2) 2) (#array (#array (#array #u64 2) 2) (#array
+    (#array #u64 2) 10 20) (#array (#array #u64 2) 30 40))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #effects = ((#read-global values));
-  #body = (
-    (#return (#unsafe (#index (#index values 1) 0)))
-  );
+  #body = ((#return (#unsafe
+        (#index (#index values 1) 0)
+      )));
 }

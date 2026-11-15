@@ -10,7 +10,9 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = ((#effects-of linux-mlock) (#effects-of linux-mlock2) (#effects-of linux-mlockall) (#effects-of linux-mmap) (#effects-of linux-munlock) (#effects-of linux-munlockall) (#effects-of linux-munmap) (#effects-of linux-write-byte));
+  #effects = ((#effects-of linux-mlock) (#effects-of linux-mlock2) (#effects-of linux-mlockall)
+    (#effects-of linux-mmap) (#effects-of linux-munlock) (#effects-of linux-munlockall)
+    (#effects-of linux-munmap) (#effects-of linux-write-byte));
   #body = (
     (#let memory (#ptr-mut #u8) (#unsafe
         (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)

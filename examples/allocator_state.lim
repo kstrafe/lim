@@ -1,6 +1,12 @@
 #alias lim-gen-cell = #std/cell.lim::cell
 
-#generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }
+#generate lim-gen-cell {
+  value-type = #u64;
+  name = CellU64;
+  create = CellU64::create;
+  get = CellU64::get;
+  set = CellU64::set;
+}
 #struct Arena () ((cursor CellU64))
 #struct VecU64Arena () ((allocator (#ref Arena)) (length #u64))
 

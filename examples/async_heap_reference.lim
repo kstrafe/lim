@@ -6,19 +6,15 @@
 #fn make-holder {
   #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)));
   #returns = (#pin-own Holder);
-  #body = (
-    (#return (#unsafe
-      (#pin-own-of pointer (#struct-literal Holder ((link source))))))
-  );
+  #body = ((#return (#unsafe
+        (#pin-own-of pointer (#struct-literal Holder ((link source))))
+      )));
 }
 
 #fn holder-source {
   #params = ((owner (#ref (#pin-own Holder))));
   #returns = (#ref #u64);
-  #body = (
-    (#let view (#pin-ref Holder) (#pin-own-borrow owner))
-    (#return (#get view link))
-  );
+  #body = ((#let view (#pin-ref Holder) (#pin-own-borrow owner)) (#return (#get view link)));
 }
 
 #fn destroy-holder {
@@ -26,9 +22,12 @@
   #returns = ();
   #effects = (#global-access #io);
   #body = (
-    (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
-    (#assert (#i64::eq
-      (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
+    (#let pointer (#ptr-mut Holder) (#unsafe
+        (#pin-release owner)
+      ))
+    (#assert (#i64::eq (#unsafe
+          (#linux-syscall #i64 11usize (pointer 4096usize))
+        ) 0i64))
     (#return ())
   );
 }
@@ -40,26 +39,24 @@
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return (#match task
-      (#case (Step.Waiting count)
-        (#if (#u64::eq count 0u64)
-          (StepPoll.StepReady 0u64)
-          (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap count 1u64)))))))
-  );
+  #body = ((#return (#match task
+        (#case (Step.Waiting count)
+          (#if (#u64::eq count 0u64)
+            (StepPoll.StepReady 0u64)
+            (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap count 1u64)))
+          )
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work ((pointer (#ptr-mut Holder)) (source (#ref #u64))) #u64
-      (#effects ((#effects-of destroy-holder)))
-      (#let first-step #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
-      (#let owner (#pin-own Holder)
-        (#call make-holder ((pointer pointer) (source source))))
-      (#let second-step #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
-      (#let stored (#ref #u64) (#call holder-source ((owner (#borrow owner)))))
-      (#let answer #u64 (#deref stored))
-      (#call destroy-holder ((owner owner)))
-      (#return answer))))
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((pointer (#ptr-mut
+            Holder)) (source (#ref #u64))) #u64 (#effects ((#effects-of destroy-holder))) (#let
+        first-step #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll
+          (Step.Waiting 1u64))) (#let owner (#pin-own Holder) (#call make-holder
+          ((pointer pointer) (source source)))) (#let second-step #u64 (#await Step
+          StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64))) (#let stored
+        (#ref #u64) (#call holder-source ((owner (#borrow owner))))) (#let answer #u64 (#deref
+          stored)) (#call destroy-holder ((owner owner))) (#return answer))))
 
 #fn main {
   #params = ();
@@ -67,20 +64,27 @@
   #effects = (#global-access #io (#effects-of Work::poll));
   #body = (
     (#let-mut source #u64 42u64)
-    (#let pointer (#ptr-mut Holder)
-      (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
+    (#let pointer (#ptr-mut Holder) (#unsafe
+        (#linux-syscall (#ptr-mut Holder) 9usize (0usize 4096usize 3usize 34usize -1i64 0usize))
+      ))
     (#assert (#usize::lt (#ptr-address pointer) 18446744073709547521usize))
     (#let waker #u64 0u64)
-    (#let first Work::Poll (#call Work::poll
-      ((task (#call work ((pointer pointer) (source (#borrow source)))))
-       (waker (#borrow waker)))))
+    (#let first Work::Poll (#call Work::poll ((task (#call work ((pointer pointer) (source
+                  (#borrow source))))) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
     (#let second Work::Poll (#call Work::poll ((task next) (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending last) Work::Poll second (#unreachable))
     (#let third Work::Poll (#call Work::poll ((task last) (waker (#borrow waker)))))
     (#return (#match third
-      (#case (Work::Poll.Ready answer) answer)
-      (#case (Work::Poll.Pending unfinished) (#block (#forget unfinished) (#unreachable)))))
+        (#case (Work::Poll.Ready answer)
+          answer
+        )
+        (#case (Work::Poll.Pending unfinished)
+          (#block
+            (#forget unfinished)
+            (#unreachable)
+          )
+        )
+      ))
   );
 }

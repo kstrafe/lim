@@ -8,12 +8,17 @@
 #fn print-trace {
   #params = ((text (#slice #char)));
   #returns = ();
-  #effects = ((#effects-of String::free) (#effects-of String::from-chars) (#effects-of std-println));
+  #effects =
+  ((#effects-of String::free) (#effects-of String::from-chars) (#effects-of std-println));
   #body = (
-    (#let owned String
-      (#match (#call String::from-chars (($ text)))
-        (#case (StringCreateResult.StringCreated string) string)
-        (#case (StringCreateResult.StringCreateFailed error) (#panic))))
+    (#let owned String (#match (#call String::from-chars (($ text)))
+        (#case (StringCreateResult.StringCreated string)
+          string
+        )
+        (#case (StringCreateResult.StringCreateFailed error)
+          (#panic)
+        )
+      ))
     (#assert (#i64::eq (#println (#borrow owned)) 0i64))
     (#call String::free ((string owned)))
     (#return ())
@@ -24,29 +29,19 @@
   #params = ();
   #returns = ();
   #effects = ((#effects-of print-trace));
-  #body = (
-    (#call print-trace ((text (#call-graph))))
-    (#return ())
-  );
+  #body = ((#call print-trace ((text (#call-graph)))) (#return ()));
 }
 
 #fn second {
   #params = ();
   #returns = ();
   #effects = ((#effects-of third));
-  #body = (
-    (#call third ())
-    (#return ())
-  );
+  #body = ((#call third ()) (#return ()));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
   #effects = ((#effects-of second));
-  #body = (
-    (#call second ())
-    (#call second ())
-    (#return 42u64)
-  );
+  #body = ((#call second ()) (#call second ()) (#return 42u64));
 }

@@ -3,8 +3,11 @@
 #alias lim-gen-task = #std/tasks.lim::task
 #alias lim-gen-task-cancel = #std/tasks.lim::task-cancel
 
-#generate lim-gen-task { names = (Count CountPoll CountPoll.CountPending CountPoll.CountReady); result = #u64;
-  states = ((Count.Counting #u64)); }
+#generate lim-gen-task {
+  names = (Count CountPoll CountPoll.CountPending CountPoll.CountReady);
+  result = #u64;
+  states = ((Count.Counting #u64));
+}
 
 #fn count-poll {
   #params = ((task Count));
@@ -28,10 +31,14 @@
   #body = ((#return (Count.Counting value)));
 }
 
-#generate lim-gen-async { names = (Pipeline PipelinePoll PipelinePoll.PipelinePending
-  PipelinePoll.PipelineReady pipeline-poll); result = #u64; stages = ((Pipeline.Begin (#await Count
-      CountPoll.CountPending CountPoll.CountReady count-poll) (#then Pipeline.Finish next-count))
-  (Pipeline.Finish (#await Count CountPoll.CountPending CountPoll.CountReady count-poll) (#return))); }
+#generate lim-gen-async {
+  names = (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady
+    pipeline-poll);
+  result = #u64;
+  stages = ((Pipeline.Begin (#await Count CountPoll.CountPending CountPoll.CountReady count-poll)
+      (#then Pipeline.Finish next-count)) (Pipeline.Finish (#await Count CountPoll.CountPending
+        CountPoll.CountReady count-poll) (#return)));
+}
 
 #fn cancel-count {
   #params = ((task Count));
@@ -46,13 +53,19 @@
   );
 }
 
-#generate lim-gen-task-cancel { cancel = cancel-pipeline; task = Pipeline; states = ((Pipeline.Begin cancel-count)
-  (Pipeline.Finish cancel-count)); }
+#generate lim-gen-task-cancel {
+  cancel = cancel-pipeline;
+  task = Pipeline;
+  states = ((Pipeline.Begin cancel-count) (Pipeline.Finish cancel-count));
+}
 
-#generate lim-gen-executor { run = run-pipeline; result = Results; jobs = ((pipeline Pipeline PipelinePoll
-    PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll #u64 pipeline-input)
-  (counter Count CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64
-    counter-input)); }
+#generate lim-gen-executor {
+  run = run-pipeline;
+  result = Results;
+  jobs = ((pipeline Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady
+      pipeline-poll #u64 pipeline-input) (counter Count CountPoll CountPoll.CountPending
+      CountPoll.CountReady count-poll #u64 counter-input));
+}
 
 #fn main {
   #params = ();

@@ -6,8 +6,8 @@
 #type Arena::Allocator::Error ArenaError
 #enum Arena::Allocator::Allocation () ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8))
   (Arena::Allocator::Allocation.AllocationFailed ArenaError))
-#generate lim-gen-pin-rc { options = ((type #u64) (allocator Arena::Allocator) (name PinnedNumberRc) (destroy
-    destroy-number)); }
+#generate lim-gen-pin-rc { options = ((type #u64) (allocator Arena::Allocator)
+    (name PinnedNumberRc) (destroy destroy-number)); }
 
 #fn Arena::Allocator::allocate {
   #params = ((allocator (#ref Arena)) (layout #usize) (alignment #usize));

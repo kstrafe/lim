@@ -16,7 +16,9 @@
 #unsafe-fn child-work {
   #params = ((iteration #u32));
   #returns = ();
-  #effects = ((#effects-of linux-exit) (#effects-of linux-exit-group) (#effects-of linux-getpgid) (#effects-of linux-getpid) (#effects-of linux-getsid) (#effects-of linux-setpgid) (#effects-of linux-setsid));
+  #effects = ((#effects-of linux-exit) (#effects-of linux-exit-group) (#effects-of linux-getpgid)
+    (#effects-of linux-getpid) (#effects-of linux-getsid) (#effects-of linux-setpgid) (#effects-of
+      linux-setsid));
   #body = (
     (#let pid #i64 (#call linux-getpid ()))
     (#if (#u32::eq iteration 0u32)
@@ -42,7 +44,9 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = (#global-access #io (#effects-of child-work) (#effects-of linux-fork) (#effects-of linux-mmap) (#effects-of linux-munmap) (#effects-of linux-waitid) (#effects-of linux-write-byte));
+  #effects = (#global-access #io (#effects-of child-work) (#effects-of linux-fork) (#effects-of
+      linux-mmap) (#effects-of linux-munmap) (#effects-of linux-waitid) (#effects-of
+      linux-write-byte));
   #body = (
     (#let info (#ptr-mut #u8) (#unsafe
         (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)

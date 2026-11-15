@@ -30,7 +30,10 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-lseek) (#effects-of linux-memfd-create) (#effects-of linux-preadv) (#effects-of linux-preadv2) (#effects-of linux-pwritev) (#effects-of linux-pwritev2) (#effects-of linux-readv) (#effects-of linux-write-byte) (#effects-of linux-writev) (#effects-of set-iovec));
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-lseek) (#effects-of
+      linux-memfd-create) (#effects-of linux-preadv) (#effects-of linux-preadv2) (#effects-of
+      linux-pwritev) (#effects-of linux-pwritev2) (#effects-of linux-readv) (#effects-of
+      linux-write-byte) (#effects-of linux-writev) (#effects-of set-iovec));
   #body = (
     (#let data (#ptr-mut #u8) (#unsafe
         (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP

@@ -17,7 +17,10 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = (#global-access #io (#effects-of linux-getcpu) (#effects-of linux-getpid) (#effects-of linux-gettid) (#effects-of linux-sched-getattr) (#effects-of linux-sched-getscheduler) (#effects-of linux-sched-rr-get-interval) (#effects-of linux-sysinfo) (#effects-of linux-tgkill));
+  #effects = (#global-access #io (#effects-of linux-getcpu) (#effects-of linux-getpid)
+    (#effects-of linux-gettid) (#effects-of linux-sched-getattr) (#effects-of
+      linux-sched-getscheduler) (#effects-of linux-sched-rr-get-interval) (#effects-of
+      linux-sysinfo) (#effects-of linux-tgkill));
   #body = (
     (#let pid #i64 (#call linux-getpid ()))
     (#let tid #i64 (#call linux-gettid ()))

@@ -38,8 +38,8 @@
             StepAwait) (Step.Step-waiting (#struct-literal StepWaiting ((value 42u64) (remaining
                   1u64)))))) (#return value))))
 
-#generate lim-gen-pin-rc { options = ((type Work::Frame) (allocator Arena::Allocator) (name PinnedFrameRc)
-  (destroy destroy-frame)); }
+#generate lim-gen-pin-rc { options = ((type Work::Frame) (allocator Arena::Allocator) (name
+      PinnedFrameRc) (destroy destroy-frame)); }
 
 #fn Arena::Allocator::allocate {
   #params = ((allocator (#ref Arena)) (layout #usize) (alignment #usize));
@@ -82,7 +82,8 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = ((#effects-of PinnedFrameRc::create) (#effects-of PinnedFrameRc::destroy) (#effects-of Work::poll));
+  #effects = ((#effects-of PinnedFrameRc::create) (#effects-of PinnedFrameRc::destroy)
+    (#effects-of Work::poll));
   #body = (
     (#let arena Arena (#struct-literal Arena ()))
     (#let-mut owner PinnedFrameRc

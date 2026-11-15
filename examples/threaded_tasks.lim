@@ -1,32 +1,47 @@
 #alias lim-gen-task = #std/tasks.lim::task
 #alias lim-gen-threaded-executor = #std/tasks.lim::threaded-executor
 
-#generate lim-gen-task { names = (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady); result = #u64;
-    states = ((NumberTask.Number #u64)); }
+#generate lim-gen-task {
+  names = (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady);
+  result = #u64;
+  states = ((NumberTask.Number #u64));
+}
 
 #fn number-poll {
   #params = ((task NumberTask));
   #returns = NumberPoll;
-  #body = (
-    (#return (#match task (#case (NumberTask.Number value) (NumberPoll.NumberReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (NumberTask.Number value)
+          (NumberPoll.NumberReady value)
+        )
+      )));
 }
 
-#generate lim-gen-threaded-executor { run = run-worker; result = WorkerResults;
-    jobs = ((number NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady number-poll #u64 number-input));
-    thread = Worker; }
+#generate lim-gen-threaded-executor {
+  run = run-worker;
+  result = WorkerResults;
+  jobs = ((number NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady
+      number-poll #u64 number-input));
+  thread = Worker;
+}
 
 #fn main {
   #params = ();
   #returns = #u64;
   #effects = (#global-access #io);
-  #body = (
-    (#return
-      (#match (#call Worker::spawn ((number-input (NumberTask.Number 42u64))))
+  #body = ((#return (#match (#call Worker::spawn ((number-input (NumberTask.Number 42u64))))
         (#case (Worker::SpawnResult.Ok thread)
           (#match (#call Worker::join ((task thread)))
-            (#case (Worker::JoinResult.Ok results) (#get results number))
-            (#case (Worker::JoinResult.Error (#tuple retry error)) (#panic))))
-        (#case (Worker::SpawnResult.Error error) (#panic))))
-  );
+            (#case (Worker::JoinResult.Ok results)
+              (#get results number)
+            )
+            (#case (Worker::JoinResult.Error (#tuple retry error))
+              (#panic)
+            )
+          )
+        )
+        (#case (Worker::SpawnResult.Error error)
+          (#panic)
+        )
+      )));
 }

@@ -6,8 +6,8 @@
 #struct Frame (#linear) ((value #u64))
 
 #generate lim-gen-pin { options = ((type Frame) (name PinnedFrame) (fields ((value #u64)))); }
-#generate lim-gen-pin-scope { options = ((type Frame) (pin PinnedFrame) (name with-pinned-frame) (run
-    drive-frame) (destroy destroy-frame) (result #u64)); }
+#generate lim-gen-pin-scope { options = ((type Frame) (pin PinnedFrame) (name with-pinned-frame)
+    (run drive-frame) (destroy destroy-frame) (result #u64)); }
 
 #fn drive-frame {
   #params = ((pin PinnedFrame));

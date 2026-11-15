@@ -15,16 +15,17 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-faccessat) (#effects-of linux-faccessat2) (#effects-of linux-fstatfs) (#effects-of linux-lstat) (#effects-of linux-memfd-create) (#effects-of linux-newfstatat) (#effects-of linux-stat) (#effects-of linux-statfs) (#effects-of linux-statx) (#effects-of linux-write));
-  #body = (
-    (#let memory (#ptr-mut #u8)
-      (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
-    (#let metadata (#ptr-mut #u64)
-      (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
-        (0usize 4096usize 3usize 34usize -1i64 0usize))))
-    (#let initialized ()
-      (#unsafe
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-faccessat)
+    (#effects-of linux-faccessat2) (#effects-of linux-fstatfs) (#effects-of linux-lstat)
+    (#effects-of linux-memfd-create) (#effects-of linux-newfstatat) (#effects-of linux-stat)
+    (#effects-of linux-statfs) (#effects-of linux-statx) (#effects-of linux-write));
+  #body = ((#let memory (#ptr-mut #u8) (#unsafe
+        (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
+          (0usize 4096usize 3usize 34usize -1i64 0usize))
+      )) (#let metadata (#ptr-mut #u64) (#unsafe
+        (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64
+            0usize))
+      )) (#let initialized () (#unsafe
         (#block
           (#ptr-write (#ptr-offset memory 8usize) 115u8)
           (#ptr-write (#ptr-offset memory 9usize) 116u8)
@@ -39,74 +40,74 @@
           (#ptr-write (#ptr-offset memory 37usize) 45u8)
           (#ptr-write (#ptr-offset memory 38usize) 111u8)
           (#ptr-write (#ptr-offset memory 39usize) 107u8)
-          ())))
-    (#let fd #i64
-      (#unsafe (#unsafe-call linux-memfd-create ((name (#ptr-offset memory 8usize)) (flags 1u32)))))
-    (#let bytes-written #i64
-      (#unsafe (#unsafe-call linux-write ((fd fd) (source (#ptr-offset memory 32usize)) (count 8usize)))))
-    (#let statx-result #i64
-      (#unsafe (#unsafe-call linux-statx ((directory fd) (path memory) (flags 4096u32) (mask 2047u32) (metadata metadata)))))
-    (#let returned-mask #u64 (#unsafe (#ptr-read metadata)))
-    (#let returned-size #u64
-      (#unsafe (#ptr-read (#ptr-offset metadata 5usize))))
+          ()
+        )
+      )) (#let fd #i64 (#unsafe
+        (#unsafe-call linux-memfd-create ((name (#ptr-offset memory 8usize)) (flags 1u32)))
+      )) (#let bytes-written #i64 (#unsafe
+        (#unsafe-call linux-write ((fd fd) (source (#ptr-offset memory 32usize)) (count 8usize)))
+      )) (#let statx-result #i64 (#unsafe
+        (#unsafe-call linux-statx ((directory fd) (path memory) (flags 4096u32) (mask 2047u32)
+            (metadata metadata)))
+      )) (#let returned-mask #u64 (#unsafe
+        (#ptr-read metadata)
+      )) (#let returned-size #u64 (#unsafe
+        (#ptr-read (#ptr-offset metadata 5usize))
+      ))
     // Keep an empty string at offset 4 for AT_EMPTY_PATH; use "." at offset 0.
-    (#let path-set ()
-      (#unsafe (#block
-        (#ptr-write memory 46u8)
-        (#ptr-write (#ptr-offset memory 1usize) 0u8)
-        ())))
-    (#let stat-result #i64
-      (#unsafe (#unsafe-call linux-stat ((path memory) (metadata metadata)))))
-    (#let stat-inode #u64
-      (#unsafe (#ptr-read (#ptr-offset metadata 1usize))))
-    (#let lstat-result #i64
-      (#unsafe (#unsafe-call linux-lstat ((path memory) (metadata metadata)))))
-    (#let lstat-inode #u64
-      (#unsafe (#ptr-read (#ptr-offset metadata 1usize))))
-    (#let fstatat-result #i64
-      (#unsafe (#unsafe-call linux-newfstatat ((directory fd) (path (#ptr-offset memory 4usize)) (metadata metadata) (flags 4096i32)))))
-    (#let fstatat-size #u64
-      (#unsafe (#ptr-read (#ptr-offset metadata 6usize))))
-    (#let statfs-result #i64
-      (#unsafe (#unsafe-call linux-statfs ((path memory) (statistics metadata)))))
-    (#let statfs-type #u64 (#unsafe (#ptr-read metadata)))
-    (#let fstatfs-result #i64
-      (#unsafe (#unsafe-call linux-fstatfs ((fd fd) (statistics metadata)))))
-    (#let fstatfs-type #u64 (#unsafe (#ptr-read metadata)))
-    (#let faccessat-result #i64
-      (#unsafe (#unsafe-call linux-faccessat ((directory -100i64) (path memory) (mode 0i32)))))
-    (#let faccessat2-result #i64
-      (#unsafe (#unsafe-call linux-faccessat2 ((directory -100i64) (path memory) (mode 0i32) (flags 0i32)))))
-    (#let invalid-access-flags #i64
-      (#unsafe (#unsafe-call linux-faccessat2 ((directory -100i64) (path memory) (mode 0i32) (flags -1i32)))))
-    (#let fd-closed #i64 (#call linux-close ((fd fd))))
-    (#let memory-unmapped #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
-    (#let metadata-unmapped #i64
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (metadata 4096usize))))
-    (#let statx-ok #bool
-      (#bool::and (#i64::ge fd 0i64)
-        (#bool::and (#i64::eq bytes-written 8i64)
-          (#bool::and (#i64::eq statx-result 0i64)
-            (#bool::and (#u64::eq (#u64::bit-and returned-mask 512u64) 512u64)
-              (#bool::and (#u64::eq returned-size 8u64)
-                (#bool::and (#i64::eq fd-closed 0i64)
-                  (#bool::and (#i64::eq memory-unmapped 0i64)
-                    (#i64::eq metadata-unmapped 0i64)))))))))
-    (#let metadata-ok #bool
-      (#bool::and (#i64::eq stat-result 0i64)
-        (#bool::and (#u64::gt stat-inode 0u64)
-          (#bool::and (#i64::eq lstat-result 0i64)
-            (#bool::and (#u64::eq lstat-inode stat-inode)
-              (#bool::and (#i64::eq fstatat-result 0i64)
-                (#bool::and (#u64::eq fstatat-size 8u64)
-                  (#bool::and (#i64::eq statfs-result 0i64)
-                    (#bool::and (#u64::ne statfs-type 0u64)
-                      (#bool::and (#i64::eq fstatfs-result 0i64)
-                        (#bool::and (#u64::ne fstatfs-type 0u64)
-                          (#bool::and (#i64::eq faccessat-result 0i64)
-                            (#bool::and (#i64::eq faccessat2-result 0i64)
-                              (#i64::eq invalid-access-flags -22i64))))))))))))))
-    (#return (#if (#bool::and statx-ok metadata-ok) 42u64 1u64))
-  );
+    (#let path-set () (#unsafe
+        (#block
+          (#ptr-write memory 46u8)
+          (#ptr-write (#ptr-offset memory 1usize) 0u8)
+          ()
+        )
+      )) (#let stat-result #i64 (#unsafe
+        (#unsafe-call linux-stat ((path memory) (metadata metadata)))
+      )) (#let stat-inode #u64 (#unsafe
+        (#ptr-read (#ptr-offset metadata 1usize))
+      )) (#let lstat-result #i64 (#unsafe
+        (#unsafe-call linux-lstat ((path memory) (metadata metadata)))
+      )) (#let lstat-inode #u64 (#unsafe
+        (#ptr-read (#ptr-offset metadata 1usize))
+      )) (#let fstatat-result #i64 (#unsafe
+        (#unsafe-call linux-newfstatat ((directory fd) (path (#ptr-offset memory 4usize))
+            (metadata metadata) (flags 4096i32)))
+      )) (#let fstatat-size #u64 (#unsafe
+        (#ptr-read (#ptr-offset metadata 6usize))
+      )) (#let statfs-result #i64 (#unsafe
+        (#unsafe-call linux-statfs ((path memory) (statistics metadata)))
+      )) (#let statfs-type #u64 (#unsafe
+        (#ptr-read metadata)
+      )) (#let fstatfs-result #i64 (#unsafe
+        (#unsafe-call linux-fstatfs ((fd fd) (statistics metadata)))
+      )) (#let fstatfs-type #u64 (#unsafe
+        (#ptr-read metadata)
+      )) (#let faccessat-result #i64 (#unsafe
+        (#unsafe-call linux-faccessat ((directory -100i64) (path memory) (mode 0i32)))
+      )) (#let faccessat2-result #i64 (#unsafe
+        (#unsafe-call linux-faccessat2 ((directory -100i64) (path memory) (mode 0i32) (flags 0i32)))
+      )) (#let invalid-access-flags #i64 (#unsafe
+        (#unsafe-call linux-faccessat2
+          ((directory -100i64) (path memory) (mode 0i32) (flags -1i32)))
+      )) (#let fd-closed #i64 (#call linux-close ((fd fd)))) (#let memory-unmapped #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))
+      )) (#let metadata-unmapped #i64 (#unsafe
+        (#linux-syscall #i64 lINUX-SYS-MUNMAP (metadata 4096usize))
+      )) (#let statx-ok #bool (#bool::and (#i64::ge fd 0i64) (#bool::and (#i64::eq bytes-written
+            8i64) (#bool::and (#i64::eq statx-result 0i64) (#bool::and (#u64::eq (#u64::bit-and
+                  returned-mask 512u64) 512u64) (#bool::and (#u64::eq returned-size 8u64)
+                (#bool::and (#i64::eq fd-closed 0i64) (#bool::and (#i64::eq memory-unmapped 0i64)
+                    (#i64::eq metadata-unmapped 0i64))))))))) (#let metadata-ok #bool (#bool::and
+        (#i64::eq stat-result 0i64) (#bool::and (#u64::gt stat-inode 0u64) (#bool::and (#i64::eq
+              lstat-result 0i64) (#bool::and (#u64::eq lstat-inode stat-inode) (#bool::and
+                (#i64::eq fstatat-result 0i64) (#bool::and (#u64::eq fstatat-size 8u64)
+                  (#bool::and (#i64::eq statfs-result 0i64) (#bool::and
+                      (#u64::ne statfs-type 0u64) (#bool::and (#i64::eq fstatfs-result 0i64)
+                        (#bool::and (#u64::ne fstatfs-type 0u64) (#bool::and (#i64::eq
+                              faccessat-result 0i64) (#bool::and (#i64::eq faccessat2-result 0i64)
+                              (#i64::eq invalid-access-flags -22i64)))))))))))))) (#return
+      (#if (#bool::and statx-ok metadata-ok)
+        42u64
+        1u64
+      )));
 }
