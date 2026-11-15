@@ -60,9 +60,9 @@ for (const legacy of [
   }
 }
 for (const mixed of [
-  '#fn main {} #u64 (#return 42u64)',
-  '#unsafe-fn main {} #u64 (#return 42u64)',
-  '#fn identity { value = #u64; } #u64 (#return value)',
+  '#fn main { #params = {}; #returns = #u64; #body: #return 42u64; } ()',
+  '#unsafe-fn main { #params = {}; #returns = #u64; #body: #return 42u64; } #u64 (#return 0u64)',
+  '#extern-fn foreign { #abi = #abi-c; #params = {}; #returns = (); } ()',
 ]) {
   for (const options of [{}, { checkOnly: true }]) {
     const result = compiler.compile(mixed, options);
