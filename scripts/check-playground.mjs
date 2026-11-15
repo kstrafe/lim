@@ -48,7 +48,7 @@ for (const [, name, encodedStdout, runtimeError] of selectable) {
     assert.equal(printed.value, '()', `${name} must use an explicit unit return`);
   }
 }
-const invalid = '#fn main { #params = {}; #returns = #u64; #body: #let answer #u64 false; #return answer; }';
+const invalid = '#fn main { #params = {}; #returns = #u64; #body = ((#let answer #u64 false) (#return answer)); }';
 assert.equal(compiler.compile(invalid).ok, false);
 assert.match(compiler.compile(invalid).message, /E4000/);
 const array = `#fn main {

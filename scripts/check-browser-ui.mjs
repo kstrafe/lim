@@ -80,7 +80,7 @@ try {
   const playgroundShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   await writeFile('/tmp/lim-playground-preview.png', Buffer.from(playgroundShot.data, 'base64'));
   console.log('Checking diagnostics and check-only arrays');
-  const invalid = '#fn main { #params = {}; #returns = #u64; #body: #let answer #u64 false; #return answer; }';
+  const invalid = '#fn main { #params = {}; #returns = #u64; #body = ((#let answer #u64 false) (#return answer)); }';
   await evaluate(`document.querySelector('#source').value=${JSON.stringify(invalid)}`);
   await click('run'); await until('document.querySelector("#status").textContent === "Needs attention"');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /E4000/);
