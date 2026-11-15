@@ -1,72 +1,54 @@
 # Lim language reference
 
-Lim code fences carry explicit test metadata: `run=N` compiles and runs with
-exit code N; `library` compiles through native emission; `fragment=NAME` uses
-the named function wrapper in `tests/language_docs.rs`; `error=CODE` must
-fail with that diagnostic. `syntax` marks schematic forms or signatures
-with intentionally undefined placeholders; these are parsed, not type-checked.
-The documentation tests cover this reference, README, allocator notes, and
-the soundness audit, and reject unclassified Lim fences.
+Lim is a compiled, statically typed Lisp. When you read a program, you can see
+what type each binding holds, which value a function returns, and how integer
+arithmetic handles overflow. This reference explains those choices and the
+language forms you use to express them.
 
-Lim is a compiled, statically typed Lisp.  Its syntax lowers to
-S-expression trees, with bare declarations at source-file roots. Its type and
-evaluation rules are deliberately explicit.
-The compiler currently targets Linux x86-64 System V. It emits inspectable
-assembly, then encodes and links ELF binaries internally, including supported
-ELF objects and shared-library calls. Unsupported assembly or object features
-produce a link diagnostic; the compiler does not invoke `as` or `ld`.
-
-This document describes the language implemented by this crate. Builtin forms
-and all sixteen scalar types use a leading `#`, such as `#u64` or `#bool`;
-unprefixed builtin forms and scalar types are rejected. Numeric literal
-suffixes keep their established spelling, such as `42u64`. User-defined type
-names remain ordinary identifiers and never receive a `#` prefix.
-
-Declaration spelling identifies its role. Every `::` component in a type name
-starts with an ASCII uppercase letter (`Reading`, `Work::Frame`). Functions,
-parameters, fields and variables start lowercase or with `_`; a function can
-have uppercase type prefixes (`Work::poll`). A dot is reserved for enum variants:
-`Work::Poll.Ready` is variant `Ready` of enum `Work::Poll`. These are single
-global identifiers, not namespace or field-access operations. The compiler
-enforces the same rules on generated declarations and handwritten code.
-Compiler-issued hygienic `#gn-gensym` names occupy a separate reserved domain;
-they can also name private types without colliding with public declarations.
-
-User function names retain their identity in named calls, even when a name
-also spells a builtin. For example, `panic { value = reference; }` calls the
-declared user function named `panic`; `(#panic)` remains the builtin trap.
-Calls require named arguments, evaluate their expressions
-in written call-site order, and apply the declared function signature
-and ordinary eager-call ownership rules. Ordinary calls accept only safe functions,
-even inside `#unsafe`. Use `#unsafe-call` for unsafe or external functions;
-it requires an enclosing `#unsafe` block and uses the same named arguments,
-evaluation order, signature checks, and ownership rules.
-
-Strict scalar intrinsics also accept ordinary named calls. The compiler generates their
-typed signatures and lowers calls to the existing native operations. Binary
-parameters are `left` and `right`; unary `not` takes `value`. Integer arithmetic
-still requires `-wrap` or `-saturate`. Short-circuit `#bool::and` and `#bool::or`
-retain their direct control-flow forms. Callable subtraction is binary; direct
-subtraction also supports unary negation. Floating-point remainder is currently
-unsupported by the native backend and has no callable declaration.
+Start with a small program that returns 42:
 
 ```lisp run=42
 #fn main {
   #params = {};
   #returns = #u64;
   #body:
-    #let index #usize 1usize;
-    #return:
-      #if-valid
-        (#usize::lt { left = index; right = 4usize; })
-        (#u64::add-wrap { right = 22u64; left = 20u64; })
-        0u64
+    #let answer #u64 40u64;
+    #return [#u64 #wrap; answer + 2u64];
 }
 ```
 
-For syntax, contextual examples, and semantics of every builtin, see the
+`#fn main` declares a function. Its `#params` record is empty, and `#returns`
+says it returns an unsigned 64-bit integer. In the body, `#let` gives `answer`
+an explicit type and initial value. `#return` selects the result; `#wrap`
+chooses wrapping arithmetic for the addition. The result becomes the native
+program's exit status.
+
+The `#` prefix marks language forms and builtin types, such as `#fn`,
+`#return`, `#u64` and `#bool`. Names you declare, such as `main` and `answer`,
+use ordinary identifiers. Numeric suffixes spell a literal's type directly:
+`40u64` is an unsigned 64-bit integer.
+
+Names give you another clue about a declaration's role. Each `::` component
+in a type name starts with an ASCII uppercase letter, as in `Reading` or
+`Work::Frame`. Functions, parameters, fields and variables start lowercase
+or with `_`; a function can have uppercase type prefixes, as in `Work::poll`.
+An enum variant uses a dot: `Work::Poll.Ready` names variant `Ready` of
+`Work::Poll`. These spellings are single identifiers; they do not perform
+namespace lookup or field access.
+
+The same naming rules apply to generated declarations. Compiler-issued
+`#gn-gensym` names use a separate reserved domain and can name private types
+without colliding with public declarations.
+
+Source files contain bare declarations like `#fn main` above. Inside them,
+records, indentation, parentheses and typed infix expressions organize the
+code. These spellings lower to the S-expression trees that generators and the
+checker use. The next section explains how to read each spelling.
+
+You can read this reference in order or look up a form in the
 [alphabetical builtin reference](#complete--builtin-reference-alphabetical)
 and its [typed operator families](#typed-operator-families-alphabetical).
+For a guided walkthrough, start with the [tutorial](tutorial.md#first-program).
 
 ## Design and scope
 
@@ -3923,6 +3905,24 @@ nix develop --command ./scripts/native-sweep.sh
 
 The sweep compiles and links every example, executes it, and reports ordinary
 successes, intentional traps, and compiler/linker/timeout failures separately.
+
+### Maintaining documentation examples
+
+When adding or changing a Lim code fence, give it explicit test metadata after
+`lisp`. `tests/language_docs.rs` uses that metadata to decide how to check it:
+
+- `run=N` compiles, links and runs the program, expecting exit code N.
+- `library` compiles through native assembly generation without running a program.
+- `fragment=NAME` puts function-body code in the named wrapper defined by the test harness.
+- `error=CODE` requires compilation to fail with that diagnostic code.
+- `syntax` marks schematic forms, signatures or syntax-tree examples. These
+  are parsed as syntax data, so placeholders need not resolve and types are
+  not checked.
+
+The harness rejects unclassified `lisp` fences in the documents it covers:
+this reference, README, tutorial, introduction, allocator notes and soundness
+audit. Keep each fence's classification accurate when changing its example.
+
 # Generated thread calls
 
 Spawn and join are ordinary named calls, including when the compiler derives
