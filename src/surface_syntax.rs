@@ -209,6 +209,30 @@ impl<'a> Parser<'a> {
         Ok(span)
     }
 
+    /// Read the contents of one implicit source root without creating a second
+    /// list when an indented colon operand completes the declaration.
+    pub(super) fn implicit_root(&mut self) -> Result<Node, ParseError> {
+        let start = self.current_span();
+        let mut terms: Vec<Node> = Vec::new();
+        while self.kind().is_some() {
+            if self.kind() == Some(&T::Colon) {
+                let colon = self.take(T::Colon, "expected ':'")?;
+                let header = terms.first().map_or(start, |node| node.span);
+                terms.push(self.colon_value(header, colon)?);
+            } else {
+                let term = self.expression_application(!syntax_operand(&terms))?;
+                if let Some((term, colon)) = split_layout_suffix(&term) {
+                    terms.push(term);
+                    terms.push(self.colon_value(start, colon)?);
+                } else {
+                    terms.push(term);
+                }
+            }
+        }
+        let end = terms.last().map_or(start.end, |node| node.span.end);
+        self.finish_list(terms, through(start, end))
+    }
+
     pub(super) fn top_expression(&mut self) -> Result<Node, ParseError> {
         if (matches!(self.kind(), Some(T::Symbol(value)) if record_declaration(value))
             || self.kind() == Some(&T::Generate))

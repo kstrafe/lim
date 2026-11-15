@@ -80,7 +80,9 @@ impl<'a> SourceForms<'a> {
                 break;
             };
             if delimiters.is_empty() {
-                if token.kind == TokenKind::Semicolon {
+                let nested_line =
+                    token.span.line > header.line && indentation(token.span.start) > baseline;
+                if token.kind == TokenKind::Semicolon && !nested_line {
                     break;
                 }
                 if token.span.line > last_line && indentation(token.span.start) <= baseline {
@@ -128,35 +130,11 @@ impl<'a> SourceForms<'a> {
             last_line = token.span.line;
             tokens.push(token);
         }
-        // Synthetic delimiters never enter the source map: every child keeps
-        // its authored span and the root covers exactly its actual tokens.
+        // Read the root's contents directly. Adding synthetic explicit
+        // parentheses would double-wrap roots completed by a layout operand.
         let end = tokens.last().unwrap().span;
-        tokens.insert(
-            0,
-            Token {
-                kind: TokenKind::LParen,
-                span: crate::Span {
-                    end: header.start,
-                    ..header
-                },
-            },
-        );
-        tokens.push(Token {
-            kind: TokenKind::RParen,
-            span: crate::Span {
-                start: end.end,
-                end: end.end,
-                ..end
-            },
-        });
         let mut parser = Parser::new(&tokens).with_source(self.source);
-        let mut node = parser.expression()?;
-        if parser.index != tokens.len() {
-            return Err(crate::ParseError {
-                message: "expected exactly one source declaration".into(),
-                span: header,
-            });
-        }
+        let mut node = parser.implicit_root()?;
         node.span = crate::Span {
             end: end.end,
             ..header

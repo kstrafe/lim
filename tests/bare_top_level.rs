@@ -27,6 +27,7 @@ fn trees(source: &str) -> Vec<Expr> {
 #[test]
 fn logical_roots_share_streaming_boundaries_and_keep_authored_spans() {
     for source in [
+        "#generate #array:\n  element #u64;\n  length 2;\n  name Pair;\n#fn main () #u64 (#return 42u64)\n",
         "#fn main { #params = {}; #returns = #u64; #body: #return 42; }",
         "#fn main () #u64\n  (#return 42u64)\n",
         "// before\r\n#type Answer #u64; #fn main () Answer (#return 42u64) // after\r\n",
