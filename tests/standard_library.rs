@@ -152,7 +152,7 @@ fn unsupported_stdio_cfg_returns_enosys_without_printing() {
 #[test]
 fn std_and_println_errors_retain_exact_source_spans() {
     let cases = [
-        ("#std wrong\n", "#std takes no arguments", "#std wrong\n"),
+        ("#std wrong", "#std takes no arguments", "#std wrong"),
         (
             "#fn main () () (#println 1u64) (#return ())\n",
             "add (#std)",

@@ -64,13 +64,13 @@ const DRIVE: &str = r#"#fn drive ((pin PinnedOuter)) #u64
 
 #[test]
 fn disjoint_child_projections_keep_the_parent_handle() {
-    run(&format!("{} {DRIVE}", prefix()));
+    run(&format!("{}\n{DRIVE}", prefix()));
 }
 
 #[test]
 fn overlapping_child_projections_reject_at_the_second_call() {
     let source = format!(
-        "{} {}",
+        "{}\n{}",
         prefix(),
         DRIVE.replace(
             "PinnedOuter::BorrowMut::right",
@@ -92,7 +92,7 @@ fn overlapping_child_projections_reject_at_the_second_call() {
 #[test]
 fn forgetting_a_wrapper_does_not_destroy_its_stationary_referent() {
     let source = format!(
-        "{} {}",
+        "{}\n{}",
         prefix(),
         DRIVE
             .replace(
@@ -117,9 +117,9 @@ fn shared_projections_coexist_but_prevent_an_exclusive_projection() {
         (#assert (#u64::eq (#call PinnedInner::Shared::Read::value ((pin (#borrow second)))) answer))
         (#forget first) (#forget second) (#forget parent) (#return answer)
 "#;
-    run(&format!("{} {drive}", prefix()));
+    run(&format!("{}\n{drive}", prefix()));
     let bad = drive.replace("(#let answer #u64", "(#let exclusive PinnedInner (#call PinnedOuter::BorrowMut::left ((pin (#borrow-mut parent))))) (#forget exclusive) (#let answer #u64");
-    let error = compile(&format!("{} {bad}", prefix()))
+    let error = compile(&format!("{}\n{bad}", prefix()))
         .err()
         .expect("shared children block overlapping exclusive access");
     assert_eq!(error.code_string(), "E4100", "{}", error.message);
@@ -133,7 +133,7 @@ fn consuming_a_parent_for_projection_does_not_bypass_a_retained_child() {
             "PinnedOuter::ProjectMut::left ((pin parent))",
         )
         .replace("(#forget right) (#forget parent)", "(#forget right)");
-    let error = compile(&format!("{} {bad}", prefix()))
+    let error = compile(&format!("{}\n{bad}", prefix()))
         .err()
         .expect("consuming a wrapper cannot duplicate its pointee permission");
     assert_eq!(error.code_string(), "E4100", "{}", error.message);
@@ -155,7 +155,7 @@ fn helper_accesses_are_checked_even_when_the_child_is_transferred_to_the_call() 
         (#call helper ((parent (#borrow-mut parent)) (child left)))
         (#forget parent) (#return 42u64)
 "#;
-    let source = format!("{} {helper} {drive}", prefix());
+    let source = format!("{}\n{helper}\n{drive}", prefix());
     let error = compile(&source)
         .err()
         .expect("the transferred child's loan remains active during the helper call");
@@ -183,7 +183,7 @@ fn void_helpers_cannot_touch_a_retained_exclusive_child() {
         "(#let-mut right PinnedInner",
         "(#call touch ((parent (#borrow-mut parent)))) (#let-mut right PinnedInner",
     );
-    let error = compile(&format!("{} {helper} {bad}", prefix()))
+    let error = compile(&format!("{}\n{helper}\n{bad}", prefix()))
         .err()
         .expect("a helper's return type cannot conceal a pointee access");
     assert_eq!(error.code_string(), "E4100", "{}", error.message);

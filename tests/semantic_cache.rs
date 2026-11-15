@@ -672,7 +672,7 @@ fn transitive_dependency_root_cfg_and_type_changes_invalidate() {
     assert_eq!(semantic_decisions(&report, "hit"), 0);
     fs::write(
         dir.join("dep.lim"),
-        format!("#struct Added () ((value #u64))\n {LIB}"),
+        format!("#struct Added () ((value #u64))\n{LIB}"),
     )
     .unwrap();
     let (result, report) = compile(dir, MAIN, &config);

@@ -359,12 +359,7 @@ fn nested_owned_reference_loads_preserve_external_but_not_stack_origin() {
             ("#pin-borrow-mut", "#pin-ref-mut"),
         ] {
             let valid = format!(
-                "#struct Holder () ((view (#ref #u64)))
- {declaration}
-#fn read ((outside (#ref #u64))) (#ref #u64)
-                     (#let-mut owner {ty} {initializer})
-                     (#let view ({handle} (#ref #u64)) ({operator} {place}))
-                     (#return (#deref view))\n"
+                "#struct Holder () ((view (#ref #u64)))\n{declaration}\n#fn read ((outside (#ref #u64))) (#ref #u64)\n                     (#let-mut owner {ty} {initializer})\n                     (#let view ({handle} (#ref #u64)) ({operator} {place}))\n                     (#return (#deref view))\n"
             );
             check(&valid).unwrap();
             let invalid = valid

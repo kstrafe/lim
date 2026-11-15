@@ -29,7 +29,7 @@ fn rejects_invalid_bundles_even_when_unused() {
         ),
         ("#syntax a 42\n", "literal list"),
         ("#syntax a ()\n#syntax a ()\n", "duplicate syntax bundle"),
-        ("(#syntax-splice a)", "surrounding list"),
+        ("#syntax-splice a", "surrounding list"),
         ("#syntax a ((#syntax-splice))\n", "exactly one"),
         (
             "#syntax a ()\n#fn a () () (#return ())\n",

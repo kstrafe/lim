@@ -27,7 +27,7 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
         assert_eq!(error.code, lim::DiagnosticCode::Generator);
         assert_eq!(error.source_name.as_deref(), imported.to_str());
         let span = error.span.unwrap();
-        assert_eq!(&source[span.start..span.end], "#generate fail\n");
+        assert_eq!(&source[span.start..span.end], "#generate fail");
         assert!(error.message.contains("source file /not/the/source"));
     }
     let source =
