@@ -47,6 +47,18 @@ assert.equal(compiler.compile("#alias secret = /tmp/private.lim::value\n").ok, f
 assert.equal(compiler.compile(' '.repeat(32769)).ok, false);
 assert.match(compiler.compile('"unfinished').message, /E1000/);
 assert.match(compiler.compile('#fn main {').message, /E2000/);
+for (const legacy of [
+  '#fn main () #u64 (#return 42u64)',
+  '#unsafe-fn main () #u64 (#return 42u64)',
+  '#extern-fn #abi-c foreign () ()',
+  '#fn main (#params {}) (#returns #u64) (#body (#return 42u64))',
+]) {
+  for (const options of [{}, { checkOnly: true }]) {
+    const result = compiler.compile(legacy, options);
+    assert.equal(result.ok, false, 'authored functions must use declaration records');
+    assert.match(result.message, /require a named record/);
+  }
+}
 const badPromise = `#fn liar {
   #params = {}; #returns = #u64;
   #ensures: [#u64; (#result) == 0];
