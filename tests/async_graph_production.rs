@@ -117,8 +117,8 @@ fn run_expected_output(source: &str, label: &str, expected: i32, expected_stdout
 #[test]
 fn printing_between_pending_and_resume_needs_no_stored_slice_cells() {
     let source = include_str!("../examples/async_fn.lim").replace(
-        "\"../library/",
-        &format!("\"{}/library/", env!("CARGO_MANIFEST_DIR")),
+        "../library/",
+        &format!("{}/library/", env!("CARGO_MANIFEST_DIR")),
     );
     let artifact = run_expected_output(
         &source,
@@ -154,8 +154,8 @@ fn public_cancellation_examples_use_cleanup_slots_not_legacy_state_variants() {
         ),
     ] {
         let source = source.replace(
-            "\"../library/pin.lim\"",
-            &format!("\"{}/library/pin.lim\"", env!("CARGO_MANIFEST_DIR")),
+            "../library/pin.lim",
+            &format!("{}/library/pin.lim", env!("CARGO_MANIFEST_DIR")),
         );
         run_expected(&source, label, expected);
     }
@@ -1003,7 +1003,7 @@ fn nested_guard_previews_lend_only_exclusive_fields_regardless_of_order() {
         };
         let source = source
             .replace(
-                "(#enum Holder (#linear) ((Holder.Holding (#ref-mut #u64))))",
+                "#enum Holder (#linear) ((Holder.Holding (#ref-mut #u64)))",
                 &format!(
                     "#struct View () {fields}\n#enum Holder (#linear) ((Holder.Holding View))"
                 ),
