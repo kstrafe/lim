@@ -862,13 +862,18 @@ fn generated_syntax_bundles_keep_their_definition_after_expansion() {
 #[test]
 fn bundled_standard_library_types_and_view_locals_have_real_targets() {
     let fixture = Fixture::new("bundled-source-roles");
-    let source = "#std\n#fn main {\n  #params = ();\n  #returns = #usize;\n  #body = ( (#return sYSTEM-ALLOCATION-ALIGNMENT)\n  );\n}\n";
+    let source = "#std\n#alias sYSTEM-ALLOCATION-ALIGNMENT = #std/system_allocator.lim::sYSTEM-ALLOCATION-ALIGNMENT\n#fn main {\n  #params = ();\n  #returns = #usize;\n  #body = ( (#return sYSTEM-ALLOCATION-ALIGNMENT)\n  );\n}\n";
     let root = fixture.write("main.lim", source);
+    lim::check_types(&lim::parse_program_from_path(source, &root).unwrap()).unwrap();
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
     client.open(&root, source);
     let target = client.definition(&root, source, "sYSTEM-ALLOCATION-ALIGNMENT");
-    let path = lsp::uri_to_path(target.get("uri").unwrap().string().unwrap()).unwrap();
+    client.clear(&root);
+    let path = lsp::uri_to_path(
+        target.get("uri").unwrap_or_else(|| panic!("missing bundled target: {target:?}"))
+            .string().unwrap(),
+    ).unwrap();
     let bundled = fs::read_to_string(&path).unwrap();
     assert_location(
         &target,
