@@ -28,7 +28,7 @@ fn run_storage(body: &str, label: &str, pinned: bool) {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ((seed 42u64))))
             (#let first Work::Poll

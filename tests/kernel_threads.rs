@@ -181,17 +181,17 @@ fn foreign_worker_calls_are_rejected_transitively() {
   #abi = #abi-c;
   #params = ((value #i32));
   #returns = #i32;
-}
+#effects = (#global-access #io); }
 #fn helper {
   #params = ();
   #returns = #i32;
-  #body = ( (#return (#unsafe (#unsafe-call abs ((value -42i32)))))
+  #effects = ((#effects-of abs)); #body = ( (#return (#unsafe (#unsafe-call abs ((value -42i32)))))
   );
 }
 #fn work {
   #params = ();
   #returns = #i32;
-  #body = ( (#return (#call helper ()))
+  #effects = ((#effects-of helper)); #body = ( (#return (#call helper ()))
   );
 }
 #generate #thread-spawn ((task Work) (worker work))\n";
@@ -327,7 +327,7 @@ fn trace_kernel_thread_lifecycle_and_inject_spawn_failures() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
               (#return (#match (#call Work::spawn ())
                 (#case (Work::SpawnResult.Ok task) (#panic))
                 (#case (Work::spawn-error error)
@@ -378,7 +378,7 @@ fn join_retries_transient_errors_and_retains_the_handle_on_other_errors() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#return (#match (#call Work::spawn ())
             (#case (Work::SpawnResult.Ok task)
               (#match (#call Work::join ((task task)))
@@ -427,7 +427,7 @@ fn writing_the_stack_guard_traps() {
     let source = format!("#fn work {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
         (#drop (#unsafe (#asm #u64 () \"mov rax, rsp\\nand rax, -4096\\nsub rax, 65536\\nmov bYTE PTR [rax], 1\")))
         (#return 42u64)
   );

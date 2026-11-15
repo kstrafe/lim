@@ -285,7 +285,7 @@ fn system_bundle_rejects_unsupported_alignment_without_losing_storage() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of SystemAllocator::Allocator::allocate) (#effects-of SystemAllocator::Allocator::deallocate) (#effects-of SystemAllocator::Allocator::grow) (#effects-of system-deallocate)); #body = (
             (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
             (#assert (#match (#call SystemAllocator::Allocator::allocate
               ((allocator (#borrow allocator)) (layout 16usize) (alignment 3usize)))

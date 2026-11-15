@@ -118,7 +118,7 @@ fn lifetime_only_pointer_anchor_cannot_prove_extracted_storage_absent_or_consume
 #fn opaque-extract {{
   #params = ((anchor (#ref-mut Cell)) (address (#ptr-mut Cell)));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let view (#ref-mut Cell) (#unsafe (#ptr-borrow-mut anchor address)))
           (#return (#call inspect ((output (#call extract ((source view)))))))\n  );\n}}\n"
     );

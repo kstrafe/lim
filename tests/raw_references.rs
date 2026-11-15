@@ -33,14 +33,14 @@ fn exact_reference_pointer_round_trip_preserves_nested_slice_contents() {
 #fn recover {
   #params = ((owner (#pin-ref (#slice #u64))));
   #returns = (#ref (#slice #u64));
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#return (#unsafe (#ptr-borrow owner (#ref-ptr owner))))
   );
 }
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of recover)); #body = (
           (#let backing (#array #u64 1) (#array-of (#array #u64 1) 42u64))
           (#let descriptor (#slice #u64) (#slice-of (#borrow backing)))
           (#let view (#ref (#slice #u64)) (#call recover ((owner (#pin-shared descriptor)))))
@@ -99,7 +99,7 @@ fn packed_scalar_references_access_exact_width_at_a_guard_page() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
               (#let base (#ptr-mut {ty}) (#unsafe (#linux-syscall (#ptr-mut {ty}) 9usize
                 (0usize 8192usize 3usize 34usize -1i64 0usize))))
               (#assert (#usize::lt (#ptr-address base) 18446744073709547521usize))
@@ -140,7 +140,7 @@ fn odd_byte_references_survive_calls_struct_storage_and_native_boundaries() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let base (#ptr-mut #u8) (#unsafe (#linux-syscall (#ptr-mut #u8) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
           (#assert (#usize::lt (#ptr-address base) 18446744073709547521usize))
@@ -179,7 +179,7 @@ fn word_backed_narrow_locals_and_heap_fields_still_store_canonical_words() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut local #i8 -1i8)
           (#call update ((field (#borrow-mut local))))
           (#assert (#i8::eq local 42i8))

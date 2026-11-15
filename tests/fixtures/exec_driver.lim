@@ -12,6 +12,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-execve) (#effects-of linux-execveat) (#effects-of linux-exit-group) (#effects-of linux-fork) (#effects-of linux-mmap) (#effects-of linux-munmap) (#effects-of linux-openat));
   #body = (
     (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
     // "target\0", followed by argv {path, NULL}, empty envp and empty path.

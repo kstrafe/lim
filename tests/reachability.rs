@@ -205,7 +205,7 @@ fn raw_assembly_symbol_calls_keep_their_callees() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ( (#return (#unsafe (#asm #u64 () \"call helper\")))\n  );\n}\n";
+  #effects = (#global-access #io); #body = ( (#return (#unsafe (#asm #u64 () \"call helper\")))\n  );\n}\n";
     let pruned = assembly(source, &scratch.path().join("main.lim"), true).unwrap();
     assert!(pruned.contains(".globl helper\n"));
     assert!(!pruned.contains(".globl unused\n"));

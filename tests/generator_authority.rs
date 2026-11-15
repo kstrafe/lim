@@ -198,7 +198,7 @@ fn identical_literals_from_one_definition_module_deduplicate() {
         "{}::secret",
         scratch.path().join("library/lib.lim").display()
     );
-    write(scratch.path(), "library/lib.lim", &format!("#export trusted forged\n#fn secret {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n#gn relay (name target) `((#fn ,name () #u64 (#return (#call ,target ()))))\n#gn trusted (name) `((#generate relay ,name @secret))\n#gn forged (name) `((#generate relay ,name ,(#gn-symbol {target:?})))\n"));
+    write(scratch.path(), "library/lib.lim", &format!("#export trusted forged\n#fn secret {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n#gn relay (name target) `((#fn ,name () #u64 (#effects ((#effects-of ,target))) (#return (#call ,target ()))))\n#gn trusted (name) `((#generate relay ,name @secret))\n#gn forged (name) `((#generate relay ,name ,(#gn-symbol {target:?})))\n"));
     for (first, second) in [("trusted", "forged"), ("forged", "trusted")] {
         check_modes(scratch.path(), &format!("#alias trusted = ./library/lib.lim::trusted\n#alias forged = ./library/lib.lim::forged\n#generate {first} generated-read\n#generate {second} generated-read\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}}\n"), None);
     }
@@ -207,7 +207,7 @@ fn identical_literals_from_one_definition_module_deduplicate() {
 #[test]
 fn equivalent_authority_from_two_templates_still_deduplicates() {
     let scratch = support::Scratch::new("generator-equivalent-authority");
-    write(scratch.path(), "library/lib.lim", "#export first second\n#fn secret {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#gn relay (name target) `((#fn ,name () #u64 (#return (#call ,target ()))))\n#gn first (name) `((#generate relay ,name @secret))\n#gn second (name) `((#generate relay ,name @secret))\n");
+    write(scratch.path(), "library/lib.lim", "#export first second\n#fn secret {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#gn relay (name target) `((#fn ,name () #u64 (#effects ((#effects-of ,target))) (#return (#call ,target ()))))\n#gn first (name) `((#generate relay ,name @secret))\n#gn second (name) `((#generate relay ,name @secret))\n");
     check_modes(scratch.path(), "#alias first = ./library/lib.lim::first\n#alias second = ./library/lib.lim::second\n#generate first generated-read\n#generate second generated-read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call generated-read ()))\n  );\n}\n", None);
 }
 
@@ -266,11 +266,11 @@ fn async_lowering_retains_generated_file_context_for_constructed_callees() {
 #[test]
 fn caller_library_authority_is_retained_alongside_template_authority() {
     let scratch = support::Scratch::new("generator-caller-library-authority");
-    write(scratch.path(), "generator/lib.lim", "#export relay\n#gn relay (name target) `((#fn ,name () #u64 (#return (#call ,target ()))))\n");
+    write(scratch.path(), "generator/lib.lim", "#export relay\n#gn relay (name target) `((#fn ,name () #u64 (#effects ((#effects-of ,target))) (#return (#call ,target ()))))\n");
     write(scratch.path(), "caller/lib.lim", "#export read\n#alias relay = ../generator/lib.lim::relay\n#fn secret {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#generate relay read secret\n");
     check_modes(
         scratch.path(),
-        "#alias read = ./caller/lib.lim::read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call read ()))\n  );\n}\n",
+        "#alias read = ./caller/lib.lim::read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of read)); #body = ( (#return (#call read ()))\n  );\n}\n",
         None,
     );
 }
@@ -285,7 +285,7 @@ fn private_reference_authority_does_not_remove_unsafe_call_requirements() {
 #[test]
 fn qualified_definition_and_invocation_names_keep_canonical_identity_under_two_aliases() {
     let scratch = support::Scratch::new("qualified-generator-contexts");
-    write(scratch.path(), "producer/lib.lim", "#export make\n#fn helper {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 2u64)\n  );\n}\n#gn make (name callback) `((#fn ,name () #u64 (#let base #u64 (#call @helper ())) (#let input #u64 (#call ,callback ())) (#return (#u64::add-wrap base input))))\n");
+    write(scratch.path(), "producer/lib.lim", "#export make\n#fn helper {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 2u64)\n  );\n}\n#gn make (name callback) `((#fn ,name () #u64 (#effects ((#effects-of ,callback))) (#let base #u64 (#call @helper ())) (#let input #u64 (#call ,callback ())) (#return (#u64::add-wrap base input))))\n");
     write(scratch.path(), "consumer/lib.lim", "#export read\n#alias make = ../producer/lib.lim::make\n#fn callback {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 40u64)\n  );\n}\n#generate make read @callback\n");
     let source = "#alias first = ./consumer/lib.lim::read\n#alias second = ./consumer/lib.lim::read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-wrap (#call first ()) (#call second ())))\n  );\n}\n";
     check_modes(scratch.path(), source, None);
@@ -384,7 +384,7 @@ fn private_invocation_references_fail_before_the_generator_executes() {
 #[test]
 fn nested_generator_does_not_inherit_an_ancestor_definition_modules_privileges() {
     let scratch = support::Scratch::new("non-transitive-generated-context");
-    write(scratch.path(), "inner/lib.lim", "#export relay\n#gn relay (name target) `((#fn ,name () #u64 (#return (#call ,target ()))))\n");
+    write(scratch.path(), "inner/lib.lim", "#export relay\n#gn relay (name target) `((#fn ,name () #u64 (#effects ((#effects-of ,target))) (#return (#call ,target ()))))\n");
     write(scratch.path(), "outer/lib.lim", "#export make\n#alias relay = ../inner/lib.lim::relay\n#fn secret {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#gn make (name) `((#generate relay ,name @secret))\n");
     check_modes(scratch.path(), "#alias make = ./outer/lib.lim::make\n#generate make generated-read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n", Some("private"));
 }
@@ -461,6 +461,6 @@ fn qualification_supports_exported_generated_targets_and_handwritten_forward_dec
         "library/lib.lim",
         "#export Future\n#gn make () `((#type Future #u64))\n#generate make\n",
     );
-    let source = "#alias Future = ./library/lib.lim::Future\n#gn alias (target) `((#type Alias ,target))\n#generate alias @Future\n#gn reader (target) `((#fn read () #u64 (#return (#call ,target ()))))\n#generate reader @later\n#fn later {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let answer Alias (#call read ())) (#return answer)\n  );\n}\n";
+    let source = "#alias Future = ./library/lib.lim::Future\n#gn alias (target) `((#type Alias ,target))\n#generate alias @Future\n#gn reader (target) `((#fn read () #u64 (#effects ((#effects-of ,target))) (#return (#call ,target ()))))\n#generate reader @later\n#fn later {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of read)); #body = ( (#let answer Alias (#call read ())) (#return answer)\n  );\n}\n";
     check_modes(scratch.path(), source, None);
 }

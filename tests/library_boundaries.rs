@@ -196,10 +196,10 @@ fn generated_references_cannot_guess_another_librarys_private_declarations() {
 #[test]
 fn standard_declarations_are_shared_through_multiple_aliases() {
     let scratch = support::Scratch::new("library-standard-instance-dedup");
-    write(scratch.path(), "numbers/lib.lim", "#export read\n#std\n#fn read {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let text String (#call String::new ())) (#call String::free ((string text))) (#return 42u64)\n  );\n}\n");
+    write(scratch.path(), "numbers/lib.lim", "#export read\n#std\n#fn read {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of String::free)); #body = ( (#let text String (#call String::new ())) (#call String::free ((string text))) (#return 42u64)\n  );\n}\n");
     check_cache_modes(scratch.path(), "#std\n#alias first@read = ./numbers/lib.lim::read\n#alias second@read = ./numbers/lib.lim::read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n", None);
     // Loading std through a library first preserves its identities and labels.
-    check_cache_modes(scratch.path(), "#alias first@read = ./numbers/lib.lim::read\n#alias second@read = ./numbers/lib.lim::read\n#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let text String (#call String::new ())) (#call String::free ((string text))) (#return 0u64)\n  );\n}\n", None);
+    check_cache_modes(scratch.path(), "#alias first@read = ./numbers/lib.lim::read\n#alias second@read = ./numbers/lib.lim::read\n#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of String::free)); #body = ( (#let text String (#call String::new ())) (#call String::free ((string text))) (#return 0u64)\n  );\n}\n", None);
 }
 
 #[test]
@@ -641,7 +641,7 @@ fn nested_dependency_exports_are_not_automatically_reexported() {
 #[test]
 fn externally_imported_assembly_preserves_physical_register_names() {
     let scratch = support::Scratch::new("library-assembly");
-    write(scratch.path(), "assembly.lim", "#fn identity {\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#asm #u64 ((rdi value)) \"mov rax, rdi\")))\n  );\n}\n");
+    write(scratch.path(), "assembly.lim", "#fn identity {\n  #params = ((value #u64));\n  #returns = #u64;\n  #effects = (#global-access #io); #body = ( (#return (#unsafe (#asm #u64 ((rdi value)) \"mov rax, rdi\")))\n  );\n}\n");
     check(scratch.path(), "main.lim", "#alias machine@identity = ./assembly.lim::identity\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call machine@identity ((value 42u64))))\n  );\n}\n").unwrap();
     write(
         scratch.path(),

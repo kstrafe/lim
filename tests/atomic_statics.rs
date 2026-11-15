@@ -15,7 +15,7 @@ const SOURCE: &str = r#"
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global readOnly) (#read-global small) (#write-global counts) (#write-global current) (#write-global total)); #body = (
     (#unsafe (#atomic-store (#borrow total) 42u64 #memory-relaxed))
     (#let old #u32 (#unsafe (#atomic-fetch-add
       (#borrow (#index (#get counts counters) 1usize)) 1u32 #memory-relaxed)))

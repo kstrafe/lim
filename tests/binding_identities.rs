@@ -111,7 +111,7 @@ fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate(
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global tOTAL)); #body = (
           (#let-mut local #u64 1u64)
           (#set local 2u64)
           (#block (#let inside #u32 4u32) inside)

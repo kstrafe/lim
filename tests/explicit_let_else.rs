@@ -344,7 +344,7 @@ fn compact_patterns_work_in_async_source_and_generated_poll_consumers() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ()))
           (#let-else (Work::Poll.Ready answer)

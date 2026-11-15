@@ -11,7 +11,7 @@ fn global_reference_origins_remain_in_scope_across_branches() {
 #fn select {
   #params = ((condition #bool));
   #returns = (#ref #u64);
-  #body = (
+  #effects = ((#read-global vALUE)); #body = (
           (#let result (#ref #u64)
             (#if condition
               (#block (#borrow vALUE))
@@ -22,7 +22,7 @@ fn global_reference_origins_remain_in_scope_across_branches() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of select)); #body = (
           (#return (#deref (#call select ((condition true)))))
   );
 }
@@ -64,7 +64,7 @@ fn global_types_are_visible_in_initializers_and_pattern_branches() {
 #fn pick {
   #params = ((value Value));
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global aNSWER) (#read-global bASE)); #body = (
           (#return (#match value
             (#case (Value.Number number) (#u64::add-wrap number bASE))
             (#case Value.Absent aNSWER)))
@@ -73,11 +73,11 @@ fn global_types_are_visible_in_initializers_and_pattern_branches() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ( (#return (#call pick ((value (Value.Number 2u64)))))
+  #effects = ((#effects-of pick)); #body = ( (#return (#call pick ((value (Value.Number 2u64)))))
   );
 }
     "#,
     )
     .unwrap();
-    assert!(assembly("#let vALUE #bool true\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return vALUE)\n  );\n}\n").is_err());
+    assert!(assembly("#let vALUE #bool true\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#read-global vALUE)); #body = ( (#return vALUE)\n  );\n}\n").is_err());
 }

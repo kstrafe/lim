@@ -102,7 +102,7 @@ fn extraction_does_not_retain_a_loan_and_reference_remains_writable() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let pointer (#ptr-mut #u64) (#call escape ()))
           (#assert (#bool::not (#ptr-is-null pointer)))
           (#let-mut value #u64 1u64)

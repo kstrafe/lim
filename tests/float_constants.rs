@@ -18,7 +18,7 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global pair) (#read-global values)); #body = (
           (#let runtimeRounded #f32 (#f32::sub (#f32::add 16777216.0f32 1.0f32) 16777216.0f32))
           (#assert (#f32::eq runtimeRounded runtimeRounded))
           (#assert (#f32::eq runtimeRounded 0.0f32))

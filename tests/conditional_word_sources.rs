@@ -19,7 +19,7 @@ fn pinned_extraction_from_disjoint_word_cell_preserves_neighbor_source() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let amount #u64 42u64)
           (#let-mut words (#array #u64 2) (#array-repeat 0u64))
           (#unsafe (#word-write Holder (#borrow-slice-mut words 0usize 1usize)
@@ -42,7 +42,7 @@ fn pinned_extraction_does_not_initialize_a_disjoint_word_cell() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let amount #u64 42u64)
           (#let-mut words (#array #u64 2) (#array-repeat 0u64))
           (#unsafe (#word-write Holder (#borrow-slice-mut words 0usize 1usize)
@@ -65,7 +65,7 @@ fn cloning_a_builtin_raw_pointer_preserves_disjoint_selector_facts() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut selector #u64 0u64)
           (#let-mut unrelated #u64 7u64)
           (#let pointer (#ptr-mut #u64) (#unsafe (#ref-ptr (#borrow-mut unrelated))))
@@ -88,14 +88,14 @@ fn custom_clone_through_a_raw_pointer_invalidates_selector_facts() {
 #fn Payload::clone {
   #params = ((value Payload));
   #returns = Payload;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#unsafe (#ptr-write (#get value target) 1u64)) (#return value)
   );
 }
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of Payload::clone)); #body = (
           (#let-mut selector #u64 0u64)
           (#let payload Payload (#struct-literal Payload
             ((target (#ref-ptr (#borrow-mut selector))))))
@@ -118,7 +118,7 @@ const RETURNED_FRAME: &str = "#struct Holder () ((value (#ref #u64)))
 #fn make {
   #params = ((value (#ref #u64)) (flag #bool));
   #returns = Frame;
-  #body = (
+  #effects = (#global-access #io); #body = (
       (#let-mut frame Frame (#struct-literal Frame
         ((state 0u64) (words (#array-repeat 0u64)))))
       (#if flag (#block
@@ -137,7 +137,7 @@ const RETURNED_FRAME: &str = "#struct Holder () ((value (#ref #u64)))
 #fn read {
   #params = ((frame Frame));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
       (#loop (#match (#get frame state)
         (#case 1 (#block
           (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice (#get frame words)))))
@@ -170,14 +170,14 @@ fn opaque_raw_write_revokes_returned_conditional_word_guarantee() {
 #fn opaque-write {{
   #params = ((target (#ptr-mut #u64)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
              (#unsafe (#ptr-write target 0u64)) (#return ())
   );
 }}
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of make) (#effects-of opaque-write)); #body = (
              (#let value #u64 42u64)
              (#let-mut frame Frame (#call make ((value (#borrow value)) (flag true))))
              (#let target (#ptr-mut #u64)
@@ -199,14 +199,14 @@ fn word_forget_alias_revokes_returned_conditional_word_guarantee() {
 #fn retire {{
   #params = ((words (#slice-mut #u64)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
              (#unsafe (#word-forget Holder words)) (#return ())
   );
 }}
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of make) (#effects-of retire)); #body = (
              (#let value #u64 42u64)
              (#let-mut frame Frame (#call make ((value (#borrow value)) (flag true))))
              (#call retire ((words (#borrow-slice-mut (#get frame words)))))
@@ -244,7 +244,7 @@ fn absent_owned_enum_payload_does_not_create_a_nested_write_footprint() {
 #fn read {
   #params = ((frame (#ref Frame)));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#return (#match (#get frame state)
             (#case 0 42u64)
             (#case _ (#block
@@ -256,7 +256,7 @@ fn absent_owned_enum_payload_does_not_create_a_nested_write_footprint() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of read)); #body = (
           (#let-mut frame Frame (#struct-literal Frame ((state 0u64) (words (#array-repeat 0u64)))))
           (#call mutate ((handle (#call empty ()))))
           (#let-mut unrelated #u64 0u64)
@@ -298,7 +298,7 @@ const CONDITIONAL_SCALAR_OUTCOME: &str = "#struct Holder () ((value (#ref #u64))
 #fn read {
   #params = ((frame Frame));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
       (#loop (#match (#get frame state)
         (#case 1 (#block
           (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice (#get frame words)))))

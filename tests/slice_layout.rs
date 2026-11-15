@@ -155,7 +155,7 @@ fn static_array_borrow_to_slice_in_helper() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global global-values)); #body = (
     (#return (#unsafe
       (#call read-third ((values (#borrow global-values))))))
   );

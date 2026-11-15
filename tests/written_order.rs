@@ -6,7 +6,7 @@ const TRACE: &str = "
 #fn mark {
   #params = ((byte #u8) (value #u64));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
       (#let written #i64 (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))))
       (#assert (#i64::eq written 1i64)) (#return value)\n  );\n}\n";
 
@@ -78,7 +78,7 @@ fn labels_route_values_without_reordering_effects_even_if_signature_changes() {
 #fn subtract {{
   #params = ({parameters});
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of mark)); #body = (
               (#call mark ((byte 67u8) (value 0u64)))
               (#return (#u64::sub-wrap left right))
   );
@@ -86,7 +86,7 @@ fn labels_route_values_without_reordering_effects_even_if_signature_changes() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#return (#call subtract
+  #effects = ((#effects-of mark) (#effects-of subtract)); #body = ( (#return (#call subtract
               ((right (#call mark ((byte 65u8) (value 2u64))))
                (left (#call mark ((byte 66u8) (value 44u64)))))))\n  );\n}}\n"
         );
@@ -104,7 +104,7 @@ fn struct_layout_and_projection_keep_written_initialization_effects() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of mark)); #body = (
           (#let pair Pair (#struct-literal Pair
             ((right (#call mark ((byte 65u8) (value 2u64))))
              (left (#call mark ((byte 66u8) (value 44u64)))))))
@@ -127,7 +127,7 @@ fn strict_intrinsic_roles_survive_reversed_evaluation() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of mark)); #body = (
         (#return (#call #u64::sub-wrap
           ((right (#call mark ((byte 65u8) (value 2u64))))
            (left (#call mark ((byte 66u8) (value 44u64)))))))
@@ -146,20 +146,20 @@ fn a_nonreturning_argument_stops_later_values_and_callee_entry() {
 #fn fail {{
   #params = ();
   #returns = #u64;
-  #body = ( (#call mark ((byte 65u8) (value 0u64))) (#return (#panic))
+  #effects = ((#effects-of mark)); #body = ( (#call mark ((byte 65u8) (value 0u64))) (#return (#panic))
   );
 }}
 #fn callee {{
   #params = ((left #u64) (right #u64));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of mark)); #body = (
           (#return (#call mark ((byte 67u8) (value 42u64))))
   );
 }}
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#return (#call callee
+  #effects = ((#effects-of callee) (#effects-of fail) (#effects-of mark)); #body = ( (#return (#call callee
           ((right (#call fail ()))
            (left (#call mark ((byte 66u8) (value 0u64)))))))\n  );\n}}\n"
         ),

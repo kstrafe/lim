@@ -288,7 +288,7 @@ fn unsupported_primitives_fail_closed_and_link_failures_preserve_output() {
         "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let f #f64 1.0f64) (#return 42u64)\n  );\n}\n",
         "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let n #u128 1u128) (#return 42u64)\n  );\n}\n",
         "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-saturate 40u64 2u64))\n  );\n}\n",
-        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#asm #u64 () \"mov x0, #42\")))\n  );\n}\n",
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = (#global-access #io); #body = ( (#return (#unsafe (#asm #u64 () \"mov x0, #42\")))\n  );\n}\n",
     ] {
         let program = lim::parse_program(source).unwrap();
         let error = lim::generate_assembly_for_target(&program, TARGET).unwrap_err();

@@ -154,7 +154,7 @@ fn slice_validation_and_scalar_iteration_match_the_rust_utf8_oracle() {
 fn every_subview_range_matches_rust_boundaries_for_both_storage_layouts() {
     let bytes = "A\0é€😀!".as_bytes();
     let mut base = format!(
-        "#std\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n  (#let bytes (#array #u8 {}) (#array-of (#array #u8 {}) {}))\n",
+        "#std\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of String::from-utf8) (#effects-of String::free) (#effects-of String::view) (#effects-of StringView::subview)); #body = (\n  (#let bytes (#array #u8 {}) (#array-of (#array #u8 {}) {}))\n",
         bytes.len(),
         bytes.len(),
         bytes
@@ -199,7 +199,7 @@ fn nested_views_and_iterators_keep_the_source_borrow_not_temporary_containers() 
 #fn middle {
   #params = ((owner (#ref String)));
   #returns = StoredView;
-  #body = (
+  #effects = ((#effects-of String::view) (#effects-of StringView::subview)); #body = (
           (#let parent StringView (#call String::view ((string owner))))
           (#let child StringView (#match (#call StringView::subview ((view (#borrow parent)) (start 1usize) (end 3usize)))
             (#case (StringView::Result.Valid selected) selected) (#case _ (#panic))))
@@ -210,7 +210,7 @@ fn nested_views_and_iterators_keep_the_source_borrow_not_temporary_containers() 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::from-chars) (#effects-of StringView::Chars::next) (#effects-of StringView::subview) (#effects-of middle)); #body = (
           (#let chars (#array #char 3) "Aé!")
           (#let-mut text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
             (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
@@ -241,7 +241,7 @@ fn empty_string_view_and_empty_subview_retain_borrows_and_iterate_to_end() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::view) (#effects-of StringView::Chars::next) (#effects-of StringView::subview)); #body = (
         (#let text String (#call String::new ()))
         (#let whole StringView (#call String::view ((string (#borrow text)))))
         (#assert (#call StringView::is-empty ((view (#borrow whole)))))
@@ -295,8 +295,8 @@ fn string_and_slice_views_reject_mutation_destruction_and_source_escape() {
         }
     }
     for (label, source) in [
-        ("iterator", "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut text String (#call String::new ())) (#let whole StringView (#call String::view ((string (#borrow text))))) (#let-mut iterator StringView::Chars (#call StringView::chars ((view whole)))) (#call String::free ((string text))) (#call StringView::Chars::next ((iterator (#borrow-mut iterator)))) (#forget iterator) (#return 42u64)\n  );\n}\n"),
-        ("returned", "#std\n#fn bad {\n  #params = ();\n  #returns = StringView;\n  #body = ( (#let text String (#call String::new ())) (#let view StringView (#call String::view ((string (#borrow text))))) (#forget text) (#return view)\n  );\n}\n"),
+        ("iterator", "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of String::free) (#effects-of String::view) (#effects-of StringView::Chars::next)); #body = ( (#let-mut text String (#call String::new ())) (#let whole StringView (#call String::view ((string (#borrow text))))) (#let-mut iterator StringView::Chars (#call StringView::chars ((view whole)))) (#call String::free ((string text))) (#call StringView::Chars::next ((iterator (#borrow-mut iterator)))) (#forget iterator) (#return 42u64)\n  );\n}\n"),
+        ("returned", "#std\n#fn bad {\n  #params = ();\n  #returns = StringView;\n  #effects = ((#effects-of String::view)); #body = ( (#let text String (#call String::new ())) (#let view StringView (#call String::view ((string (#borrow text))))) (#forget text) (#return view)\n  );\n}\n"),
         ("slice", "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view Utf8Slice (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic)))) (#let change (#ref-mut (#array #u8 1)) (#borrow-mut bytes)) (#call Utf8Slice::len ((view (#borrow view)))) (#forget view) (#return 42u64)\n  );\n}\n"),
         ("slice-returned", "#std\n#fn bad {\n  #params = ();\n  #returns = Utf8Slice;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#return (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic))))\n  );\n}\n"),
     ] {

@@ -19,7 +19,7 @@ fn declaration_ids_are_stable_across_independent_parses() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global tOTAL)); #body = (
           (#let value Alpha (#struct-literal Alpha ((shared 2u32))))
           (#let other Zebra (#struct-literal Zebra ((shared 3u64))))
           (#return (#u64::add-wrap
@@ -138,7 +138,7 @@ fn global_and_local_references_have_distinct_declaration_kinds() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global tOTAL)); #body = (
           (#return (#unsafe tOTAL))\n  );\n}\n";
     let dump = checked_dump(source);
     let parameter_dump = dump
@@ -299,7 +299,7 @@ fn scoped_statement_destinations_do_not_alias_same_spelled_initializer_patterns(
 #[test]
 fn actual_static_access_still_requires_unsafe_and_points_at_its_name() {
     let scratch = support::Scratch::new("static-unsafe");
-    let source = "#static tOTAL #u64 40u64\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return tOTAL)\n  );\n}\n";
+    let source = "#static tOTAL #u64 40u64\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#read-global tOTAL)); #body = ( (#return tOTAL)\n  );\n}\n";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("static-unsafe.lim"),
@@ -316,7 +316,7 @@ fn actual_static_access_still_requires_unsafe_and_points_at_its_name() {
 #[test]
 fn imported_static_access_retains_its_imported_source_location() {
     let scratch = support::Scratch::new("imported-static-unsafe");
-    let module = "#static tOTAL #u64 40u64\n#fn read {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return tOTAL)\n  );\n}\n";
+    let module = "#static tOTAL #u64 40u64\n#fn read {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#read-global tOTAL)); #body = ( (#return tOTAL)\n  );\n}\n";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
     let root = "#alias read = ./module.lim::read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call read ()))\n  );\n}\n";
     let error = lim::compile_source_to_assembly(
@@ -347,7 +347,7 @@ fn imported_static_access_retains_its_imported_source_location() {
 fn generated_static_access_still_requires_unsafe() {
     let scratch = support::Scratch::new("generated-static-unsafe");
     let source =
-        "#gn make (name) `((#static tOTAL #u64 1u64) (#fn ,name () #u64 (#return tOTAL)))\n\
+        "#gn make (name) `((#static tOTAL #u64 1u64) (#fn ,name () #u64 (#effects ((#read-global tOTAL))) (#return tOTAL)))\n\
       #generate make read\n\
       #fn main {
   #params = ();
@@ -387,11 +387,11 @@ fn imported_declaration_nodes_retain_source_spans_and_deterministic_ids() {
 #fn imported {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global bASE)); #body = (
   (#return (#u64::add-wrap (#get (#struct-literal Record ((value 40u64))) value) (#unsafe bASE)))
   );\n}\n";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let root = "#alias imported = ./module.lim::imported\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call imported ()))\n  );\n}\n";
+    let root = "#alias imported = ./module.lim::imported\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of imported)); #body = ( (#return (#call imported ()))\n  );\n}\n";
     let path = scratch.path().join("main.lim");
     let parse_dump = || {
         let program = lim::parse_program_from_path(root, &path).expect("parse imported source");

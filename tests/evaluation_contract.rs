@@ -8,7 +8,7 @@ fn named_fields_calls_and_control_flow_follow_the_documented_evaluation_order() 
 #fn mark {
   #params = ((value #u64));
   #returns = #u64;
-  #body = (
+  #effects = ((#write-global trace)); #body = (
           (#let previous #u64 (#unsafe (#atomic-load (#borrow trace) #memory-relaxed)))
           (#unsafe (#atomic-store (#borrow trace) (#u64::add-wrap (#u64::mul-wrap previous 10u64) value) #memory-relaxed))
           (#return value)
@@ -29,7 +29,7 @@ fn named_fields_calls_and_control_flow_follow_the_documented_evaluation_order() 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of mark) (#write-global trace)); #body = (
           (#assert (#u64::eq (#call combine ((second (#call mark ((value 2u64)))) (first (#call mark ((value 1u64)))))) 12u64))
           (#assert (#u64::eq (#unsafe (#atomic-load (#borrow trace) #memory-relaxed)) 21u64))
           (#unsafe (#atomic-store (#borrow trace) 0u64 #memory-relaxed))

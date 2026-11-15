@@ -87,7 +87,7 @@ fn referenced_tuple_fields_keep_layout_direction_and_evaluate_receivers_once() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let view ({ty} {tuple}) ({borrow} values))
+  #effects = ((#read-global values)); #body = ( (#let view ({ty} {tuple}) ({borrow} values))
                   (#assert (#u128::eq (#get view 0) 18446744073709551617u128))
                   (#assert (#f64::eq (#get view 1) 3.5f64)) (#return (#get view 2))
   );\n}}\n"
@@ -335,7 +335,7 @@ fn object_rodata_relocations_resolve_into_the_read_only_segment() {
     )
     .unwrap();
     let program = lim::parse_program(
-        "#extern-fn  read_constant {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_constant ())))\n  );\n}\n",
+        "#extern-fn  read_constant {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of read_constant)); #body = ( (#return (#unsafe (#unsafe-call read_constant ())))\n  );\n}\n",
     )
     .unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
@@ -707,7 +707,7 @@ fn syscall_library_binary_has_no_interpreter_or_dynamic_dependencies() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of linux-write-byte)); #body = (
             (#let letter #u8 83u8)
             (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
             (#return 42u64)\n  );\n}}\n",
@@ -726,7 +726,7 @@ fn unused_external_declarations_do_not_require_a_c_runtime() {
   #abi = #abi-c;
   #params = ((value #i32));
   #returns = #i32;
-}
+#effects = (#global-access #io); }
 #fn main {
   #params = ();
   #returns = #u64;
@@ -796,7 +796,7 @@ fn missing_foreign_symbol_preserves_existing_binary() {
     let binary = compile("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n", scratch.path(), &[]);
     let original = fs::read(&binary).unwrap();
     let program = lim::parse_program(
-        "#extern-fn  lim_symbol_that_does_not_exist {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call lim_symbol_that_does_not_exist ())))\n  );\n}\n"
+        "#extern-fn  lim_symbol_that_does_not_exist {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of lim_symbol_that_does_not_exist)); #body = ( (#return (#unsafe (#unsafe-call lim_symbol_that_does_not_exist ())))\n  );\n}\n"
     ).unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let error = lim::link_native_binary(
@@ -815,7 +815,7 @@ fn missing_foreign_symbol_preserves_existing_binary() {
 
     let input = scratch.path().join("missing.lim");
     fs::write(&input,
-        "#extern-fn  lim_symbol_that_does_not_exist {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call lim_symbol_that_does_not_exist ())))\n  );\n}\n"
+        "#extern-fn  lim_symbol_that_does_not_exist {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of lim_symbol_that_does_not_exist)); #body = ( (#return (#unsafe (#unsafe-call lim_symbol_that_does_not_exist ())))\n  );\n}\n"
     ).unwrap();
     let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg(&input)
@@ -989,7 +989,7 @@ fn supplied_static_object_links_bidirectionally_without_build_tools() {
     let input = scratch.path().join("main.lim");
     fs::write(
         &input,
-        "#extern-fn  helper {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn supplier {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call helper ())))\n  );\n}\n",
+        "#extern-fn  helper {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn supplier {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of helper)); #body = ( (#return (#unsafe (#unsafe-call helper ())))\n  );\n}\n",
     )
     .unwrap();
     let binary = scratch.path().join("program");
@@ -1096,7 +1096,7 @@ fn supplied_object_data_and_bss_use_a_writable_segment() {
     .unwrap();
     let input = scratch.path().join("main.lim");
     fs::write(&input,
-        "#extern-fn  provided_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call provided_value ())))\n  );\n}\n"
+        "#extern-fn  provided_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of provided_value)); #body = ( (#return (#unsafe (#unsafe-call provided_value ())))\n  );\n}\n"
     ).unwrap();
     let binary = scratch.path().join("program");
     let output = Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -1189,7 +1189,7 @@ fn supplied_object_with_data_and_libc_import_links_without_tools() {
     )
     .unwrap();
     let input = scratch.path().join("main.lim");
-    fs::write(&input, "#extern-fn  provided_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call provided_value ())))\n  );\n}\n").unwrap();
+    fs::write(&input, "#extern-fn  provided_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of provided_value)); #body = ( (#return (#unsafe (#unsafe-call provided_value ())))\n  );\n}\n").unwrap();
     let binary = scratch.path().join("program");
     let output = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg(&input)
@@ -1213,7 +1213,7 @@ fn supplied_object_with_data_and_libc_import_links_without_tools() {
 fn pic_object_got_relocations_resolve_local_and_foreign_addresses() {
     let scratch = support::Scratch::new("internal-pic-object-link");
     let input = scratch.path().join("main.lim");
-    fs::write(&input, "#extern-fn  provided_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call provided_value ())))\n  );\n}\n").unwrap();
+    fs::write(&input, "#extern-fn  provided_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of provided_value)); #body = ( (#return (#unsafe (#unsafe-call provided_value ())))\n  );\n}\n").unwrap();
     for (name, code, symbol, expected_dynamic) in [
         (
             "local",
@@ -1403,7 +1403,7 @@ fn external_data_pc32_uses_an_internal_copy_relocation() {
     )
     .unwrap();
     let input = scratch.path().join("main.lim");
-    fs::write(&input, "#extern-fn  read_data {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_data ())))\n  );\n}\n").unwrap();
+    fs::write(&input, "#extern-fn  read_data {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of read_data)); #body = ( (#return (#unsafe (#unsafe-call read_data ())))\n  );\n}\n").unwrap();
     let binary = scratch.path().join("program");
     let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg(&input)
@@ -1489,7 +1489,7 @@ fn writable_object_data_can_hold_a_shared_library_symbol_address() {
         ),
     )
     .unwrap();
-    let program = lim::parse_program("#extern-fn  read_data {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_data ())))\n  );\n}\n").unwrap();
+    let program = lim::parse_program("#extern-fn  read_data {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of read_data)); #body = ( (#return (#unsafe (#unsafe-call read_data ())))\n  );\n}\n").unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let binary = scratch.path().join("program");
     lim::link_native_binary(
@@ -1569,7 +1569,7 @@ fn unresolved_weak_object_symbol_resolves_to_zero_without_a_library() {
         ),
     )
     .unwrap();
-    let program = lim::parse_program("#extern-fn  read_weak {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_weak ())))\n  );\n}\n").unwrap();
+    let program = lim::parse_program("#extern-fn  read_weak {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of read_weak)); #body = ( (#return (#unsafe (#unsafe-call read_weak ())))\n  );\n}\n").unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let binary = scratch.path().join("program");
     lim::link_native_binary(
@@ -1664,7 +1664,7 @@ fn pc_relative_foreign_data_relocations_work_from_writable_sections() {
             ),
         )
         .unwrap();
-        let program = lim::parse_program("#extern-fn  read_data {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_data ())))\n  );\n}\n").unwrap();
+        let program = lim::parse_program("#extern-fn  read_data {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of read_data)); #body = ( (#return (#unsafe (#unsafe-call read_data ())))\n  );\n}\n").unwrap();
         let assembly = lim::generate_assembly(&program).unwrap();
         let binary = scratch.path().join(name);
         lim::link_native_binary(

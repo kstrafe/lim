@@ -137,7 +137,7 @@ fn explicit_literals_work_inside_async_generator_functions() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::poll)); #body = ( (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ()))
           (#let-else (Work::Poll.Ready value)
             (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
@@ -162,7 +162,7 @@ fn globals_unit_payloads_and_same_spelled_user_functions_are_distinct() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global gLOBAL)); #body = (
           (#let marker Answer (#enum-literal Answer.Marker ()))
           (#forget marker)
           (#return (#match gLOBAL (#case (Answer.Number value)

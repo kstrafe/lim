@@ -57,7 +57,7 @@ fn scalar_reader_reachability_is_preserved_and_invalidated_on_cache_hits() {
 #fn answer {
   #params = ((words (#slice #u64)));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let selector #u64 1u64)
           (#return (#match selector
             (#case 0 (#block
@@ -70,7 +70,7 @@ fn scalar_reader_reachability_is_preserved_and_invalidated_on_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of answer)); #body = (
         (#let words (#array #u64 1) (#array-repeat 0u64))
         (#let amount #u64 (#call answer ((words (#borrow-slice words)))))
         (#forget words) (#return amount)\n  );\n}\n";
@@ -108,14 +108,14 @@ fn imported_word_owners_retain_pointee_loans_on_cache_hits() {
 #fn restore {
   #params = ((storage (#ref-mut Words)));
   #returns = (#pin-own Holder);
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words)))))
   );
 }
 #fn forward {
   #params = ((storage (#ref-mut Words)));
   #returns = (#pin-own Holder);
-  #body = (
+  #effects = ((#effects-of restore)); #body = (
           (#return (#call restore ((storage storage))))\n  );\n}\n",
     )
     .unwrap();
@@ -125,7 +125,7 @@ fn imported_word_owners_retain_pointee_loans_on_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut amount #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -159,7 +159,7 @@ fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
 #fn convert {
   #params = ((storage (#ref-mut Words)));
   #returns = Output;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
           (#return (#match input (#case (Input.NoInput) (Output.NoOutput)) (#case (Input.HasInput owner) (Output.HasOutput owner))))
   );
@@ -167,7 +167,7 @@ fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
 #fn forward {
   #params = ((storage (#ref-mut Words)));
   #returns = Output;
-  #body = (
+  #effects = ((#effects-of convert)); #body = (
           (#return (#call convert ((storage storage))))\n  );\n}\n      ").unwrap();
     let source = "#alias Input = ./lib.lim::Input
 #alias Output = ./lib.lim::Output
@@ -176,7 +176,7 @@ fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut storage Words (#struct-literal Words ((words (#array-repeat 0u64)))))
           (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.NoInput)))
           (#let output Output (#call forward ((storage (#borrow-mut storage)))))
@@ -215,7 +215,7 @@ fn imported_optional_word_results_preserve_absent_and_live_sources() {
 #fn convert {
   #params = ((storage (#ref-mut Words)));
   #returns = Output;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
           (#return (#match input (#case (Input.NoInput) (Output.NoOutput)) (#case (Input.HasInput view) (Output.HasOutput view))))
   );
@@ -223,7 +223,7 @@ fn imported_optional_word_results_preserve_absent_and_live_sources() {
 #fn forward {
   #params = ((storage (#ref-mut Words)));
   #returns = Output;
-  #body = (
+  #effects = ((#effects-of convert)); #body = (
           (#return (#call convert ((storage storage))))\n  );\n}\n").unwrap();
     let source = "#alias Input = ./lib.lim::Input
 #alias Output = ./lib.lim::Output
@@ -232,7 +232,7 @@ fn imported_optional_word_results_preserve_absent_and_live_sources() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut amount #u64 42u64)
           (#let-mut storage Words (#struct-literal Words ((words (#array-repeat 0u64)))))
           (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (Input.NoInput)))
@@ -284,21 +284,21 @@ fn imported_typed_word_view_cleanup_exports_physical_tags_and_loans() {
 #fn clear-storage {
   #params = ((storage (#ref-mut Storage)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#call clear ((slot (#unsafe (#word-view (#pin-ref-mut Cell) (#borrow-slice-mut (#get storage words) 1usize 3usize))))))
           (#unsafe (#word-forget (#array #u64 2) (#borrow-slice-mut (#get storage words) 1usize 3usize)))
           (#return ())
   );
 }
 #fn forward {
-  #params = ((storage (#ref-mut Storage)));\n  #returns = ();\n  #body = (\n          (#call clear-storage ((storage storage))) (#return ())\n  );\n}\n").unwrap();
+  #params = ((storage (#ref-mut Storage)));\n  #returns = ();\n  #effects = ((#effects-of clear-storage)); #body = (\n          (#call clear-storage ((storage storage))) (#return ())\n  );\n}\n").unwrap();
     let source = "#alias Cell = ./lib.lim::Cell
 #alias Storage = ./lib.lim::Storage
 #alias forward = ./lib.lim::forward
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut amount #u64 40u64)
           (#let-mut storage Storage (#struct-literal Storage ((words (#array-repeat 0u64)))))
           (#unsafe (#word-write Cell (#borrow-slice-mut (#get storage words) 1usize 3usize) (Cell.Occupied (#borrow amount))))
@@ -334,10 +334,10 @@ fn imported_conditional_word_input_guards_survive_cache_hits() {
 #fn inspect {
   #params = ((words (#slice #u64)));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let value Cell (#unsafe (#word-read Cell words)))
           (#return (#match value (#case (Cell.Vacant) 42u64) (#case (Cell.Occupied view) (#deref view))))
-  );\n}\n#fn forward {\n  #params = ((words (#slice #u64)));\n  #returns = #u64;\n  #body = (\n          (#return (#call inspect ((words words))))\n  );\n}\n",
+  );\n}\n#fn forward {\n  #params = ((words (#slice #u64)));\n  #returns = #u64;\n  #effects = ((#effects-of inspect)); #body = (\n          (#return (#call inspect ((words words))))\n  );\n}\n",
     )
     .unwrap();
     let config = CompileConfig::default();
@@ -346,7 +346,7 @@ fn imported_conditional_word_input_guards_survive_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let amount #u64 42u64)
           (#let-mut words (#array #u64 4) (#array-repeat 0u64))
           (#unsafe (#word-write Cell (#borrow-slice-mut words 1usize 3usize) (Cell.Vacant)))
@@ -378,14 +378,14 @@ fn imported_word_constructor_facts_survive_cache_hits() {
 #fn initialize {
   #params = ((words (#slice-mut #u64)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#unsafe (#word-write Cell words (Cell.Vacant))) (#return ())
   );
 }
 #fn initialize-and-read {
   #params = ((words (#ref-mut (#array #u64 2))));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#unsafe (#word-write Cell (#borrow-slice-mut (#deref words)) (Cell.Vacant)))
           (#let cell Cell (#unsafe (#word-read Cell (#borrow-slice (#deref words)))))
           (#forget cell) (#return ())\n  );\n}\n",
@@ -398,7 +398,7 @@ fn imported_word_constructor_facts_survive_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of initialize) (#effects-of initialize-and-read)); #body = (
           (#let-mut words (#array #u64 4) (#array-repeat 0u64))
           (#call initialize ((words (#borrow-slice-mut words 1usize 3usize))))
           (#let cell Cell (#unsafe (#word-take Cell (#borrow-slice-mut words 1usize 3usize))))
@@ -451,7 +451,7 @@ fn imported_typed_word_view_consumer_maps_geometry_on_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut words (#array #u64 4) (#array-repeat 0u64))
           (#unsafe (#word-write Buffer (#borrow-slice-mut words)
             (#struct-literal Buffer ((prefix 40u64) (slot (Slot.Full (#struct-literal Token ((amount 7u64))))) (suffix 2u64)))))
@@ -474,7 +474,7 @@ fn imported_word_forget_retires_numeric_slot_loans_on_cache_hits() {
         "#fn retire {
   #params = ((words (#slice-mut #u64)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
             (#unsafe (#word-forget (#array #u64 1) words)) (#return ())\n  );\n}\n",
     )
     .unwrap();
@@ -482,7 +482,7 @@ fn imported_word_forget_retires_numeric_slot_loans_on_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of retire)); #body = (
           (#let-mut seed #u64 0u64)
           (#let-mut words (#array #u64 1) (#array-repeat 0u64))
           (#unsafe (#word-write (#ref-mut #u64) (#borrow-slice-mut words) (#borrow-mut seed)))
@@ -528,7 +528,7 @@ fn imported_word_writer_retains_real_loans_on_cache_hits() {
 #fn store {
   #params = ((words (#slice-mut #u64)) (source (#ref #u64)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
              (#unsafe (#word-write Holder words (#struct-literal Holder ((value source)))))
              (#return ())\n  );\n}\n",
     )
@@ -538,7 +538,7 @@ fn imported_word_writer_retains_real_loans_on_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of store)); #body = (
           (#let-mut seed #u64 42u64)
           (#let-mut words (#array #u64 2) (#array-repeat 0u64))
           (#call store ((words (#borrow-slice-mut words 1usize 2usize)) (source (#borrow seed))))
@@ -570,7 +570,7 @@ fn imported_word_reader_checks_required_loans_after_cache_hits() {
 #fn read {
   #params = ((words (#slice #u64)));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
              (#let restored Holder (#unsafe (#word-read Holder words)))
              (#let answer #u64 (#deref (#get restored value)))
              (#forget restored) (#return answer)\n  );\n}\n",
@@ -581,7 +581,7 @@ fn imported_word_reader_checks_required_loans_after_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut seed #u64 42u64)
           (#let-mut words (#array #u64 1) (#array-repeat 0u64))
           (#unsafe (#word-write Holder (#borrow-slice-mut words)
@@ -614,7 +614,7 @@ fn imported_by_value_word_reader_preserves_requirements_after_cache_hits() {
 #fn read {
   #params = ((incoming Storage));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
              (#let-mut extracted (#array #u64 2) (#get incoming words))
              (#forget incoming)
              (#let restored Holder (#unsafe
@@ -629,7 +629,7 @@ fn imported_by_value_word_reader_preserves_requirements_after_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let seed #u64 42u64)
           (#let-mut stored Storage (#struct-literal Storage
             ((words (#array-repeat 0u64)))))
@@ -673,7 +673,7 @@ fn imported_word_take_preserves_transferred_loans_and_source_retirement() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut seed #u64 42u64)
           (#let-mut words (#array #u64 1) (#array-repeat 0u64))
           (#unsafe (#word-write Holder (#borrow-slice-mut words)
@@ -730,7 +730,7 @@ fn imported_nested_word_view_projection_preserves_loans_after_cache_hits() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut seed #u64 42u64)
           (#let-mut words (#array #u64 1) (#array-repeat 0u64))
           (#unsafe (#word-write Outer (#borrow-slice-mut words)

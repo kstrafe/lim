@@ -10,7 +10,7 @@ fn run(source: &str) -> String {
 #fn print-trace {{
   #params = ((text (#slice #char)));
   #returns = ();
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::from-chars) (#effects-of std-println)); #body = (
           (#let owned String (#match (#call String::from-chars (($ text)))
             (#case (StringCreateResult.StringCreated string) string)
             (#case (StringCreateResult.StringCreateFailed error) (#panic))))
@@ -42,7 +42,7 @@ fn executing_lines_distinguish_repeated_calls() {
     let source = "#fn third {
   #params = ();
   #returns = ();
-  #body = (
+  #effects = ((#effects-of print-trace)); #body = (
     (#call print-trace ((text (#call-graph))))
     (#return ())
   );
@@ -50,7 +50,7 @@ fn executing_lines_distinguish_repeated_calls() {
 #fn second {
   #params = ();
   #returns = ();
-  #body = (
+  #effects = ((#effects-of third)); #body = (
     (#call third ())
     (#return ())
   );
@@ -58,7 +58,7 @@ fn executing_lines_distinguish_repeated_calls() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of second)); #body = (
     (#call second ())
     (#call second ())
     (#return 42u64)\n  );\n}\n";
@@ -73,7 +73,7 @@ fn main_trace_and_live_distinct_trace_sites() {
     let source = "#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of print-trace)); #body = (
     (#let first (#slice #char) (#call-graph))
     (#let second (#slice #char) (#call-graph))
     (#call print-trace ((text first)))
@@ -87,7 +87,7 @@ fn only_the_executed_branch_appears() {
     let source = "#fn leaf {
   #params = ();
   #returns = ();
-  #body = (
+  #effects = ((#effects-of print-trace)); #body = (
     (#call print-trace ((text (#call-graph))))
     (#return ())
   );
@@ -95,7 +95,7 @@ fn only_the_executed_branch_appears() {
 #fn left {
   #params = ();
   #returns = ();
-  #body = (
+  #effects = ((#effects-of leaf)); #body = (
     (#call leaf ())
     (#return ())
   );
@@ -103,7 +103,7 @@ fn only_the_executed_branch_appears() {
 #fn right {
   #params = ();
   #returns = ();
-  #body = (
+  #effects = ((#effects-of leaf)); #body = (
     (#call leaf ())
     (#return ())
   );
@@ -111,7 +111,7 @@ fn only_the_executed_branch_appears() {
 #fn choose {
   #params = ((condition #bool));
   #returns = ();
-  #body = (
+  #effects = ((#effects-of left) (#effects-of right)); #body = (
     (#if condition (#call left ()) (#call right ()))
     (#return ())
   );
@@ -119,7 +119,7 @@ fn only_the_executed_branch_appears() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of choose)); #body = (
     (#call choose ((condition true)))
     (#call choose ((condition false)))
     (#return 42u64)\n  );\n}\n";
@@ -135,7 +135,7 @@ fn implicit_clone_hooks_participate_in_the_chain() {
 #fn Value::clone {
   #params = ((value Value));
   #returns = Value;
-  #body = (
+  #effects = ((#effects-of print-trace)); #body = (
     (#call print-trace ((text (#call-graph))))
     (#return value)
   );
@@ -143,7 +143,7 @@ fn implicit_clone_hooks_participate_in_the_chain() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Value::clone)); #body = (
     (#let value Value (#struct-literal Value ((number 42u64))))
     (#let copied Value (#clone value))
     (#return (#get copied number))\n  );\n}\n";
@@ -155,7 +155,7 @@ fn thread_workers_receive_owned_caller_contexts() {
     let source = "#fn worker {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of print-trace)); #body = (
     (#call print-trace ((text (#call-graph))))
     (#return 42u64)
   );
@@ -164,7 +164,7 @@ fn thread_workers_receive_owned_caller_contexts() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
     (#let-else (Task::SpawnResult.Ok running) Task::SpawnResult
       (#call Task::spawn ())
       (#panic))
@@ -179,19 +179,19 @@ fn async_validation_witnesses_keep_their_original_checks() {
     let source = "#fn report {
   #params = ();
   #returns = ();
-  #body = (
+  #effects = ((#effects-of print-trace)); #body = (
     (#call print-trace ((text (#call-graph))))
     (#return ())
   );
 }
 #generate #async-fn ((protocol WorkAwait) (waker #u64)
-    (function (#fn work () #u64
+    (function (#fn work () #u64 (#effects ((#effects-of report)))
       (#call report ())
       (#return 42u64))))
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
     (#let waker #u64 0u64)
     (#return (#match (#call Work::poll ((task (#call work ())) (waker (#borrow waker))))
       (#case (Work::Poll.Ready value) value)

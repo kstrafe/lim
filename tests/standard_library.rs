@@ -53,7 +53,7 @@ fn println_borrows_and_writes_exact_utf8_including_nul_and_empty_strings() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::from-utf8) (#effects-of String::push-char) (#effects-of std-println)); #body = (
           (#let bytes (#array #u8 5) (#array-of (#array #u8 5) 65u8 0u8 195u8 169u8 66u8))
           (#let-mut text String (#match (#call String::from-utf8 ((bytes (#slice-of (#borrow bytes)))))
             (#case (StringCreateResult.StringCreated created) created) (#case (StringCreateResult.StringCreateFailed error) (#panic))))
@@ -102,7 +102,7 @@ fn std_is_deduplicated_across_imports_and_cannot_be_shadowed_by_local_files() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ( (#let text String (#call String::new ()))
+  #effects = ((#effects-of String::free)); #body = ( (#let text String (#call String::new ()))
           (#call String::free ((string text)))
           (#return (#u64::add-wrap (#call a ()) (#call b ())))\n  );\n}\n",
         &scratch.path().join("main.lim"),
@@ -150,7 +150,7 @@ fn unsupported_stdio_cfg_returns_enosys_without_printing() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of std-println)); #body = (
         (#let text String (#call String::new ()))
         (#assert (#i64::eq (#println (#borrow text)) -38i64))
         (#call String::free ((string text))) (#return 42u64)\n  );\n}\n",
@@ -165,17 +165,17 @@ fn std_and_println_errors_retain_exact_source_spans() {
     let cases = [
         ("#std wrong", "#std takes no arguments", "#std wrong"),
         (
-            "#fn main {\n  #params = ();\n  #returns = ();\n  #body = ( (#println 1u64) (#return ())\n  );\n}\n",
+            "#fn main {\n  #params = ();\n  #returns = ();\n  #effects = ((#effects-of std-println)); #body = ( (#println 1u64) (#return ())\n  );\n}\n",
             "add (#std)",
             "#println",
         ),
         (
-            "#std\n#fn main {\n  #params = ();\n  #returns = ();\n  #body = ( (#println) (#return ())\n  );\n}\n",
+            "#std\n#fn main {\n  #params = ();\n  #returns = ();\n  #effects = ((#effects-of std-println)); #body = ( (#println) (#return ())\n  );\n}\n",
             "exactly one shared String reference",
             "#println",
         ),
         (
-            "#std\n#fn main {\n  #params = ();\n  #returns = ();\n  #body = ( (#println 1u64) (#return ())\n  );\n}\n",
+            "#std\n#fn main {\n  #params = ();\n  #returns = ();\n  #effects = ((#effects-of std-println)); #body = ( (#println 1u64) (#return ())\n  );\n}\n",
             "expected",
             "1u64",
         ),
@@ -189,7 +189,7 @@ fn std_and_println_errors_retain_exact_source_spans() {
 #fn main {
   #params = ();
   #returns = ();
-  #body = ( (#call consume ((status (#println 1u64)))) (#return ())\n  );\n}\n",
+  #effects = ((#effects-of std-println)); #body = ( (#call consume ((status (#println 1u64)))) (#return ())\n  );\n}\n",
             "add (#std)",
             "#println",
         ),
@@ -203,7 +203,7 @@ fn std_and_println_errors_retain_exact_source_spans() {
 #fn main {
   #params = ();
   #returns = ();
-  #body = ( (#let text String (#call String::new ()))
+  #effects = ((#effects-of String::free)); #body = ( (#let text String (#call String::new ()))
                (#unsafe-call String::data-pointer ((string (#borrow text))))
                (#call String::free ((string text))) (#return ())\n  );\n}\n",
             "unsafe",
@@ -240,7 +240,7 @@ fn shared_string_cannot_be_appended_to_itself() {
 #fn main {
   #params = ();
   #returns = ();
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::push-string)); #body = (
         (#let-mut text String (#call String::new ()))
         (#call String::push-string ((string (#borrow-mut text)) (text (#borrow text))))
         (#call String::free ((string text))) (#return ())\n  );\n}\n";
@@ -260,7 +260,7 @@ fn println_returns_descriptor_errors_without_consuming_the_string() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of String::free) (#effects-of String::from-chars) (#effects-of std-println)); #body = (
         (#let chars (#array #char 1) "x")
         (#let text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
           (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
@@ -354,7 +354,7 @@ fn write_all_retries_eintr_and_short_writes_and_stops_on_zero_progress() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::from-chars)); #body = (
             (#let chars (#array #char 3) "abc")
             (#let text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
               (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
@@ -374,12 +374,12 @@ fn println_is_an_ordinary_borrow_checked_call_inside_async_functions() {
     execute(
         r#"#std
 #generate #async-fn ((protocol work-await) (waker #u64) (function
-          (#fn work ((text (#ref String))) #u64
+          (#fn work ((text (#ref String))) #u64 (#effects ((#effects-of std-println)))
             (#assert (#i64::eq (#println text) 0i64)) (#return 42u64))))
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::from-chars) (#effects-of Work::poll)); #body = (
           (#let chars (#array #char 2) "hi")
           (#let text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
             (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
