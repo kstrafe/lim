@@ -746,7 +746,7 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
         (
             &module,
             definitions,
-            "value)))",
+            "value))",
             "#struct Left () ((value",
             "value",
         ),
@@ -761,7 +761,7 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
         (
             &root,
             source,
-            "value)))",
+            "value))",
             "#struct Right () ((value",
             "value",
         ),
@@ -816,7 +816,7 @@ fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
     );
     client.open(&function_path, &function_source);
     assert_location(
-        &client.definition(&function_path, &function_source, "value))"),
+        &client.definition(&function_path, &function_source, "value)"),
         &function_path,
         &function_source,
         "value #u64",

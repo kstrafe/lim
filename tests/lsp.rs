@@ -1478,7 +1478,12 @@ fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
             .integer(),
         Some(0)
     );
-    for id in [3, 4, 5] {
+    // The same-spelled field resolves to its own declaration, not the function.
+    assert_definition_token(
+        reply(&replies, 3).get("result").unwrap(), uri, source,
+        source.find("target #u64").unwrap(), "target",
+    );
+    for id in [4, 5] {
         assert_eq!(reply(&replies, id).get("result"), Some(&Json::Null));
     }
 }
