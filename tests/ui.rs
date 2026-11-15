@@ -1202,7 +1202,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "mismatched-let" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1218,7 +1223,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "top-level-mismatch" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1230,7 +1240,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "nested-mismatch" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1245,7 +1260,12 @@ fn compilation_errors_render_the_offending_source_line() {
             ) {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1258,7 +1278,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "call-duplicate-argument" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1270,7 +1295,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "struct-literal-duplicate-field" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1477,7 +1507,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if let Some(fragment) = precise_fragment {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 let expected_column = if case.name == "parse" {
@@ -1552,7 +1587,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "codegen" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1564,7 +1604,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "recursive-call" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1576,7 +1621,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "generator-imported" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1588,7 +1638,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "type" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1600,7 +1655,12 @@ fn compilation_errors_render_the_offending_source_line() {
             if case.name == "nonconstant-static" {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
@@ -1615,7 +1675,12 @@ fn compilation_errors_render_the_offending_source_line() {
             ) {
                 let source_row = stderr
                     .lines()
-                    .find(|line| line.contains(case.offending_line))
+                    .find(|line| {
+                        line.split_once("| ").is_some_and(|(number, source)| {
+                            number.trim().parse::<usize>().is_ok()
+                                && source.contains(case.offending_line)
+                        })
+                    })
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 let duplicated_name = match case.name {
