@@ -6010,9 +6010,7 @@ fn load_imports_inner(
             ));
         }
         let overlay_source = editor::source(&path);
-        let embedded_source = overlay_source
-            .as_deref()
-            .or_else(|| standard_library::source(&path));
+        let embedded_source = standard_library::source(&path).or(overlay_source.as_deref());
         let source_size = if let Some(source) = embedded_source {
             source.len()
         } else {

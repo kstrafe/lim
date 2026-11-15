@@ -1,6 +1,6 @@
 mod support;
 
-use std::{fs, path::Path, process::Command, time::Duration};
+use std::{collections::HashMap, fs, path::Path, process::Command, time::Duration};
 
 fn compile(root: &Path, source: &str) -> Result<String, lim::Diagnostic> {
     lim::compile_source_to_assembly(
@@ -48,6 +48,24 @@ fn standard_root_is_embedded_and_cannot_be_shadowed_by_a_project_directory() {
         #fn main { #params = {}; #returns = #u64; #body = ((#return (#as getpid-number #u64))); }\n",
         39,
     );
+}
+
+#[test]
+fn standard_root_is_embedded_and_cannot_be_shadowed_by_an_editor_overlay() {
+    let scratch = support::Scratch::new("std-root-overlay");
+    let overlays = HashMap::from([(
+        Path::new("/<lim-std>/linux_x86_64_syscall_numbers.lim").to_path_buf(),
+        "#const lINUX-SYS-GETPID #bool false\n".to_owned(),
+    )]);
+    let source = "#alias getpid-number = #std/linux_x86_64_syscall_numbers.lim::lINUX-SYS-GETPID\n\
+        #fn main { #params = {}; #returns = #usize; #body = ((#return getpid-number)); }\n";
+    lim::check_source_for_editor(
+        source,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &overlays,
+    )
+    .unwrap();
 }
 
 #[test]
