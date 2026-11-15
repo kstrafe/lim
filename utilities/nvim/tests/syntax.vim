@@ -23,7 +23,7 @@ for s:type in ['bool', 'char', 'u8', 'u16', 'u32', 'u64', 'u128', 'usize',
   call s:check(s:type, '')
 endfor
 for [s:token, s:group] in [
-      \ ['#ref-mut', 'limTypeForm'], ['#slice', 'limTypeForm'],
+      \ ['#arg', 'limBuiltinValue'], ['#ref-mut', 'limTypeForm'], ['#slice', 'limTypeForm'],
       \ ['#pin', 'limPin'], ['#pin-shared', 'limPin'],
       \ ['#pin-ref', 'limTypeForm'], ['#pin-ref-mut', 'limTypeForm'],
       \ ['#case-ref', 'limConditional'], ['#case-ref-mut', 'limConditional'],

@@ -84,6 +84,7 @@
 </ul></li>
 <li><a href="#top-level-declarations" id="toc-top-level-declarations">Top-level declarations</a>
 <ul>
+<li><a href="#single-positional-parameters" id="toc-single-positional-parameters">Single positional parameters</a></li>
 <li><a href="#predicate-contracts-and-constrained-types" id="toc-predicate-contracts-and-constrained-types">Predicate contracts and constrained types</a></li>
 <li><a href="#functions" id="toc-functions">Functions</a></li>
 <li><a href="#c-aggregate-layout" id="toc-c-aggregate-layout">C aggregate layout</a></li>
@@ -1218,6 +1219,25 @@ Choice.Ready</code></pre>
 </section>
 <section id="top-level-declarations" class="level2">
 <h2>Top-level declarations</h2>
+<section id="single-positional-parameters" class="level3">
+<h3>Single positional parameters</h3>
+<p>A plain type in <code>#params</code> declares exactly one positional parameter. Its value is the bare builtin <code>#arg</code>; it is not a call and takes no parentheses. Multiple named inputs retain their record syntax, and empty <code>{}</code> or <code>()</code> parameter lists still declare no parameters.</p>
+<pre class="lisp"><code><span class="lim-keyword">#fn</span> increment {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
+    <span class="lim-keyword">#return</span> [<span class="lim-type">#u64</span> <span class="lim-keyword">#wrap</span>; <span class="lim-keyword">#arg</span> <span class="lim-operator">+</span> <span class="lim-literal">1u64</span>];
+}
+
+<span class="lim-keyword">#fn</span> main {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
+    <span class="lim-keyword">#return</span> (increment <span class="lim-literal">41u64</span>);
+}</code></pre>
+<p><code>increment 41u64;</code> and <code>#call increment 41u64;</code> call the same concrete function. The signature supplies the explicit argument type; there is no overloading or inference of a parameter type. <code>#arg</code> is unavailable in named or zero-parameter functions. Binding it as a local or writing <code>(#arg)</code> is an error. Named arguments cannot be supplied to a positional signature.</p>
+<p><code>#arg</code> is the parameter&#39;s place, not a newly produced value. Reading Copy inputs copies them; moving linear inputs consumes them once, and a linear parameter must be consumed before returning. <code>(#borrow #arg)</code> borrows its storage, with ordinary escape checks. A reference parameter can be forwarded or reborrowed with the same borrow origins as a named parameter. To give the input a descriptive local name, use an explicit typed binding such as <code>#let count : #u64 = #arg;</code>. Unsafe functions retain explicit <code>#unsafe-call</code>.</p>
+</section>
 <section id="predicate-contracts-and-constrained-types" class="level3">
 <h3>Predicate contracts and constrained types</h3>
 <p>Lim tracks evidence for named, pure Boolean functions and typed scalar comparisons. It does not solve predicates, infer implications, or symbolically execute their bodies. Predicate identity and argument identity must match. Multiple requirements have AND semantics; a <code>#bool::and</code> conjunction supplies its individual facts.</p>
@@ -1826,6 +1846,12 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td><code>(#cfg-is #arch literal)</code></td>
 <td><code>#cfg-if (#cfg-is #arch x86_64) (#type Word #u64)</code> (top level)</td>
 <td>Automatically populated target architecture cfg key; overridable with <code>--cfg arch=VALUE</code>.</td>
+</tr>
+<tr>
+<td><code>#arg</code></td>
+<td><code>#arg</code></td>
+<td><code>(#return #arg)</code> (function body whose plain <code>#params</code> type matches its return)</td>
+<td>Denotes the sole positional parameter, with ordinary Copy, move and borrow semantics; unavailable in named or zero-parameter functions.</td>
 </tr>
 <tr>
 <td><code>#array</code></td>

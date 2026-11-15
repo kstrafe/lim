@@ -289,7 +289,11 @@ fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signat
     }
     let ni = name_index(node);
     let name = text(context, node.children.get(ni)?);
-    let parameters = node
+    let positional = node.children.get(ni + 1)
+        .and_then(|params| crate::positional_parameter_type(&params.expr));
+    let parameters = if positional.is_some() {
+        vec![("#arg".into(), text(context, node.children.get(ni + 1)?))]
+    } else { node
         .children
         .get(ni + 1)?
         .children
@@ -309,7 +313,7 @@ fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signat
             };
             Some((name, label))
         })
-        .collect::<Option<Vec<_>>>()?;
+        .collect::<Option<Vec<_>>>()? };
     let return_type = node.children.get(ni + 2)?;
     if !typed(return_type) {
         return None;
@@ -319,7 +323,9 @@ fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signat
     } else {
         format!("#{}", head(node))
     };
-    let label = format!(
+    let label = if positional.is_some() {
+        format!("({prefix} {name} {} {})", parameters[0].1, text(context, return_type))
+    } else { format!(
         "({prefix} {name} ({}) {})",
         parameters
             .iter()
@@ -327,7 +333,7 @@ fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signat
             .collect::<Vec<_>>()
             .join(" "),
         text(context, return_type)
-    );
+    ) };
     let mut contracts = node
         .children
         .iter()
@@ -435,6 +441,13 @@ fn description(context: &NavigationContext, node: &Node, target: Span) -> Option
         );
     }
     let xs = &node.children;
+    if is_function(node) {
+        if let Some(params) = xs.get(name_index(node) + 1).filter(|params| params.span == target) {
+            if crate::positional_parameter_type(&params.expr).is_some() {
+                return Some(format!("#arg {}", text(context, params)));
+            }
+        }
+    }
     if xs.get(1).is_some_and(|name| name.span == target) {
         match head(node) {
             "let" | "let-mut" | "const" | "static" => {

@@ -1810,6 +1810,15 @@ pub struct Parameter {
     pub mutable: bool,
 }
 
+/// A plain, nonempty parameter type denotes one positional parameter. Empty
+/// lists retain their established meaning of no parameters.
+pub(crate) fn positional_parameter_type(expression: &Expr) -> Option<Type> {
+    if matches!(expression, Expr::List(items) if items.is_empty()) {
+        return None;
+    }
+    parse_type(Some(&normalize_keywords(expression.clone()))).ok()
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GeneratedFunctionSignature {
     pub name: String,
@@ -3512,7 +3521,9 @@ fn normalize_call_expr(
                     && function
                         .split_once('.')
                         .is_some_and(|(scalar, _)| is_primitive_type_name(scalar));
-                if (ordinary || intrinsic) && items.len() == 2 && matches!(items[1], Expr::List(_))
+                if (ordinary || intrinsic) && items.len() == 2
+                    && (matches!(items[1], Expr::List(_))
+                        || signatures.get(function).is_some_and(|s| s.parameters == ["#arg"]))
                 {
                     let call = vec![
                         Expr::Symbol("call".into()),
@@ -3574,6 +3585,16 @@ fn normalize_call_expr(
                     });
                 }
                 let parameters = &signature.parameters;
+                if parameters == &["#arg"] {
+                    if matches!(&items[2], Expr::List(xs) if !xs.is_empty())
+                        && named_argument_list(&items[2])
+                    {
+                        return Err(format!("function '{function}' requires one positional argument, without a name"));
+                    }
+                    normalize_call_expr(&mut items[2], signatures)?;
+                    *expression = Expr::List(vec![Expr::Function(function), items[2].clone()].into());
+                    return Ok(());
+                }
                 let Expr::List(argument_form) = &mut items[2] else {
                     return Err(format!("{keyword} arguments must be a named argument list"));
                 };
@@ -3625,6 +3646,9 @@ fn normalize_call_expr(
             }
             if let Some(Expr::Symbol(name)) = items.first() {
                 if signatures.contains_key(name) && !is_builtin_head(name) {
+                    if signatures[name].parameters == ["#arg"] {
+                        return Err(format!("function '{name}' requires exactly one positional argument"));
+                    }
                     return Err(if signatures[name].unsafe_call {
                         format!("unsafe function '{name}' must be called with (#unsafe (#unsafe-call {name} ((parameter value ...))))")
                     } else {
@@ -4774,7 +4798,10 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
         } else {
             2
         };
-        if let Some(Expr::List(entries)) = items.get(index) {
+        if let Some(Expr::List(entries)) = items.get(index).filter(|expr| {
+            !matches!(head, "#fn" | "#unsafe-fn" | "#extern-fn")
+                || positional_parameter_type(expr).is_none()
+        }) {
             for entry in entries {
                 match entry {
                     Expr::List(parts) => {
@@ -4823,6 +4850,9 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
     let Expr::List(items) = expression else {
         return Ok(());
     };
+    if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#arg") {
+        return Err("#arg is a parameter value; write bare #arg without parentheses".into());
+    }
     if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#struct" | "#enum"))
     {
         if let Some(Expr::List(properties)) = items.get(2) {
@@ -4926,7 +4956,8 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
         } else {
             2
         };
-        if let Some(Expr::List(parameters)) = items.get(parameter_index) {
+        if let Some(Expr::List(parameters)) = items.get(parameter_index)
+            .filter(|expr| positional_parameter_type(expr).is_none()) {
             for parameter in parameters {
                 if let Expr::List(parts) = parameter {
                     if matches!(parts.first(), Some(Expr::Symbol(name)) if name == "mut") {
@@ -4949,6 +4980,9 @@ fn validate_prefixed_forms_inner(expression: &Expr) -> Result<(), String> {
     }
     if matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#call" | "#unsafe-call"))
     {
+        if let Some(argument) = items.get(2).filter(|arg| !named_argument_list(arg)) {
+            return validate_prefixed_forms_inner(argument);
+        }
         if let Some(Expr::List(arguments)) = items.get(2) {
             for argument in arguments {
                 if let Expr::List(pair) = argument {
@@ -5517,7 +5551,7 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
         Expr::Symbol(name) => {
             if let Some(operation) = names::numeric_operation(&name) {
                 Expr::Symbol(operation)
-            } else if name == "#variant-is"
+            } else if name == "#arg" || name == "#variant-is"
                 || crate::borrow_case::Mode::from_keyword(&name).is_some()
             {
                 // Keep these internal pattern markers distinct from values.
@@ -8325,7 +8359,8 @@ fn parse_function_parts(
     let name = expect_symbol(items.get(name_index), "function name")?.to_owned();
     let (type_parameters, parameter_index, return_index, body_index) =
         if let Some(Expr::List(generic_items)) = items.get(name_index + 1) {
-            if !generic_items.is_empty()
+            if positional_parameter_type(&items[name_index + 1]).is_none()
+                && !generic_items.is_empty()
                 && generic_items
                     .iter()
                     .all(|item| matches!(item, Expr::Symbol(_)))
@@ -8343,8 +8378,15 @@ fn parse_function_parts(
     if items.len() <= return_index {
         return Err("fn requires a name, parameter list, return type, and body".into());
     }
-    let parameter_items = expect_list(items.get(parameter_index).unwrap(), "function parameters")?;
-    let mut parameters = Vec::with_capacity(parameter_items.len());
+    let parameter_expression = items.get(parameter_index).unwrap();
+    let positional = positional_parameter_type(parameter_expression);
+    let parameter_items = if positional.is_some() { &[][..] } else {
+        expect_list(parameter_expression, "function parameters")?
+    };
+    let mut parameters = Vec::with_capacity(parameter_items.len().max(1));
+    if let Some(ty) = positional {
+        parameters.push(Parameter { name: "#arg".into(), ty, mutable: false });
+    }
     for parameter in parameter_items {
         let fields = expect_list(parameter, "function parameter")?;
         let mutable = matches!(fields.first(), Some(Expr::Symbol(name)) if name == "mut");

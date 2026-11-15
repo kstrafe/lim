@@ -239,6 +239,11 @@ fn runtime(node: &Node, byte: usize, source: &str) -> Option<(Span, Option<Strin
         "fn" | "unsafe-fn" | "extern-fn" => {
             let name = if head(node) == "extern-fn" { 2 } else { 1 };
             if let Some(parameters) = children.get(name + 1) {
+                if crate::positional_parameter_type(&parameters.expr).is_some() {
+                    if let Some(found) = type_predicates(parameters, byte, source) {
+                        return Some(found);
+                    }
+                }
                 for parameter in &parameters.children {
                     let index = usize::from(head(parameter) == "mut") + 1;
                     if let Some(found) = parameter
@@ -295,7 +300,8 @@ fn runtime(node: &Node, byte: usize, source: &str) -> Option<(Span, Option<Strin
                 .first()
                 .and_then(symbol)
                 .is_some_and(crate::surface_syntax::callable_name)
-            && crate::named_argument_list(&children[1].expr) =>
+            && (crate::named_argument_list(&children[1].expr)
+                || symbol(&children[0]).is_some_and(|name| !name.starts_with('#'))) =>
         {
             Some((&children[0], Some(&children[1])))
         }
@@ -306,6 +312,10 @@ fn runtime(node: &Node, byte: usize, source: &str) -> Option<(Span, Option<Strin
             return None;
         }
         if let Some(arguments) = arguments {
+            if !crate::named_argument_list(&arguments.expr) {
+                return runtime(arguments, byte, source)
+                    .or_else(|| Some((callee.span, Some("#arg".into()))));
+            }
             for pair in &arguments.children {
                 if contains(pair, byte, source) {
                     if let Some(call) = pair

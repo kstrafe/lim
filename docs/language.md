@@ -1952,6 +1952,43 @@ and [the runnable printing example](../examples/heap_string.lim).
 
 ## Top-level declarations
 
+### Single positional parameters
+
+A plain type in `#params` declares exactly one positional parameter. Its value
+is the bare builtin `#arg`; it is not a call and takes no parentheses. Multiple
+named inputs retain their record syntax, and empty `{}` or `()` parameter
+lists still declare no parameters.
+
+```lisp run=42
+#fn increment {
+  #params = #u64;
+  #returns = #u64;
+  #body:
+    #return [#u64 #wrap; #arg + 1u64];
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #return (increment 41u64);
+}
+```
+
+`increment 41u64;` and `#call increment 41u64;` call the same concrete
+function. The signature supplies the explicit argument type; there is no
+overloading or inference of a parameter type. `#arg` is unavailable in named
+or zero-parameter functions. Binding it as a local or writing `(#arg)` is an
+error. Named arguments cannot be supplied to a positional signature.
+
+`#arg` is the parameter's place, not a newly produced value. Reading Copy
+inputs copies them; moving linear inputs consumes them once, and a linear
+parameter must be consumed before returning. `(#borrow #arg)` borrows its
+storage, with ordinary escape checks. A reference parameter can be forwarded
+or reborrowed with the same borrow origins as a named parameter. To give the
+input a descriptive local name, use an explicit typed binding such as
+`#let count : #u64 = #arg;`. Unsafe functions retain explicit `#unsafe-call`.
+
 ### Predicate contracts and constrained types
 
 Lim tracks evidence for named, pure Boolean functions and typed scalar
@@ -2976,6 +3013,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#alias` | `#alias local-name = path.lim::declaration` | `#alias read = ./library/lib.lim::read` (top level) | Binds a file-local spelling to an exact declaration identity. Preserves types, parameter labels, visibility, and ownership rules; the target may be wrapped in `#unstable`. |
 | `#align-of` | `(#align-of Type)` | `(#align-of Point)` (expression) | Compile-time alignment in bytes for the Lim representation, or C layout of a `#repr-c` type. |
 | `#arch` | `(#cfg-is #arch literal)` | `#cfg-if (#cfg-is #arch x86_64) (#type Word #u64)` (top level) | Automatically populated target architecture cfg key; overridable with `--cfg arch=VALUE`. |
+| `#arg` | `#arg` | `(#return #arg)` (function body whose plain `#params` type matches its return) | Denotes the sole positional parameter, with ordinary Copy, move and borrow semantics; unavailable in named or zero-parameter functions. |
 | `#array` | `(#array ElementType Length)` as a type; `(#array pattern...)` as a pattern | `(#let xs (#array #u8 2) (#array-of (#array #u8 2) 4u8 5u8))` (binding) | Names a fixed-length array type or destructures an array in a pattern; values are constructed with `#array-of`. |
 | `#array-of` | `(#array-of ArrayType value...)` | `(#array-of (#array #u8 2) 4u8 5u8)` (expression) | Explicitly constructs a fixed array with its full type stated. |
 | `#array-repeat` | `(#array-repeat value)` with an expected array type | `(#let xs (#array #u8 3) (#array-repeat 0u8))` (binding) | Fills every array slot with the given Copy value. |

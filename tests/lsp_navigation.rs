@@ -1,6 +1,16 @@
 mod support;
 
 #[test]
+fn positional_calls_and_arg_resolve_to_their_explicit_signature() {
+    run(
+        "#type [[type|Number]] #u64\n#fn [[function|increment]] {\n  #params = [[parameter|Number]];\n  #returns = Number;\n  #body: #return [#u64 #wrap; [[arg-use|#arg]] + 1u64];\n}\n#fn view {\n #params = (#[[ref-key|ref]] [[ref-type|Number]]);\n #returns = Number;\n #body: #return (#deref #arg);\n}\n#fn main {\n #params = {}; #returns = #u64;\n #body:\n   #let [[local|input]] #u64 41u64;\n   #return ([[callee|increment]] [[operand|input]]);\n}",
+        &[("arg-use", &["parameter"]), ("parameter", &["type"]),
+          ("ref-key", &[]), ("ref-type", &["type"]),
+          ("callee", &["function"]), ("operand", &["local"])],
+    );
+}
+
+#[test]
 fn generic_colon_groups_keep_callees_labels_and_values_navigable() {
     run(
         "#fn [[function|identity]] {

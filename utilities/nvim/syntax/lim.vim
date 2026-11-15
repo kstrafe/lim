@@ -15,6 +15,7 @@ syn match limCharacter "#\\\%(u{[[:xdigit:]]\+}\|[[:alpha:]][[:alnum:]_-]*\|.\)"
 
 " Lim forms, operators, and generator operations use a leading #.
 syn match limKeyword +#[[:alpha:]_][^[:space:](){}=;\[\]"'`,@#]*+
+syn match limBuiltinValue +#arg\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limGenerated +#generate\ze\%($\|[[:space:](){}=;\[\]"'`,#]\|:\%($\|[[:space:]]\)\)+
 syn match limExternal +[[:alpha:]_][[:alnum:]_.-]*@[^[:space:](){}=;\[\]"'`,#]\++
 " A leading @ resolves a source name; embedded @ is ordinary identifier text.
@@ -56,7 +57,7 @@ syn match limParen3 "[(){}\[\]]" contained
 syn match limParen4 "[(){}\[\]]" contained
 syn match limParen5 "[(){}\[\]]" contained
 syn match limParen6 "[(){}\[\]]" contained
-syn cluster limForms contains=limSection,limSeparator,limContract,limKeyword,limGenerated,limExternal,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn cluster limForms contains=limSection,limSeparator,limContract,limKeyword,limBuiltinValue,limGenerated,limExternal,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
 syn region limNest1 transparent start="{" end="}" contains=@limForms,limNest2,limParen1
 syn region limNest1 transparent start="\[" end="\]" contains=@limForms,limNest2,limParen1
@@ -83,6 +84,7 @@ hi def link limString String
 hi def link limEscape SpecialChar
 hi def link limCharacter Character
 hi def link limKeyword Keyword
+hi def link limBuiltinValue Identifier
 hi def link limGenerated Special
 hi def link limExternal Identifier
 hi def link limQualified Special

@@ -5282,6 +5282,12 @@ fn named_call_argument_span(
     parameter_name: &str,
 ) -> Option<crate::Span> {
     if let Expr::List(items) = &expression.expr {
+        if parameter_name == "#arg" {
+            let index = if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "#unsafe-call")) { 1 } else { 0 };
+            if matches!(items.get(index), Some(Expr::Symbol(callee)) if callee == function_name) {
+                return expression.children.get(index + 1).map(|value| value.span);
+            }
+        }
         if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#println")
             && function_name == "std-println"
             && parameter_name == "text"

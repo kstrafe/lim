@@ -903,7 +903,8 @@ impl Server<'_> {
                         .parameters
                         .iter()
                         .position(|(parameter, _)| parameter == name)
-                });
+                }).or_else(|| (signature.parameters.len() == 1
+                    && signature.parameters[0].0 == "#arg").then_some(0));
                 let active = active
                     .map(|index| format!(",\"activeParameter\":{index}"))
                     .unwrap_or_else(|| {
@@ -1528,7 +1529,6 @@ fn call_callee(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
             }
             if crate::surface_syntax::callable_name(head)
                 && expression.children.len() == 2
-                && crate::named_argument_list(&expression.children[1].expr)
                 && expression.children[0].span.start <= byte
                 && byte < expression.children[0].span.end
             {

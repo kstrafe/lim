@@ -1,0 +1,20 @@
+// A plain parameter type defines exactly one positional input.
+#fn increment {
+  #params = #u64;
+  #returns = #u64;
+  #body: #return [#u64 #wrap; #arg + 1u64];
+}
+
+#fn read-value {
+  #params = (#ref #u64);
+  #returns = #u64;
+  #body: #return (#deref #arg);
+}
+
+#fn main {
+  #params = { };
+  #returns = #u64;
+  #body:
+    #let value : #u64 = (increment 41u64);
+    #return (read-value (#borrow value));
+}

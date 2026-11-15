@@ -252,3 +252,14 @@ is introduced by the invocation.
 `#where` binds its value name only inside its predicates. Its base type uses
 ordinary type navigation. The binder does not escape into sibling types or the
 surrounding lexical scope. Malformed forms retain no speculative bindings.
+
+### Single positional parameter roles
+
+A plain `#params` type is a type position, including imported names and nested
+reference/array types. Bare `#arg` resolves to that parameter type section and
+hover reports its explicit type. Its scope is only the enclosing positional
+function. Positional applications resolve their callee through the normal
+file/alias/generated declaration identity; the whole operand is a value, never
+a named-argument label. Hover and signature help show the plain parameter type
+and identify its one active operand. These roles, formatter roundtrips and
+keyword highlighting must accompany future changes to this syntax.

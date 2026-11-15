@@ -1573,6 +1573,25 @@ fn assert_signature(result: &Json, callee: &str, parameters: &[&str], active: Op
 }
 
 #[test]
+fn positional_parameters_have_hover_and_signature_information_over_stdio() {
+    let fixture = Fixture::new("positional-information");
+    let source = "#fn increment {\n #params = #u64; #returns = #u64;\n #body: #return [#u64 #wrap; #arg + 1u64];\n}\n#fn main {\n #params = {}; #returns = #u64;\n #body = ((#let flag #bool (#bool::not false)) (#return (increment 41u64)));\n}";
+    let path = fixture.write("main.lim", source);
+    let mut client = Client::start(&fixture.0);
+    client.open(&path, source);
+    let hover = client.hover(&path, source, "#arg +", "#arg");
+    assert!(hover.contains("#arg #u64"), "{hover}");
+    let signature = client.signature(&path, source, source.find("41u64").unwrap() + 2);
+    assert_signature(&signature, "increment", &["#u64"], Some(0));
+    let signature = client.signature(&path, source, source.find("false").unwrap() + 2);
+    assert_signature(&signature, "#bool::not", &["value"], Some(0));
+    let hover = client.hover(&path, source, "increment 41u64", "increment");
+    assert!(hover.contains("#fn increment #u64 #u64"), "{hover}");
+    client.clear(&path);
+    client.shutdown();
+}
+
+#[test]
 fn hover_reports_explicit_lexical_member_and_contract_information_over_stdio() {
     let fixture = Fixture::new("hover-information");
     let source = "#struct Left () ((value #u8))

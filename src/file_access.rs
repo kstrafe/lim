@@ -506,33 +506,38 @@ impl Resolver<'_> {
             }
             let args = if kind == "#extern-fn" { 3 } else { 2 };
             if let Some(arguments) = node.children.get_mut(args) {
-                for argument in &mut arguments.children {
-                    let binder = if argument.children.is_empty() {
-                        symbol(argument)
-                    } else {
-                        argument.children.first().and_then(symbol)
-                    };
-                    if let Some(name) = binder {
-                        inner.insert(name.into());
-                    }
-                    if let Some(name) = binder {
-                        if self
-                            .lookup(file, name, &mut Vec::new())
-                            .map_err(SourceError::from)?
-                            .is_some()
-                        {
-                            return Err(SourceError::from(format!(
-                                "parameter '{name}' would shadow a file-local declaration or alias"
-                            ))
-                            .at(argument.span));
+                if crate::positional_parameter_type(&arguments.expr).is_some() {
+                    inner.insert("#arg".into());
+                    self.rewrite(arguments, file, locals)?;
+                } else {
+                    for argument in &mut arguments.children {
+                        let binder = if argument.children.is_empty() {
+                            symbol(argument)
+                        } else {
+                            argument.children.first().and_then(symbol)
+                        };
+                        if let Some(name) = binder {
+                            inner.insert(name.into());
                         }
+                        if let Some(name) = binder {
+                            if self
+                                .lookup(file, name, &mut Vec::new())
+                                .map_err(SourceError::from)?
+                                .is_some()
+                            {
+                                return Err(SourceError::from(format!(
+                                    "parameter '{name}' would shadow a file-local declaration or alias"
+                                ))
+                                .at(argument.span));
+                            }
+                        }
+                        for ty in argument.children.iter_mut().skip(1) {
+                            self.rewrite(ty, file, locals)?;
+                        }
+                        rebuild(argument)?;
                     }
-                    for ty in argument.children.iter_mut().skip(1) {
-                        self.rewrite(ty, file, locals)?;
-                    }
-                    rebuild(argument)?;
+                    rebuild(arguments)?;
                 }
-                rebuild(arguments)?;
             }
             for (index, child) in node.children.iter_mut().enumerate().skip(1) {
                 if index != args {

@@ -321,6 +321,10 @@ impl<'a> Index<'a> {
     }
 
     fn value_type(&self, node: &Node, scope: &Scope) -> Option<Type> {
+        if let Some((callee, _)) = self.positional_call(node) {
+            let declaration = self.declaration(symbol(callee)?)?;
+            return ty(declaration.children.get(name_index(declaration) + 2)?);
+        }
         if let Some((callee, _)) = named_call(node) {
             if let Some(intrinsic) = crate::intrinsics::declaration(symbol(callee)?)
                 .ok()
@@ -676,7 +680,7 @@ impl<'a> Index<'a> {
         let Some(name) = symbol(node) else {
             return vec![];
         };
-        if name.starts_with('#') || matches!(name, "_" | "true" | "false") {
+        if (name.starts_with('#') && name != "#arg") || matches!(name, "_" | "true" | "false") {
             return vec![];
         }
         if let Some(binding) = scope.get(name) {
@@ -703,25 +707,31 @@ impl<'a> Index<'a> {
             return vec![name.span];
         }
         if let Some(args) = node.children.get(ni + 1) {
-            for arg in &args.children {
-                let index = usize::from(head(arg) == "mut");
-                if let Some(name) = arg.children.get(index) {
-                    self.explicit_locals.borrow_mut().insert(name.span);
-                    let target = self.bind_pattern(
-                        name,
-                        arg.children.get(index + 1).and_then(ty),
-                        &mut scope,
-                    );
-                    if !target.is_empty() {
-                        return target;
+            if let Some(kind) = crate::positional_parameter_type(&args.expr) {
+                scope.insert("#arg".into(), Binding { spans: vec![args.span], ty: Some(kind.clone()) });
+                self.binding_types.borrow_mut().insert(args.span, kind);
+                if self.contains(args) { return self.type_reference(args); }
+            } else {
+                for arg in &args.children {
+                    let index = usize::from(head(arg) == "mut");
+                    if let Some(name) = arg.children.get(index) {
+                        self.explicit_locals.borrow_mut().insert(name.span);
+                        let target = self.bind_pattern(
+                            name,
+                            arg.children.get(index + 1).and_then(ty),
+                            &mut scope,
+                        );
+                        if !target.is_empty() {
+                            return target;
+                        }
                     }
-                }
-                if let Some(kind) = arg
-                    .children
-                    .get(index + 1)
-                    .filter(|kind| self.contains(kind))
-                {
-                    return self.type_reference(kind);
+                    if let Some(kind) = arg
+                        .children
+                        .get(index + 1)
+                        .filter(|kind| self.contains(kind))
+                    {
+                        return self.type_reference(kind);
+                    }
                 }
             }
         }
@@ -734,7 +744,22 @@ impl<'a> Index<'a> {
             &Scope::new(),
         )
     }
+    fn positional_call<'n>(&self, node: &'n Node) -> Option<(&'n Node, &'n Node)> {
+        let (callee, argument) = match node.children.as_slice() {
+            [head, callee, argument] if matches!(symbol(head), Some("#call" | "#unsafe-call")) => (callee, argument),
+            [callee, argument] if symbol(callee).is_some_and(crate::surface_syntax::callable_name) => (callee, argument),
+            _ => return None,
+        };
+        let declaration = self.declaration(symbol(callee)?)?;
+        crate::positional_parameter_type(&declaration.children.get(name_index(declaration) + 1)?.expr)?;
+        Some((callee, argument))
+    }
     fn walk(&self, node: &Node, scope: &mut Scope, labels: &Scope) -> Vec<Span> {
+        if let Some((callee, argument)) = self.positional_call(node) {
+            if self.contains(callee) { return self.callee(callee); }
+            if self.contains(argument) { return self.walk(argument, scope, labels); }
+            return vec![];
+        }
         if let Some((callee, arguments)) = named_call(node) {
             let name = symbol(callee).unwrap();
             if self.contains(callee) {
