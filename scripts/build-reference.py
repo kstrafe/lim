@@ -104,7 +104,9 @@ class Inspect(HTMLParser):
             self.links.append(attrs['href'][1:])
         if tag == 'script':
             self.scripts.append(attrs)
-        if tag in ('img', 'iframe', 'link') and ('src' in attrs or 'href' in attrs):
+        embedded_icon = (tag == 'link' and attrs.get('rel') == 'icon'
+                         and attrs.get('href', '').startswith('data:image/svg+xml;base64,'))
+        if tag in ('img', 'iframe', 'link') and ('src' in attrs or 'href' in attrs) and not embedded_icon:
             self.resources.append(attrs)
 
 
