@@ -396,11 +396,11 @@ impl Drop for Client {
 #[test]
 fn library_exports_and_agglutinated_identifiers_have_definition_roles() {
     let fixture = Fixture::new("library-exports");
-    let root_text = "(#export Number read)\n(#alias Number = ./implementation.lim::Number)\n(#alias read = ./implementation.lim::read)\n";
+    let root_text = "#export Number read\n#alias Number = ./implementation.lim::Number\n#alias read = ./implementation.lim::read\n";
     let root = fixture.write("numbers/lib.lim", root_text);
-    let implementation_text = "(#type Number #u64)\n(#fn read () Number (#return 42u64))\n";
+    let implementation_text = "#type Number #u64\n#fn read () Number (#return 42u64)\n";
     let implementation = fixture.write("numbers/implementation.lim", implementation_text);
-    let main_text = "(#alias Number = ./numbers/lib.lim::Number)\n(#alias read = ./numbers/lib.lim::read)\n(#fn main () Number (#return (#call read ())))\n";
+    let main_text = "#alias Number = ./numbers/lib.lim::Number\n#alias read = ./numbers/lib.lim::read\n#fn main () Number (#return (#call read ()))\n";
     let main = fixture.write("main.lim", main_text);
     let mut client = Client::start(&fixture.0);
     client.open(&main, main_text);
@@ -426,9 +426,9 @@ fn library_exports_and_agglutinated_identifiers_have_definition_roles() {
 #[test]
 fn exported_enum_variants_navigate_from_literals_and_borrowed_patterns() {
     let fixture = Fixture::new("library-public-enum");
-    let library_text = "(#export Status)\n(#enum Status () ((Status.Open #u64) (Status.Closed)))\n";
+    let library_text = "#export Status\n#enum Status () ((Status.Open #u64) (Status.Closed))\n";
     let library = fixture.write("status/lib.lim", library_text);
-    let main_text = "(#alias Status = ./status/lib.lim::Status)\n(#fn main () #u64\n  (#let status Status (#enum-literal Status.Open 42u64))\n  (#let view (#ref Status) (#borrow status))\n  (#return (#match view\n    (#case-ref (Status.Open payload) (#deref payload))\n    (#case-ref Status.Closed 0u64))))\n";
+    let main_text = "#alias Status = ./status/lib.lim::Status\n#fn main () #u64\n    (#let status Status (#enum-literal Status.Open 42u64))\n    (#let view (#ref Status) (#borrow status))\n    (#return (#match view\n      (#case-ref (Status.Open payload) (#deref payload))\n      (#case-ref Status.Closed 0u64)))\n";
     let main = fixture.write("main.lim", main_text);
     fixture.context(&main, "first");
     let mut client = Client::start(&fixture.0);
@@ -452,13 +452,13 @@ fn exported_enum_variants_navigate_from_literals_and_borrowed_patterns() {
 #[test]
 fn file_aliases_and_direct_calls_navigate_to_the_original_declaration() {
     let fixture = Fixture::new("file-alias-navigation");
-    let implementation_text = "(#fn read ((value #u64)) #u64 (#return value))\n";
+    let implementation_text = "#fn read ((value #u64)) #u64 (#return value)\n";
     let implementation = fixture.write("library/implementation.lim", implementation_text);
     fixture.write(
         "library/lib.lim",
-        "(#export read)\n(#alias read = ./implementation.lim::read)\n",
+        "#export read\n#alias read = ./implementation.lim::read\n",
     );
-    let main_text = "(#alias load = ./library/lib.lim::read)\n(#fn main () #u64 (#return (#u64::add-wrap (#call load ((value 20u64))) (#call ./library/lib.lim::read ((value 22u64))))))\n";
+    let main_text = "#alias load = ./library/lib.lim::read\n#fn main () #u64 (#return (#u64::add-wrap (#call load ((value 20u64))) (#call ./library/lib.lim::read ((value 22u64)))))\n";
     let main = fixture.write("main.lim", main_text);
     fixture.context(&main, "first");
     let mut client = Client::start(&fixture.0);
@@ -487,10 +487,10 @@ fn file_aliases_and_direct_calls_navigate_to_the_original_declaration() {
 fn project_root_file_aliases_navigate_from_the_nearest_project_root() {
     let fixture = Fixture::new("project-root-file-alias");
     fs::write(fixture.0.join("lim.project"), "schema-version = 1\nname = \"lsp-root\"\nsource-root = \"src\"\nmodule-path = \"modules\"\n").unwrap();
-    let target_text = "(#fn read () #u64 (#return 42u64))\n";
+    let target_text = "#fn read () #u64 (#return 42u64)\n";
     let target = fixture.write("modules/value.lim", target_text);
     let source =
-        "(#alias read = project::modules/value.lim::read)\n(#fn main () #u64 (#return (#call read ())))\n";
+        "#alias read = project::modules/value.lim::read\n#fn main () #u64 (#return (#call read ()))\n";
     let root = fixture.write("src/main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -508,10 +508,10 @@ fn project_root_file_aliases_navigate_from_the_nearest_project_root() {
 #[test]
 fn unstable_file_aliases_have_definition_targets() {
     let fixture = Fixture::new("unstable-alias-navigation");
-    fixture.write("library/lib.lim", "(#export)\n");
-    let implementation_text = "(#fn read () #u64 (#return 42u64))\n";
+    fixture.write("library/lib.lim", "#export\n");
+    let implementation_text = "#fn read () #u64 (#return 42u64)\n";
     let implementation = fixture.write("library/private.lim", implementation_text);
-    let main_text = "(#alias load = (#unstable ./library/private.lim::read))\n(#fn main () #u64 (#return (#call load ())))\n";
+    let main_text = "#alias load = (#unstable ./library/private.lim::read)\n#fn main () #u64 (#return (#call load ()))\n";
     let main = fixture.write("main.lim", main_text);
     fixture.context(&main, "first");
     let mut client = Client::start(&fixture.0);
@@ -532,9 +532,9 @@ fn unstable_file_aliases_have_definition_targets() {
 #[test]
 fn generated_private_helper_references_navigate_to_the_library_implementation() {
     let fixture = Fixture::new("generator-private-authority");
-    let library_text = "(#export make)\n(#fn secret () #u64 (#return 42u64))\n(#gn make (name) `((#fn ,name () #u64 (#return (#call secret ())))))\n";
+    let library_text = "#export make\n#fn secret () #u64 (#return 42u64)\n#gn make (name) `((#fn ,name () #u64 (#return (#call secret ()))))\n";
     let library = fixture.write("library/lib.lim", library_text);
-    let main_text = "(#alias make = ./library/lib.lim::make)\n(#generate make generated-read)\n(#fn main () #u64 (#return (#call generated-read ())))\n";
+    let main_text = "#alias make = ./library/lib.lim::make\n#generate make generated-read\n#fn main () #u64 (#return (#call generated-read ()))\n";
     let main = fixture.write("main.lim", main_text);
     fixture.context(&main, "first");
     let mut client = Client::start(&fixture.0);
@@ -563,11 +563,11 @@ fn repeated_direct_aliases_resolve_to_one_file_declaration_identity() {
     let fixture = Fixture::new("library-instances");
     fixture.write(
         "numbers/lib.lim",
-        "(#export Number read) (#alias Number = ./implementation.lim::Number) (#alias read = ./implementation.lim::read)",
+        "#export Number read\n#alias Number = ./implementation.lim::Number\n#alias read = ./implementation.lim::read\n",
     );
-    let implementation_text = "(#gn alias (name) `((#type ,name #u64)))\n(#generate alias Number)\n(#fn read () Number (#return 42u64))\n";
+    let implementation_text = "#gn alias (name) `((#type ,name #u64))\n#generate alias Number\n#fn read () Number (#return 42u64)\n";
     let implementation = fixture.write("numbers/implementation.lim", implementation_text);
-    let main_text = "(#alias read = ./numbers/lib.lim::read)\n(#alias same-read = ./numbers/lib.lim::read)\n(#alias Number = ./numbers/lib.lim::Number)\n(#fn main () #u64 (#return (#u64::add-wrap (#call read ()) (#call same-read ()))))\n(#fn number () Number (#return 1u64))\n";
+    let main_text = "#alias read = ./numbers/lib.lim::read\n#alias same-read = ./numbers/lib.lim::read\n#alias Number = ./numbers/lib.lim::Number\n#fn main () #u64 (#return (#u64::add-wrap (#call read ()) (#call same-read ())))\n#fn number () Number (#return 1u64)\n";
     let main = fixture.write("main.lim", main_text);
     fixture.context(&main, "first");
     let mut client = Client::start(&fixture.0);
@@ -597,9 +597,9 @@ fn repeated_direct_aliases_resolve_to_one_file_declaration_identity() {
 #[test]
 fn qualified_names_navigate_from_generator_arguments_and_definition_templates() {
     let fixture = Fixture::new("qualified-generator-references");
-    let library_text = "(#export make)\n(#fn helper () #u64 (#return 2u64))\n(#gn make (name reader) `((#fn ,name () #u64 (#let base #u64 (#call @helper ())) (#let input #u64 (#call ,reader ())) (#return (#u64::add-wrap base input)))))\n";
+    let library_text = "#export make\n#fn helper () #u64 (#return 2u64)\n#gn make (name reader) `((#fn ,name () #u64 (#let base #u64 (#call @helper ())) (#let input #u64 (#call ,reader ())) (#return (#u64::add-wrap base input))))\n";
     let library = fixture.write("library/lib.lim", library_text);
-    let main_text = "(#alias make = ./library/lib.lim::make)\n(#fn callback () #u64 (#return 40u64))\n(#generate make generated-read @callback)\n(#fn main () #u64 (#return (#call generated-read ())))\n";
+    let main_text = "#alias make = ./library/lib.lim::make\n#fn callback () #u64 (#return 40u64)\n#generate make generated-read @callback\n#fn main () #u64 (#return (#call generated-read ()))\n";
     let main = fixture.write("main.lim", main_text);
     fixture.context(&main, "first");
     let mut client = Client::start(&fixture.0);
@@ -625,11 +625,11 @@ fn qualified_names_navigate_from_generator_arguments_and_definition_templates() 
 #[test]
 fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
     let fixture = Fixture::new("navigation");
-    let leaf_text = "(#type Number #u64)\r\n(#fn glyph () #char (#return #\\😀)) (#fn leaf-value ((value Number)) Number (#return value))\r\n(#struct Holder () ((field Number)))\r\n(#fn inspect-holder ((holder (#ref Holder))) () (#return ()))\r\n";
+    let leaf_text = "#type Number #u64\r\n#fn glyph () #char (#return #\\😀)\n#fn leaf-value ((value Number)) Number (#return value)\r\n#struct Holder () ((field Number))\r\n#fn inspect-holder ((holder (#ref Holder))) () (#return ())\r\n";
     let leaf = fixture.write("modules α/leaf #%.lim", leaf_text);
-    let bridge_text = "(#alias Number = \"./leaf #%.lim::Number\")\r\n(#alias leaf-value = \"./leaf #%.lim::leaf-value\")\r\n(#cfg-if (#cfg-is #flavor first)\r\n (#fn proxy ((value Number)) Number (#return (#call leaf-value ((value value)))))\r\n (#cfg-else (#fn proxy ((value Number)) Number (#return value))))\r\n";
+    let bridge_text = "#alias Number = \"./leaf #%.lim::Number\"\r\n#alias leaf-value = \"./leaf #%.lim::leaf-value\"\r\n#cfg-if (#cfg-is #flavor first)\n   (#fn proxy ((value Number)) Number (#return (#call leaf-value ((value value)))))\n   (#cfg-else (#fn proxy ((value Number)) Number (#return value)))\r\n";
     let bridge = fixture.write("modules α/bridge.lim", bridge_text);
-    let root_text = "(#alias Number = \"./modules α/bridge.lim::Number\")\r\n(#alias proxy = \"./modules α/bridge.lim::proxy\")\r\n(#fn glyph-root () #char (#return #\\😀)) (#fn main () Number (#return (#call proxy ((value 42u64)))))\r\n";
+    let root_text = "#alias Number = \"./modules α/bridge.lim::Number\"\r\n#alias proxy = \"./modules α/bridge.lim::proxy\"\r\n#fn glyph-root () #char (#return #\\😀)\n#fn main () Number (#return (#call proxy ((value 42u64))))\r\n";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -727,13 +727,16 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
 #[test]
 fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
     let fixture = Fixture::new("member-roles");
-    let definitions = "(#struct Left () ((value #u64)))\n(#struct Right () ((value #u64)))\n(#fn read ((item (#ref Left))) #u64 (#return (#get item value)))";
+    let definitions = "#struct Left () ((value #u64))\n#struct Right () ((value #u64))\n#fn read ((item (#ref Left))) #u64 (#return (#get item value))\n";
     let module = fixture.write("types.lim", definitions);
-    let source = "(#alias Left = ./types.lim::Left)\n(#alias Right = ./types.lim::Right)\n(#alias read = ./types.lim::read)\n(#fn main () #u64
-      (#let left Left (#struct-literal Left ((value 40u64))))
-      (#let right Right (#struct-literal Right ((value 2u64))))
-      (#let result #u64 (#u64::add-wrap (#call read ((item (#borrow left)))) (#get right value)))
-      (#forget left) (#forget right) (#return result))";
+    let source = "#alias Left = ./types.lim::Left
+#alias Right = ./types.lim::Right
+#alias read = ./types.lim::read
+#fn main () #u64
+        (#let left Left (#struct-literal Left ((value 40u64))))
+        (#let right Right (#struct-literal Right ((value 2u64))))
+        (#let result #u64 (#u64::add-wrap (#call read ((item (#borrow left)))) (#get right value)))
+        (#forget left) (#forget right) (#return result)\n";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -786,12 +789,13 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
 #[test]
 fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
     let fixture = Fixture::new("generated-source-roles");
-    let source = "(#gn emit () `((#struct Box () ((value #u64)))
-      (#fn forward ((value #u64)) #u64 (#return value))))\n(#generate emit)
-      (#fn main () #u64
-        (#let object Box (#struct-literal Box ((value 42u64))))
-        (#let result #u64 (#call forward ((value (#get object value)))))
-        (#forget object) (#return result))";
+    let source = "#gn emit () `((#struct Box () ((value #u64)))
+        (#fn forward ((value #u64)) #u64 (#return value)))
+#generate emit
+#fn main () #u64
+          (#let object Box (#struct-literal Box ((value 42u64))))
+          (#let result #u64 (#call forward ((value (#get object value)))))
+          (#forget object) (#return result)\n";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -828,7 +832,7 @@ fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
 #[test]
 fn generated_syntax_bundles_keep_their_definition_after_expansion() {
     let fixture = Fixture::new("generated-bundles");
-    let source = "(#gn emit () `((#syntax Number (42u64))))\n(#generate emit)\n(#fn main () #u64 (#return (#syntax-splice Number)))\n";
+    let source = "#gn emit () `((#syntax Number (42u64)))\n#generate emit\n#fn main () #u64 (#return (#syntax-splice Number))\n";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -849,7 +853,7 @@ fn generated_syntax_bundles_keep_their_definition_after_expansion() {
 #[test]
 fn bundled_standard_library_types_and_view_locals_have_real_targets() {
     let fixture = Fixture::new("bundled-source-roles");
-    let source = "(#std)\n(#fn main () #usize (#return sYSTEM-ALLOCATION-ALIGNMENT))\n";
+    let source = "#std\n#fn main () #usize (#return sYSTEM-ALLOCATION-ALIGNMENT)\n";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -880,9 +884,9 @@ fn bundled_standard_library_types_and_view_locals_have_real_targets() {
 #[test]
 fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
     let fixture = Fixture::new("type-roles");
-    let module_text = "(#type Number #u64)\n(#extern-fn #abi-c foreign ((value Number)) Number)\n(#unsafe-fn guarded ((value Number)) Number (#return value))\n(#struct Holder () ((field (#ref Number))))\n(#enum Choice () ((Choice.Data (#tuple Number Number)) Choice.Empty))\n(#struct CRecord (#repr-c) ((c-field Number)))\n(#const lIMIT Number 99u64)\n(#static cOUNT Number 42u64)\n(#fn inspect ((holder (#ref Holder)) (choice (#ref Choice)) (record (#ref CRecord))) () (#return ()))\n";
+    let module_text = "#type Number #u64\n#extern-fn #abi-c foreign ((value Number)) Number\n#unsafe-fn guarded ((value Number)) Number (#return value)\n#struct Holder () ((field (#ref Number)))\n#enum Choice () ((Choice.Data (#tuple Number Number)) Choice.Empty)\n#struct CRecord (#repr-c) ((c-field Number))\n#const lIMIT Number 99u64\n#static cOUNT Number 42u64\n#fn inspect ((holder (#ref Holder)) (choice (#ref Choice)) (record (#ref CRecord))) () (#return ())\n";
     let module = fixture.write("functions.lim", module_text);
-    let root_text = "(#alias Number = ./functions.lim::Number)\n(#alias foreign = ./functions.lim::foreign)\n(#alias guarded = ./functions.lim::guarded)\n(#fn main () Number\n (#let-mut input Number 42u64)\n (#return (#unsafe (#unsafe-call foreign ((value (#unsafe-call guarded ((value input)))))))))\n";
+    let root_text = "#alias Number = ./functions.lim::Number\n#alias foreign = ./functions.lim::foreign\n#alias guarded = ./functions.lim::guarded\n#fn main () Number\n   (#let-mut input Number 42u64)\n   (#return (#unsafe (#unsafe-call foreign ((value (#unsafe-call guarded ((value input))))))))\n";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -915,7 +919,7 @@ fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
         (
             &module,
             module_text,
-            "Number)\n(#unsafe-fn",
+            "Number\n#unsafe-fn",
             "#type Number",
             "Number",
         ),
@@ -1002,10 +1006,10 @@ fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
 #[test]
 fn unsaved_import_updates_errors_stale_versions_and_close_restore_disk_definitions() {
     let fixture = Fixture::new("updates");
-    let disk = "(#fn target () #u64 (#return 42u64))\n";
+    let disk = "#fn target () #u64 (#return 42u64)\n";
     let child = fixture.write("child.lim", disk);
     let root_text =
-        "(#alias target = ./child.lim::target)\n(#fn main () #u64 (#return (#call target ())))";
+        "#alias target = ./child.lim::target\n#fn main () #u64 (#return (#call target ()))\n";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -1017,7 +1021,7 @@ fn unsaved_import_updates_errors_stale_versions_and_close_restore_disk_definitio
         "#fn target",
         "target",
     );
-    let broken = "// unsaved 😀\n\n(#fn target () #u64 (#return false))\n";
+    let broken = "// unsaved 😀\n\n#fn target () #u64 (#return false)\n";
     client.open(&child, broken);
     assert_location(
         &client.definition(&root, root_text, "target"),
@@ -1076,11 +1080,11 @@ fn unsaved_import_updates_errors_stale_versions_and_close_restore_disk_definitio
 #[test]
 fn context_flag_entry_and_invalid_config_changes_retarget_navigation_and_recover() {
     let fixture = Fixture::new("contexts");
-    let module_text = "(#cfg-if (#cfg-is #flavor first)\n (#fn selected () #u64 (#return 1u64))\n (#cfg-else (#fn selected () #u64 (#return 2u64))))";
+    let module_text = "#cfg-if (#cfg-is #flavor first)\n   (#fn selected () #u64 (#return 1u64))\n   (#cfg-else (#fn selected () #u64 (#return 2u64)))\n";
     let module = fixture.write("selected.lim", module_text);
-    let root_text = "(#alias selected = ./selected.lim::selected)\n(#fn main () #u64 (#return (#call selected ())))";
+    let root_text = "#alias selected = ./selected.lim::selected\n#fn main () #u64 (#return (#call selected ()))\n";
     let root = fixture.write("main.lim", root_text);
-    let other = fixture.write("other.lim", "(#fn main () #u64 (#return 0u64))");
+    let other = fixture.write("other.lim", "#fn main () #u64 (#return 0u64)\n");
     let context_path = fixture.0.join("lim.lsp");
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -1136,9 +1140,9 @@ fn context_flag_entry_and_invalid_config_changes_retarget_navigation_and_recover
 #[test]
 fn watched_multi_entry_contexts_keep_direct_file_alias_identity() {
     let fixture = Fixture::new("multi-context-reload");
-    let text = "(#fn read-value () #u64 (#return 42u64))";
+    let text = "#fn read-value () #u64 (#return 42u64)\n";
     let library = fixture.write("library.lim", text);
-    let app_text = "(#alias read-value = ./library.lim::read-value)\n(#fn main () #u64 (#return (#call read-value ())))";
+    let app_text = "#alias read-value = ./library.lim::read-value\n#fn main () #u64 (#return (#call read-value ()))\n";
     let test_text = app_text.to_owned();
     let app = fixture.write("app.lim", app_text);
     let test = fixture.write("test.lim", &test_text);
@@ -1174,9 +1178,9 @@ fn watched_multi_entry_contexts_keep_direct_file_alias_identity() {
 #[test]
 fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     let fixture = Fixture::new("generated");
-    let imported = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n";
+    let imported = "#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n";
     let types = fixture.write("types.lim", imported);
-    let root_text = "(#alias emit = ./types.lim::emit)\n(#generate emit Number)\n(#generate #optional ((type Number) (name Maybe)))\n(#fn main () Number (#return 42u64))\n(#fn wrap () Maybe (#return (#call Maybe::construct ((value 42u64)))))";
+    let root_text = "#alias emit = ./types.lim::emit\n#generate emit Number\n#generate #optional ((type Number) (name Maybe))\n#fn main () Number (#return 42u64)\n#fn wrap () Maybe (#return (#call Maybe::construct ((value 42u64))))\n";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -1266,7 +1270,7 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
     ] {
         let fixture = Fixture::new("enum-project");
         let text = format!(
-            "(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n          (#struct Row () ((value #u64)))\n          (#enum Task () ((Task.Work Row) Task.Idle))\n          (#generate lim-gen-enum-project ((enum Task) (variant Task.Work) (payload Row) (mode #{mode}) (name View)))\n          (#fn main () #u64\n            (#let-mut task Task (#enum-literal Task.Work (#struct-literal Row ((value 42u64)))))\n            (#let-else (View.Some frame)\n              (#call View::project ((source (#{borrow} task))))\n              (#else (#forget task) (#return 0u64)))\n            (#let answer #u64 (#get frame value))\n            (#forget frame) (#forget task) (#return answer))"
+            "#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project\n#struct Row () ((value #u64))\n#enum Task () ((Task.Work Row) Task.Idle)\n#generate lim-gen-enum-project ((enum Task) (variant Task.Work) (payload Row) (mode #{mode}) (name View))\n#fn main () #u64\n              (#let-mut task Task (#enum-literal Task.Work (#struct-literal Row ((value 42u64)))))\n              (#let-else (View.Some frame)\n                (#call View::project ((source (#{borrow} task))))\n                (#else (#forget task) (#return 0u64)))\n              (#let answer #u64 (#get frame value))\n              (#forget frame) (#forget task) (#return answer)\n"
         );
         let root = fixture.write("main.lim", &text);
         fixture.context(&root, "first");
@@ -1312,11 +1316,11 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
 #[test]
 fn same_spelled_declarations_keep_direct_file_identity_in_navigation() {
     let fixture = Fixture::new("direct-file-identity");
-    let first_text = "(#fn target () #u64 (#return 20u64))";
+    let first_text = "#fn target () #u64 (#return 20u64)\n";
     let first = fixture.write("first.lim", first_text);
-    let second_text = "(#fn target () #u64 (#return 22u64))";
+    let second_text = "#fn target () #u64 (#return 22u64)\n";
     let second = fixture.write("second.lim", second_text);
-    let source = "(#alias first-target = ./first.lim::target) (#alias second-target = ./second.lim::target)\n(#fn main () #u64 (#return (#u64::add-wrap (#call first-target ()) (#call second-target ()))))";
+    let source = "#alias first-target = ./first.lim::target\n#alias second-target = ./second.lim::target\n#fn main () #u64 (#return (#u64::add-wrap (#call first-target ()) (#call second-target ())))\n";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -1356,7 +1360,7 @@ fn same_spelled_declarations_keep_direct_file_identity_in_navigation() {
 #[test]
 fn fragmented_frames_malformed_json_and_string_request_ids_recover_over_stdio() {
     let fixture = Fixture::new("framing");
-    let text = "(#fn main () #u64 (#return 42u64))";
+    let text = "#fn main () #u64 (#return 42u64)\n";
     let path = fixture.write("main.lim", text);
     let mut client = Client::start(&fixture.0);
     client.open(&path, text);
@@ -1430,7 +1434,7 @@ fn fragmented_frames_malformed_json_and_string_request_ids_recover_over_stdio() 
 #[test]
 fn formatting_symbols_utf16_invalid_requests_and_parse_error_recovery_over_stdio() {
     let fixture = Fixture::new("protocol");
-    let text = "(#fn glyph () #char (#return #\\😀)) (#fn main () #u64 (#return 42u64))\r\n";
+    let text = "#fn glyph () #char (#return #\\😀)\n#fn main () #u64 (#return 42u64)\r\n";
     let path = fixture.write("editor 😀.lim", text);
     let mut client = Client::start(&fixture.0);
     client.open(&path, text);
@@ -1562,18 +1566,18 @@ fn assert_signature(result: &Json, callee: &str, parameters: &[&str], active: Op
 #[test]
 fn hover_reports_explicit_lexical_member_and_contract_information_over_stdio() {
     let fixture = Fixture::new("hover-information");
-    let source = "(#struct Left () ((value #u8)))
-      (#struct Right () ((value #u64)))
-      (#fn valid ((subject #u64)) #bool (#return true))
-      (#fn inspect ((input #u64) (row (#ref Right))) #u64
-        (#requires (#call valid ((subject input))))
-        (#ensures (#call valid ((subject (#result)))))
-        (#preserves (#call valid ((subject input))))
-        (#let answer #u64 (#get row value))
-        (#return answer))
-      (#fn show ((input #u64) (row (#ref Right))) #u64
-        (#return (#call inspect ((row row) (input input)))))
-      (#fn other ((input #u8)) #u8 (#return input))";
+    let source = "#struct Left () ((value #u8))
+#struct Right () ((value #u64))
+#fn valid ((subject #u64)) #bool (#return true)
+#fn inspect ((input #u64) (row (#ref Right))) #u64
+          (#requires (#call valid ((subject input))))
+          (#ensures (#call valid ((subject (#result)))))
+          (#preserves (#call valid ((subject input))))
+          (#let answer #u64 (#get row value))
+          (#return answer)
+#fn show ((input #u64) (row (#ref Right))) #u64
+          (#return (#call inspect ((row row) (input input))))
+#fn other ((input #u8)) #u8 (#return input)\n";
     let path = fixture.write("main.lim", source);
     let mut client = Client::start(&fixture.0);
     client.open(&path, source);
@@ -1631,7 +1635,7 @@ fn hover_reports_explicit_lexical_member_and_contract_information_over_stdio() {
         );
     }
     // The local declaration remains available through an unrelated semantic error.
-    let broken = format!("{source}\n(#fn broken () #u64 (#return false))");
+    let broken = format!("{source}\n#fn broken () #u64 (#return false)\n");
     client.change(&path, 2, &broken);
     assert!(client
         .hover(&path, &broken, "answer))", "answer")
@@ -1644,17 +1648,17 @@ fn hover_reports_explicit_lexical_member_and_contract_information_over_stdio() {
 #[test]
 fn signature_help_uses_named_parameter_order_for_all_call_spellings_over_stdio() {
     let fixture = Fixture::new("signature-spellings");
-    let declarations = "(#fn choose ((first #u64) (second #u64)) #u64 (#return first))\n";
+    let declarations = "#fn choose ((first #u64) (second #u64)) #u64 (#return first)\n";
     let path = fixture.write("main.lim", declarations);
     let mut client = Client::start(&fixture.0);
     client.open(&path, declarations);
     let bodies = [
-        "(#fn main () #u64 (#return (#call choose ((second 2u64) (first 1u64)))))",
-        "(#fn main () #u64 (#return (choose ((second 2u64) (first 1u64)))))",
-        "(#fn main () #u64 (#return (choose { second = 2u64; first = 1u64; })))",
-        "(#fn main () #u64 (#return choose { second = 2u64; first = 1u64; }))",
-        "(#fn main () #u64 (#return (#call choose { second = 2u64; first = 1u64; })))",
-        "(#fn main () #u64 (#return : choose : (second 2u64) (first 1u64)))",
+        "#fn main () #u64 (#return (#call choose ((second 2u64) (first 1u64))))\n",
+        "#fn main () #u64 (#return (choose ((second 2u64) (first 1u64))))\n",
+        "#fn main () #u64 (#return (choose { second = 2u64; first = 1u64; }))\n",
+        "#fn main () #u64 (#return choose { second = 2u64; first = 1u64; })\n",
+        "#fn main () #u64 (#return (#call choose { second = 2u64; first = 1u64; }))\n",
+        "#fn main () #u64 (#return : choose : (second 2u64) (first 1u64))\n",
         "#fn main {\n  #params = {}; #returns = #u64;\n  #body:\n    #return choose {\n      second = 2u64;\n      first = 1u64;\n    };\n}\n",
         "#fn main {\n  #params = {}; #returns = #u64;\n  #body:\n    #return choose {\n      second:\n        #block 2u64\n      first = 1u64;\n    };\n}\n",
     ];
@@ -1677,12 +1681,12 @@ fn signature_help_uses_named_parameter_order_for_all_call_spellings_over_stdio()
             .contains("#u64"));
         client.clear(&path);
     }
-    let puns = format!("{declarations}(#fn main () #u64 (#let first #u64 1u64) (#let second #u64 2u64) (#return (#call choose (($ second) ($ first)))))");
+    let puns = format!("{declarations}#fn main () #u64 (#let first #u64 1u64) (#let second #u64 2u64) (#return (#call choose (($ second) ($ first))))\n");
     lim::check_types(&lim::parse_program(&puns).unwrap()).unwrap();
     client.change(&path, 20, &puns);
     let signature = client.signature(&path, &puns, puns.find("$ second").unwrap() + 3);
     assert_signature(&signature, "choose", &["first", "second"], Some(1));
-    let unsafe_source = "(#extern-fn #abi-c foreign ((first #u64) (second #u64)) #u64)\n(#fn main () #u64 (#return (#unsafe (#unsafe-call foreign ((second 2u64) (first 1u64))))))";
+    let unsafe_source = "#extern-fn #abi-c foreign ((first #u64) (second #u64)) #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call foreign ((second 2u64) (first 1u64)))))\n";
     lim::check_types(&lim::parse_program(unsafe_source).unwrap()).unwrap();
     client.change(&path, 21, unsafe_source);
     let signature = client.signature(
@@ -1691,7 +1695,7 @@ fn signature_help_uses_named_parameter_order_for_all_call_spellings_over_stdio()
         unsafe_source.find("2u64").unwrap() + 2,
     );
     assert_signature(&signature, "foreign", &["first", "second"], Some(1));
-    let nested = format!("{declarations}(#fn inner ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (#call choose ((second (#call inner ((value 2u64)))) (first 1u64)))))");
+    let nested = format!("{declarations}#fn inner ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (#call choose ((second (#call inner ((value 2u64)))) (first 1u64))))\n");
     client.change(&path, 22, &nested);
     let signature = client.signature(&path, &nested, nested.find("2u64").unwrap() + 2);
     assert_signature(&signature, "inner", &["value"], Some(0));
@@ -1701,7 +1705,7 @@ fn signature_help_uses_named_parameter_order_for_all_call_spellings_over_stdio()
     client.clear(&path);
     // Display-only metadata remains available in an erroneous buffer. The
     // compiler's restriction on bare keyword heads must remain a diagnostic.
-    let bare_keyword = "(#fn type ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (type ((value 42u64)))))";
+    let bare_keyword = "#fn type ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (type ((value 42u64))))\n";
     assert!(lim::parse_program(bare_keyword).is_err());
     client.change(&path, 23, bare_keyword);
     assert_signature(
@@ -1723,22 +1727,22 @@ fn signature_help_uses_named_parameter_order_for_all_call_spellings_over_stdio()
 #[test]
 fn signature_help_recovers_unclosed_calls_without_writing_buffers_over_stdio() {
     let fixture = Fixture::new("signature-incomplete");
-    let declarations = "(#fn choose ((first #u64) (second #u64)) #u64 (#return first))\n";
+    let declarations = "#fn choose ((first #u64) (second #u64)) #u64 (#return first)\n";
     let path = fixture.write("main.lim", declarations);
     let mut client = Client::start(&fixture.0);
     client.open(&path, declarations);
     for (version, suffix) in [
-        "(#fn main () #u64 (#return (#call choose ",
-        "(#fn main () #u64 (#return (#call choose ((second ",
-        "(#fn main () #u64 (#return (#call choose ((second 2u64) (first ",
-        "(#fn main () #u64 (#return (choose { second = ",
-        "(#fn main () #u64 (#return : choose : : second ",
+        "#fn main () #u64 (#return (#call choose ",
+        "#fn main () #u64 (#return (#call choose ((second ",
+        "#fn main () #u64 (#return (#call choose ((second 2u64) (first ",
+        "#fn main () #u64 (#return (choose { second = ",
+        "#fn main () #u64 (#return : choose : : second ",
     ]
     .iter()
     .enumerate()
     {
         let source = format!("{declarations}{suffix}");
-        assert!(lim::parse(&source).is_err());
+        assert!(lim::parse_source_unit(&source).is_err());
         client.change(&path, version + 2, &source);
         let signature = client.signature(&path, &source, source.len());
         let active = if suffix.contains("(first ") {
@@ -1752,7 +1756,7 @@ fn signature_help_recovers_unclosed_calls_without_writing_buffers_over_stdio() {
         assert_eq!(fs::read_to_string(&path).unwrap(), declarations);
     }
     let restored = format!(
-        "{declarations}(#fn main () #u64 (#return (#call choose ((second 2u64) (first 1u64)))))"
+        "{declarations}#fn main () #u64 (#return (#call choose ((second 2u64) (first 1u64))))\n"
     );
     client.change(&path, 10, &restored);
     assert_signature(
@@ -1769,18 +1773,18 @@ fn signature_help_recovers_unclosed_calls_without_writing_buffers_over_stdio() {
 #[test]
 fn hover_and_signature_follow_aliases_unsaved_dependencies_and_generated_metadata_over_stdio() {
     let fixture = Fixture::new("information-metadata");
-    let disk = "(#fn original ((amount #u8) (other #u16)) #u32 (#return 0u32))";
+    let disk = "#fn original ((amount #u8) (other #u16)) #u32 (#return 0u32)\n";
     let dependency = fixture.write("dependency.lim", disk);
     fixture.write(
         "facade.lim",
-        "(#alias forwarded = ./dependency.lim::original)",
+        "#alias forwarded = ./dependency.lim::original\n",
     );
-    let source = "(#alias renamed = ./facade.lim::forwarded)\n(#fn main () #u32 (#return (#call renamed ((other 2u64) (amount 1u64)))))";
+    let source = "#alias renamed = ./facade.lim::forwarded\n#fn main () #u32 (#return (#call renamed ((other 2u64) (amount 1u64))))\n";
     let path = fixture.write("main.lim", source);
     fixture.context(&path, "first");
     let mut client = Client::start(&fixture.0);
     client.open(&path, source);
-    let unsaved = "// unsaved API\n(#fn original ((amount #u64) (other #u64)) #u32 (#return 0u32))";
+    let unsaved = "// unsaved API\n#fn original ((amount #u64) (other #u64)) #u32 (#return 0u32)\n";
     client.open(&dependency, unsaved);
     let hover = client.hover(&path, source, "renamed ((", "renamed");
     for part in ["amount", "other", "#u64", "#u32"] {
@@ -1802,7 +1806,7 @@ fn hover_and_signature_follow_aliases_unsaved_dependencies_and_generated_metadat
     assert_eq!(fs::read_to_string(&dependency).unwrap(), disk);
     assert!(!fixture.0.join(".lim").exists());
     client.close(&dependency);
-    let generated = "(#gn emit () `((#fn produced ((value #u64)) #u64 (#return value))))\n(#generate emit)\n(#fn main () #u64 (#return (#call produced ((value 42u64)))))";
+    let generated = "#gn emit () `((#fn produced ((value #u64)) #u64 (#return value)))\n#generate emit\n#fn main () #u64 (#return (#call produced ((value 42u64))))\n";
     client.change(&path, 2, generated);
     assert!(client
         .hover(&path, generated, "produced ((value 42", "produced")
@@ -1817,10 +1821,10 @@ fn hover_and_signature_follow_aliases_unsaved_dependencies_and_generated_metadat
         Some(0),
     );
     client.clear(&path);
-    let prefix = &generated[..generated.find("(#fn main").unwrap()];
+    let prefix = &generated[..generated.find("#fn main").unwrap()];
     for (version, suffix) in [
-        "(#fn main () #u64 (#return (#call produced ",
-        "(#fn main () #u64 (#return (produced { value = ",
+        "#fn main () #u64 (#return (#call produced ",
+        "#fn main () #u64 (#return (produced { value = ",
     ]
     .iter()
     .enumerate()
@@ -1836,7 +1840,7 @@ fn hover_and_signature_follow_aliases_unsaved_dependencies_and_generated_metadat
     }
     fixture.write("emitted.lim", prefix);
     let incomplete_alias =
-        "(#alias renamed = ./emitted.lim::produced)\n(#fn main () #u64 (#return (#call renamed ";
+        "#alias renamed = ./emitted.lim::produced\n#fn main () #u64 (#return (#call renamed ";
     client.change(&path, 5, incomplete_alias);
     assert_signature(
         &client.signature(&path, incomplete_alias, incomplete_alias.len()),
@@ -1854,7 +1858,7 @@ fn hover_and_signature_follow_aliases_unsaved_dependencies_and_generated_metadat
 #[test]
 fn information_requests_preserve_utf16_ranges_and_reject_invalid_positions_over_stdio() {
     let fixture = Fixture::new("information-utf16");
-    let source = "(#fn glyph () #char (#return #\\😀)) (#fn combine ((left😀 #u64) (right #u64)) #u64 (#return left😀))\r\n(#fn main () #u64 (#return (#call combine ((right 2u64) (left😀 1u64)))))";
+    let source = "#fn glyph () #char (#return #\\😀)\n#fn combine ((left😀 #u64) (right #u64)) #u64 (#return left😀)\r\n#fn main () #u64 (#return (#call combine ((right 2u64) (left😀 1u64))))\n";
     let path = fixture.write("editor 😀.lim", source);
     let mut client = Client::start(&fixture.0);
     client.open(&path, source);
@@ -1904,7 +1908,7 @@ fn information_requests_preserve_utf16_ranges_and_reject_invalid_positions_over_
 #[test]
 fn information_requests_ignore_comments_strings_and_generator_data_over_stdio() {
     let fixture = Fixture::new("information-inert-data");
-    let source = "(#fn choose ((value #u64)) #u64 (#return value))\n(#gn data () '(#call choose ((value 7u64))))\n(#generate unknown ((payload (#call choose ((value 8u64))))))\n(#fn main () #u64\n  // (#call choose ((value 9u64)))\n  (#println \"(#call choose ((value 10u64)))\")\n  (#return (#call choose ((value 42u64)))))";
+    let source = "#fn choose ((value #u64)) #u64 (#return value)\n#gn data () '(#call choose ((value 7u64)))\n#generate unknown ((payload (#call choose ((value 8u64)))))\n#fn main () #u64\n    // (#call choose ((value 9u64)))\n    (#println \"(#call choose ((value 10u64)))\")\n    (#return (#call choose ((value 42u64))))\n";
     let path = fixture.write("main.lim", source);
     let mut client = Client::start(&fixture.0);
     client.open(&path, source);
@@ -1928,17 +1932,17 @@ fn information_requests_ignore_comments_strings_and_generator_data_over_stdio() 
 #[test]
 fn information_requests_keep_context_alternatives_and_cfg_exclusions_over_stdio() {
     let fixture = Fixture::new("information-contexts");
-    let source = "(#cfg-if (#cfg-is #flavor first)
-      (#type Number #u8)
-      (#cfg-else (#type Number #u64)))
-      (#cfg-if (#cfg-is #flavor first)
-        (#fn choose ((left #u8) (right #u8)) #u8 (#return left))
-        (#cfg-else (#fn choose ((left #u64) (right #u64)) #u64 (#return left))))
-      (#fn use ((left Number) (right Number)) Number
-        (#return (#call choose ((right right) (left left)))))";
+    let source = "#cfg-if (#cfg-is #flavor first)
+        (#type Number #u8)
+        (#cfg-else (#type Number #u64))
+#cfg-if (#cfg-is #flavor first)
+          (#fn choose ((left #u8) (right #u8)) #u8 (#return left))
+          (#cfg-else (#fn choose ((left #u64) (right #u64)) #u64 (#return left)))
+#fn use ((left Number) (right Number)) Number
+          (#return (#call choose ((right right) (left left))))\n";
     let shared = fixture.write("shared.lim", source);
-    let first = fixture.write("first.lim", "(#alias use = ./shared.lim::use) (#fn main () #u8 (#return (#call use ((right 2u8) (left 1u8)))))");
-    let second = fixture.write("second.lim", "(#alias use = ./shared.lim::use) (#fn main () #u64 (#return (#call use ((right 2u64) (left 1u64)))))");
+    let first = fixture.write("first.lim", "#alias use = ./shared.lim::use\n#fn main () #u8 (#return (#call use ((right 2u8) (left 1u8))))\n");
+    let second = fixture.write("second.lim", "#alias use = ./shared.lim::use\n#fn main () #u64 (#return (#call use ((right 2u64) (left 1u64))))\n");
     let broken = fixture.write("broken.lim", ")");
     let contexts =
         [(first, "first"), (second, "second"), (broken, "broken")].map(|(entry, flavor)| {
@@ -2006,7 +2010,7 @@ fn information_requests_keep_context_alternatives_and_cfg_exclusions_over_stdio(
 #[test]
 fn intrinsic_information_uses_compiler_signatures_without_definition_targets_over_stdio() {
     let fixture = Fixture::new("information-intrinsics");
-    let source = "(#fn main () #u64 (#return (#call #u64::add-wrap ((right 2u64) (left 1u64)))))";
+    let source = "#fn main () #u64 (#return (#call #u64::add-wrap ((right 2u64) (left 1u64))))\n";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
     let path = fixture.write("main.lim", source);
     let mut client = Client::start(&fixture.0);
@@ -2030,7 +2034,7 @@ fn intrinsic_information_uses_compiler_signatures_without_definition_targets_ove
     );
     assert_eq!(client.definition(&path, source, "right 2u64"), Json::Null);
     client.clear(&path);
-    let positional = "(#fn main () #u64 (#return (#u64::add-wrap 1u64 2u64)))";
+    let positional = "#fn main () #u64 (#return (#u64::add-wrap 1u64 2u64))\n";
     lim::check_types(&lim::parse_program(positional).unwrap()).unwrap();
     client.change(&path, 2, positional);
     let hover = client.hover(&path, positional, "#u64::add-wrap", "#u64::add-wrap");
@@ -2047,7 +2051,7 @@ fn intrinsic_information_uses_compiler_signatures_without_definition_targets_ove
         client.definition(&path, positional, "#u64::add-wrap"),
         Json::Null
     );
-    let direct_outer = "(#fn inner ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (#u64::add-wrap 1u64 (#call inner ((value 2u64))))))";
+    let direct_outer = "#fn inner ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (#u64::add-wrap 1u64 (#call inner ((value 2u64)))))\n";
     lim::check_types(&lim::parse_program(direct_outer).unwrap()).unwrap();
     client.change(&path, 3, direct_outer);
     assert_signature(
@@ -2062,7 +2066,7 @@ fn intrinsic_information_uses_compiler_signatures_without_definition_targets_ove
         &["left", "right"],
         Some(0),
     );
-    let direct_inner = "(#fn outer ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (#call outer ((value (#u64::add-wrap 1u64 2u64))))))";
+    let direct_inner = "#fn outer ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (#call outer ((value (#u64::add-wrap 1u64 2u64)))))\n";
     lim::check_types(&lim::parse_program(direct_inner).unwrap()).unwrap();
     client.change(&path, 4, direct_inner);
     assert_signature(
@@ -2071,7 +2075,7 @@ fn intrinsic_information_uses_compiler_signatures_without_definition_targets_ove
         &["left", "right"],
         Some(1),
     );
-    let infix = "(#fn outer ((value #u64)) #u64 (#return value))\n(#fn main () #u64 (#return (#call outer ((value [#u64 #wrap; 1u64 + 2u64])))))";
+    let infix = "#fn outer ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (#call outer ((value [#u64 #wrap; 1u64 + 2u64]))))\n";
     lim::check_types(&lim::parse_program(infix).unwrap()).unwrap();
     client.change(&path, 5, infix);
     // Lowered arithmetic has no authored callee: its enclosing call remains active.
@@ -2087,7 +2091,7 @@ fn intrinsic_information_uses_compiler_signatures_without_definition_targets_ove
         client.at("textDocument/hover", &path, infix, infix.find('+').unwrap()),
         Json::Null
     );
-    let standalone_infix = "(#fn main () #u64 (#return [#u64 #wrap; 1u64 + 2u64]))";
+    let standalone_infix = "#fn main () #u64 (#return [#u64 #wrap; 1u64 + 2u64])\n";
     client.change(&path, 6, standalone_infix);
     let operator = standalone_infix.find('+').unwrap();
     assert_eq!(
@@ -2105,16 +2109,16 @@ fn intrinsic_information_uses_compiler_signatures_without_definition_targets_ove
 #[test]
 fn hover_uses_tuple_and_match_payload_binding_types_over_stdio() {
     let fixture = Fixture::new("hover-pattern-bindings");
-    let source = "(#enum Choice () ((Choice.Full #u16) Choice.Empty))
-      (#fn tuple () #u64
-        (#let (#tuple small large) (#tuple #u8 #u64)
-          (#tuple (#tuple #u8 #u64) 1u8 2u64))
-        (#forget small)
-        (#return large))
-      (#fn payload ((choice Choice)) #u16
-        (#return (#match choice
-          (#case (Choice.Full value) value)
-          (#case Choice.Empty 0u16))))";
+    let source = "#enum Choice () ((Choice.Full #u16) Choice.Empty)
+#fn tuple () #u64
+          (#let (#tuple small large) (#tuple #u8 #u64)
+            (#tuple (#tuple #u8 #u64) 1u8 2u64))
+          (#forget small)
+          (#return large)
+#fn payload ((choice Choice)) #u16
+          (#return (#match choice
+            (#case (Choice.Full value) value)
+            (#case Choice.Empty 0u16)))\n";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
     let path = fixture.write("main.lim", source);
     let mut client = Client::start(&fixture.0);
@@ -2132,10 +2136,10 @@ fn hover_uses_tuple_and_match_payload_binding_types_over_stdio() {
     }
     client.clear(&path);
     // Invalid enum or-patterns still retain unambiguous source binding metadata.
-    let or_pattern = "(#enum Alternative () ((Alternative.First #u32) (Alternative.Second #u32)))
-      (#fn either ((item Alternative)) #u32
-        (#return (#match item
-          (#case (#or (Alternative.First shared) (Alternative.Second shared)) shared))))";
+    let or_pattern = "#enum Alternative () ((Alternative.First #u32) (Alternative.Second #u32))
+#fn either ((item Alternative)) #u32
+          (#return (#match item
+            (#case (#or (Alternative.First shared) (Alternative.Second shared)) shared)))\n";
     client.change(&path, 2, or_pattern);
     let shared = client.hover_at(
         &path,
@@ -2154,14 +2158,14 @@ fn hover_uses_tuple_and_match_payload_binding_types_over_stdio() {
 #[test]
 fn information_requests_reject_ambiguous_globals_and_out_of_scope_locals_over_stdio() {
     let fixture = Fixture::new("information-ambiguity");
-    let source = "(#fn choose ((value #u8)) #u8 (#return value))
-      (#fn choose ((value #u64)) #u64 (#return value))
-      (#fn main () #u64
-        (#forget later)
-        (#let later #u64 1u64)
-        (#block (#let inside #u64 2u64) (#forget inside))
-        (#forget inside)
-        (#return (#call choose ((value later)))))";
+    let source = "#fn choose ((value #u8)) #u8 (#return value)
+#fn choose ((value #u64)) #u64 (#return value)
+#fn main () #u64
+          (#forget later)
+          (#let later #u64 1u64)
+          (#block (#let inside #u64 2u64) (#forget inside))
+          (#forget inside)
+          (#return (#call choose ((value later))))\n";
     let path = fixture.write("main.lim", source);
     let mut client = Client::start(&fixture.0);
     client.open(&path, source);
