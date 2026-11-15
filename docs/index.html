@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Lim is an experimental compiled Lisp for people and code generators. Explore its design, tutorial and complete language reference on one searchable, offline page.">
+<meta name="description" content="Lim is a human-readable target for generated code: explicit static types, whole-program borrow checking, predicate contracts and inspectable implementations.">
 <meta name="color-scheme" content="light dark">
 <title>Lim — design, tutorial &amp; reference</title>
 <style type="text/css">:root{color-scheme:light dark;--paper:#f7f9f8;--surface:#fff;--ink:#192b25;--muted:#576b62;--line:#dce5e0;--accent:#17694f;--soft:#eaf3ee;--code:#f1f5f3;--mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
@@ -141,14 +141,14 @@
 </ul></li>
 </ul></nav>
 <main class="manual" id="main">
-<header class="document-intro"><p class="eyebrow">A language for people &amp; machines · experimental</p><h1>Explicit code.<br>One place to look.</h1><p class="lead">Lim is a compiled Lisp with explicit types, visible ownership and inspectable generated code. Start with the design, learn by example, and keep the full reference beside your code.</p><p class="anchor-hint">Find a keyword with <kbd>Ctrl</kbd> + <kbd>F</kbd> / <kbd>⌘</kbd> + <kbd>F</kbd>. No JavaScript, external fonts or collapsed reference text. Save this HTML file to read offline.</p></header>
+<header class="document-intro"><p class="eyebrow">A language for people &amp; machines · experimental</p><h1>Explicit code.<br>One place to look.</h1><p class="lead">Lim is a human-readable intermediate representation for code you can inspect, test, and ship. A strongly typed Lisp, it combines Rust-inspired whole-program borrow checking with proof-oriented ideas from <a href="https://lean-lang.org/">Lean 4</a>: validated branches carry facts that later calls must satisfy. Concrete generated implementations keep behavior visible, with fast compilation and efficient native code as core goals.</p><p class="anchor-hint">Find a keyword with <kbd>Ctrl</kbd> + <kbd>F</kbd> / <kbd>⌘</kbd> + <kbd>F</kbd>. No JavaScript, external fonts or collapsed reference text. Save this HTML file to read offline.</p></header>
 <section id="introduction" class="level1">
 <h1>Meet Lim</h1>
-<p>Lim is an experimental, compiled <strong>Lisp with explicit, strong static types</strong>. It is meant for code that people and machines can both read. You can write it by hand, ask a language model to produce it, or generate it from other code. In each case, you should be able to open the result and follow what it does. This page explains the design, walks through examples, and keeps the full reference close at hand.</p>
+<p>Lim is an experimental, compiled <strong>Lisp with explicit, strong static types</strong> and a <strong>human-readable target for generated code</strong>. Write it by hand, ask a language model to produce it, or build your own generator: the result stays ordinary source you can follow, test, and change. This page explains the design, walks through examples, and keeps the full reference close at hand.</p>
 <section id="language" class="level2">
 <h2>Read what runs</h2>
 <p><strong>Explicitness is the guiding principle.</strong> Declarations and behavior are written out in source. Local variable declarations include a type instead of asking the compiler to infer one. A function returns through an explicit return statement; its final expression never silently becomes its return value. Arithmetic operations state the types they operate on and, where relevant, how overflow is handled. Ordinary function calls name their arguments, so you can see which parameter receives each value at the call site. Builtin operations and special forms can also have positional operands.</p>
-<p>Note: the <strong><code>#</code> prefix is reserved for language keywords, builtin types and operators</strong>, such as <code>#fn</code>, <code>#u64</code> and <code>#return</code>. User declarations cannot use that prefix. Adding a future builtin <code>#feature</code> therefore leaves your <code>feature</code> name available; this does not promise that every future language change is backward-compatible.</p>
+<p>Note: the <strong><code>#</code> prefix is reserved for language keywords, builtin types and operators</strong>, such as <code>#fn</code>, <code>#u64</code> and <code>#return</code>. User declarations cannot use that prefix. Adding a future builtin <code>#feature</code> therefore leaves your <code>feature</code> name available. Language keywords and user declarations keep distinct spellings as the builtin vocabulary grows.</p>
 <p>A small surface notation makes handwritten code lighter: records, indentation, colon grouping and infix expressions reduce parentheses, verbosity and visual noise. This syntax sugar lowers to the same explicit parenthesized trees that code generators manipulate.</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> add {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { left <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; right <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; };
@@ -179,16 +179,16 @@
 </section>
 <section id="why-a-new-language" class="level2">
 <h2>Why a new language?</h2>
-<p>Lim is an intermediate representation you can read and audit. A generator or language model can produce it, and you can open the result and follow what it does: the types, named calls, ownership operations, and generated implementations are available in source. That makes inspection practical; it is not a formal security guarantee.</p>
+<p>Lim is an intermediate representation you can read and audit. A generator or language model can produce it, and you can open the result and follow what it does: the types, named calls, ownership operations, and generated implementations are available in source.</p>
 <p>Generated programs still need human review. Following a call becomes harder when its meaning depends on implicit conversions, receiver lookup, hidden cleanup, or distant generic instantiations. Lim explores a deliberately smaller design: make those decisions visible, give generators a simple tree to produce, and check ownership and API requirements before emitting code.</p>
 <p>Lim also avoids hidden call indirection. Function-pointer values, recursive calls, and implicit or virtual dispatch are unavailable. Generators can produce explicit branches, state machines and direct calls, and you can inspect that emitted Lim source. The generated code still has to obey the same rules; code generation does not permit recursion or indirect calls. References and raw pointers exist: this restriction concerns how function call targets are chosen.</p>
 <p>For example, distributed enums collect a closed set of contributed variants at compile time. Fixed executors take an explicit list of tasks and emit direct calls. These building blocks allow runtime selection through visible generated branches with targets known for that build. See <a href="collections-and-tasks.md">collections and cooperative tasks</a> for their current scope and examples.</p>
-<p>The goal is to shorten the path from an idea to code you can understand and run. The name evokes a limit as time approaches zero: less waiting to build, less overhead to execute, less time reconstructing intent. These are engineering targets, not benchmark results or a claim that Lim replaces established languages for every project. Lim is experimental and unreleased; syntax, semantics, backend coverage, and tooling can still change.</p>
+<p>The goal is to shorten the path from an idea to code you can understand and run. The name evokes a limit as time approaches zero: less waiting to build, less overhead to execute, less time reconstructing intent. These are engineering targets. Lim is experimental and unreleased; syntax, semantics, backend coverage, and tooling can still change.</p>
 </section>
 <section id="testing-and-performance" class="level2">
 <h2>Keep testing and performance practical</h2>
 <p>Testability is part of the design. Explicit inputs, control flow and cleanup make it easier to isolate a behavior, write a test for it, and understand a failure. Contract audits can check whether a function&#39;s promises hold on the paths your tests exercise. Generated implementations can be inspected and tested as ordinary Lim code.</p>
-<p>Very fast compilation is a first-class engineering goal, alongside excellent execution performance. Lim aims to produce efficient, predictable native machine code and minimize the work needed to build it. Cached generation, concrete implementations, and the internal encoder and linker support that direction. These choices do not establish a speed advantage or guarantee optimal assembly. The <a href="performance-baseline.md">performance baseline and benchmark harness</a> distinguish measured results from goals; representative workloads should guide optimization.</p>
+<p>Very fast compilation is a first-class engineering goal, alongside excellent execution performance. Lim aims to produce efficient, predictable native machine code and minimize the work needed to build it. Cached generation, concrete implementations, and the internal encoder and linker support that direction. The <a href="performance-baseline.md">performance baseline and benchmark harness</a> record measured results so representative workloads can guide optimization.</p>
 </section>
 <section id="design-reasoning" class="level2">
 <h2>Why these design choices?</h2>
@@ -222,7 +222,7 @@
 </tr>
 <tr>
 <td>Reserved <code>#</code> builtins</td>
-<td>Language additions such as <code>#feature</code> avoid taking the user name <code>feature</code>. The prefix protects names, not every possible syntax or semantic change.</td>
+<td>New language keywords use reserved spellings such as <code>#feature</code>, leaving ordinary names such as <code>feature</code> available for user declarations.</td>
 </tr>
 <tr>
 <td>Native compilation</td>
@@ -233,7 +233,7 @@
 </section>
 <section id="safety" class="level2">
 <h2>What the compiler checks</h2>
-<p>Ownership and borrowing checks track moves, exclusive access, returned references and retained loans across functions, without user-written lifetime annotations. Linear values need explicit consumption; destruction is visible rather than silently inserted. Raw pointers and unsafe operations have an explicit boundary and still need an audit. These checks target specific classes of mistakes; they do not establish that every program is correct.</p>
+<p><strong>Rust-inspired whole-program borrow checking</strong> follows moves, exclusive access, returned references and retained loans across functions and library boundaries, including generated implementations, without user-written lifetime annotations. Linear values need explicit consumption; destruction is visible rather than silently inserted. Raw pointers and unsafe operations have an explicit boundary and still need an audit.</p>
 </section>
 <section id="conditions-and-evidence" class="level2">
 <h2>State API conditions without multiplying types</h2>

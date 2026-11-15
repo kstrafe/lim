@@ -1,11 +1,10 @@
 # Meet Lim {#introduction}
 
-Lim is an experimental, compiled **Lisp with explicit, strong static types**.
-It is meant for code that people and machines can both read. You can write it
-by hand, ask a language model to produce it, or generate it from other code.
-In each case, you should be able to open the result and follow what it does.
-This page explains the design, walks through examples, and keeps the full
-reference close at hand.
+Lim is an experimental, compiled **Lisp with explicit, strong static types**
+and a **human-readable target for generated code**. Write it by hand, ask a
+language model to produce it, or build your own generator: the result stays
+ordinary source you can follow, test, and change. This page explains the design,
+walks through examples, and keeps the full reference close at hand.
 
 ## Read what runs {#language}
 
@@ -21,8 +20,8 @@ forms can also have positional operands.
 Note: the **`#` prefix is reserved for language keywords, builtin types and
 operators**, such as `#fn`, `#u64` and `#return`. User declarations cannot use
 that prefix. Adding a future builtin `#feature` therefore leaves your `feature`
-name available; this does not promise that every future language change is
-backward-compatible.
+name available. Language keywords and user declarations keep distinct spellings
+as the builtin vocabulary grows.
 
 A small surface notation makes handwritten code lighter: records, indentation, colon grouping and infix
 expressions reduce parentheses, verbosity and visual noise. This syntax sugar
@@ -84,8 +83,7 @@ for path resolution and visibility rules.
 Lim is an intermediate representation you can read and audit. A generator or
 language model can produce it, and you can open the result and follow what it
 does: the types, named calls, ownership operations, and generated implementations
-are available in source. That makes inspection practical; it is not a formal
-security guarantee.
+are available in source.
 
 Generated programs still need human review. Following a call becomes harder
 when its meaning depends on implicit conversions, receiver lookup, hidden
@@ -110,8 +108,7 @@ scope and examples.
 The goal is to shorten the path from an idea to code you can understand and
 run. The name evokes a limit as time approaches zero: less waiting to build,
 less overhead to execute, less time reconstructing intent. These are engineering
-targets, not benchmark results or a claim that Lim replaces established
-languages for every project. Lim is experimental and unreleased; syntax,
+targets. Lim is experimental and unreleased; syntax,
 semantics, backend coverage, and tooling can still change.
 
 ## Keep testing and performance practical {#testing-and-performance}
@@ -126,10 +123,8 @@ Very fast compilation is a first-class engineering goal, alongside excellent
 execution performance. Lim aims to produce efficient, predictable native machine
 code and minimize the work needed to build it. Cached generation, concrete
 implementations, and the internal encoder and linker support that direction.
-These choices do not establish a speed advantage or guarantee optimal assembly.
 The [performance baseline and benchmark harness](performance-baseline.md)
-distinguish measured results from goals; representative workloads should guide
-optimization.
+record measured results so representative workloads can guide optimization.
 
 ## Why these design choices? {#design-reasoning}
 
@@ -139,17 +134,17 @@ optimization.
 | Explicit types and operations | Bindings and arithmetic expose their meaning locally. There is no general type inference; unsuffixed literals can use an explicitly declared contextual type. This costs some extra source text. |
 | Free-standing functions and explicit names | `Work::poll` is a function name; `Choice.Ready` is an enum variant. There are no methods, traits, closures, function pointers or recursive calls to resolve. This restricts familiar abstractions. |
 | Concrete generated definitions | Pure compile-time generators produce ordinary Lim types and functions instead of user-facing generic types. Cached output in `.lim` is inspectable source with invocation provenance; concrete code can increase output size. |
-| Reserved `#` builtins | Language additions such as `#feature` avoid taking the user name `feature`. The prefix protects names, not every possible syntax or semantic change. |
+| Reserved `#` builtins | New language keywords use reserved spellings such as `#feature`, leaving ordinary names such as `feature` available for user declarations. |
 | Native compilation | The dependency-free Rust compiler encodes and links x86-64 Linux ELF executables internally. AArch64 and browser WebAssembly backends currently support smaller subsets. |
 
 ## What the compiler checks {#safety}
 
-Ownership and borrowing checks track moves, exclusive access, returned references
-and retained loans across functions, without user-written lifetime annotations.
+**Rust-inspired whole-program borrow checking** follows moves, exclusive access,
+returned references and retained loans across functions and library boundaries,
+including generated implementations, without user-written lifetime annotations.
 Linear values need explicit consumption; destruction is visible rather than
 silently inserted. Raw pointers and unsafe operations have an explicit boundary
-and still need an audit. These checks target specific classes of mistakes;
-they do not establish that every program is correct.
+and still need an audit.
 
 ## State API conditions without multiplying types {#conditions-and-evidence}
 
