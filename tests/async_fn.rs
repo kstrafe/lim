@@ -5400,7 +5400,7 @@ fn async_while_condition_keeps_global_names_out_of_frame_captures() {
     let static_fallback = fallback
         .replace(
             "#const fallback #bool false",
-            "(#static fallback #bool false)",
+            "#static fallback #bool false",
         )
         .replace(
             "              fallback)",
@@ -5415,7 +5415,7 @@ fn async_while_condition_keeps_global_names_out_of_frame_captures() {
     let invalid_source = source
         .replace(
             "#const fallback #bool false",
-            "(#const unrelated #bool false)",
+            "#const unrelated #bool false",
         )
         .replace("              fallback)", "              missing_global)");
     let error = graph_compile_error(&invalid_source, "async-unresolved-global-read");
@@ -6979,14 +6979,13 @@ fn async_clones_indexed_computed_reference_owners() {
     let index_await = source
         .replace(
             "#generate #async-fn",
-            "(#enum IndexTask (#linear) ((IndexTask.IndexStart #usize) (IndexTask.IndexResume #usize)))
-
-             (#enum IndexPoll () ((IndexPoll.IndexPending IndexTask) (IndexPoll.IndexReady #usize)))
-             (#fn index-poll ((task IndexTask) (waker (#ref #u64))) IndexPoll
-               (#return (#match task
-                 (#case (IndexTask.IndexStart start) (IndexPoll.IndexPending (IndexTask.IndexResume start)))
-                 (#case (IndexTask.IndexResume resumed) (IndexPoll.IndexReady resumed)))))
-             (#generate #async-fn",
+            "#enum IndexTask (#linear) ((IndexTask.IndexStart #usize) (IndexTask.IndexResume #usize))
+#enum IndexPoll () ((IndexPoll.IndexPending IndexTask) (IndexPoll.IndexReady #usize))
+#fn index-poll ((task IndexTask) (waker (#ref #u64))) IndexPoll
+  (#return (#match task
+    (#case (IndexTask.IndexStart start) (IndexPoll.IndexPending (IndexTask.IndexResume start)))
+    (#case (IndexTask.IndexResume resumed) (IndexPoll.IndexReady resumed))))
+#generate #async-fn",
         )
         .replace(
             "(#call index-value ((calls calls) (result index)))",
@@ -10093,13 +10092,14 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
     build_and_run_graph(&single_variant, 42);
     let enum_options = single_variant
         .replace(
-            "(#enum Values () ((Values.Only (#tuple (#tuple #u16 #u16) #u64))))",
-            "(#enum Values () ((Values.Only (#tuple (#tuple #u16 #u16) #u64)) Values.Missing))",
+            "#enum Values () ((Values.Only (#tuple (#tuple #u16 #u16) #u64)))",
+            "#enum Values () ((Values.Only (#tuple (#tuple #u16 #u16) #u64)) Values.Missing)",
         )
         .replace(
             "input-poll (InputTask.InputStart values)) (#unreachable))",
             "input-poll (InputTask.InputStart values)) (#return 5u64))",
         );
+    assert!(enum_options.contains("Values.Missing"));
     build_and_run_graph(&enum_options, 42);
     let mismatched = enum_options
         .replace(
