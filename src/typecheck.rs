@@ -17697,6 +17697,12 @@ mod typed_ownership_tests {
         }
     }
 
+    // Fixture edits must fail visibly when example formatting changes.
+    fn replace_staged_variant_fixture_once(source: &str, from: &str, to: &str) -> String {
+        assert_eq!(source.matches(from).count(), 1, "fixture edit: {from}");
+        source.replacen(from, to, 1)
+    }
+
     #[test]
     fn staged_loop_call_results_use_reachable_breaks_of_the_correct_loop() {
         let native =
@@ -17710,8 +17716,8 @@ mod typed_ownership_tests {
         let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
         crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache).unwrap();
         let original = include_str!("../examples/callee_variant_clear.lim");
-        let call =
-            "(#call step-choice ((target next-target) (value (#borrow value)) (complete true)))";
+        let call = "(#call step-choice ((target next-target) (value (#borrow value))
+          (complete true)))";
         for mode in [
             "direct",
             "branches",
@@ -17735,9 +17741,10 @@ mod typed_ownership_tests {
                 "post-call-call" => format!("(#loop (#let completed Outcome {call}) (#let ignored Outcome {}) (#forget ignored) (#break completed))", call.replace("complete true", "complete false")),
                 _ => unreachable!(),
             };
-            let mut source = original.replace(call, &replacement);
+            let mut source = replace_staged_variant_fixture_once(original, call, &replacement);
             if mode == "continue-before" {
-                source = source.replace(
+                source = replace_staged_variant_fixture_once(
+                    &source,
                     "(#let second Outcome",
                     "(#let-mut turns #u64 0u64) (#let second Outcome",
                 );
@@ -17778,8 +17785,8 @@ mod typed_ownership_tests {
         let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
         crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache).unwrap();
         let original = include_str!("../examples/callee_variant_clear.lim");
-        let call =
-            "(#call step-choice ((target next-target) (value (#borrow value)) (complete true)))";
+        let call = "(#call step-choice ((target next-target) (value (#borrow value))
+          (complete true)))";
         for mode in [
             "if",
             "nested",
@@ -17804,17 +17811,18 @@ mod typed_ownership_tests {
                 "sequential" => format!("(#block (#let earlier Outcome {call}) (#let later Outcome {}) (#if true (#block (#forget later) earlier) (#block (#forget earlier) later)))", call.replace("complete true", "complete false")),
                 _ => unreachable!(),
             };
-            let mut source = original.replace(call, &replacement);
+            let mut source = replace_staged_variant_fixture_once(original, call, &replacement);
             if mode == "different-destinations" {
-                source = source
-                    .replace(
-                        "(#let next-target",
-                        "(#let-mut other-holder Choice (Choice.Empty)) (#let next-target",
-                    )
-                    .replace(
-                        "(#forget holder)",
-                        "(#forget holder) (#forget other-holder)",
-                    );
+                source = replace_staged_variant_fixture_once(
+                    &source,
+                    "(#let next-target",
+                    "(#let-mut other-holder Choice (Choice.Empty)) (#let next-target",
+                );
+                source = replace_staged_variant_fixture_once(
+                    &source,
+                    "(#forget holder)",
+                    "(#forget holder) (#forget other-holder)",
+                );
             }
             if matches!(mode, "distinct-callees" | "unwritten") {
                 let writes = if mode == "unwritten" {
@@ -18030,19 +18038,22 @@ mod typed_ownership_tests {
                 (#deref-set update (Choice.Full (#borrow value))) (#drop update)";
             match mode {
                 "pending" => {
-                    source = source.replace(
-                        "(#case (Outcome.Pending) (#unreachable))",
-                        "(#case (Outcome.Pending) (#block (#set value 1u64) result))",
+                    source = replace_staged_variant_fixture_once(
+                        &source,
+                        "(#unreachable)",
+                        "(#block (#set value 1u64) result)",
                     )
                 }
                 "write" => {
-                    source = source.replace(
+                    source = replace_staged_variant_fixture_once(
+                        &source,
                         "(#drop next-target)",
                         &format!("(#drop next-target) {write}"),
                     )
                 }
                 "conditional-write" => {
-                    source = source.replace(
+                    source = replace_staged_variant_fixture_once(
+                        &source,
                         "(#drop next-target)",
                         &format!("(#drop next-target) (#if true (#block {write}) ())"),
                     )
@@ -18053,10 +18064,11 @@ mod typed_ownership_tests {
                           (#deref-set target (Choice.Full value)) (#return ()) ); }\n",
                     );
                     if mode == "call" {
-                        source = source.replace("(#drop next-target)",
+                        source = replace_staged_variant_fixture_once(&source, "(#drop next-target)",
                             "(#call overwrite ((target next-target) (value (#borrow value)))) (#drop next-target)");
                     } else {
-                        source = source.replace(
+                        source = replace_staged_variant_fixture_once(
+                            &source,
                             "(#drop next-target)",
                             "(#let temporary Choice (Choice.Full (#block
                                 (#call overwrite ((target next-target) (value (#borrow value))))
@@ -18065,12 +18077,16 @@ mod typed_ownership_tests {
                     }
                 }
                 "result-assignment" => {
-                    source = source
-                        .replace("(#let second Outcome", "(#let-mut second Outcome")
-                        .replace(
-                            "(#drop next-target)",
-                            "(#drop next-target) (#set second (Outcome.Ready))",
-                        );
+                    source = replace_staged_variant_fixture_once(
+                        &source,
+                        "(#let second Outcome",
+                        "(#let-mut second Outcome",
+                    );
+                    source = replace_staged_variant_fixture_once(
+                        &source,
+                        "(#drop next-target)",
+                        "(#drop next-target) (#set second (Outcome.Ready))",
+                    );
                 }
                 _ => unreachable!(),
             }
