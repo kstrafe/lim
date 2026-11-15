@@ -50,12 +50,17 @@ subtraction also supports unary negation. Floating-point remainder is currently
 unsupported by the native backend and has no callable declaration.
 
 ```lisp run=42
-(#fn main () #u64
-  (#let index #usize 1usize)
-  (#return
-    (#if-valid (#call #usize::lt ((left index) (right 4usize)))
-      (#call #u64::add-wrap ((right 22u64) (left 20u64)))
-      0u64)))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let index #usize 1usize;
+    #return:
+      #if-valid
+        (#usize::lt { left = index; right = 4usize; })
+        (#u64::add-wrap { right = 22u64; left = 20u64; })
+        0u64
+}
 ```
 
 For syntax, contextual examples, and semantics of every builtin, see the
@@ -197,13 +202,19 @@ contents:
 
 ```lisp library
 (#alias cell-generator = ../library/cell.lim::#cell)
+
 (#generate cell-generator #u64 CellU64 CellU64::create CellU64::get CellU64::set)
-(#struct Arena () ((cursor CellU64)))
-(#fn advance ((cursor (#ref CellU64))) #u64
-  (#let next #u64 (#u64::add-wrap
-    (#call CellU64::get ((cell (#clone cursor)))) 1u64))
-  (#call CellU64::set ((cell (#clone cursor)) (value next)))
-  (#return next))
+
+(#struct Arena () { cursor = CellU64; })
+
+#fn advance {
+  #params = { cursor = (#ref CellU64); };
+  #returns = #u64;
+  #body:
+    #let next #u64 [#u64 #wrap; (CellU64::get { cell = (#clone cursor); }) + 1u64];
+    CellU64::set { cell = (#clone cursor); value = next; };
+    #return next;
+}
 ```
 
 An aggregate that stores a reference retains a borrow of its owner for the
@@ -289,7 +300,7 @@ derives both properties recursively for structs, enums, tuples, and arrays:
 Unsafe native or opaque types may opt in explicitly:
 
 ```lisp library
-(#struct NativeResource () ((handle (#ptr #u8))))
+(#struct NativeResource () { handle = (#ptr #u8); })
 (#unsafe-impl #send NativeResource)
 (#unsafe-impl #sync NativeResource)
 ```
@@ -383,8 +394,12 @@ The three-expression form borrows the owner for the duration of the body.
 The two-expression form produces a reference:
 
 ```lisp library
-(#fn first ((value (#ref #u64))) (#ref #u64)
-  (#return value))
+#fn first {
+  #params = { value = (#ref #u64); };
+  #returns = (#ref #u64);
+  #body:
+    #return value;
+}
 ```
 
 Multiple shared borrows may overlap, but a mutable borrow cannot overlap any
@@ -421,13 +436,18 @@ original source borrow remains active for as long as the containing aggregate
 is live.
 
 ```lisp run=42
-(#struct Point () ((x #u64) (y #u64)))
-(#fn main () #u64
-  (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
-  (#let point-ref (#ref-mut Point) (#borrow-mut point))
-  (#let y-ref (#ref-mut #u64) (#borrow-mut (#get point-ref y)))
-  (#deref-set y-ref 42)
-  (#return (#deref y-ref)))
+(#struct Point () { x = #u64; y = #u64; })
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-mut point Point: #struct-literal Point { x = 1; y = 2; };
+    #let point-ref (#ref-mut Point): #borrow-mut point;
+    #let y-ref (#ref-mut #u64): #borrow-mut (#get point-ref y);
+    #deref-set y-ref 42;
+    #return: #deref y-ref;
+}
 ```
 
 ## Raw pointers and unsafe blocks
@@ -438,14 +458,18 @@ address and reading or writing through a raw pointer must occur inside an
 `#unsafe` block:
 
 ```lisp run=42
-(#fn main () #u64
-  (#let-mut value #u64 40)
-  (#return
-    (#unsafe
-      (#block
-        (#let pointer (#ptr-mut #u64) (#addr-of-mut value))
-        (#ptr-write pointer 42)
-        (#ptr-read pointer)))))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-mut value #u64 40;
+    #return:
+      #unsafe
+        (#block
+          (#let pointer (#ptr-mut #u64) (#addr-of-mut value))
+          (#ptr-write pointer 42)
+          (#ptr-read pointer))
+}
 ```
 
 Functions with caller safety obligations use `#unsafe-fn` instead of `#fn`.
@@ -456,12 +480,20 @@ functions. The declaration does not make its body implicitly unsafe: raw
 operations and unsafe calls still need an explicit block.
 
 ```lisp run=42
-(#unsafe-fn read-byte ((pointer (#ptr #u8))) #u8
-  (#return (#unsafe (#ptr-read pointer))))
-(#fn main () #u64
-  (#let value #u8 42u8)
-  (#return (#as (#unsafe
-    (#unsafe-call read-byte ((pointer (#addr-of value))))) #u64)))
+#unsafe-fn read-byte {
+  #params = { pointer = (#ptr #u8); };
+  #returns = #u8;
+  #body:
+    #return: #unsafe (#ptr-read pointer);
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let value #u8 42u8;
+    #return: #as (#unsafe (#unsafe-call read-byte { pointer = (#addr-of value); })) #u64;
+}
 ```
 
 Imports and generated declarations preserve the calling requirement. Implicit
@@ -557,16 +589,20 @@ assignment remains forbidden. Each new loop iteration initializes fresh local
 storage; explicitly end the previous iteration's local after its views end.
 
 ```lisp run=42
-(#struct LocalJob (#linear) ((state #u64)))
+(#struct LocalJob (#linear) { state = #u64; })
 
-(#fn main () #u64
-  (#let-mut job LocalJob (#struct-literal LocalJob ((state 0u64))))
-  (#let view (#pin-ref-mut LocalJob) (#pin job))
-  (#pin-set-field view state 42u64)
-  (#let answer #u64 (#get view state))
-  (#forget view)
-  (#forget job)
-  (#return answer))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-mut job LocalJob: #struct-literal LocalJob { state = 0u64; };
+    #let view (#pin-ref-mut LocalJob): #pin job;
+    #pin-set-field view state 42u64;
+    #let answer #u64: #get view state;
+    #forget view;
+    #forget job;
+    #return answer;
+}
 ```
 
 Ordinary named functions can take pinned references, so multiple local pins
@@ -744,8 +780,12 @@ numbers, flags, descriptors, and pointer/length pairs according to Linux ABI
 contracts.
 
 ```lisp library
-(#fn process-id () #i64
-  (#return (#unsafe (#linux-syscall #i64 39usize ()))))
+#fn process-id {
+  #params = {};
+  #returns = #i64;
+  #body:
+    #return: #unsafe: #linux-syscall #i64 39usize ();
+}
 ```
 
 `library/linux_x86_64.lim` builds byte input/output, process helpers, and
@@ -762,9 +802,13 @@ to the low-level read wrapper:
 
 ```lisp library
 (#alias linux-read = ../library/linux_x86_64.lim::linux-read)
-(#unsafe-fn read-buffer ((fd #i64) (destination (#ptr-mut #u8)) (count #usize)) #i64
-  (#return (#unsafe
-    (#unsafe-call linux-read ((fd fd) (destination destination) (count count))))))
+#unsafe-fn read-buffer {
+  #params = { fd = #i64; destination = (#ptr-mut #u8); count = #usize; };
+  #returns = #i64;
+  #body:
+    #return:
+      #unsafe (#unsafe-call linux-read { fd = fd; destination = destination; count = count; })
+}
 ```
 
 The raw syscall operation remains available for the rest
@@ -1595,8 +1639,12 @@ Choice.Ready
 Builtin forms are distinguished by their `#` prefix:
 
 ```lisp run=42
-(#fn main () #u64
-  (#return 42u64))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #return 42u64;
+}
 ```
 
 The character literal syntax is `#\a`, `#\space`, `#\newline`, and so on.
@@ -1690,16 +1738,23 @@ This is an ordinary library, not a new builtin or an implicit allocation.
 
 ```lisp run=42
 (#std)
-(#fn main () #u64
-  (#let text (#array #char 3) "Aé🙂")
-  (#return
-    (#match (#call String::from-chars ((text (#borrow-slice text))))
-      (#case (StringCreateResult.StringCreated owned)
-        (#block
-          (#let length #usize (#call String::len ((string (#borrow owned)))))
-          (#call String::free ((string owned)))
-          (#if (#usize::eq length 7usize) 42u64 1u64)))
-      (#case (StringCreateResult.StringCreateFailed error) 2u64))))
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let text (#array #char 3) "Aé🙂";
+    #return:
+      #match
+        (String::from-chars { text = (#borrow-slice text); })
+        (#case
+          (StringCreateResult.StringCreated owned)
+          (#block
+            (#let length #usize (String::len { string = (#borrow owned); }))
+            (String::free { string = owned; })
+            (#if [#usize; length == 7usize] 42u64 1u64)))
+        (#case (StringCreateResult.StringCreateFailed error) 2u64)
+}
 ```
 
 `String::new` creates an empty string without allocating. `String::with-capacity`,
@@ -1728,25 +1783,38 @@ second owned string by shared borrow, and releases both owners:
 
 ```lisp library
 (#std)
-(#fn main () #u64
-  (#let greeting (#array #char 5) "Hello")
-  (#let suffix (#array #char 9) ", world 🙂")
-  (#let-mut message String
-    (#match (#call String::from-chars ((text (#borrow-slice greeting))))
-      (#case (StringCreateResult.StringCreated created-message) created-message)
-      (#case (StringCreateResult.StringCreateFailed error) (#panic))))
-  (#let tail String
-    (#match (#call String::from-chars ((text (#borrow-slice suffix))))
-      (#case (StringCreateResult.StringCreated created-tail) created-tail)
-      (#case (StringCreateResult.StringCreateFailed error) (#panic))))
-  (#assert (#match (#call String::push-string ((string (#borrow-mut message)) (text (#borrow tail))))
-    (#case StringStatus.StringOk true) (#case _ false)))
-  (#assert (#match (#call String::push-char ((string (#borrow-mut message)) (value #\!)))
-    (#case StringStatus.StringOk true) (#case _ false)))
-  (#assert (#i64::eq (#println (#borrow message)) 0i64))
-  (#call String::free ((string tail)))
-  (#call String::free ((string message)))
-  (#return 42u64))
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let greeting (#array #char 5) "Hello";
+    #let suffix (#array #char 9) ", world 🙂";
+    #let-mut message String:
+      #match
+        (String::from-chars { text = (#borrow-slice greeting); })
+        (#case (StringCreateResult.StringCreated created-message) created-message)
+        (#case (StringCreateResult.StringCreateFailed error) (#panic))
+    #let tail String:
+      #match
+        (String::from-chars { text = (#borrow-slice suffix); })
+        (#case (StringCreateResult.StringCreated created-tail) created-tail)
+        (#case (StringCreateResult.StringCreateFailed error) (#panic))
+    #assert:
+      #match
+        (String::push-string { string = (#borrow-mut message); text = (#borrow tail); })
+        (#case StringStatus.StringOk true)
+        (#case _ false)
+    #assert:
+      #match
+        (String::push-char { string = (#borrow-mut message); value = #\!; })
+        (#case StringStatus.StringOk true)
+        (#case _ false)
+    #assert [#i64; (#println (#borrow message)) == 0i64];
+    String::free { string = tail; };
+    String::free { string = message; };
+    #return 42u64;
+}
 ```
 
 `String::byte-at` takes a shared string and an `index` parameter of type `#usize`. It returns
@@ -1778,19 +1846,28 @@ view, choose its public name and source layout explicitly:
 
 ```lisp library
 (#std)
-(#generate #utf8-view ((name BorrowedText) (owner (#slice #u8))))
-(#fn main () #u64
-  (#let bytes (#array #u8 2) (#array-of (#array #u8 2) 195u8 169u8))
-  (#let view BorrowedText
-    (#match (#call BorrowedText::from-owner ((owner (#borrow-slice bytes))))
-      (#case (BorrowedText::Result.Valid accepted) accepted)
-      (#case _ (#panic))))
-  (#let-mut iterator BorrowedText::Chars (#call BorrowedText::chars ((view view))))
-  (#assert (#match (#call BorrowedText::Chars::next ((iterator (#borrow-mut iterator))))
-    (#case (BorrowedText::CharResult.Char value) (#char::eq value #\é))
-    (#case _ false)))
-  (#forget iterator)
-  (#return 42u64))
+
+#generate #utf8-view { name = BorrowedText; owner = (#slice #u8); }
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let bytes (#array #u8 2): #array-of (#array #u8 2) 195u8 169u8;
+    #let view BorrowedText:
+      #match
+        (BorrowedText::from-owner { owner = (#borrow-slice bytes); })
+        (#case (BorrowedText::Result.Valid accepted) accepted)
+        (#case _ (#panic))
+    #let-mut iterator BorrowedText::Chars: BorrowedText::chars { view = view; };
+    #assert:
+      #match
+        (BorrowedText::Chars::next { iterator = (#borrow-mut iterator); })
+        (#case (BorrowedText::CharResult.Char value) (#char::eq value #\é))
+        (#case _ false)
+    #forget iterator;
+    #return 42u64;
+}
 ```
 
 For a generated name `V`, the public operations are:
@@ -1862,17 +1939,28 @@ identity and argument identity must match. Multiple requirements have AND
 semantics; a `#bool::and` conjunction supplies its individual facts.
 
 ```lisp library
-(#fn below-100 ((value #u64)) #bool
-  (#return (#u64::lt value 100u64)))
+#fn below-100 {
+  #params = { value = #u64; };
+  #returns = #bool;
+  #body:
+    #return [#u64; value < 100u64];
+}
 
-(#fn submit ((value #u64)) ()
-  (#requires (#call below-100 ((value value))))
-  (#return ()))
+#fn submit {
+  #params = { value = #u64; };
+  #returns = ();
+  #requires: (below-100 { value = value; });
+  #body:
+    #return ();
+}
 
-(#fn validate-and-submit ((value #u64)) ()
-  (#if-valid (#call below-100 ((value value)))
-    (#call submit ((value value))))
-  (#return ()))
+#fn validate-and-submit {
+  #params = { value = #u64; };
+  #returns = ();
+  #body:
+    #if-valid (below-100 { value = value; }): submit { value = value; };
+    #return ();
+}
 ```
 
 `#if-valid` executes an ordinary Boolean expression and grants the evidence
@@ -1912,14 +2000,23 @@ not suppress independent runtime checks of function contracts.
 A constrained type has the same runtime representation as its base type:
 
 ```lisp library
-(#fn below-100 ((value #u64)) #bool
-  (#return (#u64::lt value 100u64)))
-(#type Small
-  (#where (value #u64) (#call below-100 ((value value)))))
-(#struct Request () ((count Small) (tag #u64)))
+#fn below-100 {
+  #params = { value = #u64; };
+  #returns = #bool;
+  #body:
+    #return [#u64; value < 100u64];
+}
 
-(#fn consume-small ((value Small)) ()
-  (#return ()))
+(#type Small (#where (value #u64) (below-100 { value = value; })))
+
+(#struct Request () { count = Small; tag = #u64; })
+
+#fn consume-small {
+  #params = { value = Small; };
+  #returns = ();
+  #body:
+    #return ();
+}
 ```
 
 `#where` can appear directly wherever a supported type is accepted, or behind
@@ -1944,22 +2041,44 @@ bound or a named predicate with the same body does not supply that fact.
 Programmer-written helpers connect claims through their declared contracts:
 
 ```lisp library
-(#fn under-two ((index #usize)) #bool
-  (#return (#usize::lt index 2usize)))
-(#fn widen ((index #usize)) ()
-  (#requires (#call under-two ((index index))))
-  (#ensures (#usize::lt index 4usize))
-  (#return ()))
-(#type Index4 (#where (index #usize) (#usize::lt index 4usize)))
-(#fn read-four ((values (#ref (#array #u64 4))) (index Index4)) #u64
-  (#return (#index-proven values index)))
-(#fn use ((values (#ref (#array #u64 4))) (index #usize)) #u64
-  (#return (#if-valid (#call under-two ((index index)))
-    (#block
-      (#call widen ((index index)))
-      (#let checked Index4 index)
-      (#call read-four ((values values) (index checked))))
-    0u64)))
+#fn under-two {
+  #params = { index = #usize; };
+  #returns = #bool;
+  #body:
+    #return [#usize; index < 2usize];
+}
+
+#fn widen {
+  #params = { index = #usize; };
+  #returns = ();
+  #requires: (under-two { index = index; });
+  #ensures: [#usize; index < 4usize];
+  #body:
+    #return ();
+}
+
+(#type Index4 (#where (index #usize) [#usize; index < 4usize]))
+
+#fn read-four {
+  #params = { values = (#ref (#array #u64 4)); index = Index4; };
+  #returns = #u64;
+  #body:
+    #return: #index-proven values index;
+}
+
+#fn use {
+  #params = { values = (#ref (#array #u64 4)); index = #usize; };
+  #returns = #u64;
+  #body:
+    #return:
+      #if-valid
+        (under-two { index = index; })
+        (#block
+          (widen { index = index; })
+          (#let checked Index4 index)
+          (read-four { values = values; index = checked; }))
+        0u64
+}
 ```
 
 Removing the helper call rejects the assignment and subsequent access.
@@ -2004,10 +2123,19 @@ The parameter list is a list of `(name Type)` pairs. Function records also
 accept a parameter record such as `{ left = #u32; right = #u32; }`:
 
 ```lisp run=42
-(#fn add ((left #u32) (right #u32)) #u32
-  (#return (#u32::add-wrap left right)))
-(#fn main () #u64
-  (#return (#as (#call add ((right 2u32) (left 40u32))) #u64)))
+#fn add {
+  #params = { left = #u32; right = #u32; };
+  #returns = #u32;
+  #body:
+    #return [#u32 #wrap; left + right];
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #return: #as (add { right = 2u32; left = 40u32; }) #u64;
+}
 ```
 
 Colon grouping is ordinary parenthesis sugar, independent of named arguments:
@@ -2028,9 +2156,13 @@ syntax. A colon must have syntax on its line or a nonempty indented group.
 Parameters may be marked mutable:
 
 ```lisp library
-(#fn increment ((#mut value #u64)) #u64
-  (#set value (#u64::add-wrap value 1u64))
-  (#return value))
+#fn increment {
+  #params = ((#mut value #u64));
+  #returns = #u64;
+  #body:
+    #set value [#u64 #wrap; value + 1u64];
+    #return value;
+}
 ```
 
 Function calls name every argument explicitly. Safe calls use a function name
@@ -2047,12 +2179,21 @@ When a variable has the same name as its parameter, `($ name)` expands to
 `(name name)`:
 
 ```lisp run=42
-(#fn add ((left #u32) (right #u32)) #u32
-  (#return (#u32::add-wrap left right)))
-(#fn main () #u64
-  (#let left #u32 20u32)
-  (#let right #u32 22u32)
-  (#return (#as (#call add (($ left) ($ right))) #u64)))
+#fn add {
+  #params = { left = #u32; right = #u32; };
+  #returns = #u32;
+  #body:
+    #return [#u32 #wrap; left + right];
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let left #u32 20u32;
+    #let right #u32 22u32;
+    #return: #as (add (($ left) ($ right))) #u64;
+}
 ```
 
 This is general parser sugar, so it also works in struct field lists and
@@ -2117,8 +2258,13 @@ unsafe FFI boundaries and must use `#unsafe-call` inside `#unsafe`:
 
 ```lisp run=42
 (#extern-fn #abi-c abs ((value #i32)) #i32)
-(#fn main () #u64
-  (#return (#as (#unsafe (#unsafe-call abs ((value -42i32)))) #u64)))
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #return: #as (#unsafe (#unsafe-call abs { value = -42i32; })) #u64;
+}
 ```
 
 Binary compilation links statically without libc or pthread when the assembled
@@ -2206,11 +2352,15 @@ Aliases are concrete.  Recursive aliases are rejected.
 Structs are value types with named fields:
 
 ```lisp run=9
-(#struct Point () ((x #u64) (y #u64)))
+(#struct Point () { x = #u64; y = #u64; })
 
-(#fn main () #u64
-  (#let point Point (#struct-literal Point ((x 7u64) (y 9u64))))
-  (#return (#get point y)))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let point Point: #struct-literal Point { x = 7u64; y = 9u64; };
+    #return: #get point y;
+}
 ```
 
 Use a generator to emit concrete struct declarations when a family of
@@ -2222,11 +2372,8 @@ Variants may be fieldless or carry one payload. Use a named struct when a
 variant needs multiple fields:
 
 ```lisp library
-(#struct MovePayload () ((x #i32) (y #i32)))
-(#enum Message ()
-  (Message.Quit
-   (Message.Move MovePayload)
-   (Message.Write (#array #char 8))))
+(#struct MovePayload () { x = #i32; y = #i32; })
+(#enum Message () (Message.Quit (Message.Move MovePayload) (Message.Write (#array #char 8))))
 ```
 
 Discriminants are assigned from zero, or can be explicitly supplied using a
@@ -2263,11 +2410,15 @@ reference to it:
 
 ```lisp library
 (#const answer #u64 42u64)
-(#static values (#array #u64 3)
-  (#array (#array #u64 3) 10u64 20u64 30u64))
 
-(#fn first-value () #u64
-  (#return (#unsafe (#index values 0u64))))
+(#static values (#array #u64 3) (#array (#array #u64 3) 10u64 20u64 30u64))
+
+#fn first-value {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #return: #unsafe (#index values 0u64);
+}
 ```
 
 Initializers must be compile-time values.  Constant references, arithmetic,
@@ -2279,9 +2430,13 @@ arrays and enum payloads. They do not execute runtime initialization functions:
 
 ```lisp library
 (#static counter (#atomic #u64) (#atomic-init #u64 0u64))
-(#fn increment-counter () #u64
-  (#return (#unsafe
-    (#atomic-fetch-add (#borrow counter) 1u64 #memory-relaxed))))
+
+#fn increment-counter {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #return: #unsafe (#atomic-fetch-add (#borrow counter) 1u64 #memory-relaxed);
+}
 ```
 
 This does not permit an ordinary mutable borrow of a static, even inside
@@ -2352,10 +2507,8 @@ must be supplied exactly once; fields may appear in any order, and omitted
 fields are not defaulted:
 
 ```lisp library
-(#struct Point () ((x #u64) (y #u64)))
-(#let point Point
-  (#struct-literal Point
-    ((y 22u64) (x 20u64))))
+(#struct Point () { x = #u64; y = #u64; })
+(#let point Point (#struct-literal Point { y = 22u64; x = 20u64; }))
 ```
 
 Unknown, duplicate, or missing fields are compile-time errors. A type name in
@@ -2439,11 +2592,14 @@ unit explicitly receives `()`.
 
 ```lisp run=42
 (#enum Answer () ((Answer.Value #u64) Answer.Empty))
-(#fn main () #u64
-  (#let answer Answer (#enum-literal Answer.Value 42u64))
-  (#return (#match answer
-    (#case (Answer.Value value) value)
-    (#case Answer.Empty 0u64))))
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let answer Answer: #enum-literal Answer.Value 42u64;
+    #return: #match answer (#case (Answer.Value value) value) (#case Answer.Empty 0u64);
+}
 ```
 
 Patterns do not use the construction keyword: `(Answer::Value value)` binds
@@ -2458,11 +2614,14 @@ delimit the failure body with `#else`:
 
 ```lisp run=42
 (#enum Outcome () ((Outcome.Success #u64) Outcome.Failure))
-(#fn main () #u64
-  (#let-else (Outcome.Success answer) (Outcome.Success 42u64)
-    (#else
-      (#return 0u64)))
-  (#return answer))
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-else (Outcome.Success answer) (Outcome.Success 42u64): #else (#return 0u64);
+    #return answer;
+}
 ```
 
 The named variant determines its declared owning enum; the value must have
@@ -2487,19 +2646,29 @@ through ordinary `#let-else`:
 
 ```lisp run=42
 (#std)
+
 (#enum Task () ((Task.Work #u64) Task.Idle))
-(#generate #enum-project ((enum Task) (variant Task.Work) (payload #u64) (mode #pin-ref-mut) (name WorkProjection)))
-(#fn main () #u64
-  (#let-mut task Task (Task.Work 42u64))
-  (#let-else (WorkProjection.Some frame)
-    (#call WorkProjection::project ((source (#pin-borrow-mut task))))
-    (#else
-      (#forget task)
-      (#return 0u64)))
-  (#let answer #u64 (#unsafe (#pin-read frame)))
-  (#forget frame)
-  (#forget task)
-  (#return answer))
+
+#generate #enum-project {
+  enum = Task;
+  variant = Task.Work;
+  payload = #u64;
+  mode = #pin-ref-mut;
+  name = WorkProjection;
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-mut task Task: Task.Work 42u64;
+    #let-else (WorkProjection.Some frame) (WorkProjection::project { source = (#pin-borrow-mut task); }):
+      #else (#forget task) (#return 0u64)
+    #let answer #u64: #unsafe (#pin-read frame);
+    #forget frame;
+    #forget task;
+    #return answer;
+}
 ```
 Destructuring consumes the aggregate and transfers each reference field's
 borrow provenance to its corresponding binding. Nested struct, tuple, array,
@@ -2531,7 +2700,7 @@ value is intended:
 
 ```lisp fragment=bindings
 (#let count #u64 40u64)
-(#let total #u64 (#u64::add-wrap (#clone count) count))
+(#let total #u64 [#u64 #wrap; (#clone count) + count])
 ```
 
 Assignments reinitialize mutable bindings only after the previous linear value
@@ -2548,7 +2717,7 @@ and installs the replacement:
 
 ```lisp fragment=bindings
 (#let-mut count #u64 0u64)
-(#set count (#u64::add-wrap count 1u64))
+(#set count [#u64 #wrap; count + 1u64])
 ```
 
 Loop conditions run repeatedly; any outer value they inspect must be explicitly
@@ -2695,14 +2864,22 @@ is explicitly released before accessing its source, and the function returns
 explicitly:
 
 ```lisp run=42
-(#fn increment ((#mut value #u64)) #u64
-  (#let reference (#ref-mut #u64) (#borrow-mut value))
-  (#deref-set reference (#u64::add-wrap (#deref reference) 1u64))
-  (#drop reference)
-  (#return value))
+#fn increment {
+  #params = ((#mut value #u64));
+  #returns = #u64;
+  #body:
+    #let reference (#ref-mut #u64): #borrow-mut value;
+    #deref-set reference [#u64 #wrap; (#deref reference) + 1u64];
+    #drop reference;
+    #return value;
+}
 
-(#fn main () #u64
-  (#return (#call increment ((value 41u64)))))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #return: increment { value = 41u64; };
+}
 ```
 
 Generator expressions instead run at compile time. Here a helper checks its
@@ -3034,9 +3211,13 @@ Statement loops use `#break` without a value:
 A loop expression has a value only when a reachable break supplies one:
 
 ```lisp run=42
-(#fn main () #u64
-  (#let result #u64 (#loop (#break 42u64)))
-  (#return result))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let result #u64: #loop (#break 42u64);
+    #return result;
+}
 ```
 
 An async `#while-let` may evaluate a synchronous scrutinee and suspend only
@@ -3174,10 +3355,12 @@ Labels wrap statement loops with `#label`, and value-loop breaks can target an
 outer value loop:
 
 ```lisp run=42
-(#fn main () #u64
-  (#return
-    (#label outer
-      (#loop (#break-to outer 42u64)))))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #return: #label outer (#loop (#break-to outer 42u64));
+}
 ```
 
 Recursive calls are rejected.  Mutual recursion is rejected as well.
@@ -3309,8 +3492,8 @@ order, but every required key must appear exactly once. User-defined `#gn`
 generators retain their own positional literal interface. For example:
 
 ```lisp library
-(#generate #optional ((type #u64) (name Maybe?)))
-(#generate #result ((ok #u64) (error #u32) (name Result)))
+#generate #optional { type = #u64; name = Maybe?; }
+#generate #result { ok = #u64; error = #u32; name = Result; }
 ```
 
 ### Fixed-array APIs
@@ -3329,16 +3512,22 @@ named-call syntax:
 | `Name::borrow-mut` | `values: (#ref-mut Name)`, `index: #usize` | `(#ref-mut T)` | Requires `#usize::lt index N`. |
 
 ```lisp run=42
-(#generate #array ((element #u64) (length 4) (name Array4)))
-(#fn main () #u64
-  (#let values Array4 (#array-of 10 42 30 40))
-  (#let index #usize 1usize)
-  (#return
-    (#if-valid (#call Array4::in-bounds ((index index)))
-      (#block
-        (#call Array4::prove-in-bounds ((index index)))
-        (#call Array4::get ((values (#borrow values)) (index index))))
-      0u64)))
+#generate #array { element = #u64; length = 4; name = Array4; }
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let values Array4: #array-of 10 42 30 40;
+    #let index #usize 1usize;
+    #return:
+      #if-valid
+        (Array4::in-bounds { index = index; })
+        (#block
+          (Array4::prove-in-bounds { index = index; })
+          (Array4::get { values = (#borrow values); index = index; }))
+        0u64
+}
 ```
 
 The validator is an opaque named predicate. The explicit `prove-in-bounds` call
@@ -3840,21 +4029,32 @@ does not re-import stale entry loans. Typed word writes likewise register the
 actual owner and pointee loans they store; raw bytes alone do not register them.
 
 ```lisp run=42
-(#struct RefValue () ((value (#ref #u64))))
-(#fn read-value ((words (#slice #u64))) #u64
-  (#let restored RefValue (#unsafe (#word-read RefValue words)))
-  (#let answer #u64 (#deref (#get restored value)))
-  (#forget restored)
-  (#return answer))
+(#struct RefValue () { value = (#ref #u64); })
 
-(#fn main () #u64
-  (#let seed #u64 42u64)
-  (#let-mut words (#array #u64 1) (#array-repeat 0u64))
-  (#unsafe (#word-write RefValue (#borrow-slice-mut words)
-    (#struct-literal RefValue ((value (#borrow seed))))))
-  (#let answer #u64 (#call read-value ((words (#borrow-slice words)))))
-  (#forget words)
-  (#return answer))
+#fn read-value {
+  #params = { words = (#slice #u64); };
+  #returns = #u64;
+  #body:
+    #let restored RefValue: #unsafe (#word-read RefValue words);
+    #let answer #u64: #deref (#get restored value);
+    #forget restored;
+    #return answer;
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let seed #u64 42u64;
+    #let-mut words (#array #u64 1): #array-repeat 0u64;
+    #unsafe:
+      #word-write RefValue
+        (#borrow-slice-mut words)
+        (#struct-literal RefValue { value = (#borrow seed); })
+    #let answer #u64: read-value { words = (#borrow-slice words); };
+    #forget words;
+    #return answer;
+}
 ```
 
 Removing the typed write, or overwriting its reference word with a number before

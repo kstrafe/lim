@@ -188,12 +188,16 @@ all inputs. Production can omit these extra audits. The playground enables them.
 A mutable reference grants exclusive access. End it before using the owner again:
 
 ```lisp run=42
-(#fn main () #u64
-  (#let-mut number #u64 40u64)
-  (#let view (#ref-mut #u64) (#borrow-mut number))
-  (#deref-set view 42u64)
-  (#forget view)
-  (#return number))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-mut number #u64 40u64;
+    #let view (#ref-mut #u64): #borrow-mut number;
+    #deref-set view 42u64;
+    #forget view;
+    #return number;
+}
 ```
 
 `#forget` explicitly consumes this handle. Ownership and borrow checking remain
@@ -215,14 +219,15 @@ currently belongs to the native backend.
 This checks the exact comparison needed by the access, then uses its evidence:
 
 ```lisp run=42
-(#fn main () #u64
-  (#let items (#array #u64 2)
-    (#array-of (#array #u64 2) 20u64 42u64))
-  (#let view (#ref (#array #u64 2)) (#borrow items))
-  (#let index #usize 1usize)
-  (#return (#if-valid (#usize::lt index 2usize)
-    (#index-proven view index)
-    0u64)))
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let items (#array #u64 2): #array-of (#array #u64 2) 20u64 42u64;
+    #let view (#ref (#array #u64 2)): #borrow items;
+    #let index #usize 1usize;
+    #return: #if-valid [#usize; index < 2usize] (#index-proven view index) 0u64;
+}
 ```
 
 The index must be `#usize`, and the comparison must mention this index and this
@@ -240,13 +245,15 @@ This example is available through **Check only** in the browser.
 Generators produce concrete declarations instead of hidden runtime dispatch:
 
 ```lisp run=42
-(#generate #optional ((type #u64) (name MaybeNumber)))
-(#fn main () #u64
-  (#let value MaybeNumber
-    (#call MaybeNumber::construct ((value 42u64))))
-  (#return (#match value
-    (#case (MaybeNumber.Some number) number)
-    (#case MaybeNumber.None 0u64))))
+#generate #optional { type = #u64; name = MaybeNumber; }
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let value MaybeNumber: MaybeNumber::construct { value = 42u64; };
+    #return: #match value (#case (MaybeNumber.Some number) number) (#case MaybeNumber.None 0u64);
+}
 ```
 
 Generated source is inspectable in `.lim/generated/`. Builtin and library
