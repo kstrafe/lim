@@ -82,16 +82,36 @@ try {
   console.log('Checking contracts and worker cancellation');
   await choose('contract'); await click('run'); await until('document.querySelector("#status").textContent === "Compiled and ran"');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned 42/);
-  const binding = "#extern-fn #abi-c browser-print-u64 ((value #u64)) ()\n";
-  await evaluate(`document.querySelector('#source').value=${JSON.stringify(`${binding}#fn main () #u64 (#unsafe (#unsafe-call browser-print-u64 ((value 7u64)))) (#return (#panic))`)}`);
+  const binding = '#extern-fn #abi-c browser-print-u64 { value = #u64; } ()\n';
+  const printThenTrap = `${binding}#fn main {
+    #params = {}; #returns = #u64;
+    #body:
+      #unsafe : #unsafe-call browser-print-u64 { value = 7; };
+      #return : #panic;
+  }`;
+  await evaluate(`document.querySelector('#source').value=${JSON.stringify(printThenTrap)}`);
   await click('run'); await until('document.querySelector("#status").textContent === "Needs attention"');
   assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '7\n');
   assert.equal(await evaluate('document.querySelector("#download").hidden'), false);
-  await evaluate(`document.querySelector('#source').value=${JSON.stringify(`${binding}#fn main () () (#for-range (number #u64) 0u64 100000u64 (#unsafe (#unsafe-call browser-print-u64 ((value number))))) (#return ())`)}`);
+  const floodOutput = `${binding}#fn main {
+    #params = {}; #returns = ();
+    #body:
+      #for-range (number #u64) 0 100000:
+        #unsafe : #unsafe-call browser-print-u64 { value = number; };
+      #return ();
+  }`;
+  await evaluate(`document.querySelector('#source').value=${JSON.stringify(floodOutput)}`);
   await click('run'); await until('document.querySelector("#status").textContent === "Needs attention"');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /64 KiB output limit/);
   assert.equal(await evaluate('document.querySelector("#stdout").textContent.length <= 65536'), true);
-  await evaluate(`document.querySelector('#source').value=${JSON.stringify(`${binding}#fn main () #u64 (#unsafe (#unsafe-call browser-print-u64 ((value 7u64)))) (#loop (#continue)) (#return 0u64)`)}`);
+  const printThenLoop = `${binding}#fn main {
+    #params = {}; #returns = #u64;
+    #body:
+      #unsafe : #unsafe-call browser-print-u64 { value = 7; };
+      #loop : #continue;
+      #return 0;
+  }`;
+  await evaluate(`document.querySelector('#source').value=${JSON.stringify(printThenLoop)}`);
   await click('run'); await until('document.querySelector("#status").textContent === "Running…" && document.querySelector("#stdout").textContent === "7\\n"'); await click('stop');
   assert.equal(await evaluate('document.querySelector("#status").textContent'), 'Stopped');
   assert.equal(await evaluate('document.querySelector("#run").disabled'), false);
