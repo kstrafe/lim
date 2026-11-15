@@ -51,7 +51,7 @@ fn forward_child_layouts_use_untagged_parent_storage_on_cold_and_warm_runs() {
         "child must have untagged owning storage"
     );
     // Both inspectable artifacts must also work without generator metadata.
-    let forms = lim::parse(source).unwrap();
+    let forms = lim::parse_source_unit(source).unwrap();
     let mut standalone = String::new();
     let mut cursor = 0;
     for form in forms {

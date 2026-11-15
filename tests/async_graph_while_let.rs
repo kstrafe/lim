@@ -30,10 +30,10 @@ fn run(source: &str, expected: i32) {
         let artifact = fs::read_dir(&output)
             .unwrap()
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-            .find(|text| text.contains("(#fn Work::poll "))
+            .find(|text| text.contains("#fn Work::poll "))
             .unwrap();
         let artifact = generated_source::ordinary_source(&artifact);
-        let invocation = lim::parse(source)
+        let invocation = lim::parse_source_unit(source)
             .unwrap()
             .into_iter()
             .find(|node| source[node.span.start..node.span.end].starts_with("(#generate #async-fn"))
@@ -87,8 +87,8 @@ fn awaited_pattern_can_return_after_two_body_suspensions() {
 fn awaited_pattern_payload_preserves_an_external_reference() {
     let source = include_str!("../examples/async_while_let_return.lim")
         .replace(
-            "(#enum Choice () ((Choice.Chosen #u64) Choice.Empty))",
-            "(#enum Choice () ((Choice.Chosen (#ref #u64)) Choice.Empty))",
+            "#enum Choice () ((Choice.Chosen #u64) Choice.Empty)",
+            "#enum Choice () ((Choice.Chosen (#ref #u64)) Choice.Empty)",
         )
         .replace(
             "step-poll (Step.Start value)",

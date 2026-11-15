@@ -119,7 +119,7 @@ fn run_ordinary_typed_payload(on_heap: bool) {
         )
         .replace("(#pin-borrow-mut storage)", "(#pin-own-borrow-mut storage)")
         .replace(
-            "\n  (#forget storage)\n",
+            "\n    (#forget storage)\n",
             "
       (#let released (#ptr-mut Storage) (#unsafe (#pin-release storage)))
       (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize
@@ -208,40 +208,40 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
       (#let second-ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
       (#forget second-ready)",
     );
-    let prefix = source.split_once("(#fn main () #u64").unwrap().0;
+    let prefix = source.split_once("#fn main () #u64").unwrap().0;
     run(&format!(
         "{prefix}
-      (#fn main () #u64
-        (#let waker #u64 0u64)
-        (#let-mut frame Work::Frame (#call work ()))
-        (#let first Work::Poll (#call Work::poll
-          ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
-        (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
-        (#let second Work::Poll (#call Work::poll
-          ((task pending) (waker (#borrow waker)))))
-        (#let-else (Work::Poll.Pending next) Work::Poll second (#unreachable))
-        (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup ((task next))))
-        (#let-else (Work::Frame::Cleanup::Owner-item.Full original)
-          Work::Frame::Cleanup::Owner-item (#get cleanup owner-item) (#unreachable))
-        (#assert (#u64::eq (#get original value) 2u64))
-        (#forget original) (#forget cleanup)
-        (#forget pending) (#forget next) (#forget frame)
-        (#return 42u64))"
+#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let-mut frame Work::Frame (#call work ()))
+          (#let first Work::Poll (#call Work::poll
+            ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
+          (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll
+            ((task pending) (waker (#borrow waker)))))
+          (#let-else (Work::Poll.Pending next) Work::Poll second (#unreachable))
+          (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup ((task next))))
+          (#let-else (Work::Frame::Cleanup::Owner-item.Full original)
+            Work::Frame::Cleanup::Owner-item (#get cleanup owner-item) (#unreachable))
+          (#assert (#u64::eq (#get original value) 2u64))
+          (#forget original) (#forget cleanup)
+          (#forget pending) (#forget next) (#forget frame)
+          (#return 42u64)\n"
     ));
 }
 
 fn cloned_source() -> String {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim");
     let hooks = "
-      (#fn Token::clone ((original Token)) Token
-        (#let value #u64 (#get original value))
-        (#forget original)
-        (#return (#struct-literal Token ((value (#u64::add-wrap value 10u64))))))
-      (#fn Owner::clone ((original Owner)) Owner
-        (#let kept #u64 (#get original kept))
-        (#let item Token (#clone (#get original item)))
-        (#forget original)
-        (#return (#struct-literal Owner ((kept kept) (item item)))))";
+#fn Token::clone ((original Token)) Token
+          (#let value #u64 (#get original value))
+          (#forget original)
+          (#return (#struct-literal Token ((value (#u64::add-wrap value 10u64)))))
+#fn Owner::clone ((original Owner)) Owner
+          (#let kept #u64 (#get original kept))
+          (#let item Token (#clone (#get original item)))
+          (#forget original)
+          (#return (#struct-literal Owner ((kept kept) (item item))))\n";
     format!("{hooks}\n{source}").replace(
         "(#let whole (#ref Owner)",
         "(#let copied Owner (#clone owner))
@@ -280,7 +280,7 @@ fn partial_exclusive_holder_lends_its_handle_before_a_later_await() {
         .replace("(#let seed #u64", "(#let-mut seed #u64")
         .replace("seed (#borrow seed)", "seed (#borrow-mut seed)");
     let begin = source.find("    (#let kept").unwrap();
-    let end = source.find("(#fn main").unwrap();
+    let end = source.find("#fn main").unwrap();
     let source = format!(
         "{}\n
         (#let moved Token (#get owner item)) (#forget moved)
@@ -367,7 +367,7 @@ fn heap_reference_owner_keeps_address_and_provenance_after_sibling_restoration()
 #[test]
 fn selected_whole_owner_keeps_branch_identity_with_contiguous_storage() {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim")
-        .replace("(#fn work () #u64", "(#fn work ((flag #bool)) #u64")
+        .replace("(#fn work () #u64", "#fn work ((flag #bool)) #u64")
         .replace(
             "(#let whole (#ref Owner) (#borrow owner))",
             "

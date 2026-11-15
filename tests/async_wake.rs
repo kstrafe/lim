@@ -58,13 +58,13 @@ fn wake_aware_pipeline_is_generated_and_runs() {
 
 #[test]
 fn pending_task_cannot_export_a_borrowed_waker() {
-    let source = "(#struct Executor () ((count #u64)))
-        (#struct Waker () ((executor (#ref Executor))))
-        (#enum State () ((State.Waiting (#ref Waker))))
-        (#fn escape () State
-          (#let executor Executor (#struct-literal Executor ((count 0u64))))
-          (#let waker Waker (#struct-literal Waker ((executor (#borrow executor)))))
-          (#return (State.Waiting (#borrow waker))))";
+    let source = "#struct Executor () ((count #u64))
+#struct Waker () ((executor (#ref Executor)))
+#enum State () ((State.Waiting (#ref Waker)))
+#fn escape () State
+            (#let executor Executor (#struct-literal Executor ((count 0u64))))
+            (#let waker Waker (#struct-literal Waker ((executor (#borrow executor)))))
+            (#return (State.Waiting (#borrow waker)))\n";
     let program = lim::parse_program(source).unwrap();
     let error = lim::check_types(&program).unwrap_err();
     assert!(

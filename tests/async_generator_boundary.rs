@@ -49,7 +49,7 @@ fn generated_standalone_with_config(
     assert!(!artifact.contains("Lim.async."), "{artifact}");
     assert!(!artifact.contains("generator_validation"), "{artifact}");
 
-    let form = lim::parse(source)
+    let form = lim::parse_source_unit(source)
         .unwrap()
         .into_iter()
         .find(|form| {
@@ -72,31 +72,31 @@ fn generated_standalone_with_config(
 
 #[test]
 fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
-    let source = "(#enum Child (#linear) ((Child.Waiting #u64)))
-      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-        (#return (#match task (#case (Child.Waiting count)
-          (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady count))))))
-      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-        (function (#fn work ((choose #bool)) #u64
-          (#let left #u64 41u64) (#let right #u64 51u64)
-          (#let view (#ref #u64) (#if choose (#borrow left) (#borrow right)))
-          (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
-          (#let answer #u64 (#u64::add-wrap (#deref view) extra))
-          (#drop view) (#return answer)))))
-      (#fn main () #u64
-        (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work ((choose true))))
-        (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
-        (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-        (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
-          (#case (Work::Poll.Ready value) value)
-          (#case (Work::Poll.Pending bad) (#block (#drop bad) (#unreachable)))))
-        (#forget task) (#return answer))";
+    let source = "#enum Child (#linear) ((Child.Waiting #u64))
+#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+          (#return (#match task (#case (Child.Waiting count)
+            (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady count)))))
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+          (function (#fn work ((choose #bool)) #u64
+            (#let left #u64 41u64) (#let right #u64 51u64)
+            (#let view (#ref #u64) (#if choose (#borrow left) (#borrow right)))
+            (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
+            (#let answer #u64 (#u64::add-wrap (#deref view) extra))
+            (#drop view) (#return answer))))
+#fn main () #u64
+          (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work ((choose true))))
+          (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
+          (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+          (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
+            (#case (Work::Poll.Ready value) value)
+            (#case (Work::Poll.Pending bad) (#block (#drop bad) (#unreachable)))))
+          (#forget task) (#return answer)\n";
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");
     let (scratch, standalone) = generated_standalone_with_config(
         source,
-        "(#generate #async-fn-pinned",
+        "#generate #async-fn-pinned",
         "Work::poll",
         "async-generator-selected-graph",
         &config,
@@ -108,7 +108,7 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
     // There is no runtime Empty tag for primitive bindings. Change the
     // unselected left buffer after Pending, then poll the right loan: address
     // selection must retain the original branch instead of rebuilding it.
-    let declarations = lim::parse(&standalone).unwrap();
+    let declarations = lim::parse_source_unit(&standalone).unwrap();
     let frame = declarations.iter().find_map(|node| {
         let lim::Expr::List(items) = &node.expr else { return None; };
         matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#struct")
@@ -159,30 +159,30 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
 
 #[test]
 fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code() {
-    let source = "(#struct Outside () ((other #u64) (selected #u64)))
-      (#enum Child (#linear) ((Child.Waiting #u64)))
-      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-        (#return (#match task (#case (Child.Waiting count)
-          (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady count))))))
-      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-        (function (#fn work ((external (#ref-mut #u64)) (choose #bool)) #u64
-          (#let-mut owner #u64 40u64)
-          (#let view (#ref-mut #u64) (#if choose (#borrow-mut owner) external))
-          (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
-          (#forget extra) (#deref-set view 42u64)
-          (#let answer #u64 (#deref view)) (#drop view) (#return answer)))))
-      (#fn main () #u64
-        (#let-mut external Outside (#struct-literal Outside ((other 90u64) (selected 50u64))))
-        (#let waker #u64 0u64)
-        (#let-mut task Work::Frame (#call work ((external (#borrow-mut (#get external selected))) (choose false))))
-        (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
-        (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-        (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
-          (#case (Work::Poll.Ready value) value)
-          (#case (Work::Poll.Pending bad) (#block (#drop bad) (#unreachable)))))
-        (#forget task) (#assert (#u64::eq (#get external other) 90u64))
-        (#assert (#u64::eq (#get external selected) 42u64)) (#return answer))";
+    let source = "#struct Outside () ((other #u64) (selected #u64))
+#enum Child (#linear) ((Child.Waiting #u64))
+#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+          (#return (#match task (#case (Child.Waiting count)
+            (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady count)))))
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+          (function (#fn work ((external (#ref-mut #u64)) (choose #bool)) #u64
+            (#let-mut owner #u64 40u64)
+            (#let view (#ref-mut #u64) (#if choose (#borrow-mut owner) external))
+            (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
+            (#forget extra) (#deref-set view 42u64)
+            (#let answer #u64 (#deref view)) (#drop view) (#return answer))))
+#fn main () #u64
+          (#let-mut external Outside (#struct-literal Outside ((other 90u64) (selected 50u64))))
+          (#let waker #u64 0u64)
+          (#let-mut task Work::Frame (#call work ((external (#borrow-mut (#get external selected))) (choose false))))
+          (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
+          (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+          (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
+            (#case (Work::Poll.Ready value) value)
+            (#case (Work::Poll.Pending bad) (#block (#drop bad) (#unreachable)))))
+          (#forget task) (#assert (#u64::eq (#get external other) 90u64))
+          (#assert (#u64::eq (#get external selected) 42u64)) (#return answer)\n";
     for mutable in [false, true] {
         let source = if mutable {
             source.to_owned()
@@ -200,7 +200,7 @@ fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code
         config.set("async-lowering", "graph");
         let (scratch, standalone) = generated_standalone_with_config(
             &source,
-            "(#generate #async-fn-pinned",
+            "#generate #async-fn-pinned",
             "Work::poll",
             "async-generator-mixed-external",
             &config,
@@ -208,7 +208,7 @@ fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code
         if !mutable {
             // The external loan must remain in a typed frame slot. Discover
             // the slot's generated identity without depending on its counter.
-            let declarations = lim::parse(&standalone).unwrap();
+            let declarations = lim::parse_source_unit(&standalone).unwrap();
             let external_slot = declarations.iter().find_map(|node| {
                 let lim::Expr::List(items) = &node.expr else { return None; };
                 let [lim::Expr::Symbol(head), lim::Expr::Symbol(name), _, lim::Expr::List(fields)] = items.as_slice() else {
@@ -278,37 +278,37 @@ fn check_build_and_run(scratch: &support::Scratch, source: &str, expected: i32) 
 
 #[test]
 fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
-    let source = "(#enum Child (#linear) ((Child.Waiting #u64)))
+    let source = "#enum Child (#linear) ((Child.Waiting #u64))
 
-      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-      (#syntax ChildAwait (#u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll))
-      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-        (#return (#match task
-          (#case (Child.Waiting amount) (ChildPoll.ChildReady amount)))))
-      (#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
-        (#fn work ((seed #u64)) #u64
-          (#let answer #u64 (#await ChildAwait (Child.Waiting seed)))
-          (#return (#u64::add-wrap answer 2u64))))))
-      (#fn main () #u64
-        (#let waker #u64 0u64)
-        (#let result Work::Poll
-          (#call Work::poll ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))
-        (#return (#match result
-          (#case (Work::Poll.Ready value) value)
-          (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable))))))";
+#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+#syntax ChildAwait (#u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll)
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+          (#return (#match task
+            (#case (Child.Waiting amount) (ChildPoll.ChildReady amount))))
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
+          (#fn work ((seed #u64)) #u64
+            (#let answer #u64 (#await ChildAwait (Child.Waiting seed)))
+            (#return (#u64::add-wrap answer 2u64)))))
+#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let result Work::Poll
+            (#call Work::poll ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))
+          (#return (#match result
+            (#case (Work::Poll.Ready value) value)
+            (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))\n";
     let (scratch, standalone) = generated_standalone(
         source,
-        "(#generate #async-fn",
+        "#generate #async-fn",
         "Work::poll",
         "async-generator-movable",
     );
     check_build_and_run(&scratch, &standalone, 42);
 
     let misuse = format!(
-        "{standalone}\n(#fn illegal () ()
-          (#let-mut owner #u64 1u64)
-          (#let view (#ref #u64) (#borrow owner))
-          (#set owner 2u64) (#drop view) (#return ()))"
+        "{standalone}\n#fn illegal () ()
+            (#let-mut owner #u64 1u64)
+            (#let view (#ref #u64) (#borrow owner))
+            (#set owner 2u64) (#drop view) (#return ())\n"
     );
     let program = lim::parse_program(&misuse).unwrap();
     let error = lim::check_types(&program).unwrap_err();
@@ -323,7 +323,7 @@ fn pinned_local_self_reference_artifact_is_checked_and_run_as_ordinary_lim() {
     let source = include_str!("../examples/async_fn_local_self_reference.lim");
     let (scratch, standalone) = generated_standalone(
         source,
-        "(#generate #async-fn-pinned",
+        "#generate #async-fn-pinned",
         "Local-self-ref::poll",
         "async-generator-pinned",
     );
@@ -362,7 +362,7 @@ fn mutable_self_reference_artifact_uses_ordinary_loan_identities_and_local_pins(
     let source = source.replace("(#let owner LocalOwner", "(#let-mut owner LocalOwner");
     let (scratch, standalone) = generated_standalone(
         &source,
-        "(#generate #async-fn-pinned",
+        "#generate #async-fn-pinned",
         "Local-self-ref::poll",
         "async-generator-mutable-pin",
     );

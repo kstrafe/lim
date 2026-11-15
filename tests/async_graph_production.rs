@@ -5,13 +5,13 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 const CONTEXT: &str = "
-  (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
-  (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-  (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-    (#return (#match task
-      (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
-      (#case (Child.Resume value) (ChildPoll.ChildReady value)))))
-  (#fn cancel-child ((child Child)) () (#forget child) (#return ()))";
+#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
+#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+      (#return (#match task
+        (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
+        (#case (Child.Resume value) (ChildPoll.ChildReady value))))
+#fn cancel-child ((child Child)) () (#forget child) (#return ())\n";
 
 fn config() -> lim::CompileConfig {
     let mut config = lim::CompileConfig::default();
@@ -50,12 +50,12 @@ fn checked_artifact(source: &str, label: &str) -> (support::Scratch, String, Str
         "WorkAwait"
     ));
     assert!(!artifact.contains("#await") && !artifact.contains("#generate #async-fn"));
-    let invocation = lim::parse(source)
+    let invocation = lim::parse_source_unit(source)
         .unwrap()
         .into_iter()
         .find(|node| {
             source[node.span.start..node.span.end]
-                .strip_prefix("(#generate ")
+                .strip_prefix("#generate ")
                 .is_some_and(|rest| rest.trim_start().starts_with("#async-fn"))
         })
         .unwrap();
@@ -231,7 +231,7 @@ fn enum_self_reference_example_checks_and_runs_as_standalone_graph_code() {
 #[test]
 fn enum_self_reference_graph_pending_handle_blocks_frame_destruction() {
     let source = include_str!("../examples/async_fn_enum_self_reference.lim")
-        .replace("  (#forget frame)\n  (#forget waker)", "  (#forget waker)")
+        .replace("    (#forget frame)\n    (#forget waker)", "  (#forget waker)")
         .replace(
             "  (#let second Read-after-await::Poll",
             "  (#forget frame)\n  (#let second Read-after-await::Poll",
@@ -259,15 +259,15 @@ fn enum_self_reference_graph_pending_handle_blocks_frame_destruction() {
 
 #[test]
 fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
-    let counter = "(#struct Counter (#linear) ((storage (#atomic #u64))))
-      (#fn read-counter ((count (#ref Counter))) #u64
-        (#return (#atomic-load (#borrow (#get count storage)) #memory-relaxed)))
-      (#fn bump-counter ((count (#ref Counter))) ()
-        (#atomic-store (#borrow (#get count storage))
-          (#u64::add-wrap (#call read-counter ((count count))) 1u64) #memory-relaxed)
-        (#return ()))";
+    let counter = "#struct Counter (#linear) ((storage (#atomic #u64)))
+#fn read-counter ((count (#ref Counter))) #u64
+          (#return (#atomic-load (#borrow (#get count storage)) #memory-relaxed))
+#fn bump-counter ((count (#ref Counter))) ()
+          (#atomic-store (#borrow (#get count storage))
+            (#u64::add-wrap (#call read-counter ((count count))) 1u64) #memory-relaxed)
+          (#return ())\n";
     let prefix = include_str!("../examples/async_fn_enum_self_reference.lim")
-        .split("(#fn main")
+        .split("#fn main")
         .next()
         .unwrap()
         .replace("read-after-await", "work")
@@ -275,14 +275,14 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
         .replace("ReadAfterAwaitAwait", "WorkAwait")
         .replace("(waker #u64)", "(waker #u64) (cancel (work-cancel ((await-0 cancel-child))))")
         .replace(
-            "(#enum Child (#linear) ((Child.Waiting #u64)))",
+            "#enum Child (#linear) ((Child.Waiting #u64))",
             "(#enum Child (#linear) ((Child.Waiting (#tuple (#ref Counter) #u64))))",
         )
         .replace("(Child.Waiting count)", "(Child.Waiting (#tuple counter count))")
         .replace("Child.Waiting 1u64", "Child.Waiting (#tuple counter 1u64)")
         .replace("Child.Waiting 0u64", "Child.Waiting (#tuple counter 0u64)")
         .replace("(#fn work ((owner Owner))", "(#fn work ((owner Owner) (counter (#ref Counter)))")
-        .replace("(#forget task) (#return ()))", "(#match task (#case (Child.Waiting (#tuple counter count)) (#block (#call bump-counter ((count counter))) (#drop counter) ()))) (#return ()))");
+        .replace("(#forget task) (#return ())", "(#match task (#case (Child.Waiting (#tuple counter count)) (#block (#call bump-counter ((count counter))) (#drop counter) ()))) (#return ()))");
     let first = "(#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
       (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))";
     let second =
@@ -297,15 +297,15 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
     ] {
         let source = format!(
             "{counter} {prefix}
-          (#fn main () #u64 (#let waker #u64 0u64)
-            (#let count Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
-            (#let-mut task Work::Frame (#call work ((owner (#struct-literal Owner
-              ((choice (Choice.Number (#struct-literal NumberPayload ((value 40u64)))))))) (counter (#borrow count)))))
-            {polls}
-            (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
-            (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
-            (#assert (#u64::eq (#call read-counter ((count (#borrow count)))) {cancellations}u64))
-            (#forget count) (#forget task) (#return 42u64))"
+#fn main () #u64 (#let waker #u64 0u64)
+              (#let count Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
+              (#let-mut task Work::Frame (#call work ((owner (#struct-literal Owner
+                ((choice (Choice.Number (#struct-literal NumberPayload ((value 40u64)))))))) (counter (#borrow count)))))
+              {polls}
+              (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
+              (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
+              (#assert (#u64::eq (#call read-counter ((count (#borrow count)))) {cancellations}u64))
+              (#forget count) (#forget task) (#return 42u64)\n"
         );
         run_expected(&source, "async-enum-self-reference-public-cleanup", 42);
     }
@@ -325,15 +325,15 @@ fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
     ] {
         let source = format!(
             "{CONTEXT}
-          (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-            (cancel (work-cancel ((await-0 cancel-child))))
-            (function (#fn work ((seed #u64)) #u64
-              (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))))))
-          (#fn main () #u64 (#let waker #u64 0u64)
-            (#let-mut task Work::Frame (#call work ((seed 42u64)))) {polls}
-            (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
-            (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
-            (#forget task) (#return 42u64))"
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+              (cancel (work-cancel ((await-0 cancel-child))))
+              (function (#fn work ((seed #u64)) #u64
+                (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))))
+#fn main () #u64 (#let waker #u64 0u64)
+              (#let-mut task Work::Frame (#call work ((seed 42u64)))) {polls}
+              (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
+              (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
+              (#forget task) (#return 42u64)\n"
         );
         let artifact = run(&source, "async-graph-cancel");
         assert!(artifact.contains(
@@ -354,17 +354,17 @@ fn movable_cleanup_consumes_the_frame_at_entry_and_pending() {
     ] {
         let source = format!(
             "{CONTEXT}
-          (#generate #async-fn ((protocol WorkAwait) (waker #u64)
-            (cancel (work-cancel ((await-0 cancel-child))))
-            (function (#fn work ((seed #u64)) #u64
-              (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))))))
-          (#fn main () #u64 (#let waker #u64 0u64)
-            (#let task Work::Task (#call work ((seed 42u64)))) {polls}
-            (#call work-cancel ((task (#call Work::Poll::cleanup ((task {task}))))))
-            (#return 42u64))"
+#generate #async-fn ((protocol WorkAwait) (waker #u64)
+              (cancel (work-cancel ((await-0 cancel-child))))
+              (function (#fn work ((seed #u64)) #u64
+                (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))))
+#fn main () #u64 (#let waker #u64 0u64)
+              (#let task Work::Task (#call work ((seed 42u64)))) {polls}
+              (#call work-cancel ((task (#call Work::Poll::cleanup ((task {task}))))))
+              (#return 42u64)\n"
         );
         run(&source, "async-graph-movable-cleanup");
-        let invalid = source.replace("(#return 42u64))", "(#forget task) (#return 42u64))");
+        let invalid = source.replace("(#return 42u64)", "(#forget task) (#return 42u64)");
         assert!(lim::parse_program_with_config(&invalid, &config()).is_err());
     }
 }
@@ -373,28 +373,28 @@ fn movable_cleanup_consumes_the_frame_at_entry_and_pending() {
 fn movable_dynamic_store_preserves_selection_in_cached_and_standalone_code() {
     let source = format!(
         "{CONTEXT}
-      (#generate #async-fn ((protocol WorkAwait) (waker #u64)
-        (cancel (work-cancel ((await-0 cancel-child))))
-        (function (#fn work ((seed #u64)) #u64
-          (#let-mut index #usize 1usize)
-          (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 0u64 9u64))
-          (#set-index values index (#block (#set index 0usize)
-            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))
-          (#assert (#u64::eq (#index values 0usize) 0u64))
-          (#return (#index values 1usize))))))
-      (#fn main () #u64
-        (#let waker #u64 0u64)
-        (#let first Work::Poll (#call Work::poll
-          ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
-        (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-        (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
-          (#case (Work::Poll.Ready value) value)
-          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
-        (#let cancelled Work::Poll (#call Work::poll
-          ((task (#call work ((seed 90u64)))) (waker (#borrow waker)))))
-        (#let-else (Work::Poll.Pending cancel-task) Work::Poll cancelled (#unreachable))
-        (#call work-cancel ((task (#call Work::Poll::cleanup ((task cancel-task))))))
-        (#return answer))"
+#generate #async-fn ((protocol WorkAwait) (waker #u64)
+          (cancel (work-cancel ((await-0 cancel-child))))
+          (function (#fn work ((seed #u64)) #u64
+            (#let-mut index #usize 1usize)
+            (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 0u64 9u64))
+            (#set-index values index (#block (#set index 0usize)
+              (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))
+            (#assert (#u64::eq (#index values 0usize) 0u64))
+            (#return (#index values 1usize)))))
+#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let first Work::Poll (#call Work::poll
+            ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
+          (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+          (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
+            (#case (Work::Poll.Ready value) value)
+            (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+          (#let cancelled Work::Poll (#call Work::poll
+            ((task (#call work ((seed 90u64)))) (waker (#borrow waker)))))
+          (#let-else (Work::Poll.Pending cancel-task) Work::Poll cancelled (#unreachable))
+          (#call work-cancel ((task (#call Work::Poll::cleanup ((task cancel-task))))))
+          (#return answer)\n"
     );
     let artifact = run(&source, "async-movable-dynamic-store");
     assert!(artifact.contains("index."));
@@ -405,23 +405,23 @@ fn movable_dynamic_store_preserves_selection_in_cached_and_standalone_code() {
 #[test]
 fn guard_preview_keeps_linear_scrutinee_through_rejection_and_resumption() {
     let source = format!("{CONTEXT}
-      (#generate #async-fn ((protocol WorkAwait) (waker #u64)
-        (function (#fn work ((seed #u64)) #u64
-          (#let child Child (Child.Start seed))
-          (#return (#match child
-            (#case (Child.Start amount)
-              (#when (#u64::eq (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)) 1u64))
-              (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 99u64)))
-            (#case (Child.Start amount) (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start amount)))
-            (#case (Child.Resume amount) amount)))))))
-      (#fn main () #u64 (#let waker #u64 0u64)
-        (#let first Work::Poll (#call Work::poll ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
-        (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-        (#let second Work::Poll (#call Work::poll ((task next) (waker (#borrow waker)))))
-        (#let-else (Work::Poll.Pending last) Work::Poll second (#unreachable))
-        (#return (#match (#call Work::poll ((task last) (waker (#borrow waker))))
-          (#case (Work::Poll.Ready answer) answer)
-          (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable))))))");
+#generate #async-fn ((protocol WorkAwait) (waker #u64)
+          (function (#fn work ((seed #u64)) #u64
+            (#let child Child (Child.Start seed))
+            (#return (#match child
+              (#case (Child.Start amount)
+                (#when (#u64::eq (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)) 1u64))
+                (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 99u64)))
+              (#case (Child.Start amount) (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start amount)))
+              (#case (Child.Resume amount) amount))))))
+#fn main () #u64 (#let waker #u64 0u64)
+          (#let first Work::Poll (#call Work::poll ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
+          (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+          (#let second Work::Poll (#call Work::poll ((task next) (waker (#borrow waker)))))
+          (#let-else (Work::Poll.Pending last) Work::Poll second (#unreachable))
+          (#return (#match (#call Work::poll ((task last) (waker (#borrow waker))))
+            (#case (Work::Poll.Ready answer) answer)
+            (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))\n");
     run(&source, "async-graph-guard");
 }
 
@@ -440,7 +440,7 @@ fn shared_reference_guard_preview_keeps_the_referent_through_rejected_awaits() {
 fn aggregate_reference_guard_source() -> String {
     shared_reference_guard_source()
         .replace(
-            "(#enum Holder (#linear) ((Holder.Holding (#ref #u64))))",
+            "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
             "(#struct View () ((value (#ref #u64))))\n(#enum Holder (#linear) ((Holder.Holding View)))",
         )
         .replace(
@@ -478,8 +478,8 @@ fn linear_exclusive_reference_aggregate_guard_lends_without_copying_the_handle()
             "(#call read-view ((view (#borrow view))))",
         );
     let source = format!(
-        "{source}\n(#fn read-view ((view (#ref View))) #u64
-      (#return (#deref (#get view value))))"
+        "{source}\n#fn read-view ((view (#ref View))) #u64
+        (#return (#deref (#get view value)))\n"
     );
     run(&source, "async-linear-exclusive-guard");
 }
@@ -545,11 +545,11 @@ fn direct_exclusive_field_reads_keep_nested_struct_and_tuple_projections() {
             "(#deref (#get (#borrow view) value))",
             "(#get (#get (#borrow view) value) amount)",
         );
-    let source = format!("(#struct Point () ((amount #u64) (other #u64)))\n{source}");
+    let source = format!("#struct Point () ((amount #u64) (other #u64))\n{source}");
     run(&source, "async-direct-nested-exclusive-field");
     let tuple = source
         .replace(
-            "(#struct Point () ((amount #u64) (other #u64)))",
+            "#struct Point () ((amount #u64) (other #u64))",
             "(#type Point (#tuple #u64 #u64))",
         )
         .replace(
@@ -567,23 +567,23 @@ fn direct_exclusive_field_reads_keep_nested_struct_and_tuple_projections() {
 fn repeated_direct_field_reads_lend_a_unique_parent_before_and_after_pending() {
     let source = format!(
         "{CONTEXT}
-      (#struct View (#linear) ((field (#ref-mut #u64))))
-      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-        (function (#fn work ((view (#ref-mut View))) #u64
-          (#let first #u64 (#deref (#get view field)))
-          (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))
-          (#let second #u64 (#deref (#get view field)))
-          (#return (#u64::add-wrap (#u64::add-wrap first second) extra))))))
-      (#fn main () #u64
-        (#let waker #u64 0u64) (#let-mut owner #u64 21u64)
-        (#let-mut view View (#struct-literal View ((field (#borrow-mut owner)))))
-        (#let-mut frame Work::Frame (#call work ((view (#borrow-mut view)))))
-        (#let-else (Work::Poll.Pending next) Work::Poll
-          (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))) (#unreachable))
-        (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
-          (#case (Work::Poll.Ready result) result)
-          (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-        (#forget frame) (#forget view) (#set owner 42u64) (#return answer))"
+#struct View (#linear) ((field (#ref-mut #u64)))
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+          (function (#fn work ((view (#ref-mut View))) #u64
+            (#let first #u64 (#deref (#get view field)))
+            (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))
+            (#let second #u64 (#deref (#get view field)))
+            (#return (#u64::add-wrap (#u64::add-wrap first second) extra)))))
+#fn main () #u64
+          (#let waker #u64 0u64) (#let-mut owner #u64 21u64)
+          (#let-mut view View (#struct-literal View ((field (#borrow-mut owner)))))
+          (#let-mut frame Work::Frame (#call work ((view (#borrow-mut view)))))
+          (#let-else (Work::Poll.Pending next) Work::Poll
+            (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))) (#unreachable))
+          (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
+            (#case (Work::Poll.Ready result) result)
+            (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
+          (#forget frame) (#forget view) (#set owner 42u64) (#return answer)\n"
     );
     run(&source, "async-direct-unique-parent");
 }
@@ -611,18 +611,18 @@ fn linear_reference_guard_source() -> String {
 #[test]
 fn linear_reference_guard_acceptance_consumes_only_the_selected_payload() {
     let source = linear_reference_guard_source();
-    let main = source.find("(#fn main").unwrap();
+    let main = source.find("#fn main").unwrap();
     let source = format!(
-        "{}\n(#fn main () #u64
-      (#let waker #u64 0u64) (#let owner #u64 0u64)
-      (#let-mut frame Work::Frame (#call work ((source (#borrow owner)))))
-      (#let-else (Work::Poll.Pending next) Work::Poll
-        (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
-        (#unreachable))
-      (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
-        (#case (Work::Poll.Ready value) value)
-        (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-      (#forget frame) (#return answer))",
+        "{}\n#fn main () #u64
+        (#let waker #u64 0u64) (#let owner #u64 0u64)
+        (#let-mut frame Work::Frame (#call work ((source (#borrow owner)))))
+        (#let-else (Work::Poll.Pending next) Work::Poll
+          (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
+          (#unreachable))
+        (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
+          (#case (Work::Poll.Ready value) value)
+          (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
+        (#forget frame) (#return answer)\n",
         &source[..main]
     );
     run_expected(&source, "async-linear-guard-accept", 0);
@@ -649,20 +649,20 @@ fn movable_linear_guard_borrows_the_retained_payload_only_during_poll() {
         linear_reference_guard_source(),
         linear_reference_guard_source().replace("(#get (#borrow view) value)", "(#get view value)"),
     ] {
-        let declarations = source[..source.find("(#fn main").unwrap()]
+        let declarations = source[..source.find("#fn main").unwrap()]
             .replace("#generate #async-fn-pinned", "#generate #async-fn");
         let source = format!(
             "{declarations}
-      (#fn main () #u64
-        (#let waker #u64 0u64) (#let owner #u64 42u64)
-        (#let-else (Work::Poll.Pending next) Work::Poll
-          (#call Work::poll ((task (#call work ((source (#borrow owner)))))
-            (waker (#borrow waker)))) (#unreachable))
-        (#let-else (Work::Poll.Pending last) Work::Poll
-          (#call Work::poll ((task next) (waker (#borrow waker)))) (#unreachable))
-        (#return (#match (#call Work::poll ((task last) (waker (#borrow waker))))
-          (#case (Work::Poll.Ready answer) answer)
-          (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable))))))"
+#fn main () #u64
+          (#let waker #u64 0u64) (#let owner #u64 42u64)
+          (#let-else (Work::Poll.Pending next) Work::Poll
+            (#call Work::poll ((task (#call work ((source (#borrow owner)))))
+              (waker (#borrow waker)))) (#unreachable))
+          (#let-else (Work::Poll.Pending last) Work::Poll
+            (#call Work::poll ((task next) (waker (#borrow waker)))) (#unreachable))
+          (#return (#match (#call Work::poll ((task last) (waker (#borrow waker))))
+            (#case (Work::Poll.Ready answer) answer)
+            (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))\n"
         );
         run(&source, "async-movable-linear-guard");
     }
@@ -697,12 +697,12 @@ fn linear_reference_guard_cancellation_reads_and_releases_the_retained_owner() {
     let source = linear_reference_guard_source();
     let declarations = format!(
         "{}\n
-      (#fn cancel-holder ((holder Holder)) ()
-        (#match holder (#case (Holder.Holding held)
-          (#block (#assert (#u64::eq (#deref (#get (#borrow held) value)) 42u64))
-            (#forget held) ())))
-        (#return ()))",
-        &source[..source.find("(#fn main").unwrap()]
+#fn cancel-holder ((holder Holder)) ()
+          (#match holder (#case (Holder.Holding held)
+            (#block (#assert (#u64::eq (#deref (#get (#borrow held) value)) 42u64))
+              (#forget held) ())))
+          (#return ())\n",
+        &source[..source.find("#fn main").unwrap()]
     )
     .replace(
         "(function (#fn work",
@@ -731,7 +731,7 @@ fn copy_reference_tuple_guard_retains_nested_referents_across_rejection() {
 fn alternative_reference_guards_do_not_preview_payloads() {
     let source = shared_reference_guard_source()
         .replace(
-            "(#enum Holder (#linear) ((Holder.Holding (#ref #u64))))",
+            "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
             "(#enum Holder (#linear) ((Holder.Holding (#ref #u64)) (Holder.Other (#ref #u64))))",
         )
         .replace(
@@ -751,7 +751,7 @@ fn alternative_reference_guards_do_not_preview_payloads() {
 fn alternative_reference_guards_reject_payload_bindings_before_publication() {
     let source = shared_reference_guard_source()
         .replace(
-            "(#enum Holder (#linear) ((Holder.Holding (#ref #u64))))",
+            "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
             "(#enum Holder (#linear) ((Holder.Holding (#ref #u64)) (Holder.Other (#ref #u64))))",
         )
         .replace(
@@ -805,9 +805,9 @@ fn suspended_aggregate_guard_keeps_the_callers_loan_alive() {
 
 fn guard_cancellation_declarations() -> String {
     let source = shared_reference_guard_source();
-    let declarations = source[..source.find("(#fn main").unwrap()]
+    let declarations = source[..source.find("#fn main").unwrap()]
         .replace(
-            "(#enum Holder (#linear) ((Holder.Holding (#ref #u64))))",
+            "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
             "(#enum Holder (#linear) ((Holder.Holding (#ref #u64))))
              (#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ()))",
         )
@@ -817,19 +817,19 @@ fn guard_cancellation_declarations() -> String {
                (await-0 cancel-child) (await-1 cancel-child))))
              (function (#fn work",
         );
-    assert!(declarations.contains("(#fn cancel-holder"));
+    assert!(declarations.contains("#fn cancel-holder"));
     declarations
 }
 
 fn cancelled_guard_source(declarations: &str, polls: &str, handle: &str) -> String {
     format!(
         "{declarations}
-      (#fn main () #u64 (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
-        (#let-mut frame Work::Frame (#call work ((source (#borrow owner)))))
-        {polls}
-        (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
-        (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut frame)))))))
-        (#forget frame) (#set owner 42u64) (#return owner))"
+#fn main () #u64 (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
+          (#let-mut frame Work::Frame (#call work ((source (#borrow owner)))))
+          {polls}
+          (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
+          (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut frame)))))))
+          (#forget frame) (#set owner 42u64) (#return owner)\n"
     )
 }
 
@@ -879,7 +879,7 @@ fn reading_guard_cleanup_resolves_conditional_call_input_provenance() {
 fn reading_aggregate_guard_cleanup_preserves_and_releases_nested_loans() {
     let declarations = guard_cancellation_declarations()
         .replace(
-            "(#enum Holder (#linear) ((Holder.Holding (#ref #u64))))",
+            "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
             "(#struct View () ((value (#ref #u64))))\n(#enum Holder (#linear) ((Holder.Holding View)))",
         )
         .replace(
@@ -958,10 +958,10 @@ fn exclusive_reference_guard_source(source: &str) -> String {
 #[test]
 fn exclusive_guard_commit_releases_the_preview_before_mutating_the_payload() {
     let source = exclusive_reference_guard_source(&shared_reference_guard_source());
-    let declarations = source[..source.find("(#fn main").unwrap()]
+    let declarations = source[..source.find("#fn main").unwrap()]
         .replace("(Child.Start 0u64)", "(Child.Start 42u64)")
         .replace(
-            "(#deref view))\n      (#case",
+            "(#deref view))\n        (#case",
             "(#block (#deref-set view 43u64) (#deref view)))\n      (#case",
         );
     assert!(
@@ -970,16 +970,16 @@ fn exclusive_guard_commit_releases_the_preview_before_mutating_the_payload() {
     );
     let source = format!(
         "{declarations}
-      (#fn main () #u64 (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
-        (#let-mut frame Work::Frame (#call work ((source (#borrow-mut owner)))))
-        (#let first Work::Poll
-          (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
-        (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-        (#let answer #u64 (#match
-          (#call Work::poll ((task next) (waker (#borrow waker))))
-          (#case (Work::Poll.Ready result) result)
-          (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-        (#forget frame) (#assert (#u64::eq owner 43u64)) (#return answer))"
+#fn main () #u64 (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
+          (#let-mut frame Work::Frame (#call work ((source (#borrow-mut owner)))))
+          (#let first Work::Poll
+            (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
+          (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+          (#let answer #u64 (#match
+            (#call Work::poll ((task next) (waker (#borrow waker))))
+            (#case (Work::Poll.Ready result) result)
+            (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
+          (#forget frame) (#assert (#u64::eq owner 43u64)) (#return answer)\n"
     );
     run_expected(&source, "async-graph-exclusive-guard-commit", 43);
 }
@@ -1097,9 +1097,9 @@ fn graph_route_rejects_missing_wrong_and_private_cleanup_contracts() {
             "unknown graph cleanup source slot 'unused'",
         ),
     ] {
-        let source = format!("{CONTEXT} (#fn wrong ((value #u64)) () (#return ()))
-          (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (cancel (work-cancel {handlers}))
-            (function (#fn work ((seed #u64)) #u64 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))))))");
+        let source = format!("{CONTEXT}#fn wrong ((value #u64)) () (#return ())
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (cancel (work-cancel {handlers}))
+              (function (#fn work ((seed #u64)) #u64 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))))\n");
         let error = lim::parse_program_with_config(&source, &config()).unwrap_err();
         assert!(error.contains(expected), "{error}");
     }
@@ -1107,9 +1107,9 @@ fn graph_route_rejects_missing_wrong_and_private_cleanup_contracts() {
 
 #[test]
 fn scoped_local_borrows_use_inspectable_pointer_storage() {
-    let source = format!("{CONTEXT} (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-      (function (#fn work ((seed #u64)) #u64 (#let owner #u64 seed)
-        (#return (#borrow owner (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64))))))))");
+    let source = format!("{CONTEXT}#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+        (function (#fn work ((seed #u64)) #u64 (#let owner #u64 seed)
+          (#return (#borrow owner (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))))))\n");
     let scratch = support::Scratch::new("async-graph-fail-closed");
     let cache = scratch.path().join("cache");
     lim::parse_program_from_path_with_config_and_cache(
@@ -1132,10 +1132,10 @@ fn scoped_local_borrows_use_inspectable_pointer_storage() {
 #[test]
 fn invalid_scoped_borrows_fail_before_cache_publication() {
     let source = format!(
-        "{CONTEXT} (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-      (function (#fn work ((seed #u64)) #u64 (#let-mut owner #u64 seed)
-        (#return (#borrow owner (#block (#set owner 1u64)
-          (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))))))))"
+        "{CONTEXT}#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+        (function (#fn work ((seed #u64)) #u64 (#let-mut owner #u64 seed)
+          (#return (#borrow owner (#block (#set owner 1u64)
+            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64))))))))\n"
     );
     let scratch = support::Scratch::new("async-graph-invalid-scope");
     let error = lim::parse_program_from_path_with_config_and_cache(
@@ -1152,21 +1152,21 @@ fn invalid_scoped_borrows_fail_before_cache_publication() {
 
 #[test]
 fn delayed_owner_initialization_and_configured_destruction_are_exactly_once() {
-    let declarations = "(#struct Counter (#linear) ((storage (#atomic #u64))))
-      (#fn read-counter ((count (#ref Counter))) #u64
-        (#return (#atomic-load (#borrow (#get count storage)) #memory-relaxed)))
-      (#fn bump-counter ((count (#ref Counter))) ()
-        (#atomic-store (#borrow (#get count storage))
-          (#u64::add-wrap (#call read-counter ((count count))) 1u64) #memory-relaxed)
-        (#return ()))
-      (#struct Source (#linear) ((amount #u64) (destroyed (#ref Counter))))
-      (#fn make-owner ((created (#ref Counter)) (destroyed (#ref Counter))) Source
-        (#call bump-counter ((count created)))
-        (#return (#struct-literal Source ((amount 40u64) (destroyed destroyed)))))
-      (#fn destroy-owner ((owner Source)) ()
-        (#assert (#u64::eq (#get owner amount) 40u64))
-        (#call bump-counter ((count (#get owner destroyed))))
-        (#forget owner) (#return ()))";
+    let declarations = "#struct Counter (#linear) ((storage (#atomic #u64)))
+#fn read-counter ((count (#ref Counter))) #u64
+          (#return (#atomic-load (#borrow (#get count storage)) #memory-relaxed))
+#fn bump-counter ((count (#ref Counter))) ()
+          (#atomic-store (#borrow (#get count storage))
+            (#u64::add-wrap (#call read-counter ((count count))) 1u64) #memory-relaxed)
+          (#return ())
+#struct Source (#linear) ((amount #u64) (destroyed (#ref Counter)))
+#fn make-owner ((created (#ref Counter)) (destroyed (#ref Counter))) Source
+          (#call bump-counter ((count created)))
+          (#return (#struct-literal Source ((amount 40u64) (destroyed destroyed))))
+#fn destroy-owner ((owner Source)) ()
+          (#assert (#u64::eq (#get owner amount) 40u64))
+          (#call bump-counter ((count (#get owner destroyed))))
+          (#forget owner) (#return ())\n";
     let first = "(#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
       (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))";
     let second = "(#let second Work::Poll (#call Work::poll ((task next) (waker (#borrow waker)))))
@@ -1186,27 +1186,27 @@ fn delayed_owner_initialization_and_configured_destruction_are_exactly_once() {
         ),
     ] {
         let source = format!("{CONTEXT}\n{declarations}
-          (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-            (cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child) (await-1 cancel-child))))
-            (function (#fn work ((created (#ref Counter)) (destroyed (#ref Counter))) #u64
-              (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 5u64)))
-              (#let owner Source (#call make-owner ((created created) (destroyed destroyed))))
-              (#let view (#pin-ref #u64) (#pin-borrow (#get owner amount)))
-              (#let amount #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64)))
-              (#let answer #u64 (#u64::add-wrap (#deref view) amount)) (#drop view)
-              (#call destroy-owner ((owner owner))) (#return answer)))))
-          (#fn main () #u64 (#let waker #u64 0u64)
-            (#let created Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
-            (#let destroyed Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
-            (#let-mut task Work::Frame (#call work ((created (#borrow created)) (destroyed (#borrow destroyed)))))
-            (#assert (#u64::eq (#call read-counter ((count (#borrow created)))) 0u64)) {polls}
-            (#assert (#u64::eq (#call read-counter ((count (#borrow created)))) {created}u64))
-            (#assert (#u64::eq (#call read-counter ((count (#borrow destroyed)))) {destroyed}u64))
-            (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
-            (#assert (#u64::eq (#call read-counter ((count (#borrow destroyed)))) {created}u64))
-            (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
-            (#assert (#u64::eq (#call read-counter ((count (#borrow destroyed)))) {created}u64))
-            (#forget task) (#forget created) (#forget destroyed) (#return 42u64))");
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+              (cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child) (await-1 cancel-child))))
+              (function (#fn work ((created (#ref Counter)) (destroyed (#ref Counter))) #u64
+                (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 5u64)))
+                (#let owner Source (#call make-owner ((created created) (destroyed destroyed))))
+                (#let view (#pin-ref #u64) (#pin-borrow (#get owner amount)))
+                (#let amount #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64)))
+                (#let answer #u64 (#u64::add-wrap (#deref view) amount)) (#drop view)
+                (#call destroy-owner ((owner owner))) (#return answer))))
+#fn main () #u64 (#let waker #u64 0u64)
+              (#let created Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
+              (#let destroyed Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
+              (#let-mut task Work::Frame (#call work ((created (#borrow created)) (destroyed (#borrow destroyed)))))
+              (#assert (#u64::eq (#call read-counter ((count (#borrow created)))) 0u64)) {polls}
+              (#assert (#u64::eq (#call read-counter ((count (#borrow created)))) {created}u64))
+              (#assert (#u64::eq (#call read-counter ((count (#borrow destroyed)))) {destroyed}u64))
+              (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
+              (#assert (#u64::eq (#call read-counter ((count (#borrow destroyed)))) {created}u64))
+              (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
+              (#assert (#u64::eq (#call read-counter ((count (#borrow destroyed)))) {created}u64))
+              (#forget task) (#forget created) (#forget destroyed) (#return 42u64)\n");
         run(&source, "async-graph-delayed-cleanup");
     }
 }
@@ -1236,20 +1236,20 @@ fn scoped_external_tokens_survive_pending_and_release_on_exit_or_cleanup() {
                  (#assert (#u64::eq answer 42u64))"
             };
             let source = format!("{CONTEXT}
-              (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-                (cancel (work-cancel ((await-0 cancel-child))))
-                (function (#fn work ((owner {ty})) #u64
-                  (#let answer #u64 ({scoped} (#get owner 0)
-                    (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 42u64))))
-                  (#return answer)))))
-              (#fn main () #u64 (#let waker #u64 0u64)
-                (#let-mut owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 1u64 2u64))
-                (#let-mut task Work::Frame (#call work ((owner ({borrow} owner)))))
-                (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
-                (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-                {finish} (#forget task)
-                (#set owner (#tuple (#tuple #u64 #u64) 40u64 2u64))
-                (#return (#u64::add-wrap (#get owner 0) (#get owner 1))))");
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+                  (cancel (work-cancel ((await-0 cancel-child))))
+                  (function (#fn work ((owner {ty})) #u64
+                    (#let answer #u64 ({scoped} (#get owner 0)
+                      (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 42u64))))
+                    (#return answer))))
+#fn main () #u64 (#let waker #u64 0u64)
+                  (#let-mut owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 1u64 2u64))
+                  (#let-mut task Work::Frame (#call work ((owner ({borrow} owner)))))
+                  (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
+                  (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+                  {finish} (#forget task)
+                  (#set owner (#tuple (#tuple #u64 #u64) 40u64 2u64))
+                  (#return (#u64::add-wrap (#get owner 0) (#get owner 1)))\n");
             run(&source, "async-graph-scoped-external");
             let misuse = source.replace(
                 finish,

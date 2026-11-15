@@ -4,23 +4,23 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 const SOURCE: &str = "
-  (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
-  (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
-  (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-    (#return (#match task
-      (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
-      (#case (Child.Resume value) (ChildPoll.Ready value)))))
-  (#generate #async-fn ((protocol WorkAwait) (waker #u64)
-    (function (#fn work ((seed #u64)) #u64
-      (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed)))))))
-  (#fn main () #u64
-    (#let waker #u64 0u64)
-    (#let first Work::Poll (#call Work::poll
-      ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
-    (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-    (#return (#match (#call Work::poll ((task next) (waker (#borrow waker))))
-      (#case (Work::Poll.Ready value) value)
-      (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable))))))";
+#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
+#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+      (#return (#match task
+        (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
+        (#case (Child.Resume value) (ChildPoll.Ready value))))
+#generate #async-fn ((protocol WorkAwait) (waker #u64)
+      (function (#fn work ((seed #u64)) #u64
+        (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed))))))
+#fn main () #u64
+      (#let waker #u64 0u64)
+      (#let first Work::Poll (#call Work::poll
+        ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
+      (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+      (#return (#match (#call Work::poll ((task next) (waker (#borrow waker))))
+        (#case (Work::Poll.Ready value) value)
+        (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))\n";
 
 fn config() -> lim::CompileConfig {
     let mut config = lim::CompileConfig::default();
@@ -108,10 +108,10 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
         )
     };
     let generated = scratch.path().join("generated");
-    let invocation = lim::parse(SOURCE)
+    let invocation = lim::parse_source_unit(SOURCE)
         .unwrap()
         .into_iter()
-        .find(|node| SOURCE[node.span.start..node.span.end].starts_with("(#generate #async-fn"))
+        .find(|node| SOURCE[node.span.start..node.span.end].starts_with("#generate #async-fn"))
         .unwrap();
     // Also import the inspectable output as ordinary Lim: source planning must
     // not be the only thing preventing edits to the generated representation.
@@ -127,12 +127,12 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
         let artifact = fs::read_dir(&generated)
             .unwrap()
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-            .find(|text| text.contains("(#fn Work::poll "))
+            .find(|text| text.contains("#fn Work::poll "))
             .unwrap();
         // Context metadata is compiler authority, not ordinary handwritten
         // source. Independently check only the emitted runtime declarations.
         let mut ordinary = artifact.clone();
-        for node in lim::parse(&artifact).unwrap().into_iter().rev() {
+        for node in lim::parse_source_unit(&artifact).unwrap().into_iter().rev() {
             if matches!(node.children.first().map(|node| &node.expr), Some(lim::Expr::Symbol(head)) if head == "#generated-context")
             {
                 ordinary.replace_range(node.span.start..node.span.end, "");
@@ -146,7 +146,7 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
         assert!(artifact.contains("#word-read"), "{artifact}");
         fs::write(scratch.path().join("frame.lim"), module).unwrap();
         let caller = format!(
-            "(#alias work = ./frame.lim::work)\n(#alias Work::Poll = ./frame.lim::Work::Poll)\n(#alias Work::poll = ./frame.lim::Work::poll)\n(#alias Work::Task = ./frame.lim::Work::Task)\n{}",
+            "#alias work = ./frame.lim::work\n#alias Work::Poll = ./frame.lim::Work::Poll\n#alias Work::poll = ./frame.lim::Work::poll\n#alias Work::Task = ./frame.lim::Work::Task\n{}",
             &SOURCE[invocation.span.end..]
         );
         compile(&caller).unwrap();
