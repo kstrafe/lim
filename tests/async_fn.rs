@@ -2395,7 +2395,7 @@ fn async_function_extracts_typed_await_from_another_await_task() {
 
     let return_source = source
         .replace("(#let result #u64\n              ", "(#return ")
-        .replace("          (#return result)", "");
+        .replace("            (#return result)", "");
     assert_ne!(return_source, source);
     let generated = build_and_run_graph(&return_source, 42);
     assert_single_poll(&generated, "Work::poll");
