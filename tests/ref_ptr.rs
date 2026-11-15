@@ -62,7 +62,7 @@ fn scalar_and_aggregate_roundtrips_lend_all_four_reference_kinds() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#io #global-access); #body = (
                           (#let-mut owner {ty} {init})
                           (#let view (#{pin}ref{suffix} {ty}) (#{pin}borrow{suffix} owner))
                           (#let pointer (#ptr{suffix} {ty}) (#ref-ptr view))
