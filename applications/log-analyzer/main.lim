@@ -1,0 +1,92 @@
+// Native stdin log summary. See README.md for the input contract.
+(#std)
+
+(#fn byte-is ((line (#ref String)) (index #usize) (value #u8)) #bool
+  (#return (#match (#call String::byte-at ((string line) (index index)))
+    (#case (StringByteResult.StringByte byte) (#u8::eq byte value))
+    (#case StringByteResult.StringByteOutOfBounds false))))
+
+(#fn boundary ((line (#ref String)) (index #usize)) #bool
+  (#return (#if (#usize::eq (#call String::len ((string line))) index) true
+    (#bool::or (#call byte-is ((line line) (index index) (value 32u8)))
+      (#bool::or (#call byte-is ((line line) (index index) (value 9u8)))
+        (#call byte-is ((line line) (index index) (value 13u8))))))))
+
+// 0=other, 1=INFO, 2=WARN, 3=ERROR.
+(#fn severity ((line (#ref String))) #u64
+  (#if (#bool::and (#call byte-is ((line line) (index 0usize) (value 73u8))) (#bool::and (#call byte-is ((line line) (index 1usize) (value 78u8))) (#bool::and (#call byte-is ((line line) (index 2usize) (value 70u8))) (#bool::and (#call byte-is ((line line) (index 3usize) (value 79u8))) (#call boundary ((line line) (index 4usize))))))) (#block (#return 1u64) ()) ())
+  (#if (#bool::and (#call byte-is ((line line) (index 0usize) (value 87u8))) (#bool::and (#call byte-is ((line line) (index 1usize) (value 65u8))) (#bool::and (#call byte-is ((line line) (index 2usize) (value 82u8))) (#bool::and (#call byte-is ((line line) (index 3usize) (value 78u8))) (#call boundary ((line line) (index 4usize))))))) (#block (#return 2u64) ()) ())
+  (#if (#bool::and (#call byte-is ((line line) (index 0usize) (value 69u8))) (#bool::and (#call byte-is ((line line) (index 1usize) (value 82u8))) (#bool::and (#call byte-is ((line line) (index 2usize) (value 82u8))) (#bool::and (#call byte-is ((line line) (index 3usize) (value 79u8))) (#bool::and (#call byte-is ((line line) (index 4usize) (value 82u8))) (#call boundary ((line line) (index 5usize)))))))) (#block (#return 3u64) ()) ())
+  (#return 0u64))
+
+// Decimal conversion without recursion or a temporary digit allocation.
+(#fn append-number ((output (#ref-mut String)) (value #u64)) #bool
+  (#let-mut divisor #u64 1u64)
+  (#while (#u64::le divisor (#u64::div-wrap value 10u64))
+    (#set divisor (#u64::mul-wrap divisor 10u64)))
+  (#let-mut remaining #u64 value)
+  (#let-mut ok #bool true)
+  (#while (#bool::and ok (#u64::gt divisor 0u64))
+    (#let digit #u64 (#u64::div-wrap remaining divisor))
+    (#set ok (#match (#call String::push-char
+      ((string output) (value (#as (#u64::add-wrap 48u64 digit) #char))))
+      (#case StringStatus.StringOk true)
+      (#case (StringStatus.StringErr error) false)))
+    (#set remaining (#u64::rem-wrap remaining divisor))
+    (#set divisor (#u64::div-wrap divisor 10u64)))
+  (#return ok))
+
+(#fn emit ((heading (#slice #char)) (value #u64)) #bool
+  (#let-mut output String (#call String::new ()))
+  (#let-mut ok #bool (#match (#call String::push-chars
+    ((string (#borrow-mut output)) (text heading)))
+    (#case StringStatus.StringOk true)
+    (#case (StringStatus.StringErr error) false)))
+  (#if ok (#block (#set ok (#call append-number ((output (#borrow-mut output)) (value value)))) ()) ())
+  (#if ok (#block (#set ok (#i64::eq (#println (#borrow output)) 0i64)) ()) ())
+  (#call String::free ((string output)))
+  (#return ok))
+
+// Exit 1: input/UTF-8/allocation error; 2: output error; 3: counter overflow.
+(#fn main () #u64
+  (#let-mut line String (#call String::new ()))
+  (#let-mut total #u64 0u64)
+  (#let-mut info #u64 0u64)
+  (#let-mut warn #u64 0u64)
+  (#let-mut error #u64 0u64)
+  (#let-mut other #u64 0u64)
+  (#let-mut status #u64 0u64)
+  (#let-mut done #bool false)
+  (#while (#bool::eq done false)
+    (#match (#call std-read-line ((string (#borrow-mut line))))
+      (#case StdReadResult.StdEndOfInput (#block (#set done true) ()))
+      (#case (StdReadResult.StdReadFailed failure)
+        (#block (#set status 1u64) (#set done true) ()))
+      (#case (StdReadResult.StdLineRead length)
+        (#block
+          (#if (#u64::eq total 18446744073709551615u64)
+            (#block (#set status 3u64) (#set done true) ())
+            (#block
+              (#set total (#u64::add-wrap total 1u64))
+              (#let kind #u64 (#call severity ((line (#borrow line)))))
+              (#match kind
+                (#case 1u64 (#block (#set info (#u64::add-wrap info 1u64)) ()))
+                (#case 2u64 (#block (#set warn (#u64::add-wrap warn 1u64)) ()))
+                (#case 3u64 (#block (#set error (#u64::add-wrap error 1u64)) ()))
+                (#case _ (#block (#set other (#u64::add-wrap other 1u64)) ())))
+              ()))
+          (#call String::clear ((string (#borrow-mut line))))
+          ()))))
+  (#call String::free ((string line)))
+  (#if (#u64::ne status 0u64) (#block (#return status) ()) ())
+  (#let heading-total (#array #char 6) "TOTAL ")
+  (#if (#call emit ((heading (#borrow-slice heading-total)) (value total))) () (#block (#return 2u64) ()))
+  (#let heading-info (#array #char 5) "INFO ")
+  (#if (#call emit ((heading (#borrow-slice heading-info)) (value info))) () (#block (#return 2u64) ()))
+  (#let heading-warn (#array #char 5) "WARN ")
+  (#if (#call emit ((heading (#borrow-slice heading-warn)) (value warn))) () (#block (#return 2u64) ()))
+  (#let heading-error (#array #char 6) "ERROR ")
+  (#if (#call emit ((heading (#borrow-slice heading-error)) (value error))) () (#block (#return 2u64) ()))
+  (#let heading-other (#array #char 6) "OTHER ")
+  (#if (#call emit ((heading (#borrow-slice heading-other)) (value other))) () (#block (#return 2u64) ()))
+  (#return 0u64))
