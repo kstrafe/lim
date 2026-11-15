@@ -2420,7 +2420,7 @@ mod tests {
     #[test]
     fn thread_tasks_cannot_be_forgotten_instead_of_joined() {
         let program = parse_program(
-            "#fn worker { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task Task) (worker worker))\n#fn main { #params = (); #returns = #u64; #body = ( (#let result Task::SpawnResult (#call Task::spawn ((value 1u64)))) (#forget result) (#return 0u64) ); }\n",
+            "#fn worker { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task Task) (worker worker))\n#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#let result Task::SpawnResult (#call Task::spawn ((value 1u64)))) (#forget result) (#return 0u64) ); }\n",
         ).unwrap();
         let error = check_types(&program).unwrap_err();
         assert!(

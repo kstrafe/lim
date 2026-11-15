@@ -143,7 +143,7 @@ mod tests {
             "#struct View (#linear) ((value (#ref-mut #u64)))
 {declaration}
 #fn read-view {{ #params = ((view (#ref View))); #returns = #u64; #body = ( (#return (#deref (#get view value))) ); }}
-#fn main {{ #params = (); #returns = #u64; #body = (
+#fn main {{ #params = (); #returns = #u64; #effects = ((#effects-of project)); #body = (
               (#let-mut owner #u64 42u64)
               (#let view View (#struct-literal View ((value (#borrow-mut owner)))))
               (#let borrowed (#ref View) (#call project ((input (#pin-borrow view)))))

@@ -426,7 +426,7 @@ mod tests {
 
     const SOURCE: &str = "#struct Holder () ((value (#ref #u64)))
 #struct Frame () ((state #u64) (words (#array #u64 1)))
-#fn make { #params = ((value (#ref #u64)) (flag #bool) (unknown #u64)); #returns = Frame; #body = (
+#fn make { #params = ((value (#ref #u64)) (flag #bool) (unknown #u64)); #returns = Frame; #effects = (#io #global-access); #body = (
           (#let-mut frame Frame (#struct-literal Frame ((state 0u64) (words (#array-repeat 0u64)))))
           (#if flag (#block
             (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))

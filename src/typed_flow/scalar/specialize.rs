@@ -534,7 +534,7 @@ mod tests {
 
     const PHASE_SOURCE: &str = "#struct Holder () ((value (#ref #u64)))
 #struct Frame () ((pc #u64) (source (#ref #u64)) (words (#array #u64 1)))
-#fn work { #params = ((frame (#ref-mut Frame))); #returns = #u64; #body = (
+#fn work { #params = ((frame (#ref-mut Frame))); #returns = #u64; #effects = (#io #global-access); #body = (
               (#loop (#match (#get frame pc)
                 (#case 0 (#block
                   (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))

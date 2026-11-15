@@ -2929,12 +2929,14 @@ mod tests {
     fn global_consumption_identities_do_not_substitute_an_unused_parameter() {
         let source = format!(
             "#static count #u64 0u64
-#fn touch {{ #params = (); #returns = (); #body = ( (#unsafe (#forget count)) (#return ()) ); }}
+#fn touch {{ #params = (); #returns = (); #effects = ((#read-global count)); #body = ( (#unsafe (#forget count)) (#return ()) ); }}
 {}",
             SOURCE.replace(
                 "(#pin-set-field target state 2u32)",
                 "(#call touch ()) (#pin-set-field target state 2u32)"
             )
+            .replace("#fn tick {", "#fn tick { #effects = ((#effects-of touch));")
+            .replace("#fn driver {", "#fn driver { #effects = ((#effects-of tick));")
         );
         let declarations = fixture(&source);
         let effects = guarded_writes(

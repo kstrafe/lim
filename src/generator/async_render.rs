@@ -737,10 +737,15 @@ mod tests {
                 "#unsafe-fn target { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n",
                 "#unsafe-call",
             ),
-            ("#extern-fn  target { #abi = #abi-c; #params = (); #returns = #u64; }\n", "#unsafe-call"),
+            ("#extern-fn  target { #abi = #abi-c; #params = (); #returns = #u64; #effects = (#io #global-access); }\n", "#unsafe-call"),
         ] {
+            let effects = if declaration.starts_with("#extern-fn") {
+                "#effects = ((#effects-of target)); "
+            } else {
+                ""
+            };
             let source = format!(
-                "{declaration}\n#fn main {{ #params = (); #returns = #u64; #body = ( (#return (#unsafe ({keyword} target ()))) ); }}\n"
+                "{declaration}\n#fn main {{ #params = (); #returns = #u64; {effects}#body = ( (#return (#unsafe ({keyword} target ()))) ); }}\n"
             );
             let program = crate::parse_program(&source).unwrap();
             let (declarations, graph) = prepare(&source, "main");
@@ -769,7 +774,7 @@ mod tests {
             let rendered = context.render_compute(compute, &HashMap::new()).unwrap();
             assert_eq!(text(&rendered), format!("({keyword} target ())"));
             check(&format!(
-                "{declaration}\n#fn again {{ #params = (); #returns = #u64; #body = ( (#return (#unsafe {})) ); }}\n",
+                "{declaration}\n#fn again {{ #params = (); #returns = #u64; {effects}#body = ( (#return (#unsafe {})) ); }}\n",
                 text(&rendered)
             ));
         }
@@ -839,7 +844,7 @@ mod tests {
         let (declarations, graph) = prepare(
             "
 #fn effect { #params = (); #returns = #u64; #body = ( (#return 7u64) ); }
-#fn main { #params = (); #returns = #u64; #body = ( (#return (#unsafe (#asm #u64
+#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#return (#unsafe (#asm #u64
               ((rax (#call effect ())) (rdi 4u64)) \"add rax, rdi\"))) ); }\n",
             "main",
         );

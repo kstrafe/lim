@@ -426,7 +426,7 @@ mod tests {
     fn external_functions_and_native_task_signatures_are_exports() {
         let mut registry = Registry::default();
         let forms = crate::parse(
-            "(#extern-fn #abi-c foreign () #u64)
+            "(#extern-fn #abi-c foreign () #u64 (#effects (#io #global-access)))
           (#thread-task Task worker
             (#thread-task-spawn spawn () SpawnResult)
             (#thread-task-join join ((task Task)) JoinResult))",

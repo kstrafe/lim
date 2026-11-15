@@ -1319,8 +1319,13 @@ mod tests {
             ("(#call change ((target (#borrow-mut state))))", vec![1]),
             ("(#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut state)))) \"mov QWORD PTR [rdi], 0\"))", vec![]),
         ] {
+            let effects = if write.contains("#asm") {
+                "#effects = (#io #global-access); "
+            } else {
+                ""
+            };
             let source = format!(
-                "{prefix}#fn work {{ #params = (); #returns = #u64; #body = (
+                "{prefix}#fn work {{ #params = (); #returns = #u64; {effects}#body = (
                 (#let-mut state State (#struct-literal State ((pc 1u64)))) {write}
                 (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64))) ); }}\n"
             );
@@ -1335,9 +1340,14 @@ mod tests {
 #fn forward { #params = ((target (#ref-mut #u64))); #returns = (); #body = (
               (#call erase ((target target))) (#return ()) ); }\n";
         let source = |effect: &str| {
+            let effects = if effect.contains("#word-write") {
+                "#effects = (#io #global-access); "
+            } else {
+                ""
+            };
             format!(
                 "{prefix}
-#fn work {{ #params = ((condition #bool)); #returns = #u64; #body = (
+#fn work {{ #params = ((condition #bool)); #returns = #u64; {effects}#body = (
               (#let-mut state State (#struct-literal State
                 ((pc 1u64) (other 9u64) (words (#array-repeat 0u64)))))
               {effect}

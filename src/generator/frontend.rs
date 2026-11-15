@@ -2043,7 +2043,7 @@ mod async_migration_tests {
         let scratch = Scratch::new();
         let text = format!(
             "{}
-#fn main {{ #params = (); #returns = #u64; #body = (
+#fn main {{ #params = (); #returns = #u64; #effects = ((#effects-of Work::poll)); #body = (
               (#let waker #u64 0u64)
               (#let first Work::Poll (#call Work::poll
                 ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))

@@ -185,7 +185,7 @@ fn capability_signature_scan_does_not_parse_function_bodies() {
     // Skipping bodies here must not skip ordinary compilation validation.
     assert!(crate::parse_program(source).is_err());
     assert!(declared_lim_function_signatures(
-        &crate::parse("(#extern-fn #abi-c foreign () #u64 (#return 42u64))").unwrap()
+        &crate::parse("(#extern-fn #abi-c foreign () #u64 (#effects (#io #global-access)) (#return 42u64))").unwrap()
     )
     .is_err());
 }
