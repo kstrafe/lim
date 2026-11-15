@@ -130,11 +130,7 @@ impl<'a> SourceForms<'a> {
             if delimiters.is_empty()
                 && !colon_operand
                 && (token.kind == TokenKind::Generate
-                    || matches!(&token.kind, TokenKind::Symbol(head) if matches!(head.as_str(),
-                    "#fn" | "#unsafe-fn" | "#extern-fn" | "#struct" | "#enum" | "#type"
-                    | "#alias" | "#export" | "#std" | "#cfg-if" | "#gn" | "#gn-fn"
-                    | "#const" | "#static" | "#opaque" | "#unsafe-impl" | "#capability"
-                    | "#syntax" | "#distributed-enum" | "#enum-contribute" | "#thread-task" | "#require-generated")))
+                    || matches!(&token.kind, TokenKind::Symbol(head) if declaration_head(head)))
                 && !matches!(
                     tokens.last().map(|t| &t.kind),
                     Some(
@@ -173,10 +169,37 @@ impl<'a> SourceForms<'a> {
         let end = tokens.last().unwrap().span;
         let mut parser = Parser::new(&tokens).with_source(self.source);
         let mut node = parser.implicit_root()?;
+        // Parsing knows where a colon operand actually ends. A declaration
+        // head left as an immediate symbol is an ungrouped sibling, even if
+        // the lexical scan previously entered a colon operand. Nested and
+        // quoted declaration trees remain ordinary children of this root.
+        if colon_operand {
+            if let Some(child) = node.children.iter().skip(1).find(|child| match &child.expr {
+                crate::Expr::Symbol(head) => declaration_head(head),
+                crate::Expr::Generate => true,
+                _ => false,
+            }) {
+                return Err(crate::ParseError {
+                    message: "root declarations require a newline or semicolon separator".into(),
+                    span: child.span,
+                });
+            }
+        }
         node.span = crate::Span {
             end: end.end,
             ..header
         };
         Ok(Some(node))
     }
+}
+
+fn declaration_head(name: &str) -> bool {
+    matches!(
+        name,
+        "#fn" | "#unsafe-fn" | "#extern-fn" | "#struct" | "#enum" | "#type"
+            | "#alias" | "#export" | "#std" | "#cfg-if" | "#gn" | "#gn-fn"
+            | "#const" | "#static" | "#opaque" | "#unsafe-impl" | "#capability"
+            | "#syntax" | "#distributed-enum" | "#enum-contribute" | "#thread-task"
+            | "#require-generated"
+    )
 }
