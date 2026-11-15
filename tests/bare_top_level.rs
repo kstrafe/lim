@@ -230,8 +230,20 @@ fn builtin_and_async_published_sources_reuse_bare_warm_artifacts() {
         let (warm, report) = lim::with_cache_report(compile);
         assert_eq!(warm.unwrap(), cold);
         assert!(report.contains("\"decision\":\"hit\""), "{report}");
+        let async_artifact = artifacts
+            .iter()
+            .find(|(_, text)| text.contains("Work::poll"))
+            .cloned();
         for (path, text) in artifacts {
             assert_eq!(fs::read_to_string(path).unwrap(), text);
+        }
+        if let Some((path, text)) = async_artifact {
+            fs::write(path, format!("{text}\n// corrupted after validation\n")).unwrap();
+            let error = compile().unwrap_err();
+            assert!(
+                error.message.contains("invalid async graph cache entry"),
+                "{error:?}"
+            );
         }
         fs::remove_dir_all(dir).unwrap();
     }

@@ -353,7 +353,7 @@ fn graph_generated_owned_program(
                 // hit as fresh emission. Mirror only its public artifact naming;
                 // key, digest and parser verification stay in the shared loader.
                 let digest = generator::stable_hash(
-                    format!("lim-generated-source-format-v1\n{key}").as_bytes(),
+                    format!("{}\n{key}", generator::GENERATED_SOURCE_FORMAT).as_bytes(),
                 );
                 for path in [
                     generator::generated_source_directory(directory)

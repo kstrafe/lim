@@ -16,6 +16,7 @@ use std::{
 use crate::generator_authority::Syntax;
 use crate::{Expr, Span, SpannedExpr};
 
+pub(crate) const GENERATED_SOURCE_FORMAT: &str = "lim-generated-source-format-v2-bare-roots";
 const MAX_EVALUATION_STEPS: usize = 200_000;
 const MAX_GENERATED_NODES: usize = 1_000_000;
 const MAX_EXPANSION_DEPTH: usize = 128;
@@ -1585,7 +1586,7 @@ pub(crate) fn cached_generated_source_with_origins(
     origins: &[String],
     generate: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
-    let formatted_key = format!("lim-generated-source-format-v2-bare-roots\n{key}");
+    let formatted_key = format!("{GENERATED_SOURCE_FORMAT}\n{key}");
     let key = formatted_key.as_str();
     let digest = stable_hash(key.as_bytes());
     let source_directory = generated_source_directory(directory);
@@ -1660,8 +1661,7 @@ pub(crate) fn cached_generated_source_with_origins(
 }
 
 pub(crate) fn cached_generated_source_path(directory: &Path, key: &str) -> PathBuf {
-    let digest =
-        stable_hash(format!("lim-generated-source-format-v2-bare-roots\n{key}").as_bytes());
+    let digest = stable_hash(format!("{GENERATED_SOURCE_FORMAT}\n{key}").as_bytes());
     generated_source_directory(directory).join(format!("generated-{digest:032x}.lim"))
 }
 
