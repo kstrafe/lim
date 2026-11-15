@@ -3519,8 +3519,8 @@ mod tests {
     #[test]
     fn static_returned_loans_are_checked_without_local_borrow_events() {
         let source = "#static vALUE #u64 1u64
-#fn obtain { #params = (); #returns = (#ref #u64); #body = ( (#return (#unsafe (#borrow vALUE))) ); }
-#fn inspect { #params = (); #returns = #u64; #body = (
+#fn obtain { #params = (); #returns = (#ref #u64); #effects = ((#read-global vALUE)); #body = ( (#return (#unsafe (#borrow vALUE))) ); }
+#fn inspect { #params = (); #returns = #u64; #effects = ((#effects-of obtain) (#read-global vALUE)); #body = (
               (#let view (#ref #u64) (#call obtain ()))
               (#forget view)
               (#let observed #u64 (#unsafe vALUE)) (#return observed) ); }\n";

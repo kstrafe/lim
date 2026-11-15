@@ -8,6 +8,7 @@
 #fn origin-y {
   #params = ();
   #returns = #u64;
+  #effects = ((#read-global origin));
   #body = (
     (#let origin-ref (#ref Point) (#unsafe
         (#borrow origin)
@@ -42,6 +43,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of origin-y));
   #body = (
     (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
     (#let original-y #u64 (#call point-y ((point (#borrow point)))))

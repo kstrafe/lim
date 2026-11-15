@@ -25,7 +25,7 @@ fn external_graph_source_uses_prefixed_aliases_and_parameter_names() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Ext@Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let-mut frame Ext@Work::Frame (#call Ext::work ((amount 42u64))))
           (#let result #u64 (#match (#call Ext@Work::poll

@@ -197,7 +197,7 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
                     (#let waker #u64 0u64)
                     (#let first Work::Poll (#call Work::poll
                       ((task (#call work ((choose {choose})))) (waker (#borrow waker)))))
@@ -257,7 +257,7 @@ fn whole_array_element_source() -> &'static str {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let first Work::Poll (#call Work::poll
             ((task (#call work ())) (waker (#borrow waker)))))
@@ -411,7 +411,7 @@ fn shared_array_slice_and_range_borrow_actual_local_storage() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#return (#match (#call Work::poll ((task (#call work ())) (waker (#borrow waker))))
             (#case (Work::Poll.Ready answer) answer)
@@ -436,7 +436,7 @@ fn operation_local_slice_bounds_are_evaluated_once_before_the_consumer() {
 #fn bound {
   #params = ((value #usize));
   #returns = #usize;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let byte #u8 120u8)
           (#let pointer #usize (#ptr-address (#ref-ptr (#borrow byte))))
           (#assert (#i64::eq (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))) 1i64))
@@ -452,7 +452,7 @@ fn operation_local_slice_bounds_are_evaluated_once_before_the_consumer() {
   );
 }
 #generate #async-fn ((protocol WorkAwait) (waker #u64)
-          (function (#fn work () #u64
+          (function (#fn work () #u64 (#effects ((#effects-of bound)))
             (#let values (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))
             (#let answer #u64 (#call sum ((items (#borrow-slice values
               (#call bound ((value 0usize)))
@@ -461,7 +461,7 @@ fn operation_local_slice_bounds_are_evaluated_once_before_the_consumer() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#return (#match (#call Work::poll ((task (#call work ())) (waker (#borrow waker))))
             (#case (Work::Poll.Ready answer) answer)
@@ -492,7 +492,7 @@ fn slices_of_reference_elements_preserve_the_elements_referents() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let first #u64 40u64) (#let second #u64 2u64) (#let waker #u64 0u64)
           (#return (#match (#call Work::poll
             ((task (#call work ((first (#borrow first)) (second (#borrow second)))))
@@ -636,7 +636,7 @@ const PAIR_SOURCE: &str = "#struct Pair () ((left #u64) (right #u64))
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::poll)); #body = ( (#let waker #u64 0u64)
       (#return (#match (#call Work::poll ((task (#call work ())) (waker (#borrow waker))))
         (#case (Work::Poll.Ready value) value)
         (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))\n  );\n}\n";

@@ -268,7 +268,7 @@ fn pinned_local_shared_borrow_survives_repeated_pending_polls() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -300,7 +300,7 @@ fn pinned_local_shared_shared_aliases_are_valid_across_repeated_pending_polls() 
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -332,7 +332,7 @@ fn pinned_local_mutable_borrow_survives_repeated_pending_polls() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -373,7 +373,7 @@ fn pinned_local_nested_mutable_projection_survives_repeated_pending_polls() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -412,7 +412,7 @@ fn pinned_shared_owner_reference_reads_second_field_after_repeated_pending_polls
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -484,7 +484,7 @@ fn selected_array_elements_source(mutable: bool) -> String {
 #fn run {{
   #params = ((choose #bool) (cancel #bool));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
               (#let-mut external (#array #u64 4)
                 (#array-of (#array #u64 4) 4u64 5u64 50u64 7u64))
               (#let waker #u64 0u64)
@@ -511,7 +511,7 @@ fn selected_array_elements_source(mutable: bool) -> String {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
               (#assert (#u64::eq (#call run ((choose true) (cancel false))) {left_result}u64))
               (#assert (#u64::eq (#call run ((choose false) (cancel false))) {right_result}u64))
               (#assert (#u64::eq (#call run ((choose true) (cancel true))) 42u64))
@@ -623,7 +623,7 @@ fn dormant_out_of_bounds_array_anchor_is_not_probed() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::poll)); #body = ( (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((choose false))))
           (#let answer #u64 (#loop
             (#match (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
@@ -665,7 +665,7 @@ fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
 #fn run {{
   #params = ((choose #bool));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
               (#let waker #u64 0u64)
               (#let-mut task Work::Frame (#call work (($ choose))))
               (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -682,7 +682,7 @@ fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
               (#assert (#u64::eq (#call run ((choose true))) {left_result}u64))
               (#assert (#u64::eq (#call run ((choose false))) {right_result}u64))
               (#return 42u64)
@@ -720,7 +720,7 @@ fn mixed_internal_external_reference_retains_caller_storage() {
 #fn run {{
   #params = ((choose #bool));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
               (#let-mut external #u64 50u64) (#let waker #u64 0u64)
               (#let-mut task Work::Frame (#call work ((external (#borrow{suffix} external)) (choose choose))))
               (#let answer #u64 (#loop
@@ -734,7 +734,7 @@ fn mixed_internal_external_reference_retains_caller_storage() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
               (#assert (#u64::eq (#call run ((choose true))) {inside}u64))
               (#assert (#u64::eq (#call run ((choose false))) {outside}u64)) (#return 42u64)
   );\n}}\n");
@@ -758,7 +758,7 @@ fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
 #fn run {{
   #params = ((choose #bool) (cancel #bool));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
           (#let-mut external Outside (#struct-literal Outside ((other 90u64) (selected 50u64))))
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((external (#borrow-mut external)) (choose choose))))
@@ -785,7 +785,7 @@ fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
           (#assert (#u64::eq (#call run ((choose true) (cancel false))) 44u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel false))) 44u64))
           (#assert (#u64::eq (#call run ((choose true) (cancel true))) 42u64))
@@ -812,7 +812,7 @@ fn mixed_selected_future_cannot_erase_a_callers_borrow_or_escape_its_local() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let-mut external #u64 50u64) (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((external (#borrow external)) (choose true))))
           (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -851,7 +851,7 @@ fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
 #fn run {{
   #params = ((choose #bool));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
           (#let-mut external Values (#struct-literal Values ((first 10u64) (second 20u64)
             (third 30u64) (fourth 40u64) (fifth 50u64) (sixth 60u64) (seventh 70u64) (last 80u64))))
           (#let waker #u64 0u64)
@@ -868,7 +868,7 @@ fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
           (#assert (#u64::eq (#call run ((choose true))) 44u64))
           (#assert (#u64::eq (#call run ((choose false))) 44u64)) (#return 42u64)
   );\n}}\n"
@@ -915,7 +915,7 @@ fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
 #fn run {{
   #params = ((choose #bool));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work (($ choose))))
           (#let answer #u64 (#loop
@@ -929,7 +929,7 @@ fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
 #fn cancel-run {{
   #params = ((choose #bool));
   #returns = ();
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work (($ choose))))
           (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -942,7 +942,7 @@ fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of cancel-run) (#effects-of run)); #body = (
           (#call cancel-run ((choose true))) (#call cancel-run ((choose false)))
           (#assert (#u64::eq (#call run ((choose true))) 42u64))
           (#return (#call run ((choose false))))\n  );\n}}\n"
@@ -967,7 +967,7 @@ fn selected_internal_reference_can_switch_owners_on_loop_backedges() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work ()))
           (#let answer #u64 (#loop
             (#match (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
@@ -1005,7 +1005,7 @@ fn selected_internal_references_do_not_invent_branch_correlated_consumption() {
 #fn run {{
   #params = ((choose #bool));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work (($ choose))))
           (#let answer #u64 (#loop
             (#match (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
@@ -1018,7 +1018,7 @@ fn selected_internal_references_do_not_invent_branch_correlated_consumption() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
           (#assert (#u64::eq (#call run ((choose true))) 42u64))
           (#assert (#u64::eq (#call run ((choose false))) 52u64)) (#return 42u64)\n  );\n}}\n"
     );
@@ -1043,7 +1043,7 @@ fn forgetting_a_pending_handle_does_not_make_the_self_referential_frame_movable(
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ()))
           (#let first Work::Poll (#call Work::poll

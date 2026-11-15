@@ -126,7 +126,13 @@ pub(crate) fn resolve(program: &Program) -> Result<crate::typed_ir::Declarations
                     .collect(),
             )
         }));
+    analysis.contracts.effects = crate::effects::collect(&analysis)
+        .map_err(|error| (error.message, error.code, error.span, Vec::new()))?;
     let mut declarations = resolve_program_for_analysis(&analysis, true)
+        .and_then(|declarations| {
+            crate::effects::check_resolved(&analysis, &declarations)?;
+            Ok(declarations)
+        })
         // Source witnesses add ordinary safety checks. Predicate contracts are
         // attached to the actual runtime AST, whose identity must remain tied
         // to the metadata captured before ghost erasure.

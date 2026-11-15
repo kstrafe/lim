@@ -962,6 +962,25 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                     self.store(0, destination);
                 }
             }
+            "io-input-byte" | "io-output-byte" => {
+                let input = head == "io-input-byte";
+                self.expression(children[1])?;
+                let buffer = if input {
+                    self.encoder.constant(9, 0);
+                    self.store(9, destination + 8);
+                    destination + 8
+                } else {
+                    self.expression(children[2])?;
+                    self.nodes[children[2].0]
+                };
+                self.load(0, self.nodes[children[1].0]);
+                self.address_slot(1, buffer);
+                self.encoder.constant(2, 1);
+                // Linux AArch64 read/write; source cannot select another call.
+                self.encoder.constant(8, if input { 63 } else { 64 });
+                self.encoder.syscall();
+                self.store(0, destination);
+            }
             "unsafe" | "as" => {
                 let value = children[1];
                 self.expression(value)?;

@@ -5,6 +5,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of linux-futex));
   #body = (
     (#let memory (#ptr-mut #u32) (#unsafe
         (#linux-syscall (#ptr-mut #u32) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64

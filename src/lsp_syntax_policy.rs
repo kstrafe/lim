@@ -6,6 +6,7 @@ mod tests {
     // Deliberately independent of is_builtin_form: deriving this list from the
     // parser would let new syntax silently bypass navigation review.
     const REVIEWED: &[&str] = &[
+        "abi", // Function-record metadata key; ABI keywords have no definition.
         "abi-c",
         "addr-of",
         "addr-of-mut",
@@ -68,6 +69,16 @@ mod tests {
         "deref-set",
         "distributed-enum",
         "drop",
+        "effects", // Explicit permissions: function/global targets, never keyword definitions.
+        "effects-of",
+        "global-access",
+        "io",
+        "io-input",
+        "io-input-byte",
+        "io-output",
+        "io-output-byte",
+        "read-global",
+        "write-global",
         "else",
         "enum",
         "enum-contribute",

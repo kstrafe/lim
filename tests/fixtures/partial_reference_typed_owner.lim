@@ -22,6 +22,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io);
   #body = (
     (#assert (#usize::eq (#size-of Owner)
       (#usize::add-wrap (#size-of (#ref #u64)) (#size-of Token))))

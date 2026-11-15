@@ -141,7 +141,7 @@ fn syntax_diagnostics_keep_native_phase_codes_and_source_locations() {
     }
 }
 
-const PRINT_BINDING: &str = "#extern-fn  browser-print-u64 {\n  #abi = #abi-c;\n  #params = ((value #u64));\n  #returns = ();\n}\n";
+const PRINT_BINDING: &str = "#extern-fn  browser-print-u64 {\n  #abi = #abi-c;\n  #params = ((value #u64));\n  #returns = ();\n#effects = (#global-access #io); }\n";
 
 #[test]
 fn compiled_loop_prints_through_the_single_explicit_host_import() {
@@ -174,9 +174,9 @@ fn compiled_loop_prints_through_the_single_explicit_host_import() {
 #[test]
 fn host_output_requires_the_exact_foreign_signature_and_unsafe_call_rules() {
     for binding in [
-        "#extern-fn  browser-print-u64 {\n  #abi = #abi-c;\n  #params = ((value #i64));\n  #returns = ();\n}\n",
-        "#extern-fn  browser-print-u64 {\n  #abi = #abi-c;\n  #params = ((value #u64));\n  #returns = #u64;\n}\n",
-        "#extern-fn  other-output {\n  #abi = #abi-c;\n  #params = ((value #u64));\n  #returns = ();\n}\n",
+        "#extern-fn  browser-print-u64 {\n  #abi = #abi-c;\n  #params = ((value #i64));\n  #returns = ();\n#effects = (#global-access #io); }\n",
+        "#extern-fn  browser-print-u64 {\n  #abi = #abi-c;\n  #params = ((value #u64));\n  #returns = #u64;\n#effects = (#global-access #io); }\n",
+        "#extern-fn  other-output {\n  #abi = #abi-c;\n  #params = ((value #u64));\n  #returns = ();\n#effects = (#global-access #io); }\n",
     ] {
         let name = if binding.contains("other-output") {
             "other-output"

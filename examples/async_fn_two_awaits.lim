@@ -7,6 +7,7 @@
 #fn print-text {
   #params = ((text (#slice #char)));
   #returns = ();
+  #effects = ((#effects-of linux-write-byte));
   #body = (
     (#for-range (offset #usize) 0usize (#slice-len text)
       (#let byte #u8 (#as (#deref (#slice-idx text offset)) #u8))
@@ -54,6 +55,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of Two-steps::poll) (#effects-of print-text));
   #body = (
     (#let start (#array #char 6) "start\n")
     (#call print-text ((text (#borrow-slice start))))

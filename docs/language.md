@@ -461,6 +461,7 @@ address and reading or writing through a raw pointer must occur inside an
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = (#io #global-access);
   #body:
     #let-mut value #u64 40;
     #return:
@@ -483,6 +484,7 @@ operations and unsafe calls still need an explicit block.
 #unsafe-fn read-byte {
   #params = { pointer = (#ptr #u8); };
   #returns = #u8;
+  #effects = (#io #global-access);
   #body:
     #return: #unsafe (#ptr-read pointer);
 }
@@ -490,6 +492,7 @@ operations and unsafe calls still need an explicit block.
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = ((#effects-of read-byte));
   #body:
     #let value #u8 42u8;
     #return: #as (#unsafe (#unsafe-call read-byte { pointer = (#addr-of value); })) #u64;
@@ -783,6 +786,7 @@ contracts.
 #fn process-id {
   #params = {};
   #returns = #i64;
+  #effects = (#io #global-access);
   #body:
     #return: #unsafe: #linux-syscall #i64 39usize ();
 }
@@ -805,6 +809,7 @@ to the low-level read wrapper:
 #unsafe-fn read-buffer {
   #params = { fd = #i64; destination = (#ptr-mut #u8); count = #usize; };
   #returns = #i64;
+  #effects = ((#effects-of linux-read));
   #body:
     #return:
       #unsafe (#unsafe-call linux-read { fd = fd; destination = destination; count = count; })
@@ -1764,6 +1769,10 @@ This is an ordinary library, not a new builtin or an implicit allocation.
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = (
+    (#effects-of String::from-chars)
+    (#effects-of String::free)
+  );
   #body:
     #let text (#array #char 3) "Aé🙂";
     #return:
@@ -1809,6 +1818,13 @@ second owned string by shared borrow, and releases both owners:
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = (
+    (#effects-of String::from-chars)
+    (#effects-of String::push-string)
+    (#effects-of String::push-char)
+    (#effects-of std-println)
+    (#effects-of String::free)
+  );
   #body:
     #let greeting (#array #char 5) "Hello";
     #let suffix (#array #char 9) ", world 🙂";
@@ -1988,6 +2004,46 @@ storage, with ordinary escape checks. A reference parameter can be forwarded
 or reborrowed with the same borrow origins as a named parameter. To give the
 input a descriptive local name, use an explicit typed binding such as
 `#let count : #u64 = #arg;`. Unsafe functions retain explicit `#unsafe-call`.
+
+### Explicit effects
+
+An omitted `#effects` field permits no IO or runtime-global access. Declare
+permissions on each effectful function; a call requires its callee's declared
+set to be contained in the caller's set. Declaring a permission neither proves
+predicate evidence nor removes unsafe, ownership, or borrow checks.
+
+```lisp library
+#fn write-byte {
+  #params = { value = #u8; };
+  #returns = #i64;
+  #effects = (#io-output);
+  #body:
+    #return (#io-output-byte 1i64 value);
+}
+
+#fn forward-byte {
+  #params = { value = #u8; };
+  #returns = #i64;
+  #effects = ((#effects-of write-byte));
+  #body:
+    #return (write-byte { value; });
+}
+```
+
+`#io-input` and `#io-output` are distinct; `#io` covers both and opaque IO.
+`(#read-global name)` permits only reads of that global.
+`(#write-global name)` also permits writes; `#global-access` covers all globals.
+Permissions use canonical identities, so aliases do not create new globals.
+`#effects-of` explicitly forwards another function's declared set, including
+private globals it uses, without making that memory accessible. Unknown raw
+memory, assembly, foreign calls and arbitrary syscalls conservatively require
+both `#io` and `#global-access`. Global initializers have no ambient permissions.
+
+The fixed native byte IO primitives and standard `std-read-one-char` and
+`std-write-one-char` APIs support narrow input/output grants. Bulk raw IO and
+allocation wrappers retain their declared broader boundaries. Actual write
+summaries, not permission declarations, control evidence invalidation.
+See [the effect migration notes](effects-migration.md) for the precise boundary.
 
 ### Predicate contracts and constrained types
 
@@ -2350,11 +2406,13 @@ unsafe FFI boundaries and must use `#unsafe-call` inside `#unsafe`:
   #abi = #abi-c;
   #params = ((value #i32));
   #returns = #i32;
+  #effects = (#io #global-access);
 }
 
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = ((#effects-of abs));
   #body:
     #return: #as (#unsafe (#unsafe-call abs { value = -42i32; })) #u64;
 }
@@ -2509,6 +2567,7 @@ reference to it:
 #fn first-value {
   #params = {};
   #returns = #u64;
+  #effects = ((#read-global values));
   #body:
     #return: #unsafe (#index values 0u64);
 }
@@ -2527,6 +2586,7 @@ arrays and enum payloads. They do not execute runtime initialization functions:
 #fn increment-counter {
   #params = {};
   #returns = #u64;
+  #effects = ((#write-global counter));
   #body:
     #return: #unsafe (#atomic-fetch-add (#borrow counter) 1u64 #memory-relaxed);
 }
@@ -3063,6 +3123,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
 | `#distributed-enum` | `#distributed-enum Name (properties...)` | `#distributed-enum Error ()` (top level) | Declares an enum whose variants are collected after generator expansion; the central declaration owns its properties. |
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly discards a value without calling user destruction code. Dropping a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. |
+| `#effects` | `#effects = (Qualification...);` | `(#effects (#io-output))` (function signature clause) | Declares permitted IO and global accesses; omission permits none. |
+| `#effects-of` | `(#effects-of function-or-group)` | `(#effects ((#effects-of write-message)))` (function signature clause) | Explicitly includes the named functions' declared effect sets, without granting private-memory access. |
 | `#ensures` | `#ensures = (predicates...);` | `#fn accept { #params = { value = #u64; }; #returns = #u64; #ensures = ((#call valid ((value (#result))))); #body: #return value; }` (top level) | Promise evidence on normal return; instrumented builds assert it. |
 | `#enum` | `#enum Name (properties...) ((Variant [discriminant] [PayloadType])...)` | `#enum Maybe (#repr-c) ((Some #u64) None)` (top level) | Declares a concrete enum; each variant has zero or one payload, and properties may include `#linear` and `#repr-c`. Use a named struct for multiple fields. |
 | `#enum-contribute` | `#enum-contribute EnumName (Variant [PayloadType])` | `#enum-contribute Error (ReadFailure #u32)` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
@@ -3079,6 +3141,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#generated-context` | `#generated-context ((producer "name") (definition-module "path") (definition-file "path") (invocation-module "path") (invocation-file "path"))` | `#generated-context ((producer "/lib/lib.lim::make") (definition-module "/lib/lib.lim") (definition-file "/lib/lib.lim") (invocation-module "<global>") (invocation-file "/app/main.lim"))` (compiler-generated file header) | Records definition and invocation file identities and permission boundaries for generated-file private access. Validated against the expansion/cache key; forbidden in handwritten source and generator-produced forms. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
+| `#global-access` | `#global-access` in `#effects` | `(#effects (#global-access))` (function signature clause) | Permits reading and writing any runtime global; unsafe rules still apply. |
 | `#gn` | `#gn name (name-or-(name capability...)...) body` | ``#gn make-alias (name) `((#type ,name #u64))`` (top level) | Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values. |
 | `#gn-call` | `(#gn-call function syntax-arg...)` | `(#gn-call make-alias name target)` (generator body) | Calls a `#gn-fn` helper during generator interpretation. |
 | `#gn-equal` | `(#gn-equal syntax-a syntax-b)` | `(#gn-equal item expected)` (generator expression) | Tests structural equality of immutable generator syntax values. |
@@ -3107,6 +3170,11 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#if-valid` | `(#if-valid condition success [failure])` | `(#if-valid (#call valid ((value value))) (#call submit ((value value))))` (function body) | Execute validation and grant evidence on success. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
 | `#index-proven` | `(#index-proven array-reference usize-index)` | `(#index-proven values position)` (expression) | Requires exact `#usize::lt` evidence for the fixed-array length; omits the production bounds check and audits the access in instrumented builds. |
+| `#io` | `#io` in `#effects` | `(#effects (#io))` (function signature clause) | Permits input, output and opaque IO boundaries; does not itself grant memory permissions. |
+| `#io-input` | `#io-input` in `#effects` | `(#effects (#io-input))` (function signature clause) | Permits audited input operations and input-only calls, without output permission. |
+| `#io-input-byte` | `(#io-input-byte descriptor)` | `(#let sample (#tuple #i64 #u8) (#io-input-byte 0i64))` (function body declaring `#io-input`) | Reads one byte into a private temporary; returns count or negative errno and an unsigned byte, zero on EOF or error. |
+| `#io-output` | `#io-output` in `#effects` | `(#effects (#io-output))` (function signature clause) | Permits audited output operations and output-only calls, without input permission. |
+| `#io-output-byte` | `(#io-output-byte descriptor value)` | `(#let written #i64 (#io-output-byte 1i64 65u8))` (function body declaring `#io-output`) | Writes one byte from a private temporary; returns count or negative errno. |
 | `#isize` | `#isize` | `#fn identity { #params = ((value #isize)); #returns = #isize; #body = ( (#return value) ); }` (function signature) | Signed integer scalar type with the target's native pointer width. |
 | `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count #u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
@@ -3168,6 +3236,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#ptr-read` | `(#ptr-read pointer)` | `(#unsafe (#ptr-read p))` (expression) | Reads the pointee value without bounds/validity checks. |
 | `#ptr-write` | `(#ptr-write mutable-pointer value)` | `(#unsafe (#ptr-write p 7u8))` (statement) | Writes the pointee without bounds/validity checks. |
 | `#range` | `(#range lower upper)` | `(#case (#range 1u32 4u32) 1u64)` (pattern) | Matches integer/character values in an inclusive interval: both endpoints match. |
+| `#read-global` | `(#read-global global)` | `(#effects ((#read-global counter)))` (function signature clause) | Permits reads of the named canonical runtime global, including through aliases. |
 | `#ref` | `(#ref TargetType)` | `(#let r (#ref #u64) (#borrow value))` (type/binding) | Shared-reference type. |
 | `#ref-mut` | `(#ref-mut TargetType)` | `(#let r (#ref-mut #u64) (#borrow-mut value))` (type/binding) | Mutable-reference type. |
 | `#ref-ptr` | `(#ref-ptr reference)` | `(#let p (#ptr-mut Node) (#ref-ptr pinned))` (expression) | Safely extracts a thin ordinary or pinned reference's raw pointer with the same pointee and mutability. Lends the input handle without moving or duplicating it; the pointer retains no loan and does not extend the pointee lifetime or pinning guarantee. Slices are rejected. Raw memory access and pointer-to-reference borrowing still require unsafe context and valid lifetime/aliasing proofs. Raw pointers do not automatically implement Send or Sync. |
@@ -3232,6 +3301,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#word-view` | `(#word-view ReferenceType word-slice)` or `(#word-view (#slice[-mut] #u64) reference)` | `(#let view (#ref Pair) (#unsafe (#word-view (#ref Pair) words)))`; `(#let words (#slice #u64) (#unsafe (#word-view (#slice #u64) view)))` (expressions) | Unsafe reinterpretation between flat value words and ordinary or pinned references. Exclusive results require exclusive sources. A reference-to-words view has exactly the referent's flat word count and requires flat-word backing, not packed native bytes. The caller proves capacity, initialized representation and, for a pinned view, permanent address stability. Source lifetime and alias anchors remain checked, but arbitrary numeric words do not establish provenance for stored references. |
 | `#word-write` | `(#word-write ValueType mutable-word-slice value)` | `(#unsafe (#word-write Pair words pair))` (statement) | Consumes a value into flat `#u64` word storage without initialization flags. The caller proves capacity and unique writable access and consumes any previously owned contents before overwriting them. Source slice borrowing is still checked. |
 | `#wrap` | `[#I #wrap; expression]` | `[#u8 #wrap; 255 + 1]` (infix expression) | Wrapping arithmetic in this expression and directly nested math groups. |
+| `#write-global` | `(#write-global global)` | `(#effects ((#write-global counter)))` (function signature clause) | Permits reads and writes of the named canonical runtime global. |
 
 #### Typed operator families (alphabetical)
 
@@ -4184,6 +4254,7 @@ actual owner and pointee loans they store; raw bytes alone do not register them.
 #fn read-value {
   #params = { words = (#slice #u64); };
   #returns = #u64;
+  #effects = (#io #global-access);
   #body:
     #let restored RefValue: #unsafe (#word-read RefValue words);
     #let answer #u64: #deref (#get restored value);
@@ -4194,6 +4265,7 @@ actual owner and pointee loans they store; raw bytes alone do not register them.
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = (#io #global-access);
   #body:
     #let seed #u64 42u64;
     #let-mut words (#array #u64 1): #array-repeat 0u64;

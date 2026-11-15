@@ -3,11 +3,16 @@
 #fn read {
   #params = ((input #u64));
   #returns = #u64;
-  #body = ((#return input));
+  #body = (
+    (#return input)
+  );
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ((#return (#u64::add-wrap (#call read ((input 42u64))) value)));
+  #effects = ((#read-global value));
+  #body = (
+    (#return (#u64::add-wrap (#call read ((input 42u64))) value))
+  );
 }

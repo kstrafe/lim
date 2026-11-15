@@ -270,6 +270,100 @@ impl<'a> Index<'a> {
         }
         self.global(name)
     }
+    fn effect_target(&self, node: &Node, function: bool) -> Vec<Span> {
+        let Some(name) = symbol(node) else {
+            return vec![];
+        };
+        let name = name.trim_start_matches('@');
+        let Some(declaration) = self.declaration(name) else {
+            return vec![];
+        };
+        let valid = if function {
+            matches!(
+                head(declaration),
+                "fn" | "unsafe-fn" | "extern-fn"
+                    | "thread-task-spawn" | "thread-task-join"
+            )
+        } else {
+            head(declaration) == "static"
+        };
+        if valid {
+            self.global(name)
+        } else {
+            vec![]
+        }
+    }
+
+    fn effect_functions(&self, node: &Node) -> Vec<Span> {
+        if !self.contains(node) {
+            return vec![];
+        }
+        if symbol(node).is_some() {
+            return self.effect_target(node, true);
+        }
+        if matches!(node.expr, Expr::List(_)) {
+            for child in &node.children {
+                if self.contains(child) {
+                    return self.effect_functions(child);
+                }
+            }
+        }
+        vec![]
+    }
+
+    fn effect_qualification(&self, node: &Node) -> Vec<Span> {
+        let [_, target] = &node.children[..] else {
+            return vec![];
+        };
+        if !self.contains(target) {
+            return vec![];
+        }
+        match head(node) {
+            "effects-of" => self.effect_functions(target),
+            "read-global" | "write-global" => {
+                self.effect_target(target, false)
+            }
+            _ => vec![],
+        }
+    }
+
+    fn effects(&self, node: &Node) -> Vec<Span> {
+        let [_, qualifications] = &node.children[..] else {
+            return vec![];
+        };
+        for qualification in &qualifications.children {
+            if self.contains(qualification) {
+                return self.effect_qualification(qualification);
+            }
+        }
+        vec![]
+    }
+
+    // Metadata gives @ targets declaration roles. Check these before
+    // general qualification can accept a declaration of the wrong kind.
+    fn effect_reference(
+        &self,
+        node: &Node,
+        in_function: bool,
+    ) -> Option<Vec<Span>> {
+        if !self.contains(node)
+            || matches!(node.expr, Expr::Quote(_) | Expr::QuasiQuote(_))
+        {
+            return None;
+        }
+        let in_function = in_function || matches!(
+            head(node),
+            "fn" | "unsafe-fn" | "extern-fn"
+                | "thread-task-spawn" | "thread-task-join"
+        );
+        if in_function && head(node) == "effects" {
+            return Some(self.effects(node));
+        }
+        node.children
+            .iter()
+            .find_map(|child| self.effect_reference(child, in_function))
+    }
+
     fn parameter(&self, callee: &str, node: &Node) -> Vec<Span> {
         let Some(label) = symbol(node) else {
             return vec![];
@@ -786,6 +880,7 @@ impl<'a> Index<'a> {
         }
         let xs = &node.children;
         match head(node) {
+            "effects" => return self.effects(node),
             "requires" | "ensures" | "preserves" | "assume" | "old" => {
                 return xs
                     .get(1)
@@ -1513,6 +1608,11 @@ impl<'a> Index<'a> {
         vec![]
     }
     pub fn resolve(&self) -> Vec<Span> {
+        for node in self.forms {
+            if let Some(targets) = self.effect_reference(node, false) {
+                return targets;
+            }
+        }
         // Qualification is a source operation, even inside otherwise literal
         // generator arguments and templates. Navigate the resolved identifier,
         // not a same-spelled generator parameter or runtime local.
@@ -1584,5 +1684,41 @@ impl<'a> Index<'a> {
             .into_iter()
             .filter(|span| self.explicit_locals.borrow().contains(span))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod effect_tests {
+    use super::*;
+
+    #[test]
+    fn effects_use_semantic_declarations_and_fallback_source_roles() {
+        let source = "#static state #u64 0u64\n\
+            #fn leaf { #params = (); #returns = ();\n\
+              #effects = (#io-output); #body = ((#return ())); }\n\
+            #fn wrapper { #params = (); #returns = ();\n\
+              #effects = ((#effects-of (@leaf (leaf)))\n\
+                (#read-global state) (#write-global @state));\n\
+              #body = ((#return ())); }\n";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let forms = crate::parse_source_unit(source).unwrap();
+        for (query, target) in [
+            ("@leaf", "leaf"),
+            ("(leaf)", "leaf"),
+            ("state)", "state"),
+            ("@state", "state"),
+        ] {
+            let mut byte = source.find(query).unwrap();
+            byte += usize::from(query.starts_with('('));
+            let start = source.find(target).unwrap();
+            for program in [Some(&program), None] {
+                let spans =
+                    Index::new(program, &forms, 0, byte).resolve();
+                assert_eq!(spans.len(), 1, "{query}: {spans:?}");
+                assert_eq!(spans[0].start, start, "{query}");
+                assert_eq!(spans[0].end, start + target.len());
+            }
+        }
     }
 }

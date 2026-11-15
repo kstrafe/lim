@@ -675,8 +675,8 @@ mod tests {
     fn opaque_reference_contract_does_not_produce_storage_proofs() {
         let (program, mut declarations) = prepare(
             "#struct Resource (#linear) ((value #u64))
-#extern-fn  opaque { #abi = #abi-c; #params = ((owner (#ref-mut Resource))); #returns = (); }
-#fn work { #params = ((owner (#ref-mut Resource))); #returns = (); #body = (
+#extern-fn  opaque { #abi = #abi-c; #params = ((owner (#ref-mut Resource))); #returns = (); #effects = (#io #global-access); }
+#fn work { #params = ((owner (#ref-mut Resource))); #returns = (); #effects = ((#effects-of opaque)); #body = (
                  (#unsafe (#unsafe-call opaque ((owner owner))))
                  (#call checkpoint ()) (#return ()) ); }\n",
         );
@@ -904,7 +904,7 @@ mod tests {
     #[test]
     fn stale_pointer_anchor_retains_lifetime_without_claiming_address() {
         let (program, declarations) = prepare(
-            "#fn work { #params = ((raw (#ptr #u64))); #returns = (); #body = (
+            "#fn work { #params = ((raw (#ptr #u64))); #returns = (); #effects = (#io #global-access); #body = (
                  (#let anchor #u64 0u64)
                  (#let view (#ref #u64) (#unsafe (#ptr-borrow (#borrow anchor) raw)))
                  (#call checkpoint ()) (#drop view) (#return ()) ); }\n",

@@ -5,6 +5,22 @@
 // UTF-8 stdout IO. Errors are returned as negative errno values; success is
 // 0i64. Printing borrows text, never consumes it or adds a heap allocation.
 
+// A fixed-operation, allocation-free output API. The compiler copies this
+// byte to private temporary storage before entering the kernel.
+#cfg-if (#cfg-is #os linux)
+    (#fn std-write-one-char {
+      #params = ((value #u8));
+      #returns = #i64;
+      #effects = (#io-output);
+      #body = ((#return (#io-output-byte 1i64 value)));
+    })
+#cfg-if (#cfg-not (#cfg-is #os linux))
+    (#fn std-write-one-char {
+      #params = ((value #u8));
+      #returns = #i64;
+      #body = ((#return -38i64));
+    })
+
 #cfg-if
     (
       #cfg-and
@@ -18,6 +34,7 @@
       std-write-all {
         #params = ((pointer (#ptr-mut #u8)) (length #usize));
         #returns = #i64;
+        #effects = (#global-access #io);
         #body = (
       (
         #let-mut
@@ -142,6 +159,7 @@
       std-print {
         #params = ((text (#ref String)));
         #returns = #i64;
+        #effects = ((#effects-of std-write-all));
         #body = (
       // String::data-pointer is unsafe: text's shared borrow keeps both the
       // owner and its allocation live and immutable until the write completes.
@@ -161,6 +179,7 @@
       std-println {
         #params = ((text (#ref String)));
         #returns = #i64;
+        #effects = ((#effects-of std-print) (#effects-of std-write-all));
         #body = (
       (
         #let

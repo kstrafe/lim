@@ -76,6 +76,7 @@
 #fn wait-ready {
   #params = ((context (#ref-mut WakeWaitContext)));
   #returns = WaitResult;
+  #effects = ((#effects-of async-poll4-wait));
   #body = (
     (#let waits (#ref-mut #u64) (#borrow-mut (#get context waits)))
     (#deref-set waits (#u64::add-wrap (#deref waits) 1u64))
@@ -126,6 +127,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of run-jobs) (#effects-of timer-reactor1-cancel) (#effects-of timer-reactor1-create));
   #body = (
     (#let timer-created TimerCreate1 (#call timer-reactor1-create ((nanoseconds 20000000u64))))
     (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))

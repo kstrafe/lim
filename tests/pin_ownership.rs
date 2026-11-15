@@ -58,7 +58,7 @@ fn movable_heap_owners_initialize_native_scalars_and_large_aggregates() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
             (#let pointer (#ptr-mut {ty}) (#unsafe (#linux-syscall (#ptr-mut {ty}) 9usize
               (0usize (#size-of {ty}) 3usize 34usize -1i64 0usize))))
             (#let owner (#pin-own {ty}) (#unsafe (#pin-own-of pointer {value})))
@@ -96,7 +96,7 @@ fn pin_owned_reference_enum_initialization_preserves_inactive_and_live_slots() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
               (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
                 (0usize (#size-of Holder) 3usize 34usize -1i64 0usize))))
               (#let-mut source #u64 42u64)

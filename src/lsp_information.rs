@@ -345,6 +345,12 @@ fn function_signature(context: &NavigationContext, node: &Node) -> Option<Signat
         contracts.insert(0, "// Authored contracts".into());
     }
     contracts.extend(computed_contracts(context, node));
+    // Navigation selected the source declaration, including through aliases.
+    // Permissions remain a separate written interface, never predicate facts.
+    if let Some(effects) = node.children.get(ni + 3).filter(|node| head(node) == "effects") {
+        contracts.push("// Declared effects".into());
+        contracts.push(text(context, effects));
+    }
     Some(Signature {
         label,
         parameters,

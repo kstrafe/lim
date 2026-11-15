@@ -29,11 +29,15 @@ fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
         "#fn destroy-frame {
   #params = ((pin PinnedFrame));
   #returns = ();
-  #body = (
+  #effects = (#io #global-access); #body = (
       (#let byte #u64 67u64)
       (#let pointer (#ptr #u64) (#unsafe (#addr-of byte)))
       (#let written #i64 (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))))
       (#assert (#i64::eq written 1i64))\n",
+    )
+    .replace(
+        "#fn main {\n  #params = ();\n  #returns = #u64;",
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of with-pinned-frame));",
     );
     let assembly = compile(&source, &scratch).unwrap();
     let binary = scratch.path().join("program");

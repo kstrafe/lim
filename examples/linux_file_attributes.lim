@@ -17,83 +17,88 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ((#let path (#ptr-mut #u8) (#unsafe
-        (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
-          (0usize 4096usize 3usize 34usize -1i64 0usize))
-      )) (#let metadata (#ptr-mut #u64) (#unsafe
-        (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64
-            0usize))
-      )) (#unsafe
-      (#block
-        (#ptr-write path 97u8)
-        (#ptr-write (#ptr-offset path 1usize) 116u8)
-        (#ptr-write (#ptr-offset path 2usize) 116u8)
-        (#ptr-write (#ptr-offset path 3usize) 114u8)
-        (#ptr-write (#ptr-offset path 4usize) 115u8)
-        (#ptr-write (#ptr-offset path 16usize) 65u8)
-      )
-    ) (#let fd #i64 (#unsafe
-        (#unsafe-call linux-creat ((path path) (mode 384u32)))
-      )) (#let initial-write #i64 (#unsafe
-        (#unsafe-call linux-write ((fd fd) (source (#ptr-offset path 16usize)) (count 1usize)))
-      )) (#let fd-closed #i64 (#call linux-close ((fd fd)))) (#let resized #i64 (#unsafe
-        (#unsafe-call linux-truncate ((path path) (length 8i64)))
-      )) (#let invalid-size #i64 (#unsafe
-        (#unsafe-call linux-truncate ((path path) (length -1i64)))
-      )) (#let mode-changed #i64 (#unsafe
-        (#unsafe-call linux-chmod ((path path) (mode 256u32)))
-      ))
+  #effects = (#global-access #io (#effects-of linux-chmod) (#effects-of linux-chown) (#effects-of linux-close) (#effects-of linux-creat) (#effects-of linux-futimesat) (#effects-of linux-lchown) (#effects-of linux-stat) (#effects-of linux-truncate) (#effects-of linux-unlink) (#effects-of linux-utime) (#effects-of linux-utimes) (#effects-of linux-write) (#effects-of linux-write-byte));
+  #body = (
+    (#let path (#ptr-mut #u8)
+      (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
+        (0usize 4096usize 3usize 34usize -1i64 0usize))))
+    (#let metadata (#ptr-mut #u64)
+      (#unsafe (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP
+        (0usize 4096usize 3usize 34usize -1i64 0usize))))
+    (#unsafe (#block
+      (#ptr-write path 97u8)
+      (#ptr-write (#ptr-offset path 1usize) 116u8)
+      (#ptr-write (#ptr-offset path 2usize) 116u8)
+      (#ptr-write (#ptr-offset path 3usize) 114u8)
+      (#ptr-write (#ptr-offset path 4usize) 115u8)
+      (#ptr-write (#ptr-offset path 16usize) 65u8)))
+    (#let fd #i64
+      (#unsafe (#unsafe-call linux-creat ((path path) (mode 384u32)))))
+    (#let initial-write #i64
+      (#unsafe (#unsafe-call linux-write ((fd fd) (source (#ptr-offset path 16usize)) (count 1usize)))))
+    (#let fd-closed #i64 (#call linux-close ((fd fd))))
+    (#let resized #i64
+      (#unsafe (#unsafe-call linux-truncate ((path path) (length 8i64)))))
+    (#let invalid-size #i64
+      (#unsafe (#unsafe-call linux-truncate ((path path) (length -1i64)))))
+    (#let mode-changed #i64
+      (#unsafe (#unsafe-call linux-chmod ((path path) (mode 256u32)))))
     // The all-ones UID/GID sentinels leave ownership unchanged.
-    (#let owner-unchanged #i64 (#unsafe
-        (#unsafe-call linux-chown ((path path) (owner 4294967295u32) (group 4294967295u32)))
-      )) (#let link-owner-unchanged #i64 (#unsafe
-        (#unsafe-call linux-lchown ((path path) (owner 4294967295u32) (group 4294967295u32)))
-      )) (#let null-times (#ptr-mut #i64) (#ptr-null (#ptr-mut #i64))) (#let seconds-touched #i64
-      (#unsafe
-        (#unsafe-call linux-utime ((path path) (times null-times)))
-      )) (#let microseconds-touched #i64 (#unsafe
-        (#unsafe-call linux-utimes ((path path) (times null-times)))
-      )) (#let relative-touched #i64 (#unsafe
-        (#unsafe-call linux-futimesat ((directory -100i64) (path path) (times null-times)))
-      )) (#let stat-result #i64 (#unsafe
-        (#unsafe-call linux-stat ((path path) (metadata metadata)))
-      ))
+    (#let owner-unchanged #i64
+      (#unsafe (#unsafe-call linux-chown ((path path) (owner 4294967295u32) (group 4294967295u32)))))
+    (#let link-owner-unchanged #i64
+      (#unsafe (#unsafe-call linux-lchown ((path path) (owner 4294967295u32) (group 4294967295u32)))))
+    (#let null-times (#ptr-mut #i64) (#ptr-null (#ptr-mut #i64)))
+    (#let seconds-touched #i64
+      (#unsafe (#unsafe-call linux-utime ((path path) (times null-times)))))
+    (#let microseconds-touched #i64
+      (#unsafe (#unsafe-call linux-utimes ((path path) (times null-times)))))
+    (#let relative-touched #i64
+      (#unsafe (#unsafe-call linux-futimesat ((directory -100i64) (path path) (times null-times)))))
+    (#let stat-result #i64
+      (#unsafe (#unsafe-call linux-stat ((path path) (metadata metadata)))))
     // x86-64 kernel stat: mode at byte 24, size at 48, mtime at 88.
-    (#let mode-word #u64 (#unsafe
-        (#ptr-read (#ptr-offset metadata 3usize))
-      )) (#let file-size #u64 (#unsafe
-        (#ptr-read (#ptr-offset metadata 6usize))
-      )) (#let modification-seconds #u64 (#unsafe
-        (#ptr-read (#ptr-offset metadata 11usize))
-      )) (#let file-unlinked #i64 (#unsafe
-        (#unsafe-call linux-unlink ((path path)))
-      )) (#let path-unmapped #i64 (#unsafe
-        (#linux-syscall #i64 lINUX-SYS-MUNMAP (path 4096usize))
-      )) (#let metadata-unmapped #i64 (#unsafe
-        (#linux-syscall #i64 lINUX-SYS-MUNMAP (metadata 4096usize))
-      )) (#let file-ok #bool (#bool::and (#i64::ge fd 0i64) (#bool::and (#i64::eq initial-write
-            1i64) (#bool::and (#i64::eq fd-closed 0i64) (#bool::and (#i64::eq resized 0i64)
-              (#bool::and (#i64::eq invalid-size -22i64) (#bool::and (#i64::eq mode-changed 0i64)
-                  (#bool::and (#i64::eq owner-unchanged 0i64) (#bool::and (#i64::eq
-                        link-owner-unchanged 0i64) (#bool::and (#i64::eq seconds-touched 0i64)
-                        (#bool::and (#i64::eq microseconds-touched 0i64) (#bool::and (#i64::eq
-                              relative-touched 0i64) (#bool::and (#i64::eq stat-result 0i64)
+    (#let mode-word #u64
+      (#unsafe (#ptr-read (#ptr-offset metadata 3usize))))
+    (#let file-size #u64
+      (#unsafe (#ptr-read (#ptr-offset metadata 6usize))))
+    (#let modification-seconds #u64
+      (#unsafe (#ptr-read (#ptr-offset metadata 11usize))))
+    (#let file-unlinked #i64
+      (#unsafe (#unsafe-call linux-unlink ((path path)))))
+    (#let path-unmapped #i64
+      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (path 4096usize))))
+    (#let metadata-unmapped #i64
+      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (metadata 4096usize))))
+    (#let file-ok #bool
+      (#bool::and (#i64::ge fd 0i64)
+        (#bool::and (#i64::eq initial-write 1i64)
+          (#bool::and (#i64::eq fd-closed 0i64)
+            (#bool::and (#i64::eq resized 0i64)
+              (#bool::and (#i64::eq invalid-size -22i64)
+                (#bool::and (#i64::eq mode-changed 0i64)
+                  (#bool::and (#i64::eq owner-unchanged 0i64)
+                    (#bool::and (#i64::eq link-owner-unchanged 0i64)
+                      (#bool::and (#i64::eq seconds-touched 0i64)
+                        (#bool::and (#i64::eq microseconds-touched 0i64)
+                          (#bool::and (#i64::eq relative-touched 0i64)
+                            (#bool::and (#i64::eq stat-result 0i64)
                               (#bool::and (#u64::eq (#u64::bit-and mode-word 511u64) 256u64)
-                                (#bool::and (#u64::eq file-size 8u64) (#bool::and (#u64::gt
-                                      modification-seconds 0u64) (#bool::and (#i64::eq
-                                        file-unlinked 0i64) (#bool::and (#i64::eq path-unmapped
-                                          0i64) (#i64::eq metadata-unmapped 0i64)))))))))))))))))))
+                                (#bool::and (#u64::eq file-size 8u64)
+                                  (#bool::and (#u64::gt modification-seconds 0u64)
+                                    (#bool::and (#i64::eq file-unlinked 0i64)
+                                      (#bool::and (#i64::eq path-unmapped 0i64)
+                                        (#i64::eq metadata-unmapped 0i64)))))))))))))))))))
     (#return (#if file-ok
-        (#block
-          (#let-mut byte #u8 65u8)
-          (#let first #i64 (#call linux-write-byte ((source (#borrow byte)))))
-          (#set byte 10u8)
-          (#let second #i64 (#call linux-write-byte ((source (#borrow byte)))))
-          (#if (#bool::and (#i64::eq first 1i64) (#i64::eq second 1i64))
-            42u64
-            1u64
-          )
-        )
-        1u64
-      )));
+      (#block
+        (#let-mut byte #u8 65u8)
+        (#let first #i64
+          (#call linux-write-byte ((source (#borrow byte)))))
+        (#set byte 10u8)
+        (#let second #i64
+          (#call linux-write-byte ((source (#borrow byte)))))
+        (#if (#bool::and (#i64::eq first 1i64) (#i64::eq second 1i64))
+          42u64 1u64))
+      1u64))
+  );
 }

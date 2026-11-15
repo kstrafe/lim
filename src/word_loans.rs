@@ -474,9 +474,9 @@ mod tests {
     fn restored_word_owner_retains_its_pointee_reference_requirements() {
         let program = crate::parse_program("#struct Holder () ((link (#ref #u64)))
 #struct Words () ((words (#array #u64 1)))
-#fn restore { #params = ((storage (#ref-mut Words))); #returns = (#pin-own Holder); #body = (
+#fn restore { #params = ((storage (#ref-mut Words))); #returns = (#pin-own Holder); #effects = (#io #global-access); #body = (
               (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words))))) ); }
-#fn forward { #params = ((storage (#ref-mut Words))); #returns = (#pin-own Holder); #body = (
+#fn forward { #params = ((storage (#ref-mut Words))); #returns = (#pin-own Holder); #effects = ((#effects-of restore)); #body = (
               (#return (#call restore ((storage storage)))) ); }
 #fn main { #params = (); #returns = #u64; #body = ( (#return 0u64) ); }\n").unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -502,11 +502,11 @@ mod tests {
     #[test]
     fn forwarding_owned_word_requirements_retains_the_ownership_obligation() {
         let source = "#struct Words () ((words (#array #u64 1)))
-#fn restore { #params = ((storage (#ref-mut Words))); #returns = (#pin-own #u64); #body = (
+#fn restore { #params = ((storage (#ref-mut Words))); #returns = (#pin-own #u64); #effects = (#io #global-access); #body = (
               (#return (#unsafe (#word-take (#pin-own #u64) (#borrow-slice-mut (#get storage words))))) ); }
-#fn forward { #params = ((storage (#ref-mut Words))); #returns = (#pin-own #u64); #body = (
+#fn forward { #params = ((storage (#ref-mut Words))); #returns = (#pin-own #u64); #effects = ((#effects-of restore)); #body = (
               (#return (#call restore ((storage storage)))) ); }
-#fn forward-again { #params = ((storage (#ref-mut Words))); #returns = (#pin-own #u64); #body = (
+#fn forward-again { #params = ((storage (#ref-mut Words))); #returns = (#pin-own #u64); #effects = ((#effects-of forward)); #body = (
               (#return (#call forward ((storage storage)))) ); }
 #fn main { #params = (); #returns = #u64; #body = ( (#return 0u64) ); }\n";
         let program = crate::parse_program(source).unwrap();
@@ -519,7 +519,7 @@ mod tests {
             assert!(inputs[0].mutable && inputs[0].pinned);
         }
         let invalid = source.replace("#fn main { #params = (); #returns = #u64; #body = ( (#return 0u64) ); }\n", "
-#fn main { #params = (); #returns = #u64; #body = (
+#fn main { #params = (); #returns = #u64; #effects = (#io #global-access (#effects-of forward-again)); #body = (
               (#let amount #u64 42u64)
               (#let-mut storage Words (#struct-literal Words ((words (#array-repeat 0u64)))))
               (#unsafe (#word-write (#ref #u64) (#borrow-slice-mut (#get storage words)) (#borrow amount)))
@@ -611,7 +611,7 @@ mod tests {
     #[test]
     fn large_numeric_input_uses_one_symbolic_candidate_and_one_exact_requirement() {
         let source = "#struct Holder () ((value (#ref #u64)))
-#fn read { #params = ((words (#array #u64 1000000000))); #returns = #u64; #body = (
+#fn read { #params = ((words (#array #u64 1000000000))); #returns = #u64; #effects = (#io #global-access); #body = (
               (#let restored Holder (#unsafe (#word-read Holder (#borrow-slice words 7usize 8usize))))
               (#let answer #u64 (#deref (#get restored value)))
               (#forget restored) (#return answer) ); }\n";

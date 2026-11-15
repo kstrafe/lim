@@ -44,6 +44,7 @@
 #fn Arena::Allocator::allocate {
   #params = ((allocator (#ref Arena)) (layout #usize) (alignment #usize));
   #returns = Arena::Allocator::Allocation;
+  #effects = (#global-access #io);
   #body = (
     (#let pointer (#ptr-mut #u8) (#unsafe
         (#linux-syscall (#ptr-mut #u8) 9usize (0usize layout 3usize 34usize -1i64 0usize))
@@ -58,6 +59,7 @@
 #unsafe-fn Arena::Allocator::deallocate {
   #params = ((allocator (#ref Arena)) (pointer (#ptr-mut #u8)) (layout #usize) (alignment #usize));
   #returns = ();
+  #effects = (#global-access #io);
   #body = (
     (#assert (#i64::eq (#unsafe
           (#linux-syscall #i64 11usize (pointer layout))
@@ -69,6 +71,7 @@
 #fn destroy-frame {
   #params = ((allocator (#ref Arena)) (pin (#pin-ref-mut Work::Frame)));
   #returns = ();
+  #effects = ((#effects-of Work::Poll::cleanup));
   #body = (
     (#call cancel-work ((task (#call Work::Poll::cleanup ((task pin))))))
     (#forget pin)
@@ -79,6 +82,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of PinnedFrameRc::create) (#effects-of PinnedFrameRc::destroy) (#effects-of Work::poll));
   #body = (
     (#let arena Arena (#struct-literal Arena ()))
     (#let-mut owner PinnedFrameRc

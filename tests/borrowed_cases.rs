@@ -198,7 +198,7 @@ fn async_match_source() -> &'static str {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let-mut choice Choice (Choice.Full 42u64))
           (#let waker #u64 0u64)
           (#let first Work::Poll (#call Work::poll ((task (#call work ((choice (#borrow-mut choice)) (seed 42u64)))) (waker (#borrow waker)))))

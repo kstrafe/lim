@@ -22,6 +22,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of PinU64Box::create) (#effects-of PinU64Box::destroy));
   #body = (
     (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
     (#let-else (PinU64Box::CreateResult.Created owner) PinU64Box::CreateResult (#call

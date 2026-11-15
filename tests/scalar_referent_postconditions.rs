@@ -27,7 +27,7 @@ const PROGRAM: &str = "#struct Holder () ((value (#ref #u64)))
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
       (#let-mut selector #u64 0u64)
       (#let words (#array #u64 1) (#array-repeat 0u64))
       (#call update ((selector (#borrow-mut selector)) (flag false)))
@@ -52,7 +52,7 @@ fn fresh_pinned_heap_initializers_provide_only_current_scalar_facts() {
 #fn inspect {
   #params = ((state (#pin-ref State)) (words (#slice #u64)));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#return (#match (#get state pc)
             (#case 0 42u64)
             (#case _ (#block
@@ -64,7 +64,7 @@ fn fresh_pinned_heap_initializers_provide_only_current_scalar_facts() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of inspect)); #body = (
           (#let pointer (#ptr-mut State) (#unsafe (#linux-syscall (#ptr-mut State)
             9usize (0usize (#size-of State) 3usize 34usize -1i64 0usize))))
           (#let initial State (#struct-literal State ((pc 0u64))))

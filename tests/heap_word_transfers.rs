@@ -18,7 +18,7 @@ const SOURCE: &str = "#struct Holder () ((link (#ref #u64)))
 #fn relay {
   #params = ((frame Frame) (transfer #bool));
   #returns = Frame;
-  #body = (
+  #effects = (#global-access #io); #body = (
       (#let-mut result Frame frame)
       (#match (#get result state)
         (#case 1 (#if transfer (#block
@@ -33,7 +33,7 @@ const SOURCE: &str = "#struct Holder () ((link (#ref #u64)))
 #fn read {
   #params = ((frame Frame));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
       (#let-mut local Frame frame)
       (#let owner (#pin-own Holder) (#match (#get local state)
         (#case 1 (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get local original)))))
@@ -48,7 +48,7 @@ const SOURCE: &str = "#struct Holder () ((link (#ref #u64)))
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of read) (#effects-of relay)); #body = (
       (#let-mut amount #u64 42u64)
       (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
         (0usize 4096usize 3usize 34usize -1i64 0usize))))

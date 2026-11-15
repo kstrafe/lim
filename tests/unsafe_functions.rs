@@ -86,7 +86,7 @@ fn call_spelling_must_match_the_declarations_safety_even_inside_unsafe() {
     for (declaration, call, message) in [
         (DECLARATION, "#call", "#unsafe-call"),
         (
-            "#extern-fn  answer {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n",
+            "#extern-fn  answer {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n",
             "#call",
             "#unsafe-call",
         ),
@@ -261,7 +261,7 @@ fn external_imports_and_generated_declarations_preserve_safety() {
     let scratch = support::Scratch::new("unsafe-import-generator");
     fs::write(
         scratch.path().join("module.lim"),
-        format!("{DECLARATION}\n#fn safe-answer {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n#extern-fn  foreign-answer {{\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}}\n"),
+        format!("{DECLARATION}\n#fn safe-answer {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n#extern-fn  foreign-answer {{\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }}\n"),
     )
     .unwrap();
     for (declarations, unsafe_names, safe_name) in [
@@ -375,7 +375,7 @@ fn implicit_entry_points_cannot_bypass_unsafe_calls() {
 fn io_uring_raw_pointer_contracts_are_enforced() {
     let scratch = support::Scratch::new("unsafe-syscall");
     let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/linux_x86_64.lim");
-    let source = format!("#alias linux-io-uring-setup = \"{}::linux-io-uring-setup\"\n#fn main {{\n  #params = ();\n  #returns = #i64;\n  #body = ( (#return (#unsafe-call linux-io-uring-setup ((entries 2u32) (parameters (#ptr-null (#ptr-mut #u8))))))\n  );\n}}\n", library.to_str().unwrap());
+    let source = format!("#alias linux-io-uring-setup = \"{}::linux-io-uring-setup\"\n#fn main {{\n  #params = ();\n  #returns = #i64;\n  #effects = ((#effects-of linux-io-uring-setup)); #body = ( (#return (#unsafe-call linux-io-uring-setup ((entries 2u32) (parameters (#ptr-null (#ptr-mut #u8))))))\n  );\n}}\n", library.to_str().unwrap());
     let error = compile(
         &source,
         &scratch.path().join("main.lim"),

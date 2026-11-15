@@ -295,7 +295,7 @@ fn async_generator_body_can_match_a_pinned_enum_payload() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
              (#let-mut choice Choice (Choice.Full 42u64))
              (#let pin (#pin-ref-mut Choice) (#pin choice))
              (#let waker #u64 0u64)

@@ -263,3 +263,9 @@ file/alias/generated declaration identity; the whole operand is a value, never
 a named-argument label. Hover and signature help show the plain parameter type
 and identify its one active operand. These roles, formatter roundtrips and
 keyword highlighting must accompany future changes to this syntax.
+
+Effect annotations are signature metadata. `#effects-of` targets function
+identities through aliases and file paths; `#read-global` and `#write-global`
+target global declarations. Qualification keywords have no definition target.
+Hover and signature help display written effects separately from predicate
+requirements. Byte-IO operands retain ordinary lexical value roles.

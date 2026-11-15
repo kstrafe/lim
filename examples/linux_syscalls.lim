@@ -62,6 +62,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of linux-clock-gettime) (#effects-of linux-close) (#effects-of linux-dup) (#effects-of linux-fcntl) (#effects-of linux-fdatasync) (#effects-of linux-fstat) (#effects-of linux-fsync) (#effects-of linux-ftruncate) (#effects-of linux-getegid) (#effects-of linux-geteuid) (#effects-of linux-getgid) (#effects-of linux-getgroups) (#effects-of linux-getpgid) (#effects-of linux-getpgrp) (#effects-of linux-getpid) (#effects-of linux-getppid) (#effects-of linux-getpriority) (#effects-of linux-getrandom) (#effects-of linux-getrandom-byte) (#effects-of linux-getresgid) (#effects-of linux-getresuid) (#effects-of linux-getsid) (#effects-of linux-gettid) (#effects-of linux-getuid) (#effects-of linux-kill) (#effects-of linux-lseek) (#effects-of linux-madvise) (#effects-of linux-mremap) (#effects-of linux-nanosleep) (#effects-of linux-openat) (#effects-of linux-readlinkat) (#effects-of linux-sched-yield) (#effects-of linux-uname) (#effects-of linux-unlinkat));
   #body = (
     (#let pid #i64 (#call linux-getpid ()))
     (#let asm_pid #i64 (#unsafe

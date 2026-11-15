@@ -49,6 +49,7 @@
 #fn timer-reactor1-create {
   #params = ((nanoseconds #u64));
   #returns = TimerCreate1;
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-mmap) (#effects-of linux-munmap) (#effects-of linux-timerfd-create));
   #body = (
     (#return (#if (#bool::or (#u64::eq nanoseconds 0u64)
                             (#u64::ge nanoseconds 1000000000u64))
@@ -113,6 +114,7 @@
 #fn timer-reactor1-wait {
   #params = ((timer (#ref TimerReactor1)));
   #returns = TimerWait1;
+  #effects = ((#effects-of linux-poll));
   #body = (
     (#let result #i64 (#unsafe (#unsafe-call linux-poll
       ((pollfds (#get timer memory)) (count 1usize) (timeout-ms -1i32)))))
@@ -131,6 +133,7 @@
 #fn timer-reactor2-wait {
   #params = ((first (#ref TimerReactor1)) (second (#ref TimerReactor1)));
   #returns = TimerWait2;
+  #effects = (#global-access #io (#effects-of linux-poll));
   #body = (
     (#let second-fd #i64 (#get second fd))
     (#return (#if (#i64::eq (#get first fd) second-fd)
@@ -185,6 +188,7 @@
 #fn timer-reactor1-poll {
   #params = ((timer (#ref TimerReactor1)));
   #returns = TimerPoll1;
+  #effects = ((#effects-of linux-read));
   #body = (
     (#return (#if (#call wake-ready4-take
                   ((queue (#borrow (#get timer queue))) (token (#get timer token))))
@@ -203,6 +207,7 @@
 #fn timer-reactor1-cancel {
   #params = ((timer TimerReactor1));
   #returns = #i64;
+  #effects = ((#effects-of linux-close) (#effects-of linux-munmap));
   #body = (
     (#let (TimerReactor1 fd memory queue token) TimerReactor1 timer)
     (#let-mut queue-mut WakeReady4 queue)
@@ -223,6 +228,7 @@
 #fn timer-reactor-many-wait {
   #params = ((timers (#slice (#ref TimerReactor1))));
   #returns = TimerManyWait;
+  #effects = (#global-access #io (#effects-of linux-poll));
   #body = (
     (#let count #usize (#slice-len timers))
     (#let-mut error #i64 -22i64)

@@ -22,6 +22,11 @@ explicitly returns unit:
 #fn main {
   #params = {};
   #returns = ();
+  #effects = (
+    (#effects-of String::from-chars)
+    (#effects-of std-println)
+    (#effects-of String::free)
+  );
   #body:
     #let greeting (#array #char 13) "Hello, world!";
     #let message String:
@@ -39,6 +44,10 @@ returns a result, so the program handles both success and failure. `#println`
 borrows the string, writes its UTF-8 text and a newline, and returns zero on
 success; the assertion checks that status. The string remains owned until
 `String::free` releases it.
+
+`#effects` explicitly includes the allocation, printing, and cleanup APIs used
+by `main`. These permissions are separate from predicate preconditions; omitting
+them does not make an effectful function pure.
 
 `#fn` declares a function. `#params` is a record of parameter names and types;
 this function has none. `#returns` is always explicit, and `#body` contains the

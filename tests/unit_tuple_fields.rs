@@ -27,7 +27,7 @@ fn unit_tuple_fields_need_no_slot_or_register() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global gLOBAL)); #body = (
           (#let local (#tuple () #u64 ()) (#tuple (#tuple () #u64 ()) () 42u64 ()))
           (#get local 0)
           (#get local 2)

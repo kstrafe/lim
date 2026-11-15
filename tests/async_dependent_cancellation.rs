@@ -43,7 +43,7 @@ fn source() -> &'static str {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::Poll::destroy) (#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ()))
           (#let first Work::Poll (#call Work::poll
@@ -180,7 +180,7 @@ fn cancellation_before_first_poll_and_after_ready_is_idempotent() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::destroy) (#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let-mut unstarted Work::Frame (#call work ()))
           (#call Work::Poll::destroy ((task (#pin-borrow-mut unstarted))))
@@ -231,7 +231,7 @@ fn pinned_source() -> &'static str {
             (#return (#u64::add-wrap (#get view amount) result)))))
 #generate #async-fn-pinned ((protocol ParentAwait) (waker #u64)
           (cancel (parent-cancel ((owner destroy-owner) (nested Child::Poll::destroy))))
-          (function (#fn parent () #u64
+          (function (#fn parent () #u64 (#effects ((#effects-of Child::poll)))
             (#let owner Owner (#struct-literal Owner ((amount 40u64))))
             (#let-mut nested Child::Frame (#call child ((view (#borrow owner)))))
             (#let answer #u64 (#await ChildAwait (#pin-borrow-mut nested)))
@@ -239,7 +239,7 @@ fn pinned_source() -> &'static str {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Parent::Poll::destroy) (#effects-of Parent::poll)); #body = (
           (#let waker #u64 0u64)
           (#let-mut task Parent::Frame (#call parent ()))
           (#let first Parent::Poll (#call Parent::poll
@@ -310,7 +310,7 @@ fn reference_free_pinned_child_cancels_in_word_storage_exactly_once() {
         .replace("(#get view amount)", "amount")
         .replace("#call child ((view (#borrow owner)))", "#call child ((amount (#get owner amount)))")
         .replace("#fn cancel-step {\n  #params = ((value Step));\n  #returns = ();\n  #body = ( (#forget value) (#return ())\n  );\n}",
-            "#fn cancel-step {\n  #params = ((value Step));\n  #returns = ();\n  #body = ( (#let byte #u8 67u8) (#assert (#i64::eq (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))) 1i64)) (#forget value) (#return ())\n  );\n}");
+            "#fn cancel-step {\n  #params = ((value Step));\n  #returns = ();\n  #effects = (#global-access #io); #body = ( (#let byte #u8 67u8) (#assert (#i64::eq (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))) 1i64)) (#forget value) (#return ())\n  );\n}");
     run_with_output(&program, "async-pinned-word-child-cancellation", b"C");
     let heap = heap_pinned_source(&program);
     run_with_output(&heap, "async-pinned-word-heap-child-cancellation", b"C");

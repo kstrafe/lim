@@ -233,7 +233,7 @@ fn heap_child_views_prevent_release_and_disjoint_borrows_still_work() {
 #fn destroy-heap {{
   #params = ((owner (#pin-own Outer)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let pointer (#ptr-mut Outer) (#unsafe (#pin-release owner)))
           (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
           (#return ())
@@ -242,7 +242,7 @@ fn heap_child_views_prevent_release_and_disjoint_borrows_still_work() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of destroy-heap)); #body = (
           (#let pointer (#ptr-mut Outer) (#unsafe (#linux-syscall (#ptr-mut Outer) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
           (#let-mut owner (#pin-own Outer) (#unsafe (#pin-own-of pointer

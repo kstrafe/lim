@@ -23,6 +23,8 @@ pub(crate) struct Refinement {
 }
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Metadata {
+    /// Static authorization only; never predicate facts or write footprints.
+    pub effects: BTreeMap<String, crate::effects::Declaration>,
     pub originals: BTreeMap<String, Function>,
     pub clauses: BTreeMap<String, Clauses>,
     pub refinements: BTreeMap<String, Refinement>,
@@ -303,6 +305,7 @@ pub(crate) fn prepare(program: &mut Program, instrumented: bool) -> Result<(), c
         }
     }
     let mut metadata = Metadata {
+        effects: crate::effects::collect(program)?,
         instrumented,
         refinements: source_refinements(&program.declaration_expressions)?,
         ..Metadata::default()
@@ -329,6 +332,7 @@ pub(crate) fn prepare(program: &mut Program, instrumented: bool) -> Result<(), c
             found
         })
     {
+        program.contracts = metadata;
         return Ok(());
     }
     for refinement in metadata.refinements.values_mut() {

@@ -476,7 +476,20 @@ fn surface_function_records_compose_with_async_generation() {
     let mut source = include_str!("../examples/async_fn.lim").to_owned();
     let nodes = lim::parse_source_unit(&source).unwrap();
     let function = work(&nodes).unwrap();
-    let body = function.children[4..]
+    let (effects, body_start) = match function.children.get(4) {
+        Some(clause)
+            if matches!(&clause.expr, lim::Expr::List(parts)
+                if matches!(parts.first(), Some(lim::Expr::Symbol(head)) if head == "#effects")) =>
+        {
+            let value = &clause.children[1];
+            (
+                format!("#effects = {}; ", &source[value.span.start..value.span.end]),
+                5,
+            )
+        }
+        _ => (String::new(), 4),
+    };
+    let body = function.children[body_start..]
         .iter()
         .map(|node| &source[node.span.start..node.span.end])
         .collect::<Vec<_>>()
@@ -486,7 +499,7 @@ fn surface_function_records_compose_with_async_generation() {
             "[#u64 #wrap; total + offset]",
         );
     let replacement = format!(
-        "(#fn work {{ #params = {{ offset = #u64; }}; #returns = #u64; #body = ({body}); }})"
+        "(#fn work {{ #params = {{ offset = #u64; }}; #returns = #u64; {effects}#body = ({body}); }})"
     );
     source.replace_range(function.span.start..function.span.end, &replacement);
     let scratch = support::Scratch::new("surface-async");

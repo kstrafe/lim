@@ -1,10 +1,14 @@
 // Static access retains the ordinary explicit unsafe requirement.
-#static answer { #type = #u64; #value = 42; }
+#static answer {
+  #type = #u64;
+  #value = 42;
+}
 
 #fn main {
   #params = {};
   #returns = #u64;
-  #body = (#return (#unsafe
-      answer
-    ););
+  #effects = ((#read-global answer));
+  #body = (
+    #return (#unsafe answer);
+  );
 }

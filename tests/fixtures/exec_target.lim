@@ -3,6 +3,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of linux-write-byte));
   #body = (
     (#let letter #u8 88u8)
     (#let newline #u8 10u8)

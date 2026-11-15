@@ -554,7 +554,7 @@ fn a_generated_vector_can_have_sorted_and_element_bound_requirements() {
 #fn sorted {
   #params = ((values (#ref VecU64)));
   #returns = #bool;
-  #body = (
+  #effects = (#global-access #io); #body = (
         (#let length #usize (#call VecU64::len ((vector values))))
         (#let pointer (#ptr-mut #u64) (#clone (#get values pointer)))
         (#let-mut index #usize 1usize)
@@ -569,7 +569,7 @@ fn a_generated_vector_can_have_sorted_and_element_bound_requirements() {
 #fn all-below-100 {
   #params = ((values (#ref VecU64)));
   #returns = #bool;
-  #body = (
+  #effects = (#global-access #io); #body = (
         (#let length #usize (#call VecU64::len ((vector values))))
         (#let pointer (#ptr-mut #u64) (#clone (#get values pointer)))
         (#let-mut index #usize 0usize)
@@ -593,7 +593,7 @@ fn a_generated_vector_can_have_sorted_and_element_bound_requirements() {
 #fn validate-and-call {
   #params = ((values (#ref VecU64)));
   #returns = ();
-  #body = (
+  #effects = ((#effects-of all-below-100) (#effects-of sorted)); #body = (
         (#if-valid (#bool::and (#call sorted ((values values))) (#call all-below-100 ((values values))))
           (#call accepts ((values values))))
         (#return ())
@@ -626,7 +626,7 @@ fn constrained_array_elements_require_individual_evidence() {
 }
 #[test]
 fn raw_memory_writes_inside_loops_cannot_preserve_old_evidence() {
-    let source=format!("{REFERENT}\n#fn use {{\n  #params = ((packet (#ref-mut Packet)) (pointer (#ptr-mut #u64)) (again #bool));\n  #returns = ();\n  #body = ( (#requires (#call acceptable ((packet packet)))) (#while again (#unsafe (#ptr-write (#clone pointer) 200u64))) (#call send ((packet (#borrow (#deref packet))))) (#forget pointer) (#return ())\n  );\n}}\n");
+    let source=format!("{REFERENT}\n#fn use {{\n  #params = ((packet (#ref-mut Packet)) (pointer (#ptr-mut #u64)) (again #bool));\n  #returns = ();\n  #effects = (#global-access #io); #body = ( (#requires (#call acceptable ((packet packet)))) (#while again (#unsafe (#ptr-write (#clone pointer) 200u64))) (#call send ((packet (#borrow (#deref packet))))) (#forget pointer) (#return ())\n  );\n}}\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 #[test]
@@ -702,7 +702,7 @@ fn aliases_of_constrained_mutable_references_export_restoration() {
 }
 #[test]
 fn consuming_a_linear_owner_ends_its_storage_obligations() {
-    let source=format!("{SCALAR}#type Small (#where (value #u64) (#call below-100 ((value value))))\n#struct Resource (#linear) ((value Small))\n#extern-fn  opaque {{\n  #abi = #abi-c;\n  #params = ();\n  #returns = ();\n}}\n#fn destroy {{\n  #params = ((resource Resource));\n  #returns = ();\n  #body = ( (#forget resource) (#unsafe (#unsafe-call opaque ())) (#return ())\n  );\n}}\n#fn use {{\n  #params = ((resource Resource));\n  #returns = ();\n  #body = ( (#call destroy ((resource resource))) (#return ())\n  );\n}}\n");
+    let source=format!("{SCALAR}#type Small (#where (value #u64) (#call below-100 ((value value))))\n#struct Resource (#linear) ((value Small))\n#extern-fn  opaque {{\n  #abi = #abi-c;\n  #params = ();\n  #returns = ();\n#effects = (#global-access #io); }}\n#fn destroy {{\n  #params = ((resource Resource));\n  #returns = ();\n  #effects = ((#effects-of opaque)); #body = ( (#forget resource) (#unsafe (#unsafe-call opaque ())) (#return ())\n  );\n}}\n#fn use {{\n  #params = ((resource Resource));\n  #returns = ();\n  #effects = ((#effects-of destroy)); #body = ( (#call destroy ((resource resource))) (#return ())\n  );\n}}\n");
     check(&source).unwrap();
 }
 #[test]

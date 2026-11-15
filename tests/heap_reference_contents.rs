@@ -56,7 +56,7 @@ const PREFIX: &str = r#"
 #fn destroy {
   #params = ((owner (#pin-own Holder)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
       (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
       (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
       (#return ())
@@ -92,7 +92,7 @@ fn extracted_heap_owner_can_be_read_by_a_later_call() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut source #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -145,7 +145,7 @@ fn heap_contents_retain_external_references_through_owner_moves_and_calls() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let source #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -208,7 +208,7 @@ fn direct_heap_field_writes_track_the_new_source_without_rewriting_it() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let first #u64 1u64) (#let-mut second #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -238,7 +238,7 @@ fn definite_heap_field_replacement_retires_only_the_old_source_loan() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut first #u64 1u64) (#let-mut second #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -411,7 +411,7 @@ fn direct_reference_pointees_keep_provenance_after_heap_owner_release() {
     let source = r#"#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
         (#let-mut source #u64 42u64)
         (#let pointer (#ptr-mut (#ref #u64)) (#unsafe (#linux-syscall (#ptr-mut (#ref #u64)) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -528,7 +528,7 @@ fn definite_helper_replacement_retires_the_old_heap_field_loan() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let-mut first #u64 1u64) (#let second #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -594,7 +594,7 @@ fn replaced_contents_are_read_from_the_heap() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let first #u64 1u64) (#let second #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))

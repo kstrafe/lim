@@ -4,13 +4,15 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ((#return (#unsafe
-        (#block
-          (#let values (#slice #u64) (#borrow-slice table))
-          (#assert (#usize::eq (#slice-len values) 2usize))
-          (#let tail (#slice #u64) (#slice-range values 1usize 2usize))
-          (#assert (#u64::eq (#deref (#slice-idx tail 0usize)) 22u64))
-          (#u64::add-wrap (#deref (#slice-idx values 0usize)) (#deref (#slice-idx values 1usize)))
-        )
-      )));
+  #effects = ((#read-global table));
+  #body = (
+    (#return (#unsafe (#block
+      (#let values (#slice #u64) (#borrow-slice table))
+      (#assert (#usize::eq (#slice-len values) 2usize))
+      (#let tail (#slice #u64) (#slice-range values 1usize 2usize))
+      (#assert (#u64::eq (#deref (#slice-idx tail 0usize)) 22u64))
+      (#u64::add-wrap
+        (#deref (#slice-idx values 0usize))
+        (#deref (#slice-idx values 1usize))))))
+  );
 }

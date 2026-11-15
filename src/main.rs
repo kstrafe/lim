@@ -1397,7 +1397,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("program.lim");
         let output = directory.join("program");
-        let source = "#fn increment { #params = ((counter (#ref (#atomic #u64)))); #returns = #u64; #body = ( (#return (#u64::add-wrap (#atomic-fetch-add counter 42u64 #memory-acq-rel) 42u64)) ); }\n#generate #thread-spawn ((task AtomicTask) (worker increment))\n#generate #thread-spawn ((task AtomicTaskTwo) (worker increment))\n#fn main { #params = (); #returns = #u64; #body = ( (#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64)) (#let-mut byte (#atomic #i8) (#atomic-init #i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#atomic-store (#borrow byte) 3i8 #memory-seq-cst) (#let first-result #u64 (#match (#call AtomicTask::spawn ((counter (#borrow counter)))) (#case (AtomicTask::SpawnResult.Ok task) (#match (#call AtomicTask::join ((task task))) (#case (AtomicTask::JoinResult.Ok value) value) (#case (AtomicTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (AtomicTask::SpawnResult.Error error) (#panic)))) (#let second-result #u64 (#match (#call AtomicTaskTwo::spawn ((counter (#borrow counter)))) (#case (AtomicTaskTwo::SpawnResult.Ok task) (#match (#call AtomicTaskTwo::join ((task task))) (#case (AtomicTaskTwo::JoinResult.Ok value) value) (#case (AtomicTaskTwo::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (AtomicTaskTwo::SpawnResult.Error error) (#panic)))) (#let observed #u64 (#atomic-load (#borrow counter) #memory-acquire)) (#forget byte) (#forget counter) (#return observed) ); }\n";
+        let source = "#fn increment { #params = ((counter (#ref (#atomic #u64)))); #returns = #u64; #body = ( (#return (#u64::add-wrap (#atomic-fetch-add counter 42u64 #memory-acq-rel) 42u64)) ); }\n#generate #thread-spawn ((task AtomicTask) (worker increment))\n#generate #thread-spawn ((task AtomicTaskTwo) (worker increment))\n#fn main { #params = (); #returns = #u64; #effects = (#global-access #io); #body = ( (#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64)) (#let-mut byte (#atomic #i8) (#atomic-init #i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#atomic-store (#borrow byte) 3i8 #memory-seq-cst) (#let first-result #u64 (#match (#call AtomicTask::spawn ((counter (#borrow counter)))) (#case (AtomicTask::SpawnResult.Ok task) (#match (#call AtomicTask::join ((task task))) (#case (AtomicTask::JoinResult.Ok value) value) (#case (AtomicTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (AtomicTask::SpawnResult.Error error) (#panic)))) (#let second-result #u64 (#match (#call AtomicTaskTwo::spawn ((counter (#borrow counter)))) (#case (AtomicTaskTwo::SpawnResult.Ok task) (#match (#call AtomicTaskTwo::join ((task task))) (#case (AtomicTaskTwo::JoinResult.Ok value) value) (#case (AtomicTaskTwo::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (AtomicTaskTwo::SpawnResult.Error error) (#panic)))) (#let observed #u64 (#atomic-load (#borrow counter) #memory-acquire)) (#forget byte) (#forget counter) (#return observed) ); }\n";
         fs::write(&input, source).unwrap();
         assert_eq!(
             compile(
@@ -1487,7 +1487,7 @@ mod tests {
         let output = directory.join("thread");
         fs::write(
             &input,
-            "#fn zero { #params = ((value #u64)); #returns = #u64; #body = ( (#return 0) ); }\n#generate #thread-spawn ((task ZeroTask) (worker zero))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#match (#call ZeroTask::spawn ((value 41))) (#case (ZeroTask::SpawnResult.Ok task) (#match (#call ZeroTask::join ((task task))) (#case (ZeroTask::JoinResult.Ok value) (#if (#u64::eq value 0) 42 0)) (#case (ZeroTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (ZeroTask::SpawnResult.Error error) (#panic)))) ); }\n",
+            "#fn zero { #params = ((value #u64)); #returns = #u64; #body = ( (#return 0) ); }\n#generate #thread-spawn ((task ZeroTask) (worker zero))\n#fn main { #params = (); #returns = #u64; #effects = (#global-access #io); #body = ( (#return (#match (#call ZeroTask::spawn ((value 41))) (#case (ZeroTask::SpawnResult.Ok task) (#match (#call ZeroTask::join ((task task))) (#case (ZeroTask::JoinResult.Ok value) (#if (#u64::eq value 0) 42 0)) (#case (ZeroTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (ZeroTask::SpawnResult.Error error) (#panic)))) ); }\n",
         )
         .unwrap();
 
@@ -1517,7 +1517,7 @@ mod tests {
         let output = directory.join("thread");
         fs::write(
             &input,
-            "#struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))\n#fn identity { #params = ((value Large)); #returns = Large; #body = ( (#return value) ); }\n#generate #thread-spawn ((task LargeTask) (worker identity))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#match (#call LargeTask::spawn ((value (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 42)))))) (#case (LargeTask::SpawnResult.Ok task) (#match (#call LargeTask::join ((task task))) (#case (LargeTask::JoinResult.Ok value) (#get value g)) (#case (LargeTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (LargeTask::SpawnResult.Error error) (#panic)))) ); }\n",
+            "#struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))\n#fn identity { #params = ((value Large)); #returns = Large; #body = ( (#return value) ); }\n#generate #thread-spawn ((task LargeTask) (worker identity))\n#fn main { #params = (); #returns = #u64; #effects = (#global-access #io); #body = ( (#return (#match (#call LargeTask::spawn ((value (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 42)))))) (#case (LargeTask::SpawnResult.Ok task) (#match (#call LargeTask::join ((task task))) (#case (LargeTask::JoinResult.Ok value) (#get value g)) (#case (LargeTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (LargeTask::SpawnResult.Error error) (#panic)))) ); }\n",
         )
         .unwrap();
 
@@ -1545,7 +1545,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let source = "#fn worker { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task Task) (worker worker))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#match (#call Task::spawn ((value 41))) (#case (Task::SpawnResult.Ok task) (#panic)) (#case (Task::SpawnResult.Error error) (#match error (#case Task::SpawnError.CreationError 43) (#case Task::SpawnError.AllocationError 0))))) ); }\n";
+        let source = "#fn worker { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task Task) (worker worker))\n#fn main { #params = (); #returns = #u64; #effects = (#global-access #io); #body = ( (#return (#match (#call Task::spawn ((value 41))) (#case (Task::SpawnResult.Ok task) (#panic)) (#case (Task::SpawnResult.Error error) (#match error (#case Task::SpawnError.CreationError 43) (#case Task::SpawnError.AllocationError 0))))) ); }\n";
         fs::write(&input, source).unwrap();
 
         let config = lim::CompileConfig::default();
@@ -1585,7 +1585,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let source = "#fn worker { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task Task) (worker worker))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#match (#call Task::spawn ((value 41))) (#case (Task::SpawnResult.Ok task) (#panic)) (#case (Task::SpawnResult.Error error) (#match error (#case Task::SpawnError.CreationError 0) (#case Task::SpawnError.AllocationError 44))))) ); }\n";
+        let source = "#fn worker { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task Task) (worker worker))\n#fn main { #params = (); #returns = #u64; #effects = (#global-access #io); #body = ( (#return (#match (#call Task::spawn ((value 41))) (#case (Task::SpawnResult.Ok task) (#panic)) (#case (Task::SpawnResult.Error error) (#match error (#case Task::SpawnError.CreationError 0) (#case Task::SpawnError.AllocationError 44))))) ); }\n";
         fs::write(&input, source).unwrap();
 
         let config = lim::CompileConfig::default();
@@ -1624,7 +1624,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let source = "#extern-fn  exit { #abi = #abi-c; #params = ((status #i32)); #returns = (); }\n#fn worker { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task Task) (worker worker))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#match (#call Task::spawn ((value 41))) (#case (Task::SpawnResult.Ok task) (#match (#call Task::join ((task task))) (#case (Task::JoinResult.Ok value) 42) (#case (Task::JoinResult.Error (#tuple retry error)) (#if (#i32::eq error 11) (#panic) (#block (#unsafe (#unsafe-call exit ((status 43)))) (#panic)))))) (#case (Task::SpawnResult.Error error) (#panic)))) ); }\n";
+        let source = "#extern-fn  exit { #abi = #abi-c; #params = ((status #i32)); #returns = (); #effects = (#global-access #io); }\n#fn worker { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task Task) (worker worker))\n#fn main { #params = (); #returns = #u64; #effects = (#global-access #io (#effects-of exit)); #body = ( (#return (#match (#call Task::spawn ((value 41))) (#case (Task::SpawnResult.Ok task) (#match (#call Task::join ((task task))) (#case (Task::JoinResult.Ok value) 42) (#case (Task::JoinResult.Error (#tuple retry error)) (#if (#i32::eq error 11) (#panic) (#block (#unsafe (#unsafe-call exit ((status 43)))) (#panic)))))) (#case (Task::SpawnResult.Error error) (#panic)))) ); }\n";
         fs::write(&input, source).unwrap();
 
         let config = lim::CompileConfig::default();
@@ -1747,7 +1747,7 @@ mod tests {
         .unwrap();
         fs::write(
             &input,
-            "#extern-fn  provided_value { #abi = #abi-c; #params = (); #returns = #u64; }\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#unsafe (#unsafe-call provided_value ()))) ); }\n",
+            "#extern-fn  provided_value { #abi = #abi-c; #params = (); #returns = #u64; #effects = (#global-access #io); }\n#fn main { #params = (); #returns = #u64; #effects = ((#effects-of provided_value)); #body = ( (#return (#unsafe (#unsafe-call provided_value ()))) ); }\n",
         )
         .unwrap();
         let links = LinkOptions {
@@ -1826,7 +1826,7 @@ mod tests {
     (#forget pointer)
     (#return ()) ); }
 #fn drop-u64 { #params = ((allocator (#ref Arena)) (value #u64)); #returns = (); #body = ( (#return ()) ); }
-#fn main { #params = (); #returns = #u64; #body = (
+#fn main { #params = (); #returns = #u64; #effects = ((#effects-of VecU64::free) (#effects-of VecU64::push)); #body = (
     (#let-mut arena Arena (#struct-literal Arena ((identity 0u64))))
     (#let-mut vector VecU64 (#call VecU64::new ((allocator (#borrow arena)))))
     (#let result VecU64::PushResult (#call VecU64::push ((vector (#borrow-mut vector)) (element 42u64))))

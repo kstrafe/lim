@@ -13,6 +13,7 @@
 #fn main {
   #params = ();
   #returns = #i32;
+  #effects = ((#effects-of async-byte-read1-create) (#effects-of async-byte-read1-destroy) (#effects-of async-byte-read1-enable-nonblocking) (#effects-of async-byte-read1-poll));
   #body = (
     (#let-mut byte #u8 0u8)
     (#assert (#i64::ge (#call async-byte-read1-enable-nonblocking ((fd 0i64))) 0i64))

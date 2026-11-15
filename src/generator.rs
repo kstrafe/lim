@@ -16,7 +16,7 @@ use std::{
 use crate::generator_authority::Syntax;
 use crate::{Expr, Span, SpannedExpr};
 
-pub(crate) const GENERATED_SOURCE_FORMAT: &str = "lim-generated-source-format-v3-record-functions";
+pub(crate) const GENERATED_SOURCE_FORMAT: &str = "lim-generated-source-format-v4-explicit-effects";
 const MAX_EVALUATION_STEPS: usize = 200_000;
 const MAX_GENERATED_NODES: usize = 1_000_000;
 const MAX_EXPANSION_DEPTH: usize = 128;
@@ -97,6 +97,7 @@ pub(crate) mod async_source;
 pub(crate) mod async_types;
 mod async_word_cleanup;
 pub(crate) mod builtins;
+mod effects;
 pub(crate) mod frontend;
 pub(crate) use crate::capture_storage as async_storage;
 pub(crate) mod async_values;
@@ -121,6 +122,11 @@ fn declared_lim_function_signatures(
             "#extern-fn" => true,
             _ => continue,
         };
+        // External signature parsing also consumes the effect clause. Locate
+        // its errors before the legacy String parser collapses their spans.
+        if external {
+            crate::effects::validate_source_declaration(expression)?;
+        }
         // Capability contracts use signatures, never bodies. Body syntax and
         // safety are still checked by the ordinary frontend after expansion.
         let header_len = if external {
@@ -179,7 +185,7 @@ fn capability_signature_scan_does_not_parse_function_bodies() {
     // Skipping bodies here must not skip ordinary compilation validation.
     assert!(crate::parse_program(source).is_err());
     assert!(declared_lim_function_signatures(
-        &crate::parse("(#extern-fn #abi-c foreign () #u64 (#return 42u64))").unwrap()
+        &crate::parse("(#extern-fn #abi-c foreign () #u64 (#effects (#io #global-access)) (#return 42u64))").unwrap()
     )
     .is_err());
 }

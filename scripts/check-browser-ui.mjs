@@ -102,6 +102,7 @@ try {
   assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '42\n');
   const binding = await evaluate('document.querySelector("#example-print").content.textContent.split("#fn main {")[0]');
   const printThenTrap = `${binding}#fn main {
+  #effects = ((#effects-of browser-print-u64));
     #params = {}; #returns = #u64;
     #body:
       #unsafe : #unsafe-call browser-print-u64 { value = 7; };
@@ -112,6 +113,7 @@ try {
   assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '7\n');
   assert.equal(await evaluate('document.querySelector("#download").hidden'), false);
   const floodOutput = `${binding}#fn main {
+  #effects = ((#effects-of browser-print-u64));
     #params = {}; #returns = ();
     #body:
       #for-range (number #u64) 0 100000:
@@ -123,6 +125,7 @@ try {
   assert.match(await evaluate('document.querySelector("#output").textContent'), /64 KiB output limit/);
   assert.equal(await evaluate('document.querySelector("#stdout").textContent.length <= 65536'), true);
   const printThenLoop = `${binding}#fn main {
+  #effects = ((#effects-of browser-print-u64));
     #params = {}; #returns = #u64;
     #body:
       #unsafe : #unsafe-call browser-print-u64 { value = 7; };

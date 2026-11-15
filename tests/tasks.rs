@@ -399,7 +399,7 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
 #fn cancel-state {
   #params = ((state StopPoll));
   #returns = ();
-  #body = (
+  #effects = ((#effects-of timer-reactor1-cancel)); #body = (
           (#match state
             (#case (StopPoll.StopPending task)
               (#match task
@@ -431,7 +431,7 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of timer-reactor1-create)); #body = (
           (#let timer-created TimerCreate1
             (#call timer-reactor1-create ((nanoseconds 900000000u64))))
           (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))

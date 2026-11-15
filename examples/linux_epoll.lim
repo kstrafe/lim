@@ -15,6 +15,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-epoll-create1) (#effects-of linux-epoll-ctl) (#effects-of linux-epoll-pwait) (#effects-of linux-epoll-pwait2) (#effects-of linux-epoll-wait) (#effects-of linux-eventfd2) (#effects-of linux-mmap) (#effects-of linux-munmap) (#effects-of linux-poll) (#effects-of linux-ppoll) (#effects-of linux-read) (#effects-of linux-write));
   #body = (
     (#let event-memory (#ptr-mut #u8) (#unsafe
         (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)

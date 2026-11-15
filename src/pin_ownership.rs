@@ -549,7 +549,7 @@ mod tests {
         let source = format!(
             "{functions}
 #thread-task Task destroy
-#fn main {{ #params = (); #returns = (); #body = (
+#fn main {{ #params = (); #returns = (); #effects = (#io #global-access); #body = (
             (#let owner (#pin-own #u64) (#call create ()))
             (#let view (#pin-ref #u64) (#pin-own-borrow owner))
             (#let spawned Task::SpawnResult (#call Task::spawn ((owner owner))))

@@ -30,6 +30,7 @@
 #fn run {
   #params = ((early #bool) (waker (#ref #u64)));
   #returns = #u64;
+  #effects = ((#effects-of Work::poll));
   #body = (
     (#let first Work::Poll (#call Work::poll ((task (#call work ((early early)))) (waker waker))))
     (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
@@ -51,6 +52,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of run));
   #body = (
     (#let waker #u64 0u64)
     (#let early #u64 (#call run ((early true) (waker (#borrow waker)))))

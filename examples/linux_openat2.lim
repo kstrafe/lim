@@ -8,6 +8,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-openat) (#effects-of linux-openat2) (#effects-of linux-unlinkat));
   #body = (
     (#let paths (#ptr-mut #u8) (#unsafe
         (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP

@@ -12,56 +12,50 @@
 #type CountingAllocator::Allocator::State CountingAllocator
 #type CountingAllocator::Allocator::Error SystemAllocationError
 #enum CountingAllocator::Allocator::Allocation ()
-  ((CountingAllocator::Allocator::Allocation.Allocated (#ptr-mut #u8))
-    (CountingAllocator::Allocator::Allocation.AllocationFailed SystemAllocationError))
+    ((CountingAllocator::Allocator::Allocation.Allocated (#ptr-mut #u8))
+     (CountingAllocator::Allocator::Allocation.AllocationFailed SystemAllocationError))
 #generate #vec ((element #u64) (allocator CountingAllocator) (name VecU64))
 #generate #vec-sort ((element #u64) (vector VecU64) (comparator compare-u64))
-#generate #vec-alloc ((element #u64) (allocator CountingAllocator::Allocator) (vector VecU64)
-  (destroy drop-u64))
+#generate #vec-alloc ((element #u64) (allocator CountingAllocator::Allocator) (vector VecU64) (destroy drop-u64))
 
 #fn compare-u64 {
   #params = ((left (#ref #u64)) (right (#ref #u64)));
   #returns = #bool;
-  #body = ((#return (#u64::lt (#deref left) (#deref right))));
+  #body = (
+    (#return (#u64::lt (#deref left) (#deref right)))
+  );
 }
 
 #fn CountingAllocator::Allocator::allocate {
   #params = ((allocator (#ref CountingAllocator)) (layout #usize) (alignment #usize));
   #returns = CountingAllocator::Allocator::Allocation;
-  #body = ((#return (#match (#call system-allocate ((size layout)))
-        (#case (SystemAllocationResult.SystemAllocated pointer)
-          (CountingAllocator::Allocator::Allocation.Allocated pointer)
-        )
-        (#case (SystemAllocationResult.SystemAllocationFailed error)
-          (CountingAllocator::Allocator::Allocation.AllocationFailed error)
-        )
-      )));
+  #effects = ((#effects-of system-allocate));
+  #body = (
+    (#return (#match (#call system-allocate ((size layout)))
+      (#case (SystemAllocationResult.SystemAllocated pointer) (CountingAllocator::Allocator::Allocation.Allocated pointer))
+      (#case (SystemAllocationResult.SystemAllocationFailed error) (CountingAllocator::Allocator::Allocation.AllocationFailed error))))
+  );
 }
 
 #unsafe-fn CountingAllocator::Allocator::grow {
-  #params = ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8)) (old-layout #usize)
-    (layout #usize) (alignment #usize));
+  #params = ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
+     (old-layout #usize) (layout #usize) (alignment #usize));
   #returns = CountingAllocator::Allocator::Allocation;
-  #body = ((#return (#match (#unsafe
-        (#unsafe-call system-reallocate ((pointer pointer) (size layout)))
-      )
-        (#case (SystemAllocationResult.SystemAllocated grown)
-          (CountingAllocator::Allocator::Allocation.Allocated grown)
-        )
-        (#case (SystemAllocationResult.SystemAllocationFailed error)
-          (CountingAllocator::Allocator::Allocation.AllocationFailed error)
-        )
-      )));
+  #effects = ((#effects-of system-reallocate));
+  #body = (
+    (#return (#match (#unsafe (#unsafe-call system-reallocate ((pointer pointer) (size layout))))
+      (#case (SystemAllocationResult.SystemAllocated grown) (CountingAllocator::Allocator::Allocation.Allocated grown))
+      (#case (SystemAllocationResult.SystemAllocationFailed error) (CountingAllocator::Allocator::Allocation.AllocationFailed error))))
+  );
 }
 
 #unsafe-fn CountingAllocator::Allocator::deallocate {
-  #params = ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8)) (layout #usize)
-    (alignment #usize));
+  #params = ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
+     (layout #usize) (alignment #usize));
   #returns = ();
+  #effects = ((#effects-of system-deallocate));
   #body = (
-    (#unsafe
-      (#unsafe-call system-deallocate ((pointer pointer)))
-    )
+    (#unsafe (#unsafe-call system-deallocate ((pointer pointer))))
     (#return ())
   );
 }
@@ -71,8 +65,7 @@
   #returns = ();
   #body = (
     (#let cell (#ref CellU64) (#borrow (#get allocator destructions)))
-    (#call CellU64::set ((cell (#clone cell)) (value (#u64::add-wrap (#call CellU64::get ((cell
-                  cell))) 1u64))))
+    (#call CellU64::set ((cell (#clone cell)) (value (#u64::add-wrap (#call CellU64::get ((cell cell))) 1u64))))
     (#return ())
   );
 }
@@ -80,49 +73,37 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of VecU64::free) (#effects-of VecU64::get) (#effects-of VecU64::pop) (#effects-of VecU64::push) (#effects-of VecU64::set) (#effects-of VecU64::sort));
   #body = (
-    (#let-mut allocator CountingAllocator (#struct-literal CountingAllocator ((identity 0u64)
-          (destructions (#call CellU64::create ((value 0u64)))))))
+    (#let-mut allocator CountingAllocator (#struct-literal CountingAllocator
+      ((identity 0u64) (destructions
+        (#call CellU64::create ((value 0u64)))))))
     (#let-mut vector VecU64 (#call VecU64::new ((allocator (#borrow allocator)))))
-    (#let first VecU64::PushResult (#call VecU64::push ((vector (#borrow-mut vector)) (element
-            33u64))))
+    (#let first VecU64::PushResult (#call VecU64::push ((vector (#borrow-mut vector)) (element 33u64))))
     (#forget first)
-    (#let second VecU64::PushResult (#call VecU64::push ((vector (#borrow-mut vector)) (element
-            11u64))))
+    (#let second VecU64::PushResult (#call VecU64::push ((vector (#borrow-mut vector)) (element 11u64))))
     (#forget second)
-    (#let third VecU64::PushResult (#call VecU64::push ((vector (#borrow-mut vector)) (element
-            22u64))))
+    (#let third VecU64::PushResult (#call VecU64::push ((vector (#borrow-mut vector)) (element 22u64))))
     (#forget third)
     (#call VecU64::sort ((vector (#borrow-mut vector))))
     (#let read VecU64::GetResult (#call VecU64::get ((vector (#borrow vector)) (index 1usize))))
-    (#let read-value #u64 (#match read
-        (#case (VecU64::GetResult.Some reference)
-          (#deref reference)
-        )
-        (#case VecU64::GetResult.None
-          0u64
-        )
-      ))
+    (#let read-value #u64
+      (#match read
+        (#case (VecU64::GetResult.Some reference) (#deref reference))
+        (#case VecU64::GetResult.None 0u64)))
     (#assert (#u64::eq read-value 22u64))
-    (#let replacement VecU64::SetResult (#call VecU64::set ((vector (#borrow-mut vector)) (index
-            1usize) (value 44u64))))
+    (#let replacement VecU64::SetResult
+      (#call VecU64::set ((vector (#borrow-mut vector)) (index 1usize) (value 44u64))))
     (#forget replacement)
     (#let popped VecU64::PopResult (#call VecU64::pop ((vector (#borrow-mut vector)))))
-    (#assert (#match popped
+    (#assert
+      (#match popped
         (#case (VecU64::PopResult.Some value)
-          (#block
-            (#call drop-u64 ((allocator (#borrow allocator)) (value value)))
-            true
-          )
-        )
-        (#case VecU64::PopResult.None
-          false
-        )
-      ))
+          (#block (#call drop-u64 ((allocator (#borrow allocator)) (value value))) true))
+        (#case VecU64::PopResult.None false)))
     (#call VecU64::free ((vector vector)))
     (#let allocator-ref (#ref CountingAllocator) (#borrow allocator))
-    (#let destruction-count #u64 (#call CellU64::get ((cell (#borrow (#get allocator-ref
-                destructions))))))
+    (#let destruction-count #u64 (#call CellU64::get ((cell (#borrow (#get allocator-ref destructions))))))
     (#drop allocator-ref)
     (#forget allocator)
     (#return destruction-count)

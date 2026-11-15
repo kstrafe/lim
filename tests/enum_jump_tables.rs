@@ -354,7 +354,7 @@ fn computed_and_static_scrutinees_and_float_results_preserve_staging() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#read-global stored)); #body = (
             (#let-mut count #u64 0u64)
             (#let number #f64 (#match (#call make ((count (#borrow-mut count))))
               (#case (Tag.A first) first) (#case (Tag.B second) second)

@@ -59,7 +59,7 @@ fn buffered_binary_reads_cross_refill_boundaries_and_preserve_eof() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of File::open-read) (#effects-of FileReader::close) (#effects-of FileReader::create) (#effects-of FileReader::next-byte) (#effects-of String::free)); #body = (
   {}
   (#let opened FileOpenResult (#call File::open-read ((path (#borrow path)))))
   (#call String::free ((string path)))
@@ -85,7 +85,7 @@ fn file_creation_writes_utf8_nul_and_closes_explicitly() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of File::close) (#effects-of File::create) (#effects-of File::write-string) (#effects-of String::free) (#effects-of String::from-chars)); #body = (
   {}
   (#let opened FileOpenResult (#call File::create ((path (#borrow path)) (permissions 384u32))))
   (#call String::free ((string path)))
@@ -120,7 +120,7 @@ fn missing_paths_and_invalid_buffer_sizes_are_explicit_errors() {
 #fn closes-successfully {{
   #params = ((file File));
   #returns = #bool;
-  #body = (
+  #effects = ((#effects-of File::close)); #body = (
             (#return (#match (#call File::close ((file file)))
               (#case FileStatus.FileOk true) (#case _ false)))
   );
@@ -128,7 +128,7 @@ fn missing_paths_and_invalid_buffer_sizes_are_explicit_errors() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of File::open-read) (#effects-of String::free) (#effects-of closes-successfully)); #body = (
    {}
   (#let opened FileOpenResult (#call File::open-read ((path (#borrow path)))))
   (#call String::free ((string path)))
@@ -161,7 +161,7 @@ fn missing_paths_and_invalid_buffer_sizes_are_explicit_errors() {
 #fn closes-successfully {{
   #params = ((file File));
   #returns = #bool;
-  #body = (
+  #effects = ((#effects-of File::close)); #body = (
             (#return (#match (#call File::close ((file file)))
               (#case FileStatus.FileOk true) (#case _ false)))
   );
@@ -169,7 +169,7 @@ fn missing_paths_and_invalid_buffer_sizes_are_explicit_errors() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of File::open-read) (#effects-of FileReader::close) (#effects-of FileReader::create) (#effects-of String::free) (#effects-of closes-successfully)); #body = (
    {}
   (#let opened FileOpenResult (#call File::open-read ((path (#borrow path)))))
   (#call String::free ((string path)))

@@ -17,6 +17,7 @@
 #fn Utf8Source::string-byte {
   #params = ((owner (#ref String)) (index #usize));
   #returns = #u8;
+  #effects = ((#effects-of String::byte-at));
   #body = (
     (#return (#match (#call String::byte-at ((string owner) (index index)))
       (#case (StringByteResult.StringByte byte) byte)
@@ -66,20 +67,24 @@
       (#fn ,(#gn-symbol-append name "is-empty") ((view (#ref ,name))) #bool
         (#return (#usize::eq (#get view length) 0usize)))
       (#fn ,(#gn-symbol-append name "byte") ((view (#ref ,name)) (index #usize)) #u8
+        (#effects ((#effects-of ,owner-byte)))
         (#assert (#usize::lt index (#get view length)))
         (#return (#call ,owner-byte
           ((owner (#get view owner)) (index (#usize::add-wrap (#get view start) index))))))
       (#fn ,(#gn-symbol-append name "byte-at") ((view (#ref ,name)) (index #usize)) Utf8ByteResult
+        (#effects ((#effects-of ,(#gn-symbol-append name "byte"))))
         (#return (#if (#usize::lt index (#get view length))
           (Utf8ByteResult.Utf8Byte (#call ,(#gn-symbol-append name "byte") ((view view) (index index))))
           Utf8ByteResult.Utf8ByteOutOfBounds)))
       (#fn ,(#gn-symbol-append name "boundary") ((view (#ref ,name)) (index #usize)) #bool
+        (#effects ((#effects-of ,(#gn-symbol-append name "byte"))))
         (#return (#if (#usize::gt index (#get view length)) false
           (#if (#bool::or (#usize::eq index 0usize) (#usize::eq index (#get view length))) true
             (#block
               (#let byte #u8 (#call ,(#gn-symbol-append name "byte") ((view view) (index index))))
               (#bool::not (#bool::and (#u8::ge byte 128u8) (#u8::le byte 191u8))))))))
       (#fn ,(#gn-symbol-append name "valid") ((view (#ref ,name))) #bool
+        (#effects ((#effects-of ,(#gn-symbol-append name "byte"))))
         (#let count #usize (#get view length))
         (#let-mut index #usize 0usize)
         (#while (#usize::lt index count)
@@ -111,6 +116,7 @@
           (#set index (#usize::add-wrap index width)))
         (#return true))
       (#fn ,(#gn-symbol-append name "from-owner") ((owner ,owner-type)) ,(#gn-symbol-append name "Result")
+        (#effects ((#effects-of ,(#gn-symbol-append name "valid")) (#effects-of ,owner-len)))
         (#let candidate ,name (#struct-literal ,name
           ((owner owner) (start 0usize) (length (#call ,owner-len ((owner owner)))))))
         (#return (#if (#call ,(#gn-symbol-append name "valid") ((view (#borrow candidate))))
@@ -118,6 +124,7 @@
           (#block (#forget candidate) ,(#gn-variant (#gn-symbol-append name "Result") "InvalidUtf8")))))
       // The caller promises complete valid UTF-8; bounds come from the owner.
       (#unsafe-fn ,(#gn-symbol-append name "assume-valid") ((owner ,owner-type)) ,name
+        (#effects ((#effects-of ,owner-len)))
         (#return (#struct-literal ,name
           ((owner owner) (start 0usize) (length (#call ,owner-len ((owner owner))))))))
       (#fn ,(#gn-symbol-append name "clone") ((view (#ref ,name))) ,name
@@ -125,6 +132,7 @@
           ((owner (#get view owner)) (start (#get view start)) (length (#get view length))))))
       (#fn ,(#gn-symbol-append name "subview")
         ((view (#ref ,name)) (start #usize) (end #usize)) ,(#gn-symbol-append name "Result")
+        (#effects ((#effects-of ,(#gn-symbol-append name "boundary"))))
         (#if (#bool::or (#usize::gt start end) (#usize::gt end (#get view length)))
           (#block (#return ,(#gn-variant (#gn-symbol-append name "Result") "InvalidRange"))) ())
         (#if (#bool::not (#bool::and
@@ -135,6 +143,7 @@
           (#struct-literal ,name ((owner (#get view owner))
             (start (#usize::add-wrap (#get view start) start)) (length (#usize::sub-wrap end start)))))))
       (#fn ,(#gn-symbol-append name "decode") ((view (#ref ,name)) (index #usize)) (#tuple #char #usize)
+        (#effects ((#effects-of ,(#gn-symbol-append name "boundary")) (#effects-of ,(#gn-symbol-append name "byte"))))
         (#assert (#usize::lt index (#get view length)))
         (#assert (#call ,(#gn-symbol-append name "boundary") ((view view) (index index))))
         (#let first #u8 (#call ,(#gn-symbol-append name "byte") ((view view) (index index))))
@@ -154,6 +163,7 @@
         (#return (#struct-literal ,(#gn-symbol-append name "Chars") ((view view) (cursor 0usize)))))
       (#fn ,(#gn-symbol-append (#gn-symbol-append name "Chars") "next")
         ((iterator (#ref-mut ,(#gn-symbol-append name "Chars")))) ,(#gn-symbol-append name "CharResult")
+        (#effects ((#effects-of ,(#gn-symbol-append name "decode"))))
         (#let index #usize (#get iterator cursor))
         (#if (#usize::eq index (#get (#get iterator view) length))
           (#block (#return ,(#gn-variant (#gn-symbol-append name "CharResult") "End"))) ())
@@ -168,6 +178,7 @@
 #fn String::view {
   #params = ((string (#ref String)));
   #returns = StringView;
+  #effects = ((#effects-of StringView::assume-valid));
   #body = (
     (#return (#unsafe (#unsafe-call StringView::assume-valid ((owner string)))))
   );

@@ -92,7 +92,7 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work ((choose true))))
           (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
           (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
@@ -188,7 +188,7 @@ fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let-mut external Outside (#struct-literal Outside ((other 90u64) (selected 50u64))))
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((external (#borrow-mut (#get external selected))) (choose false))))
@@ -313,7 +313,7 @@ fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let result Work::Poll
             (#call Work::poll ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))

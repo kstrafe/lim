@@ -1,5 +1,6 @@
 #alias lim-gen-pin = ../library/pin.lim::#pin
 #alias lim-gen-pin-scope = ../library/pin.lim::#pin-scope
+
 //; Construction is lazy and movable. #generate #pin-scope owns stationary storage;
 //; every resume calls the same Work::poll function. The state enum tag is its index.
 
@@ -8,71 +9,84 @@
 #enum Step (#linear) ((Step.Step-waiting StepWaiting))
 
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = ((#return (#match task
-        (#case (Step.Step-waiting state)
-          (#if (#u64::eq (#get state remaining) 0u64)
-            (StepPoll.StepReady (#get state value))
-            (StepPoll.StepPending (Step.Step-waiting (#struct-literal StepWaiting ((value (#get
-                        state value)) (remaining (#u64::sub-wrap (#get state remaining) 1u64))))))
-          )
-        )
-      )));
+  #body = (
+    (#return (#match task
+      (#case (Step.Step-waiting state)
+        (#if (#u64::eq (#get state remaining) 0u64)
+          (StepPoll.StepReady (#get state value))
+          (StepPoll.StepPending (Step.Step-waiting (#struct-literal StepWaiting
+            ((value (#get state value)) (remaining (#u64::sub-wrap (#get state remaining) 1u64))))))))))
+  );
 }
 
 #syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll)
-
 #fn cancel-step {
   #params = ((task Step));
   #returns = ();
-  #body = ((#forget task) (#return ()));
+  #body = (
+    (#forget task)
+    (#return ())
+  );
 }
 
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (cancel (cancel-work ((await-0
-          cancel-step) (await-1 cancel-step)))) (function (#fn work () #u64
+#generate #async-fn-pinned ( (protocol WorkAwait) (waker #u64)
+    (cancel (cancel-work ((await-0 cancel-step) (await-1 cancel-step))))
+    (function
+    (#fn work () #u64
       //; The first child is immediately Work::Ready: Work::poll advances to await-1 without
       //; returning to the caller or calling a generated resume function.
-      (#let first #u64 (#await (#syntax-splice StepAwait) (Step.Step-waiting (#struct-literal
-              StepWaiting ((value 40u64) (remaining 0u64)))))) (#let second #u64 (#await
-          (#syntax-splice StepAwait) (Step.Step-waiting (#struct-literal StepWaiting ((value 2u64)
-                (remaining 2u64)))))) (#return (#u64::add-wrap first second)))))
+      (#let first #u64 (#await (#syntax-splice StepAwait)
+        (Step.Step-waiting (#struct-literal StepWaiting ((value 40u64) (remaining 0u64))))))
+      (#let second #u64 (#await (#syntax-splice StepAwait)
+        (Step.Step-waiting (#struct-literal StepWaiting ((value 2u64) (remaining 2u64))))))
+      (#return (#u64::add-wrap first second)))))
 
 #generate lim-gen-pin ((type Work::Frame) (name PinnedFrame))
-#generate lim-gen-pin-scope ((type Work::Frame) (pin PinnedFrame) (name with-pinned-frame) (run
-    drive-frame) (destroy destroy-frame) (result #u64))
+#generate lim-gen-pin-scope ((type Work::Frame) (pin PinnedFrame) (name with-pinned-frame)
+    (run drive-frame) (destroy destroy-frame) (result #u64))
 
 #fn drive-frame {
   #params = ((pin PinnedFrame));
   #returns = #u64;
-  #body = (//; The adapter is unsafe because it exposes a low-level pin view. The
+  #effects = ((#effects-of Work::poll));
+  #body = (
+    //; The adapter is unsafe because it exposes a low-level pin view. The
     //; generated scope still owns the storage until cleanup has completed.
-    (#let view (#pin-ref-mut Work::Frame) (#unsafe
-        (#unsafe-call PinnedFrame::into-view ((pin pin)))
-      )) (#let waker #u64 0u64) (#let first Work::Poll (#call Work::poll ((task view) (waker
-            (#borrow waker))))) (#let-else (Work::Poll.Pending after-first) Work::Poll first
-      (#unreachable)) (#let second Work::Poll (#call Work::poll ((task after-first) (waker
-            (#borrow waker))))) (#let-else (Work::Poll.Pending after-second) Work::Poll second
-      (#unreachable)) (#let third Work::Poll (#call Work::poll ((task after-second) (waker
-            (#borrow waker))))) (#let-else (Work::Poll.Ready answer) Work::Poll third
-      (#unreachable)) (#return answer));
+    (#let view (#pin-ref-mut Work::Frame)
+      (#unsafe (#unsafe-call PinnedFrame::into-view ((pin pin)))))
+    (#let waker #u64 0u64)
+    (#let first Work::Poll (#call Work::poll ((task view) (waker (#borrow waker)))))
+    (#let-else (Work::Poll.Pending after-first) Work::Poll first (#unreachable))
+    (#let second Work::Poll (#call Work::poll ((task after-first) (waker (#borrow waker)))))
+    (#let-else (Work::Poll.Pending after-second) Work::Poll second (#unreachable))
+    (#let third Work::Poll (#call Work::poll ((task after-second) (waker (#borrow waker)))))
+    (#let-else (Work::Poll.Ready answer) Work::Poll third (#unreachable))
+    (#return answer)
+  );
 }
 
 #fn destroy-frame {
   #params = ((pin PinnedFrame));
   #returns = ();
-  #body = ((#let view (#pin-ref-mut Work::Frame) (#unsafe
-        (#unsafe-call PinnedFrame::into-view ((pin pin)))
-      ))
+  #effects = ((#effects-of Work::Poll::cleanup));
+  #body = (
+    (#let view (#pin-ref-mut Work::Frame)
+      (#unsafe (#unsafe-call PinnedFrame::into-view ((pin pin)))))
     //; Source::named cleanup handles entry, Pending and completed frames without
     //; exposing private program counters or generated state variants.
-    (#call cancel-work ((task (#call Work::Poll::cleanup ((task view)))))) (#return ()));
+    (#call cancel-work ((task (#call Work::Poll::cleanup ((task view))))))
+    (#return ())
+  );
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ((#return (#call with-pinned-frame ((value (#call work ()))))));
+  #effects = ((#effects-of with-pinned-frame));
+  #body = (
+    (#return (#call with-pinned-frame ((value (#call work ())))))
+  );
 }

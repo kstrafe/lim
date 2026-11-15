@@ -96,7 +96,7 @@ fn allocation_failures_are_explicit_and_empty_owners_need_no_allocation() {
         r#"#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::from-chars) (#effects-of String::reserve) (#effects-of String::with-capacity)); #body = (
             (#let-mut empty String (#call String::new ()))
             (#assert (#call String::is-empty ((string (#borrow empty)))))
             (#assert (#usize::eq (#call String::capacity ((string (#borrow empty)))) 0usize))
@@ -140,7 +140,7 @@ fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
         r#"#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::byte-at) (#effects-of String::free) (#effects-of String::push-chars) (#effects-of String::push-utf8) (#effects-of String::reserve)); #body = (
             (#let-mut text String (#call String::new ()))
             (#let prefix (#array #char 3) "abc")
             (#assert (#match (#call String::push-chars ((string (#borrow-mut text)) (text (#slice-of (#borrow prefix)))))
@@ -183,7 +183,7 @@ fn failed_string_append_preserves_both_owners() {
         r#"#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::byte-at) (#effects-of String::free) (#effects-of String::from-chars) (#effects-of String::push-string)); #body = (
         (#let prefix (#array #char 3) "abc")
         (#let suffix (#array #char 9) "123456789")
         (#let-mut target String (#match (#call String::from-chars ((text (#slice-of (#borrow prefix)))))
@@ -217,7 +217,7 @@ fn failed_deep_clone_preserves_the_original_owner() {
         "#fn selective-allocate {
   #params = ((size #usize));
   #returns = (#ptr-mut #u8);
-  #body = (
+  #effects = ((#effects-of system-heap-allocate)); #body = (
              (#return (#if (#usize::eq size 8usize)
                (#ptr-null (#ptr-mut #u8)) (#unsafe (#call system-heap-allocate ((size size))))))\n  );\n}\n"
     );
@@ -226,7 +226,7 @@ fn failed_deep_clone_preserves_the_original_owner() {
         r#"#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::pop-char) (#effects-of String::push-char) (#effects-of String::reserve) (#effects-of String::try-clone)); #body = (
             (#let-mut text String (#call String::new ()))
             (#assert (#match (#call String::reserve ((string (#borrow-mut text)) (additional 16usize)))
               (#case StringStatus.StringOk true) (#case _ false)))
@@ -271,7 +271,7 @@ fn zero_and_oversize_raw_requests_are_rejected_before_allocator_hooks() {
         r#"#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of system-allocate) (#effects-of system-reallocate)); #body = (
             (#assert (#match (#call system-allocate ((size 0usize)))
               (#case (SystemAllocationResult.SystemAllocationFailed error) (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
               (#case (SystemAllocationResult.SystemAllocated pointer) false)))

@@ -39,6 +39,7 @@
 #gn-fn pin-project (element name field function mutable shared)
     (#gn-if (#gn-equal mutable true)
       `(#fn ,function ((pin ,name)) ,(#gn-call pin-second field)
+        (#effects ((#effects-of ,(#gn-call pin-name (#gn-call pin-second field) "from-mut"))))
         (#let view (#pin-ref-mut ,element)
           (#unsafe (#unsafe-call ,(#gn-call pin-name name "into-view") ((pin pin)))))
         (#let projected ,(#gn-call pin-second field)
@@ -46,6 +47,7 @@
             ((view (#pin-borrow-mut (#get view ,(#gn-first field))))))))
         (#return projected))
       `(#fn ,function ((pin ,name)) ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
+        (#effects ((#effects-of ,(#gn-call pin-name (#gn-call pin-name (#gn-call pin-second field) "Shared") "from-ref"))))
         (#let view ,(#gn-if (#gn-equal shared true) `(#pin-ref ,element) `(#pin-ref-mut ,element))
           (#unsafe (#unsafe-call ,(#gn-call pin-name name "into-view") ((pin pin)))))
         (#let projected ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
@@ -66,9 +68,11 @@
 #gn-fn pin-borrow-project (name field function mutable)
     (#gn-if (#gn-equal mutable true)
       `(#fn ,function ((pin (#ref-mut ,name))) ,(#gn-call pin-second field)
+        (#effects ((#effects-of ,(#gn-call pin-name (#gn-call pin-second field) "from-mut"))))
         (#return (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-second field) "from-mut")
           ((view (#pin-borrow-mut (#get (#get pin view) ,(#gn-first field)))))))))
       `(#fn ,function ((pin (#ref ,name))) ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
+        (#effects ((#effects-of ,(#gn-call pin-name (#gn-call pin-name (#gn-call pin-second field) "Shared") "from-ref"))))
         (#return (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-name (#gn-call pin-second field) "Shared") "from-ref")
           ((view (#pin-borrow (#get (#get pin view) ,(#gn-first field))))))))))
 
@@ -127,6 +131,7 @@
 
 #gn-fn pin-scope-build (element pin name run destroy result checked)
     `((#fn ,name ((value ,element)) ,result
+      (#effects ((#effects-of ,(#gn-call pin-name pin "from-mut")) (#effects-of ,destroy) (#effects-of ,run)))
       (#let-mut storage ,element value)
       (#let handle ,pin
         (#unsafe (#unsafe-call ,(#gn-call pin-name pin "from-mut")

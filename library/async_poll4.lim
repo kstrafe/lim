@@ -39,6 +39,7 @@
 #fn async-poll4-wait {
   #params = ((sources (#slice AsyncPollSource4)) (timeout-ms #i32));
   #returns = AsyncPoll4Result;
+  #effects = (#global-access #io (#effects-of linux-mmap) (#effects-of linux-munmap) (#effects-of linux-poll));
   #body = (
     (#let count #usize (#slice-len sources))
     (#return (#if (#bool::or (#usize::eq count 0usize) (#usize::gt count 4usize))

@@ -17,6 +17,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io);
   #body = (
     (#let-mut state (#atomic #u64) (#atomic-init #u64 0u64))
     (#let winners #u64 (#match (#call FirstClaim::spawn ((state (#borrow state))))

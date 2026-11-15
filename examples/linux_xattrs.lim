@@ -20,6 +20,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-creat) (#effects-of linux-fgetxattr) (#effects-of linux-flistxattr) (#effects-of linux-fremovexattr) (#effects-of linux-fsetxattr) (#effects-of linux-getxattr) (#effects-of linux-lgetxattr) (#effects-of linux-listxattr) (#effects-of linux-llistxattr) (#effects-of linux-lremovexattr) (#effects-of linux-lsetxattr) (#effects-of linux-memfd-create) (#effects-of linux-removexattr) (#effects-of linux-setxattr) (#effects-of linux-unlink));
   #body = (
     (#let memory (#ptr-mut #u8) (#unsafe
         (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP

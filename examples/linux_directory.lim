@@ -24,6 +24,7 @@
 #unsafe-fn check-legacy-entries {
   #params = ((directory #i64) (buffer (#ptr-mut #u8)));
   #returns = ();
+  #effects = (#global-access #io (#effects-of linux-getdents) (#effects-of linux-lseek) (#effects-of linux-write-byte));
   #body = (
     (#assert (#i64::eq (#call linux-lseek ((fd directory) (offset 0i64) (whence 0i64))) 0i64))
     (#assert (#i64::eq (#unsafe
@@ -103,6 +104,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of check-legacy-entries) (#effects-of linux-access) (#effects-of linux-chdir) (#effects-of linux-close) (#effects-of linux-creat) (#effects-of linux-fchdir) (#effects-of linux-getcwd) (#effects-of linux-getdents) (#effects-of linux-getdents64) (#effects-of linux-lseek) (#effects-of linux-open) (#effects-of linux-openat) (#effects-of linux-pipe) (#effects-of linux-read) (#effects-of linux-readlink) (#effects-of linux-symlink) (#effects-of linux-unlinkat) (#effects-of linux-write));
   #body = (
     (#let path-memory (#ptr-mut #u8) (#unsafe
         (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP

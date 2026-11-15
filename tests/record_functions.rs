@@ -176,13 +176,13 @@ fn extern_records_require_the_abi_and_retain_the_unsafe_boundary() {
         assert!(lim::parse_source_unit(&format!("#extern-fn foreign {{ {fields} }}")).is_err());
     }
     let binding =
-        "#extern-fn foreign { #abi = #abi-c; #params = { value = #u64; }; #returns = (); }";
-    let safe = format!("{binding}\n#fn main {{ #params = {{}}; #returns = (); #body = (foreign {{ value = 1; }}; #return ();); }}");
+        "#extern-fn foreign { #abi = #abi-c; #params = { value = #u64; }; #returns = (); #effects = (#io #global-access); }";
+    let safe = format!("{binding}\n#fn main {{ #params = {{}}; #returns = (); #effects = ((#effects-of foreign)); #body = (foreign {{ value = 1; }}; #return ();); }}");
     let error = lim::parse_program(&safe)
         .and_then(|program| lim::check_types(&program))
         .unwrap_err();
     assert!(error.contains("unsafe"), "{error}");
-    let unsafe_call = format!("{binding}\n#fn main {{ #params = {{}}; #returns = (); #body = (#unsafe : #unsafe-call foreign {{ value = 1; }}; #return ();); }}");
+    let unsafe_call = format!("{binding}\n#fn main {{ #params = {{}}; #returns = (); #effects = ((#effects-of foreign)); #body = (#unsafe : #unsafe-call foreign {{ value = 1; }}; #return ();); }}");
     lim::check_types(&lim::parse_program(&unsafe_call).unwrap()).unwrap();
 }
 
@@ -192,7 +192,7 @@ fn generated_canonical_function_data_publishes_modern_source_with_contracts() {
     let path = scratch.path().join("main.lim");
     let cache = scratch.path().join("cache");
     let output = scratch.path().join("generated");
-    let source = "#gn emit () `((#fn answer ((n #u64)) #u64 (#requires (#u64::lt n 100u64)) (#requires (#u64::gt n 0u64)) (#return n)) (#unsafe-fn alter ((#mut value #u64)) #u64 (#set value 42u64) (#return value)) (#extern-fn #abi-c foreign ((value #u64)) ()) (#cfg-if (#cfg-is #feature records) (#fn selected () #u64 (#return 42u64))))\n#generate emit\n#fn main { #params = {}; #returns = #u64; #body: #return 42; }";
+    let source = "#gn emit () `((#fn answer ((n #u64)) #u64 (#requires (#u64::lt n 100u64)) (#requires (#u64::gt n 0u64)) (#return n)) (#unsafe-fn alter ((#mut value #u64)) #u64 (#set value 42u64) (#return value)) (#extern-fn #abi-c foreign ((value #u64)) () (#effects (#io #global-access))) (#cfg-if (#cfg-is #feature records) (#fn selected () #u64 (#return 42u64))))\n#generate emit\n#fn main { #params = {}; #returns = #u64; #body: #return 42; }";
     let mut config = CompileConfig::default();
     config.set("feature", "records");
     for _ in 0..2 {

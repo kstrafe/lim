@@ -715,7 +715,7 @@ fn an_unsafe_pinned_pointer_borrow_keeps_the_anchor_loan() {
     let source = "#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
         (#let owner #u64 42u64)
         (#let pointer (#ptr #u64) (#unsafe (#addr-of owner)))
         (#let anchor (#pin-ref #u64) (#pin-borrow owner))
@@ -746,7 +746,7 @@ fn a_pinned_pointer_borrow_rejects_mutating_its_anchor() {
     let source = "#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
         (#let-mut owner #u64 7u64)
         (#let pointer (#ptr-mut #u64) (#unsafe (#addr-of-mut owner)))
         (#let anchor (#pin-ref-mut #u64) (#pin-borrow-mut owner))
@@ -766,7 +766,7 @@ fn pinned_pointer_borrows_require_pinned_anchors() {
     let source = "#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
         (#let value #u64 7u64)
         (#let pointer (#ptr #u64) (#unsafe (#addr-of value)))
         (#let pinned (#pin-ref #u64)
@@ -784,7 +784,7 @@ fn pinned_pointer_borrows_require_unsafe_context() {
     let source = "#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
         (#let value #u64 7u64)
         (#let anchor (#pin-ref #u64) (#pin-borrow value))
         (#let pointer (#ptr #u64) (#unsafe (#addr-of value)))
@@ -802,7 +802,7 @@ fn a_pinned_pointer_borrow_cannot_escape_its_stack_anchor() {
     let source = "#fn make-pin {
   #params = ();
   #returns = (#pin-ref #u64);
-  #body = (
+  #effects = (#global-access #io); #body = (
         (#let owner #u64 7u64)
         (#let pointer (#ptr #u64) (#unsafe (#addr-of owner)))
         (#let anchor (#pin-ref #u64) (#pin-borrow owner))

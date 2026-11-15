@@ -15982,7 +15982,7 @@ mod identity_pointer_borrow_tests {
     #[test]
     fn only_the_same_named_owner_recovers_actual_referent_identity() {
         let program = crate::parse_program(
-            "#fn work { #params = ((owner (#pin-ref (#slice #u64))) (other (#pin-ref (#slice #u64)))); #returns = (); #body = (
+            "#fn work { #params = ((owner (#pin-ref (#slice #u64))) (other (#pin-ref (#slice #u64)))); #returns = (); #effects = (#io #global-access); #body = (
                 (#let exact (#ref (#slice #u64)) (#unsafe (#ptr-borrow owner (#ref-ptr owner))))
                 (#let unrelated (#ref (#slice #u64)) (#unsafe (#ptr-borrow owner (#ref-ptr other))))
                 (#forget exact) (#forget unrelated) (#return ()) ); }\n",
@@ -21554,10 +21554,15 @@ mod tests {
             ),
         ];
         for (setup, scrutinee, expected) in cases {
+            let effects = if setup.contains("#asm") {
+                "#effects = (#io #global-access); "
+            } else {
+                ""
+            };
             let source = format!(
                 "#fn change {{ #params = ((value (#ref-mut #u64))); #returns = (); #body = (
                       (#deref-set value 2u64) (#return ()) ); }}
-#fn work {{ #params = ((condition #bool) (other #u64)); #returns = #u64; #body = (
+#fn work {{ #params = ((condition #bool) (other #u64)); #returns = #u64; {effects}#body = (
                       {setup}
                       (#return (#match {scrutinee}
                           (#case 0 40u64) (#case 1 42u64)
@@ -24570,11 +24575,11 @@ mod tests {
     #[test]
     fn opaque_and_ambiguous_tag_effects_still_invalidate_everything() {
         for effect in [
-            "#extern-fn  mutate { #abi = #abi-c; #params = ((slot (#pin-ref-mut Choice))); #returns = (); }\n",
-            "#fn mutate { #params = ((slot (#pin-ref-mut Choice))); #returns = (); #body = (
+            "#extern-fn  mutate { #abi = #abi-c; #params = ((slot (#pin-ref-mut Choice))); #returns = (); #effects = (#io #global-access); }\n",
+            "#fn mutate { #params = ((slot (#pin-ref-mut Choice))); #returns = (); #effects = (#io #global-access); #body = (
                   (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()) ); }\n",
             "#static global Choice (Choice.Empty)
-#fn mutate { #params = ((slot (#pin-ref-mut Choice))); #returns = (); #body = (
+#fn mutate { #params = ((slot (#pin-ref-mut Choice))); #returns = (); #effects = ((#read-global global)); #body = (
                   (#unsafe (#forget global)) (#return ()) ); }\n",
         ] {
             let call_keyword = if effect.starts_with("#extern-fn") {
@@ -24585,7 +24590,7 @@ mod tests {
             let source = format!(
                 "#enum Choice () ((Choice.Empty) (Choice.Full #u64))
 {effect}
-#fn main {{ #params = (); #returns = (); #body = (
+#fn main {{ #params = (); #returns = (); #effects = ((#effects-of mutate)); #body = (
                   (#let-mut cell Choice (Choice.Empty)) (#let-mut target Choice (Choice.Empty))
                   (#unsafe ({call_keyword} mutate ((slot (#pin-borrow-mut target)))))
                   (#forget cell) (#forget target) (#return ()) ); }}\n"
@@ -24753,9 +24758,9 @@ mod tests {
         ] {
             let source = format!(
                 "#enum Choice () ((Choice.Empty) (Choice.Full #u64))
-#fn {name} {{ #params = {parameters}; #returns = (); #body = (
+#fn {name} {{ #params = {parameters}; #returns = (); #effects = (#io #global-access); #body = (
                   (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()) ); }}
-#fn main {{ #params = (); #returns = (); #body = (
+#fn main {{ #params = (); #returns = (); #effects = ((#effects-of {name})); #body = (
                   (#let-mut cell Choice (Choice.Empty)) (#call {name} {arguments})
                   (#drop cell) (#return ()) ); }}\n"
             );
@@ -26276,12 +26281,17 @@ mod tests {
             ),
             ("(#set saved Outcome.Pending)", None),
         ] {
+            let effects = if replacement.contains("(#call opaque ())") {
+                "#effects = ((#effects-of opaque)); "
+            } else {
+                ""
+            };
             let source = format!("#enum Outcome () (Outcome.Ready Outcome.Pending)
 #fn first {{ #params = (); #returns = Outcome; #body = ( (#return Outcome.Ready) ); }}
 #fn second {{ #params = (); #returns = Outcome; #body = ( (#return Outcome.Pending) ); }}
 #fn touch {{ #params = (); #returns = (); #body = ( (#return ()) ); }}
-#fn opaque {{ #params = (); #returns = (); #body = ( (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()) ); }}
-#fn main {{ #params = ((selected #bool)); #returns = #u64; #body = (
+#fn opaque {{ #params = (); #returns = (); #effects = (#io #global-access); #body = ( (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()) ); }}
+#fn main {{ #params = ((selected #bool)); #returns = #u64; {effects}#body = (
                   (#let-mut saved Outcome (#call first ()))
                   {replacement}
                   (#return (#match saved (#case Outcome.Ready 42u64) (#case Outcome.Pending 0u64))) ); }}\n");

@@ -745,7 +745,7 @@ mod tests {
     fn direct_static_alternatives_keep_global_identity_without_parameter_captures() {
         let plan = plan(
             "#static global #u64 42u64
-#fn work { #params = ((choose #bool)); #returns = #u64; #body = (
+#fn work { #params = ((choose #bool)); #returns = #u64; #effects = ((#read-global global)); #body = (
             (#let owner #u64 40u64)
             (#let view (#ref #u64) (#if choose (#borrow owner) (#unsafe (#borrow global))))
             (#let answer #u64 (#deref view)) (#drop view) (#forget owner) (#return answer) ); }\n",

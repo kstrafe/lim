@@ -214,7 +214,7 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll) (#effects-of Work::Poll::cleanup)); #body = (
           (#let waker #u64 0u64)
           (#let-mut frame Work::Frame (#call work ()))
           (#let first Work::Poll (#call Work::poll

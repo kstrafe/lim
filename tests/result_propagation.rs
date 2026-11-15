@@ -795,7 +795,7 @@ fn preserves_failure_pattern_after_async_suspension() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Convert::poll)); #body = ( (#let waker #u64 0u64)
               (#let first Convert::Poll (#call Convert::poll ((task (#call convert ((value {constructor}))))
                 (waker (#borrow waker)))))
               (#let-else (Convert::Poll.Pending waiting) Convert::Poll first (#unreachable))

@@ -17,6 +17,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of linux-close) (#effects-of linux-getpeername) (#effects-of linux-getsockname) (#effects-of linux-getsockopt) (#effects-of linux-mmap) (#effects-of linux-munmap) (#effects-of linux-recvfrom) (#effects-of linux-sendto) (#effects-of linux-setsockopt) (#effects-of linux-shutdown) (#effects-of linux-socket) (#effects-of linux-socketpair) (#effects-of linux-write));
   #body = (
     (#let memory (#ptr-mut #i32) (#unsafe
         (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64

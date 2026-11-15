@@ -7,7 +7,7 @@ const HELPERS: &str = r#"
 #fn allocate-required {
   #params = ((size #usize));
   #returns = (#ptr-mut #u8);
-  #body = (
+  #effects = ((#effects-of system-allocate)); #body = (
     (#return (#match (#call system-allocate ((size size)))
       (#case (SystemAllocationResult.SystemAllocated pointer) pointer)
       (#case (SystemAllocationResult.SystemAllocationFailed error) (#panic))))
@@ -16,7 +16,7 @@ const HELPERS: &str = r#"
 #unsafe-fn resize-required {
   #params = ((pointer (#ptr-mut #u8)) (size #usize));
   #returns = (#ptr-mut #u8);
-  #body = (
+  #effects = ((#effects-of system-reallocate)); #body = (
     (#return (#match (#unsafe (#unsafe-call system-reallocate ((pointer pointer) (size size))))
       (#case (SystemAllocationResult.SystemAllocated resized) resized)
       (#case (SystemAllocationResult.SystemAllocationFailed error) (#panic))))
@@ -25,7 +25,7 @@ const HELPERS: &str = r#"
 #unsafe-fn fill {
   #params = ((pointer (#ptr-mut #u8)) (size #usize));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
     (#let-mut index #usize 0usize)
     (#while (#usize::lt index size)
       (#unsafe (#ptr-write (#ptr-offset pointer index) (#as (#usize::rem-wrap index 251usize) #u8)))
@@ -36,7 +36,7 @@ const HELPERS: &str = r#"
 #unsafe-fn verify {
   #params = ((pointer (#ptr-mut #u8)) (size #usize));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
     (#let-mut index #usize 0usize)
     (#while (#usize::lt index size)
       (#assert (#u8::eq (#unsafe (#ptr-read (#ptr-offset pointer index))) (#as (#usize::rem-wrap index 251usize) #u8)))
@@ -138,7 +138,7 @@ fn kernel_error_pointers_and_invalid_resize_sizes_preserve_ownership() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of allocate-required) (#effects-of fill) (#effects-of system-allocate) (#effects-of system-allocator-map) (#effects-of system-allocator-remap) (#effects-of system-deallocate) (#effects-of system-reallocate) (#effects-of verify)); #body = (
           (#assert (#ptr-is-null (#call system-allocator-map ((length 0usize)))))
           (#assert (#ptr-is-null (#unsafe (#unsafe-call system-allocator-remap
             ((pointer (#ptr-null (#ptr-mut #u8))) (old-length 4096usize) (length 8192usize))))))
@@ -169,16 +169,16 @@ fn foreign_malloc_and_free_can_coexist_without_allocator_interposition() {
   #abi = #abi-c;
   #params = ((size #usize));
   #returns = (#ptr-mut #u8);
-}
+#effects = (#global-access #io); }
 #extern-fn  free {
   #abi = #abi-c;
   #params = ((pointer (#ptr-mut #u8)));
   #returns = ();
-}
+#effects = (#global-access #io); }
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of allocate-required) (#effects-of free) (#effects-of malloc) (#effects-of system-deallocate)); #body = (
           (#let foreign (#ptr-mut #u8) (#unsafe (#unsafe-call malloc ((size 64usize)))))
           (#assert (#bool::not (#ptr-is-null foreign)))
           (#let native (#ptr-mut #u8) (#call allocate-required ((size 64usize))))
@@ -199,7 +199,7 @@ fn foreign_malloc_and_free_can_coexist_without_allocator_interposition() {
 
 #[test]
 fn size_classes_alignment_and_in_place_or_moving_resize_preserve_bytes() {
-    let mut body = String::from("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = (\n");
+    let mut body = String::from("#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of allocate-required) (#effects-of resize-required) (#effects-of fill) (#effects-of verify) (#effects-of system-deallocate)); #body = (\n");
     for (index, size) in [
         1, 15, 16, 17, 31, 32, 48, 49, 112, 113, 240, 241, 496, 497, 1008, 1009, 2032, 2033, 4080,
         4081, 4096, 65536,
@@ -253,7 +253,7 @@ const COUNT_OS_CALLS: &str = r#"
 #fn counted-map {
   #params = ((length #usize));
   #returns = (#ptr-mut #u8);
-  #body = (
+  #effects = ((#effects-of system-allocator-map) (#write-global mapped)); #body = (
     (#let previous #u64 (#unsafe (#atomic-fetch-add (#borrow mapped) 1u64 #memory-relaxed)))
     (#return (#call system-allocator-map ((length length))))
   );
@@ -261,7 +261,7 @@ const COUNT_OS_CALLS: &str = r#"
 #unsafe-fn counted-unmap {
   #params = ((pointer (#ptr-mut #u8)) (length #usize));
   #returns = ();
-  #body = (
+  #effects = ((#effects-of system-allocator-unmap) (#write-global unmapped)); #body = (
     (#let previous #u64 (#unsafe (#atomic-fetch-add (#borrow unmapped) 1u64 #memory-relaxed)))
     (#unsafe (#unsafe-call system-allocator-unmap ((pointer pointer) (length length))))
     (#return ())
@@ -287,7 +287,7 @@ fn full_slabs_reenter_free_lists_and_empty_cache_is_bounded() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of allocate-required) (#effects-of fill) (#effects-of system-deallocate) (#effects-of verify)); #body = (
           (#let-mut pointers (#array (#ptr-mut #u8) 96) (#array-repeat (#ptr-null (#ptr-mut #u8))))
           (#for-range (slot #usize) 0usize 96usize
             (#let pointer (#ptr-mut #u8) (#call allocate-required ((size 4080usize))))
@@ -332,7 +332,7 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
 #fn gated-map {
   #params = ((length #usize));
   #returns = (#ptr-mut #u8);
-  #body = (
+  #effects = ((#effects-of system-allocator-map) (#read-global failMapping)); #body = (
           (#return (#if (#u32::eq (#unsafe (#atomic-load (#borrow failMapping) #memory-relaxed)) 1u32)
             (#ptr-null (#ptr-mut #u8)) (#call system-allocator-map ((length length)))))
   );
@@ -352,7 +352,7 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of allocate-required) (#effects-of fill) (#effects-of system-allocate) (#effects-of system-deallocate) (#effects-of system-reallocate) (#effects-of verify)); #body = (
           (#assert (#match (#call system-allocate ((size 17usize)))
             (#case (SystemAllocationResult.SystemAllocationFailed error) true)
             (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
@@ -387,7 +387,7 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
 #[test]
 fn bypassing_allocator_lock_ownership_requires_unsafe() {
     let source = format!(
-        "{HEAP}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#unsafe-call system-allocator-unlock ()) (#return 42u64)\n  );\n}}\n"
+        "{HEAP}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of system-allocator-unlock)); #body = ( (#unsafe-call system-allocator-unlock ()) (#return 42u64)\n  );\n}}\n"
     );
     let program = lim::parse_program(&source).unwrap();
     let error = lim::check_types(&program)
@@ -404,7 +404,7 @@ fn embedded_standard_string_module_has_no_foreign_allocator_dependency() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::from-chars)); #body = (
           (#let text (#array #char 2) "hi")
           (#let string String (#match (#call String::from-chars ((text (#borrow-slice text))))
             (#case (StringCreateResult.StringCreated owner) owner) (#case (StringCreateResult.StringCreateFailed error) (#panic))))
@@ -426,7 +426,7 @@ fn standard_strings_can_allocate_and_free_inside_a_raw_worker() {
 #fn worker {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of String::free) (#effects-of String::from-chars)); #body = (
           (#let characters (#array #char 2) "hi")
           (#let string String (#match (#call String::from-chars ((text (#borrow-slice characters))))
             (#case (StringCreateResult.StringCreated owner) owner) (#case (StringCreateResult.StringCreateFailed error) (#panic))))
@@ -439,7 +439,7 @@ fn standard_strings_can_allocate_and_free_inside_a_raw_worker() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let task StringWorker (#match (#call StringWorker::spawn ())
             (#case (StringWorker::SpawnResult.Ok handle) handle) (#case _ (#panic))))
           (#return (#match (#call StringWorker::join ((task task)))
@@ -459,7 +459,7 @@ fn raw_kernel_workers_share_heap_without_libc_tls() {
 #fn worker {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of allocate-required) (#effects-of fill) (#effects-of resize-required) (#effects-of system-deallocate) (#effects-of verify)); #body = (
           (#for-range (iteration #usize) 0usize 200usize
             (#let size #usize (#usize::add-wrap (#usize::rem-wrap iteration 4080usize) 1usize))
             (#let pointer (#ptr-mut #u8) (#call allocate-required ((size size))))
@@ -475,7 +475,7 @@ fn raw_kernel_workers_share_heap_without_libc_tls() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let a WorkerA (#match (#call WorkerA::spawn ())
             (#case (WorkerA::SpawnResult.Ok handle) handle) (#case _ (#panic))))
           (#let b WorkerB (#match (#call WorkerB::spawn ())

@@ -9,6 +9,7 @@
 #fn main {
   #params = ();
   #returns = #i32;
+  #effects = ((#effects-of String::byte-at) (#effects-of String::free) (#effects-of String::from-chars) (#effects-of linux-write-byte));
   #body = (
     (#let chars (#array #char 14) "Heap: naïve 🙂\n")
     (#return (#match (#call String::from-chars ((text (#borrow-slice chars))))

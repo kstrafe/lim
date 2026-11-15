@@ -171,7 +171,7 @@ fn anchor_source(mutable: bool) -> String {
 #fn cancel-current {{
   #params = ((task (#pin-ref-mut Work::Frame)));
   #returns = ();
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup)); #body = (
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task task))))))
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task task))))))
           (#return ())
@@ -180,7 +180,7 @@ fn anchor_source(mutable: bool) -> String {
 #fn run {{
   #params = ((choose #bool) (cancel-at #u64));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll) (#effects-of cancel-current)); #body = (
           (#let-mut external #u64 40u64)
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((choose choose) (external {external_arg}))))
@@ -212,7 +212,7 @@ fn anchor_source(mutable: bool) -> String {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
           (#assert (#u64::eq (#call run ((choose true) (cancel-at 4u64))) {expect}u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel-at 4u64))) {expect}u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel-at 0u64))) 42u64))
@@ -308,7 +308,7 @@ fn native_layout_scalar_and_struct_field_static_references_match_cold_and_warm()
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll) (#write-global global)); #body = (
           (#let scalar #u64 2u64)
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((scalar-view (#borrow scalar)) (field-view (#unsafe (#borrow (#get global value)))))))
@@ -326,7 +326,7 @@ fn native_layout_scalar_and_struct_field_static_references_match_cold_and_warm()
 #[test]
 fn static_access_requires_unsafe_and_alias_conflict_is_a_borrow_error() {
     let unsafe_error = compile_error(
-        "#static global #u64 40u64\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return global)\n  );\n}\n",
+        "#static global #u64 40u64\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#read-global global)); #body = ( (#return global)\n  );\n}\n",
         "async-static-requires-unsafe",
     );
     assert_eq!(
@@ -360,7 +360,7 @@ fn atomic_static_literal_initializer_has_native_cold_warm_parity() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#write-global counter)); #body = (
           (#unsafe (#atomic-fetch-add (#borrow counter) 42u64 #memory-relaxed))
           (#return (#unsafe (#atomic-load (#borrow counter) #memory-acquire)))\n  );\n}\n";
     run_native(source, "async-static-atomic-literal-init", 42);

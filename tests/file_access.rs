@@ -83,7 +83,7 @@ fn aliases_do_not_create_new_types() {
 #[test]
 fn generators_keep_definition_and_invocation_references() {
     let scratch = support::Scratch::new("file-alias-generator");
-    write(scratch.path(), "generator/lib.lim", "#export make\n#fn helper {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 2u64)\n  );\n}\n#gn make (name callback) `((#fn ,name () #u64 (#return (#u64::add-wrap (#call helper ()) (#call ,callback ())))))\n");
+    write(scratch.path(), "generator/lib.lim", "#export make\n#fn helper {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 2u64)\n  );\n}\n#gn make (name callback) `((#fn ,name () #u64 (#effects ((#effects-of ,callback))) (#return (#u64::add-wrap (#call helper ()) (#call ,callback ())))))\n");
     let source = "#alias make = ./generator/lib.lim::make\n#fn input {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 40u64)\n  );\n}\n#generate make output @input\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call output ()))\n  );\n}\n";
     for _ in 0..2 {
         let program = lim::parse_program_from_path_with_config_and_cache(
@@ -285,7 +285,7 @@ fn aliasing_foreign_functions_preserves_the_linker_symbol() {
     write(
         scratch.path(),
         "foreign.lim",
-        "#extern-fn  c_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n",
+        "#extern-fn  c_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n",
     );
     let program = lim::parse_program_from_path("#alias read = ./foreign.lim::c_value\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read ())))\n  );\n}\n", &scratch.path().join("main.lim")).unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
@@ -315,7 +315,7 @@ fn async_generator_outputs_are_distinct_between_source_files() {
 #fn run {
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64) (#let result Work::Poll (#call Work::poll ((task (#call work ((value 21u64)))) (waker (#borrow waker))))) (#return (#match result (#case (Work::Poll.Ready answer) answer) (#case (Work::Poll.Pending task) (#block (#forget task) (#unreachable)))))\n  );\n}\n";
+  #effects = ((#effects-of Work::poll)); #body = ( (#let waker #u64 0u64) (#let result Work::Poll (#call Work::poll ((task (#call work ((value 21u64)))) (waker (#borrow waker))))) (#return (#match result (#case (Work::Poll.Ready answer) answer) (#case (Work::Poll.Pending task) (#block (#forget task) (#unreachable)))))\n  );\n}\n";
     write(scratch.path(), "first.lim", source);
     write(scratch.path(), "second.lim", source);
     check(scratch.path(), "#alias first = ./first.lim::run\n#alias second = ./second.lim::run\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-wrap (#call first ()) (#call second ())))\n  );\n}\n").unwrap();

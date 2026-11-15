@@ -150,7 +150,7 @@ fn all_declaration_payloads_keep_their_existing_tree_shapes() {
         "#let count #u64 1u64",
         "#fn value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 1u64)\n  );\n}",
         "#unsafe-fn value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 1u64)\n  );\n}",
-        "#extern-fn  value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}",
+        "#extern-fn  value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }",
         "#thread-task Task worker",
         "#distributed-enum Choice ()",
         "#enum-contribute Choice (Some #u64)",
