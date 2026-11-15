@@ -166,8 +166,8 @@ fn dynamic_nested_nonempty_fields_preserve_shared_and_exclusive_access() {
             source = source
                 .replace("(#ref (#array Record 2))", "(#ref-mut (#array Record 2))")
                 .replace(
-                    "(#ref #u64)\n            (#if choose",
-                    "(#ref-mut #u64)\n            (#if choose",
+                    "(#ref #u64)\n              (#if choose",
+                    "(#ref-mut #u64)\n              (#if choose",
                 )
                 .replace("(#borrow (#get (#index", "(#borrow-mut (#get (#index")
                 .replace(
@@ -194,8 +194,8 @@ fn two_runtime_array_coordinates_preserve_the_selected_leaf() {
         .replace("(#array Record 2)", "(#array Row 2)")
         // Keep the Row alias's definition nonrecursive.
         .replace(
-            "(#type Row (#array Row 2))",
-            "(#type Row (#array Record 2))",
+            "#type Row (#array Row 2)",
+            "#type Row (#array Record 2)",
         )
         .replace(
             "(#struct-literal Record ((header 11u64) (tail (#struct-literal #u64 ()))))",
