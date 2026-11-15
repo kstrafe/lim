@@ -78,6 +78,7 @@ Each surface form has a local, mechanical interpretation:
 | Surface spelling | Tree or meaning |
 | --- | --- |
 | `{ left = x; right = y; }` | `((left x) (right y))` |
+| `{ left; right; }` | `((left left) (right right))` |
 | `(a : b c)` | `(a (b c))` |
 | `(a : b : c)` | `(a (b (c)))` |
 | `: a b` | `(a b)` |
@@ -91,8 +92,9 @@ Inline colons consume through a newline, semicolon, or enclosing closing
 delimiter. Consecutive colons nest to the right. Semicolons inside explicit
 parentheses or an indented group belong to that group. Use spaces for layout.
 
-Curly braces contain only `key = value;` entries, with `key:` available when the
-value is colon-grouped. Parentheses delimit ordinary forms; square brackets
+Curly braces contain named entries: `key = value;`, or `key;` when the variable
+has the same name. Borrowing stays explicit. Use `key:` when the value is
+colon-grouped. Parentheses delimit ordinary forms; square brackets
 select infix parsing. Nested square brackets inherit their arithmetic header
 only through direct bracket nesting. A function-call parenthesis ends that
 inheritance, so brackets inside the call need their own header.

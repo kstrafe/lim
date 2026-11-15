@@ -73,8 +73,8 @@ as for canonical positional generator syntax.
 Fields resolve through the receiver's declared type, aliases, reference/pointer
 wrappers, function signatures and projections. Named call labels resolve to the
 selected function's parameters. Struct-literal labels resolve to that struct's
-fields. Tuple/array indices remain literals, not identifiers. `$` puns navigate
-as the value use, since their label and value share the same source token.
+fields. Tuple/array indices remain literals, not identifiers. `$` and bare record
+puns navigate as the value use, since their label and value share a source token.
 Enum constructor and pattern names resolve to variant declaration spans; this
 includes cases, conditional patterns, payload operations and fieldless values.
 In `(#enum-literal Variant payload)`, `Variant` resolves only to an enum

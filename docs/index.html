@@ -324,6 +324,10 @@ cargo build
 <td><code>((left x) (right y))</code></td>
 </tr>
 <tr>
+<td><code>{ left; right; }</code></td>
+<td><code>((left left) (right right))</code></td>
+</tr>
+<tr>
 <td><code>(a : b c)</code></td>
 <td><code>(a (b c))</code></td>
 </tr>
@@ -358,7 +362,7 @@ cargo build
 </tbody>
 </table>
 <p>Inline colons consume through a newline, semicolon, or enclosing closing delimiter. Consecutive colons nest to the right. Semicolons inside explicit parentheses or an indented group belong to that group. Use spaces for layout.</p>
-<p>Curly braces contain only <code>key = value;</code> entries, with <code>key:</code> available when the value is colon-grouped. Parentheses delimit ordinary forms; square brackets select infix parsing. Nested square brackets inherit their arithmetic header only through direct bracket nesting. A function-call parenthesis ends that inheritance, so brackets inside the call need their own header.</p>
+<p>Curly braces contain named entries: <code>key = value;</code>, or <code>key;</code> when the variable has the same name. Borrowing stays explicit. Use <code>key:</code> when the value is colon-grouped. Parentheses delimit ordinary forms; square brackets select infix parsing. Nested square brackets inherit their arithmetic header only through direct bracket nesting. A function-call parenthesis ends that inheritance, so brackets inside the call need their own header.</p>
 <p>Canonical S-expressions describe the trees used by generators. This example shows syntax data beneath the surface notation; source files use bare roots:</p>
 <pre class="lisp"><code>(<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
   (<span class="lim-keyword">#return</span> (<span class="lim-operator">#u64::add-wrap</span> <span class="lim-literal">40u64</span> <span class="lim-literal">2u64</span>)))</code></pre>
@@ -580,7 +584,7 @@ Lim compilation pipeline
       <span class="lim-literal">0u64</span>);
 }</code></pre>
 <ul>
-<li><code>{ key = form; ... }</code> is a named pair list. Keys are literal identifiers; inline values are single forms and require a final semicolon. Indented list values use <code>key:</code> as described below. Empty records use <code>{}</code>. Duplicate argument keys are checked by their consumer.</li>
+<li><code>{ key = form; ... }</code> is a named pair list. Keys are literal identifiers; inline values are single forms and require a final semicolon. Indented list values use <code>key:</code> as described below. Empty records use <code>{}</code>. Duplicate argument keys are checked by their consumer. A bare <code>key;</code> entry means <code>key = key;</code> and can mix with explicit entries. It introduces neither type inference nor implicit borrowing.</li>
 <li><code>function { name = value; }</code> and <code>(function { name = value; })</code> are ordinary named calls, including generated scalar intrinsics. <code>function ((name value))</code> and <code>(function ((name value)))</code> are equivalent. Empty calls use <code>function {}</code> or <code>(function ())</code>. No <code>#call</code> marker is required. They use the same safe call checks and written-order evaluation as <code>#call</code>. Unsafe calls retain <code>#unsafe-call</code> and an enclosing <code>#unsafe</code>.</li>
 <li>In a parenthesized semicolon list, <code>#let x #u64 expression; #return x;</code> groups into two forms. Existing parenthesized forms are retained. A nested call and its argument record constitute one expression. Every group needs a terminating semicolon; newlines alone do not terminate forms.</li>
 <li><code>[#u64 #wrap; a + b * c]</code> scopes the scalar operator type and integer overflow mode. Integer arithmetic requires <code>#wrap</code> or <code>#saturate</code>; comparisons and floating arithmetic omit the mode. Operators have fixed precedence: unary, multiplication/division/remainder, addition/subtraction, shifts, bitwise AND/XOR/OR, comparisons, Boolean AND, then Boolean OR. Arithmetic associates left. Chained comparisons are rejected. Operators require token separation; <code>start-offset</code> remains one identifier.</li>

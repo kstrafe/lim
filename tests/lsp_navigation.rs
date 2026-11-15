@@ -375,6 +375,27 @@ fn fields_and_argument_labels_resolve_through_their_actual_owner() {
 }
 
 #[test]
+fn record_pun_navigation_resolves_the_identifier_as_a_value_use() {
+    run(
+        r#"
+#fn inspect {
+  #params = (([[parameter|value]] #u64));
+  #returns = #u64;
+  #body = (
+    #return (#call consume { [[pun|value]]; });
+  );
+}
+#fn consume {
+  #params = ((value #u64));
+  #returns = #u64;
+  #body = (#return value;);
+}
+    "#,
+        &[("pun", &["parameter"])],
+    );
+}
+
+#[test]
 fn pattern_forms_bind_values_in_their_own_scopes_and_navigate_variants() {
     run(
         r#"

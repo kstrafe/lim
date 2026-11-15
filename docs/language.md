@@ -94,6 +94,8 @@ introduces its initializer. Existing `#let count #u64 42u64;` and
   inline values are single forms and require a final semicolon. Indented
   list values use `key:` as described below. Empty records use `{}`.
   Duplicate argument keys are checked by their consumer.
+  A bare `key;` entry means `key = key;` and can mix with explicit entries.
+  It introduces neither type inference nor implicit borrowing.
 - `function { name = value; }` and `(function { name = value; })` are ordinary
   named calls, including generated scalar intrinsics. `function ((name value))`
   and `(function ((name value)))` are equivalent. Empty calls use `function {}`
