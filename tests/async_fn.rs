@@ -7015,14 +7015,7 @@ fn async_clones_indexed_computed_reference_owners() {
     );
     let matrix = index_await
         .replace(&old_factory,
-            "(#fn make-array ((owner (#ref #u64))) (#array (#array Holder 2) 2)
-               (#return (#array-of (#array (#array Holder 2) 2)
-                 (#array-of (#array Holder 2)
-                   (#struct-literal Holder ((reference owner) (offset 0u64)))
-                   (#struct-literal Holder ((reference owner) (offset 1u64))))
-                 (#array-of (#array Holder 2)
-                   (#struct-literal Holder ((reference owner) (offset 2u64)))
-                   (#struct-literal Holder ((reference owner) (offset 3u64)))))))\n")
+            "#fn make-array ((owner (#ref #u64))) (#array (#array Holder 2) 2)\n                 (#return (#array-of (#array (#array Holder 2) 2)\n                   (#array-of (#array Holder 2)\n                     (#struct-literal Holder ((reference owner) (offset 0u64)))\n                     (#struct-literal Holder ((reference owner) (offset 1u64))))\n                   (#array-of (#array Holder 2)\n                     (#struct-literal Holder ((reference owner) (offset 2u64)))\n                     (#struct-literal Holder ((reference owner) (offset 3u64))))))\n")
         .replace("(#call make-array ((owner owner)))",
             "(#index (#call make-array ((owner owner))) (#call index-value ((calls calls) (result index))))")
         .replace("(IndexTask.IndexStart (#call index-value ((calls calls) (result index))))",
@@ -11266,7 +11259,7 @@ fn async_for_effect_step_consumes_linear_operands_and_results() {
     // Cancel after the child owns a Resource; explicitly consume that state.
     let continuation = source.find("(#let second Work::Poll").unwrap();
     let cancelled = format!(
-        "{} (#forget first-task) (#return 42u64))",
+        "{} (#forget first-task) (#return 42u64)",
         &source[..continuation]
     );
     build_and_run(&cancelled, 42);
@@ -11331,7 +11324,7 @@ fn async_for_effect_step_keeps_external_loans_until_ready_or_cancel() {
     build_and_run(&source, 42);
     let continuation = source.find("(#let second Work::Poll").unwrap();
     let cancelled = format!(
-        "{} (#forget pending) (#set owner 42u64) (#return owner))",
+        "{} (#forget pending) (#set owner 42u64) (#return owner)",
         &source[..continuation]
     );
     build_and_run(&cancelled, 42);
