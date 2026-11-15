@@ -29,6 +29,7 @@ mod elf_writer;
 mod executable_syntax;
 mod expr_list;
 mod file_access;
+mod formatter;
 mod generated_lookup;
 mod generated_validation;
 mod generation_interfaces;
@@ -1205,7 +1206,10 @@ pub fn format_source(source: &str) -> Result<String, String> {
         {
             output.push('\n');
         }
-        output.push_str(&surface_syntax::format_surface(&expression, source));
+        if !output.is_empty() {
+            formatter::preserve_blank_lines(&mut output, &source[cursor..expression.span.start]);
+        }
+        output.push_str(&formatter::format_surface(&expression, source));
         previous_declaration = Some(declaration);
         cursor = expression.span.end;
         // Nested comments were emitted by the expression renderer already.
@@ -1292,8 +1296,13 @@ pub fn format_syntax(source: &str) -> Result<String, String> {
         {
             output.push('\n');
         }
-        if surface_syntax::has_surface_notation(&expression, source) {
-            output.push_str(&surface_syntax::format_surface(&expression, source));
+        if !output.is_empty() {
+            formatter::preserve_blank_lines(&mut output, &source[cursor..expression.span.start]);
+        }
+        if matches!(expression.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
+            output.push_str(&source[expression.span.start..expression.span.end]);
+        } else if surface_syntax::has_surface_notation(&expression, source) {
+            output.push_str(&formatter::format_surface(&expression, source));
         } else {
             output.push_str(&pretty_spanned_expression(
                 &expression,

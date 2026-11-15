@@ -147,7 +147,7 @@ introduces its initializer. Existing `#let count #u64 42u64;` and
   boundaries. A function's closing `}` needs no trailing semicolon.
   Static and constant records require `#type` and `#value`.
 
-The formatter retains authored layout in forms using this notation and removes
+The formatter retains semantic line boundaries in forms using this notation and removes
 trailing horizontal whitespace. Source formatting emits bare roots; the separate
 syntax-tree formatter handles canonical AST data. Reader nesting limits also bound trees
 created by flat infix chains. Surface syntax does not infer contracts or change
@@ -1077,8 +1077,15 @@ comparison, and mutation together, followed by its indented body:
 ```
 
 Ordinary expressions exceeding a target width of 100 columns wrap between
-arguments. Form headers may exceed that width. Comments and parser shorthand
-retain their source spelling.
+arguments. Short records and named calls stay on one line; function records
+use one field per line, and long parameter lists fill lines rather than putting
+each operand on its own line. A single-statement loop still places its body
+below the header. Form headers may exceed the target width.
+
+Comments, blank lines, literals, quoted generator data, and parser shorthand
+retain their source spelling. Colon-based blocks use two-space indentation
+without moving line boundaries that affect their meaning. Formatting checks
+the resulting syntax tree and its own fixed point before accepting a layout.
 
 `lim fmt INPUT` formats the file and its transitive explicit file dependencies
 within the same library boundary. Dependencies across a boundary are skipped. The read-only `--format`

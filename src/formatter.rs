@@ -51,7 +51,11 @@ fn proposal(original: &str, tokens: &[Token<'_>]) -> String {
 /// emitting a form. `gap` starts at its last emitted source/comment cursor.
 pub(crate) fn preserve_blank_lines(output: &mut String, gap: &str) {
     let wanted = gap.bytes().filter(|byte| *byte == b'\n').count();
-    let present = output.bytes().rev().take_while(|byte| *byte == b'\n').count();
+    let present = output
+        .bytes()
+        .rev()
+        .take_while(|byte| *byte == b'\n')
+        .count();
     for _ in present..wanted {
         output.push('\n');
     }
@@ -60,13 +64,15 @@ pub(crate) fn preserve_blank_lines(output: &mut String, gap: &str) {
 fn equivalent(before: &str, after: &str) -> bool {
     let spellings = |text: &str| {
         crate::lex(text).ok().map(|tokens| {
-            tokens.into_iter()
+            tokens
+                .into_iter()
                 .map(|token| text[token.span.start..token.span.end].to_owned())
                 .collect::<Vec<_>>()
         })
     };
     let comments = |text: &str| -> Vec<String> {
-        crate::source_comments(text).into_iter()
+        crate::source_comments(text)
+            .into_iter()
             .map(|comment| comment.text)
             .collect::<Vec<_>>()
     };
@@ -81,7 +87,9 @@ fn equivalent(before: &str, after: &str) -> bool {
         let Ok(after) = crate::parse_source_unit(after) else {
             return false;
         };
-        if !before.iter().map(|node| &node.expr)
+        if !before
+            .iter()
+            .map(|node| &node.expr)
             .eq(after.iter().map(|node| &node.expr))
         {
             return false;
@@ -126,9 +134,10 @@ struct Token<'a> {
 fn tokens<'a>(source: &'a str, base: usize, quoted: &[(usize, usize)]) -> Option<Vec<Token<'a>>> {
     let mut result = Vec::new();
     for token in crate::lex(source).ok()? {
-        if quoted.iter().any(|&(start, end)| {
-            start <= base + token.span.start && base + token.span.start < end
-        }) {
+        if quoted
+            .iter()
+            .any(|&(start, end)| start <= base + token.span.start && base + token.span.start < end)
+        {
             continue;
         }
         let kind = match token.kind {
@@ -195,19 +204,29 @@ fn tree<'a>(tokens: &[Token<'a>], cursor: &mut usize, closing: Option<char>) -> 
                 _ => ']',
             };
             let children = tree(tokens, cursor, Some(close));
-            let last = tokens.get(*cursor).cloned().unwrap_or_else(|| first.clone());
+            let last = tokens
+                .get(*cursor)
+                .cloned()
+                .unwrap_or_else(|| first.clone());
             *cursor += usize::from(*cursor < tokens.len());
             (Some(children), last)
         } else {
             (None, first.clone())
         };
-        result.push(Node { first, last, children });
+        result.push(Node {
+            first,
+            last,
+            children,
+        });
     }
     result
 }
 
 fn gap_lines(source: &str, left: usize, right: usize) -> usize {
-    source[left..right].bytes().filter(|byte| *byte == b'\n').count()
+    source[left..right]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
 }
 
 fn colon(node: &Node<'_>) -> bool {
@@ -224,9 +243,14 @@ fn flat(node: &Node<'_>, source: &str) -> Option<String> {
     let Some(children) = &node.children else {
         return Some(node.first.text.to_owned());
     };
-    if node.first.text == "{" && children.iter().any(|child| {
-        matches!(child.first.text, "#params" | "#params:" | "#body" | "#body:")
-    }) {
+    if node.first.text == "{"
+        && children.iter().any(|child| {
+            matches!(
+                child.first.text,
+                "#params" | "#params:" | "#body" | "#body:"
+            )
+        })
+    {
         return None;
     }
     if body_header(children).is_some_and(|header| children.len() > header) {
@@ -272,29 +296,55 @@ fn render(node: &Node<'_>, source: &str, indent: usize, start_column: usize) -> 
     let Some(children) = &node.children else {
         return node.first.text.to_owned();
     };
-    let record = node.first.text == "{" && children.iter().any(|child| {
-        matches!(child.first.text, "#params" | "#params:" | "#body" | "#body:")
-    });
-    let separators = children.iter().filter(|child| child.first.text == ";").count();
+    let record = node.first.text == "{"
+        && children.iter().any(|child| {
+            matches!(
+                child.first.text,
+                "#params" | "#params:" | "#body" | "#body:"
+            )
+        });
+    let separators = children
+        .iter()
+        .filter(|child| child.first.text == ";")
+        .count();
     let semicolon_list = separators > 1
         && (node.first.text == "("
-            || (node.first.text == "{" && flat(node, source)
-                .map_or(true, |text| start_column + text.chars().count() > WIDTH)));
+            || (node.first.text == "{"
+                && flat(node, source)
+                    .map_or(true, |text| start_column + text.chars().count() > WIDTH)));
     let body = body_header(children).filter(|&header| children.len() > header);
     let flat = flat(node, source);
     if !record && !semicolon_list && body.is_none() {
-        if let Some(flat) = flat.as_ref().filter(|text| start_column + text.chars().count() <= WIDTH) {
+        if let Some(flat) = flat
+            .as_ref()
+            .filter(|text| start_column + text.chars().count() <= WIDTH)
+        {
             return flat.clone();
         }
     }
     let list_of_forms = node.first.text == "("
         && children.len() > 1
         && children.iter().all(|child| child.children.is_some())
-        && children.iter().any(|child| child.children.as_ref().is_some_and(|parts| {
-            parts.first().is_some_and(|part| matches!(part.first.text,
-                "#let" | "#let-mut" | "#return" | "#set" | "#while" | "#for"
-                    | "#for-range" | "#loop" | "#if" | "#break" | "#continue"))
-        }));
+        && children.iter().any(|child| {
+            child.children.as_ref().is_some_and(|parts| {
+                parts.first().is_some_and(|part| {
+                    matches!(
+                        part.first.text,
+                        "#let"
+                            | "#let-mut"
+                            | "#return"
+                            | "#set"
+                            | "#while"
+                            | "#for"
+                            | "#for-range"
+                            | "#loop"
+                            | "#if"
+                            | "#break"
+                            | "#continue"
+                    )
+                })
+            })
+        });
     if record || semicolon_list || list_of_forms || body.is_some() {
         let header = body.unwrap_or(0).min(children.len());
         let mut output = node.first.text.to_owned();
@@ -313,15 +363,20 @@ fn render(node: &Node<'_>, source: &str, indent: usize, start_column: usize) -> 
             let end = index + 1;
             output.push('\n');
             if row_start > header
-                && gap_lines(source,
+                && gap_lines(
+                    source,
                     children[row_start - 1].last.end,
-                    children[row_start].first.start) > 1
+                    children[row_start].first.start,
+                ) > 1
             {
                 output.push('\n');
             }
             output.push_str(&" ".repeat(indent + STEP));
             output.push_str(&sequence(
-                &children[row_start..end], source, indent + STEP, true,
+                &children[row_start..end],
+                source,
+                indent + STEP,
+                true,
             ));
             row_start = end;
         }
@@ -366,9 +421,8 @@ fn sequence_at(
     let wrap = wrap && !nodes.iter().any(colon);
     for (index, node) in nodes.iter().enumerate() {
         let previous = index.checked_sub(1).map(|index| &nodes[index]);
-        let blank = previous.is_some_and(|previous| {
-            gap_lines(source, previous.last.end, node.first.start) > 1
-        });
+        let blank = previous
+            .is_some_and(|previous| gap_lines(source, previous.last.end, node.first.start) > 1);
         let comment_line = previous.is_some_and(|previous| {
             previous.first.kind == Kind::Comment
                 || (node.first.kind == Kind::Comment
@@ -381,8 +435,10 @@ fn sequence_at(
             start_column + column(&output)
         };
         let mut text = render(node, source, indent, current_column + usize::from(space));
-        let overflow = wrap && space && current_column + 1
-            + text.lines().next().unwrap_or("").chars().count() > WIDTH - STEP;
+        let overflow = wrap
+            && space
+            && current_column + 1 + text.lines().next().unwrap_or("").chars().count()
+                > WIDTH - STEP;
         if blank || comment_line || overflow {
             output.push('\n');
             if blank {
@@ -407,8 +463,10 @@ fn layout_lines(source: &str, tokens: &[Token<'_>]) -> String {
     for (index, line) in source.split_inclusive('\n').enumerate() {
         let end = offset + line.len();
         let protected = tokens.iter().any(|token| {
-            token.kind == Kind::Frozen && token.text.contains('\n')
-                && token.start < end && token.end > offset
+            token.kind == Kind::Frozen
+                && token.text.contains('\n')
+                && token.start < end
+                && token.end > offset
         });
         if protected {
             output.push_str(line);
@@ -435,7 +493,8 @@ fn layout_lines(source: &str, tokens: &[Token<'_>]) -> String {
         }
         // Concrete spellings, including comments, remain untouched. Only gaps
         // between tokens on this line are normalized.
-        let items = tokens.iter()
+        let items = tokens
+            .iter()
             .filter(|token| token.start >= offset && token.end <= end);
 
         let mut previous: Option<&Token<'_>> = None;
@@ -443,6 +502,7 @@ fn layout_lines(source: &str, tokens: &[Token<'_>]) -> String {
             if previous.is_some_and(|previous| {
                 !matches!(token.kind, Kind::Close(')' | ']'))
                     && token.text != ";"
+                    && !(token.text == ":" && matches!(previous.kind, Kind::Close(')' | ']')))
                     && !matches!(previous.kind, Kind::Open('(' | '['))
             }) {
                 output.push(' ');
