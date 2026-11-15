@@ -122,6 +122,11 @@ fn declared_lim_function_signatures(
             "#extern-fn" => true,
             _ => continue,
         };
+        // External signature parsing also consumes the effect clause. Locate
+        // its errors before the legacy String parser collapses their spans.
+        if external {
+            crate::effects::validate_source_declaration(expression)?;
+        }
         // Capability contracts use signatures, never bodies. Body syntax and
         // safety are still checked by the ordinary frontend after expansion.
         let header_len = if external {

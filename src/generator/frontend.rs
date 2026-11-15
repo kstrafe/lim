@@ -1044,6 +1044,8 @@ pub(crate) fn parse_prepared_program_items(
         if let Some(source) = original_async {
             async_functions.push(source);
         }
+        crate::effects::validate_source_declaration(&expression)
+            .map_err(|error| error.attach(&source_files))?;
         collect_function_statement_spans(
             &expression,
             &mut statement_spans,

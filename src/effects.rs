@@ -21,6 +21,9 @@ enum Qualification {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Declaration {
     qualifications: BTreeSet<Qualification>,
+    /// Canonical names identify declarations; authored target spans identify
+    /// the actual use, including an alias or its explicit @ qualification.
+    origins: BTreeMap<Qualification, Span>,
 }
 
 fn symbol(expr: &Expr) -> Option<&str> {
@@ -34,53 +37,105 @@ pub(crate) fn is_clause(expr: &Expr) -> bool {
     matches!(expr, Expr::List(xs) if xs.first().and_then(symbol) == Some("effects"))
 }
 
-impl Declaration {
-    /// Parse the value of #effects after ordinary file/alias resolution.
-    /// The enclosing clause is retained in source syntax, never executable IR.
-    pub(crate) fn parse(value: &Expr) -> Result<Self, String> {
-        let Expr::List(entries) = value else {
-            return Err("#effects requires a list of effect qualifications".into());
+struct ParseError {
+    message: &'static str,
+    /// Child indices relative to the qualification list, not source offsets.
+    path: Vec<usize>,
+}
+impl ParseError {
+    fn new(message: &'static str, path: &[usize]) -> Self {
+        Self {
+            message,
+            path: path.to_vec(),
+        }
+    }
+}
+struct Parsed {
+    declaration: Declaration,
+    targets: BTreeMap<Qualification, Vec<usize>>,
+}
+
+fn span_at(source: &crate::SpannedExpr, path: &[usize]) -> Span {
+    let mut node = source;
+    for &index in path {
+        let Some(child) = node.children.get(index) else {
+            // Synthesized literal nodes may share one authored token and have
+            // no source children. Its enclosing value is the precise span.
+            break;
         };
-        let mut qualifications = BTreeSet::new();
-        for entry in entries {
-            // Templates can explicitly union callback sets, including optional
-            // empty groups. Only written declaration names are expanded here;
-            // no function body or inferred permission is consulted.
+        node = child;
+    }
+    node.span
+}
+
+impl Declaration {
+    /// The grammar is shared by AST parsing and spanned source validation.
+    /// Function parsing keeps its existing String error interface.
+    pub(crate) fn parse(value: &Expr) -> Result<Self, String> {
+        Self::parse_value(value)
+            .map(|parsed| parsed.declaration)
+            .map_err(|error| error.message.to_owned())
+    }
+
+    fn parse_value(value: &Expr) -> Result<Parsed, ParseError> {
+        let Expr::List(entries) = value else {
+            return Err(ParseError::new(
+                "#effects requires a list of effect qualifications",
+                &[],
+            ));
+        };
+        let mut declaration = Self::default();
+        let mut targets = BTreeMap::new();
+        for (index, entry) in entries.iter().enumerate() {
+            // Callback groups explicitly union written declaration names.
+            // Remember the first authored leaf for each named callback.
             if let Expr::List(parts) = entry {
                 if parts.first().and_then(symbol) == Some("effects-of") && parts.len() == 2 {
                     if let Expr::List(_) = &parts[1] {
-                        fn targets(
+                        fn group_targets(
                             value: &Expr,
                             depth: usize,
-                            output: &mut BTreeSet<String>,
-                        ) -> Result<(), String> {
+                            path: &mut Vec<usize>,
+                            output: &mut BTreeMap<String, Vec<usize>>,
+                        ) -> Result<(), ParseError> {
                             if depth > 128 {
-                                return Err(
-                                    "#effects-of callback groups exceed nesting limit".into()
-                                );
+                                return Err(ParseError::new(
+                                    "#effects-of callback groups exceed nesting limit",
+                                    path,
+                                ));
                             }
                             match value {
                                 Expr::List(values) => {
-                                    for value in values {
-                                        targets(value, depth + 1, output)?;
+                                    for (index, value) in values.iter().enumerate() {
+                                        path.push(index);
+                                        group_targets(value, depth + 1, path, output)?;
+                                        path.pop();
                                     }
                                 }
                                 Expr::Symbol(name) | Expr::Function(name)
                                     if !name.starts_with('#')
                                         && !name.trim_start_matches('@').is_empty() =>
                                 {
-                                    output.insert(name.trim_start_matches('@').to_owned());
+                                    output
+                                        .entry(name.trim_start_matches('@').to_owned())
+                                        .or_insert_with(|| path.clone());
                                 }
-                                _ => return Err(
-                                    "#effects-of groups contain only function declaration names"
-                                        .into(),
-                                ),
+                                _ => {
+                                    return Err(ParseError::new(
+                                        "#effects-of groups contain only function declaration names",
+                                        path,
+                                    ));
+                                }
                             }
                             Ok(())
                         }
-                        let mut names = BTreeSet::new();
-                        targets(&parts[1], 0, &mut names)?;
-                        qualifications.extend(names.into_iter().map(Qualification::Of));
+                        let mut names = BTreeMap::new();
+                        group_targets(&parts[1], 0, &mut vec![index, 1], &mut names)?;
+                        for (name, path) in names {
+                            let qualification = Qualification::Of(name);
+                            declaration.qualifications.insert(qualification.clone());
+                            targets.entry(qualification).or_insert(path);
+                        }
                         continue;
                     }
                 }
@@ -92,34 +147,96 @@ impl Declaration {
                 Some("global-access") => Qualification::GlobalAccess,
                 _ => {
                     let Expr::List(parts) = entry else {
-                        return Err("expected #io, #io-input, #io-output, #global-access, (#read-global name), (#write-global name), or (#effects-of function) in #effects".into());
+                        return Err(ParseError::new("expected #io, #io-input, #io-output, #global-access, (#read-global name), (#write-global name), or (#effects-of function) in #effects", &[index]));
                     };
                     if parts.len() != 2 {
-                        return Err("global and function effect qualifications require exactly one declaration name".into());
+                        return Err(ParseError::new(
+                            "global and function effect qualifications require exactly one declaration name",
+                            &[index],
+                        ));
                     }
                     let name = match &parts[1] {
                         Expr::Symbol(name) | Expr::Function(name) if !name.starts_with('#') => {
                             name.trim_start_matches('@').to_owned()
                         }
-                        _ => return Err("effect targets must be declaration names".into()),
+                        _ => {
+                            return Err(ParseError::new(
+                                "effect targets must be declaration names",
+                                &[index, 1],
+                            ));
+                        }
                     };
                     if name.is_empty() {
-                        return Err("effect targets must be non-empty declaration names".into());
+                        return Err(ParseError::new(
+                            "effect targets must be non-empty declaration names",
+                            &[index, 1],
+                        ));
                     }
                     match parts.first().and_then(symbol) {
                         Some("read-global") => Qualification::Read(name),
                         Some("write-global") => Qualification::Write(name),
                         Some("effects-of") => Qualification::Of(name),
-                        _ => return Err("unknown effect qualification".into()),
+                        _ => {
+                            return Err(ParseError::new("unknown effect qualification", &[index, 0]));
+                        }
                     }
                 }
             };
-            if !qualifications.insert(qualification) {
-                return Err("duplicate effect qualification".into());
+            if !declaration.qualifications.insert(qualification.clone()) {
+                return Err(ParseError::new("duplicate effect qualification", &[index]));
+            }
+            if matches!(
+                &qualification,
+                Qualification::Read(_) | Qualification::Write(_) | Qualification::Of(_)
+            ) {
+                targets.insert(qualification, vec![index, 1]);
             }
         }
-        Ok(Self { qualifications })
+        Ok(Parsed {
+            declaration,
+            targets,
+        })
     }
+
+    fn from_clause(clause: &crate::SpannedExpr) -> Result<Self, SourceError> {
+        let Expr::List(parts) = &clause.expr else {
+            unreachable!("source effect clause has a list head")
+        };
+        if parts.len() != 2 {
+            return Err(SourceError::new(
+                "#effects requires exactly one qualification list",
+                crate::DiagnosticCode::Parse,
+            ).at(clause.span));
+        }
+        let source = clause.children.get(1).unwrap_or(clause);
+        let mut parsed = Self::parse_value(&parts[1]).map_err(|error| {
+            SourceError::new(error.message, crate::DiagnosticCode::Parse)
+                .at(span_at(source, &error.path))
+        })?;
+        for (qualification, path) in parsed.targets {
+            parsed.declaration.origins.insert(qualification, span_at(source, &path));
+        }
+        Ok(parsed.declaration)
+    }
+}
+
+/// Validate while the ordinary frontend still has exact source structure,
+/// before parse_item's legacy String errors can discard the offending span.
+pub(crate) fn validate_source_declaration(source: &crate::SpannedExpr) -> Result<(), SourceError> {
+    let Expr::List(parts) = &source.expr else {
+        return Ok(());
+    };
+    let index = match parts.first().and_then(symbol) {
+        Some("fn" | "unsafe-fn") => 4,
+        Some("extern-fn") => 5,
+        _ => return Ok(()),
+    };
+    if let Some(clause) = source.children.get(index)
+        .filter(|clause| is_clause(&clause.expr))
+    {
+        Declaration::from_clause(clause)?;
+    }
+    Ok(())
 }
 
 /// Collect signature-only clauses from canonical source declarations. Keeping
@@ -138,18 +255,7 @@ pub(crate) fn collect(program: &Program) -> Result<BTreeMap<String, Declaration>
         let Some(clause) = source.children.get(index).filter(|c| is_clause(&c.expr)) else {
             continue;
         };
-        let Expr::List(parts) = &clause.expr else {
-            unreachable!()
-        };
-        if parts.len() != 2 {
-            return Err(
-                SourceError::from("#effects requires exactly one qualification list")
-                    .at(clause.span),
-            );
-        }
-        let declaration = Declaration::parse(&parts[1])
-            .map_err(|error| SourceError::from(error).at(clause.span))?;
-        result.insert(function.name.clone(), declaration);
+        result.insert(function.name.clone(), Declaration::from_clause(clause)?);
     }
     Ok(result)
 }
@@ -229,6 +335,8 @@ fn resolve(
         let mut permissions = Permissions::new();
         if let Some(declaration) = program.contracts.effects.get(&function.name) {
             for qualification in &declaration.qualifications {
+                let target_span = declaration.origins.get(qualification).copied()
+                    .or_else(|| program.declaration_spans.get(&function.name).copied());
                 let effect = match qualification {
                     Qualification::Io => Effect::Io,
                     Qualification::Input => Effect::Input,
@@ -238,7 +346,7 @@ fn resolve(
                         let global = declarations.global_id(target).ok_or_else(|| {
                             error(
                                 format!("effect target '{target}' is not a global declaration"),
-                                program.declaration_spans.get(&function.name).copied(),
+                                target_span,
                             )
                         })?;
                         if matches!(qualification, Qualification::Read(_)) {
@@ -248,17 +356,19 @@ fn resolve(
                         }
                     }
                     Qualification::Of(target) => {
-                        let callee =
-                            declarations.function_id(target).ok_or_else(|| {
-                                error(
-                            format!("#effects-of target '{target}' is not a function declaration"),
-                            program.declaration_spans.get(&function.name).copied(),
-                        )
-                            })?;
+                        let callee = declarations.function_id(target).ok_or_else(|| {
+                            error(
+                                format!("#effects-of target '{target}' is not a function declaration"),
+                                target_span,
+                            )
+                        })?;
                         // Signature-only compiler interfaces have no checked
                         // source body or declaration that can promise purity.
                         if !function_names.contains(target.as_str()) {
-                            return Err(error(format!("#effects-of target '{target}' has no explicit function effect interface"), program.declaration_spans.get(&function.name).copied()));
+                            return Err(error(
+                                format!("#effects-of target '{target}' has no explicit function effect interface"),
+                                target_span,
+                            ));
                         }
                         dependents.entry(callee).or_default().push(id);
                         continue;
