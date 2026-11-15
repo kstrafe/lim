@@ -344,3 +344,69 @@ fn colon_exemptions_do_not_accept_unseparated_source_roots() {
     }
     assert!(lim::parse_source_unit(": #fn main () #u64 (#return 42u64)").is_err());
 }
+
+#[test]
+fn quoted_trailing_colon_symbols_do_not_hide_adjacent_roots_in_inactive_cfg() {
+    let mut config = CompileConfig::default();
+    config.set("feature", "selected");
+    for prefix in ["'", "`", ",@", "',", "`,", ",'", ",@,"] {
+        let source = format!(
+            "#cfg-if (#cfg-is #feature inactive) {prefix}symbol: #fn ignored {{ #params = {{}}; #returns = #u64; #body: #return 0u64; }}\n#fn main () #u64 (#return 42u64)\n"
+        );
+        let error = lim::parse_source_unit(&source).unwrap_err();
+        assert!(error.contains("newline or semicolon separator"), "{error}");
+        assert!(lim::format_source(&source).is_err());
+        let error = lim::parse_program_with_config(&source, &config).unwrap_err();
+        assert!(error.contains("newline or semicolon separator"), "{error}");
+    }
+}
+
+#[test]
+fn quoted_trailing_colon_data_is_preserved_with_proper_source_boundaries() {
+    let mut config = CompileConfig::default();
+    config.set("feature", "selected");
+    for prefix in ["'", "`", ",@", "',", "`,", ",'", ",@,"] {
+        let source = format!(
+            "#cfg-if (#cfg-is #feature inactive) {prefix}symbol:\n#fn main () #u64 (#return 42u64)\n"
+        );
+        let expected = lim::parse(&format!(
+            "(#cfg-if (#cfg-is #feature inactive) {prefix}symbol:) (#fn main () #u64 (#return 42u64))"
+        ))
+        .unwrap()
+        .into_iter()
+        .map(|node| node.expr)
+        .collect::<Vec<_>>();
+        assert_eq!(trees(&source), expected);
+        let formatted = lim::format_source(&source).unwrap();
+        assert_eq!(trees(&formatted), expected);
+        let program = lim::parse_program_with_config(&source, &config).unwrap();
+        lim::check_types(&program).unwrap();
+    }
+}
+
+#[test]
+fn explicit_colon_tokens_still_group_nested_syntax_under_quote_wrappers() {
+    for prefix in ["'", "`", ",@", "',"] {
+        let invocation = format!(
+            "#generate emit {prefix}: #fn ignored {{ #params = {{}}; #returns = #u64; #body: #return 0u64; }}"
+        );
+        let expected = lim::parse(&format!(
+            "(#generate emit {prefix}(#fn ignored () #u64 (#return 0u64)))"
+        ))
+        .unwrap()
+        .into_iter()
+        .map(|node| node.expr)
+        .collect::<Vec<_>>();
+        assert_eq!(trees(&invocation), expected);
+        let source = format!(
+            "#gn emit (ignored) `((#fn answer () #u64 (#return 42u64)))\n{invocation}\n#fn main () #u64 (#return (#call answer ()))\n"
+        );
+        let program = lim::parse_program(&source).unwrap();
+        lim::check_types(&program).unwrap();
+    }
+    let source = "#cfg-if (#cfg-is #feature selected): #fn main { #params = {}; #returns = #u64; #body: #return 42u64; }";
+    let mut config = CompileConfig::default();
+    config.set("feature", "selected");
+    let program = lim::parse_program_with_config(source, &config).unwrap();
+    lim::check_types(&program).unwrap();
+}

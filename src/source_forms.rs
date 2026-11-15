@@ -107,9 +107,24 @@ impl<'a> SourceForms<'a> {
             // delimiters. Declaration heads inside it are data/children of
             // this root, not unseparated sibling roots. Colons inside records
             // and other explicit operands must not change root boundaries.
-            if delimiters.is_empty()
-                && (token.kind == TokenKind::Colon || trailing_colon(&token.kind))
-            {
+            let layout_suffix = trailing_colon(&token.kind)
+                && !tokens
+                    .iter()
+                    .rev()
+                    .take_while(|previous| {
+                        matches!(
+                            previous.kind,
+                            TokenKind::Quote
+                                | TokenKind::QuasiQuote
+                                | TokenKind::Unquote
+                                | TokenKind::UnquoteSplicing
+                        )
+                    })
+                    .any(|previous| previous.kind != TokenKind::Unquote);
+            // Only Unquote wrappers participate in split_layout_suffix.
+            // Quoted trailing-colon symbols remain literal data. An explicit
+            // Colon token still groups syntax even underneath a quote.
+            if delimiters.is_empty() && (token.kind == TokenKind::Colon || layout_suffix) {
                 colon_operand = true;
             }
             if delimiters.is_empty()
