@@ -108,11 +108,13 @@ generated arrays, contracts, infix expressions and local indentation lists.
 - Nested square brackets group math and inherit its header. Parentheses retain
   ordinary Lim syntax. Calls and argument records end header inheritance:
   infix expressions inside them need explicit headers of their own.
-- A function record requires `#params`, `#returns` and `#body`. Contract fields
+- Authored `#fn` and `#unsafe-fn` declarations require a record containing
+  `#params`, `#returns` and `#body`. Contract fields
   `#requires`, `#ensures` and `#preserves` contain lists of independent clauses
   and default to empty. Unit results explicitly use `#returns = ();` and
-  `(#return ())`. Unknown and duplicate section keys are errors. Parenthesized
-  sections such as `(#params {...})` also normalize to canonical functions.
+  `(#return ())`. Unknown and duplicate section keys are errors. Grouped
+  parameter lists and parenthesized statement lists remain valid values inside
+  the record; an old positional declaration is not authored source syntax.
 - `:` groups the following syntax as parentheses. On the same line it
   consumes the remaining forms until the newline, the enclosing closing
   delimiter, or a semicolon. Repeated colons nest: `(a : b : c)` is
@@ -2115,8 +2117,10 @@ errors, never silently weakened guarantees. See
 
 ### Functions
 
-Functions are always free-standing; Lim has no methods or `impl` blocks.
-A function may retain an explicit positional signature and body payload:
+Functions are free-standing declarations. Write each authored `#fn` or
+`#unsafe-fn` with a named record containing `#params`, `#returns` and `#body`.
+This applies at source roots and in `#cfg-if`/`#cfg-else` declaration branches.
+The record can hold grouped parameter and statement lists:
 
 ```lisp library
 #fn add {
@@ -2129,8 +2133,8 @@ A function may retain an explicit positional signature and body payload:
 }
 ```
 
-The parameter list is a list of `(name Type)` pairs. Function records also
-accept a parameter record such as `{ left = #u32; right = #u32; }`:
+`#params` accepts a list of `(name Type)` pairs or a named record such as
+`{ left = #u32; right = #u32; }`:
 
 ```lisp run=42
 #fn add {
@@ -2174,6 +2178,12 @@ Parameters may be marked mutable:
     #return value;
 }
 ```
+
+Positional lists such as `(#fn name parameters ReturnType body...)` remain
+syntax-tree data for generators. Quoted `#gn` templates and literal `#generate`
+arguments can contain those lists. They are not alternative authored function
+declarations, and the source rule does not change parentheses in types,
+parameter binders or expressions.
 
 Function calls name every argument explicitly. Safe calls use a function name
 followed by a record or a list of `(name value)` pairs. Unsafe and external
@@ -2261,8 +2271,9 @@ generator to emit a concrete function for each required type combination.
 There are no implicit returns.  Every reachable function path must use
 `#return`; a unit return must use `(#return ())`.
 
-Native functions declare their calling convention explicitly. `#abi-c` selects
-the target's C ABI; external signatures currently accept scalar values and raw
+External source declarations use a named record with `#abi`, `#params` and
+`#returns`, and no body or contract sections. Set `#abi = #abi-c;` to select
+the target's C ABI. External signatures currently accept scalar values and raw
 pointers only. By-value aggregate FFI signatures remain rejected. Calls are
 unsafe FFI boundaries and must use `#unsafe-call` inside `#unsafe`:
 
@@ -2927,7 +2938,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 
 | Builtin | Syntax | Example (context) | Meaning |
 | --- | --- | --- | --- |
-| `#abi-c` | `#abi-c` in `#extern-fn` | `#extern-fn #abi-c abs ((value #i32)) #i32` (declaration) | Selects the C calling convention; foreign calls use `#unsafe-call` inside `#unsafe`. |
+| `#abi` | `#abi = #abi-c;` | `#extern-fn c_abs { #abi = #abi-c; #params = { value = #i32; }; #returns = #i32; }` (top level) | Required external-function record field selecting the C calling convention. |
+| `#abi-c` | `#abi-c` in `#extern-fn` | `#extern-fn abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; }` (declaration) | Selects the C calling convention; foreign calls use `#unsafe-call` inside `#unsafe`. |
 | `#addr-of` | `(#addr-of local)` | `(#unsafe (#addr-of value))` (expression) | Takes a shared raw address of a scalar local; unsafe because later access is not checked. |
 | `#addr-of-mut` | `(#addr-of-mut mutable-local)` | `(#unsafe (#addr-of-mut value))` (expression) | Takes a mutable raw address of a mutable scalar local. |
 | `#alias` | `#alias local-name = path.lim::declaration` | `#alias read = ./library/lib.lim::read` (top level) | Binds a file-local spelling to an exact declaration identity. Preserves types, parameter labels, visibility, and ownership rules; the target may be wrapped in `#unstable`. |
@@ -2950,8 +2962,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#atomic-store` | `(#atomic-store reference value order)` | `(#atomic-store (#borrow counter) 4u64 #memory-release)` (statement) | Atomically stores a value using an allowed store ordering. |
 | `#await` | `(#await Protocol child-expression)`; explicit expanded forms can list the result/task types, variants and poll function | `(#let value #u64 (#await StepAwait child))` (inside `#generate #async-fn`, with a declared `StepAwait` bundle) | Marks a sequential suspension point for `#generate #async-fn` or `#generate #async-fn-pinned`; the protocol supplies concrete types and poll operations. Live captures are inferred from the continuation, and the form is not valid in an ordinary function. |
 | `#block` | `(#block statement... final-expression)` | `(#block (#let x #u64 2u64) (#u64::add-wrap x 1u64))` (expression) | Evaluates statements in order and yields the final expression, or unit for a side-effect-only block. |
-| `#body` | `#body = (forms...);` | `(#body (#return ()))` (function section) | Required function body as a form list or indentation list. |
-| `#bool` | `#bool` | `#fn identity ((value #bool)) #bool (#return value)` (function signature) | Boolean scalar type; values are `true` and `false`. |
+| `#body` | `#body = (forms...);` | `#fn main { #params = {}; #returns = (); #body: #return (); }` (top level) | Required function body as a form list or indentation list. |
+| `#bool` | `#bool` | `#fn identity { #params = ((value #bool)); #returns = #bool; #body = ( (#return value) ); }` (function signature) | Boolean scalar type; values are `true` and `false`. |
 | `#borrow` | `(#borrow place)` or `(#borrow place body)` | `(#let r (#ref #u64) (#borrow value))` (binding) | Creates a shared reference, or scopes a shared borrow around a body. |
 | `#borrow-mut` | `(#borrow-mut place)` or `(#borrow-mut place body)` | `(#let r (#ref-mut #u64) (#borrow-mut value))` (binding) | Creates an exclusive mutable reference, or scopes a mutable borrow around a body. |
 | `#borrow-slice` | `(#borrow-slice array-place)` or `(#borrow-slice array-place start end)` | `(#let view (#slice #u64) (#borrow-slice values 1usize 3usize))` (binding) | Explicitly borrows a full array or checked half-open range as an immutable slice; retains the owner's lifetime without allocation. Bounds are #usize. |
@@ -2968,11 +2980,11 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#case-ref-mut` | `(#case-ref-mut Variant body)` or `(#case-ref-mut (Variant binder) body)`, optionally guarded | `(#case-ref-mut (Full payload) (#get payload value))` (inside exclusive-reference `#match`) | Binds an exclusive `#ref-mut Payload`; requires mutable input and follows ordinary aliasing rules. |
 | `#cfg-and` | `(#cfg-and condition...)` | `(#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))` (cfg condition) | Combines conditions with logical AND; requires at least one condition. |
 | `#cfg-else` | `(#cfg-else form...)` | `(#cfg-else (#fn fallback () () (#return ())))` (last `#cfg-if` branch) | Supplies forms when the preceding `#cfg-if` condition is false. |
-| `#cfg-if` | `#cfg-if condition form... [(#cfg-else form...)]` | `#cfg-if (#cfg-is #os linux) (#fn os-call () () (#return ()))` (top level) | Includes only the selected top-level forms before imports and semantic checks. |
+| `#cfg-if` | `#cfg-if condition form... [(#cfg-else form...)]` | `#cfg-if (#cfg-is #os linux) (#fn os-call { #params = {}; #returns = (); #body: #return (); })` (top level) | Includes only the selected top-level forms before imports and semantic checks. |
 | `#cfg-is` | `(#cfg-is #key literal)` | `(#cfg-is #feature fast)` (cfg condition) | Compares a configured key to a symbol, string, or integer literal. |
 | `#cfg-not` | `(#cfg-not condition)` | `(#cfg-not (#cfg-is #debug enabled))` (cfg condition) | Negates one cfg condition. |
 | `#cfg-or` | `(#cfg-or condition...)` | `(#cfg-or (#cfg-is #os linux) (#cfg-is #os macos))` (cfg condition) | Combines conditions with logical OR; requires at least one condition. |
-| `#char` | `#char` | `#fn identity ((value #char)) #char (#return value)` (function signature) | Unicode scalar value type, distinct from UTF-8 byte type `#u8`. |
+| `#char` | `#char` | `#fn identity { #params = ((value #char)); #returns = #char; #body = ( (#return value) ); }` (function signature) | Unicode scalar value type, distinct from UTF-8 byte type `#u8`. |
 | `#clone` | `(#clone value)` | `(#let second Buffer (#clone first))` (statement/expression) | Explicitly duplicates a Copy value or invokes the concrete type's `Type-clone` function. |
 | `#const` | `#const name Type value` | `#const LIMIT #u64 16u64` (top level) | Declares an immutable compile-time constant with an explicit type. |
 | `#continue` | `(#continue)` | `(#while false (#continue))` (function body) | Starts the next iteration of the innermost loop. |
@@ -2982,15 +2994,15 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
 | `#distributed-enum` | `#distributed-enum Name (properties...)` | `#distributed-enum Error ()` (top level) | Declares an enum whose variants are collected after generator expansion; the central declaration owns its properties. |
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly discards a value without calling user destruction code. Dropping a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. |
-| `#ensures` | `(#ensures predicate)` | `(#ensures (#call valid ((value (#result)))))` (function header) | Promise evidence on normal return; instrumented builds assert it. |
+| `#ensures` | `#ensures = (predicates...);` | `#fn accept { #params = { value = #u64; }; #returns = #u64; #ensures = ((#call valid ((value (#result))))); #body: #return value; }` (top level) | Promise evidence on normal return; instrumented builds assert it. |
 | `#enum` | `#enum Name (properties...) ((Variant [discriminant] [PayloadType])...)` | `#enum Maybe (#repr-c) ((Some #u64) None)` (top level) | Declares a concrete enum; each variant has zero or one payload, and properties may include `#linear` and `#repr-c`. Use a named struct for multiple fields. |
 | `#enum-contribute` | `#enum-contribute EnumName (Variant [PayloadType])` | `#enum-contribute Error (ReadFailure #u32)` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
 | `#enum-literal` | `(#enum-literal Variant [payload])` | `(#let result Maybe (#enum-literal Some 42u64))` (function body, with `Some` declared as a `Maybe` variant carrying `#u64`) | Constructs a concrete enum value. Payload variants require exactly one correctly typed expression; fieldless variants omit it. Patterns retain `(Variant binding)` or the fieldless variant name, without this keyword. |
 | `#export` | `#export name...` | `#export Counter counter-new counter-destroy` (in `lib.lim`) | Exposes declarations outside the nearest directory library. Struct representation remains private; exporting an enum exposes all variants and requires publicly accessible payload types. Individual variant exports are rejected. |
-| `#extern-fn` | `#extern-fn #abi-c name ((arg Type) (...)) ReturnType`; the parameter list may also use nested pairs | `#extern-fn #abi-c c_abs ((value #i32)) #i32` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
-| `#f32` | `#f32` | `#fn identity ((value #f32)) #f32 (#return value)` (function signature) | 32-bit IEEE 754 floating-point scalar type. |
-| `#f64` | `#f64` | `#fn identity ((value #f64)) #f64 (#return value)` (function signature) | 64-bit IEEE 754 floating-point scalar type. |
-| `#fn` | `#fn name ((arg Type) (...)) ReturnType body...`; the parameter list may also use nested pairs | `#fn add ((a #u64) (b #u64)) #u64 (#return (#u64::add-wrap a b))` (top level) | Declares a monomorphic function with explicit parameter/return types and body. |
+| `#extern-fn` | `#extern-fn name { #abi = #abi-c; #params = ((arg Type) (...)); #returns = ReturnType; }`; the parameter list may also use nested pairs | `#extern-fn c_abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; }` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
+| `#f32` | `#f32` | `#fn identity { #params = ((value #f32)); #returns = #f32; #body = ( (#return value) ); }` (function signature) | 32-bit IEEE 754 floating-point scalar type. |
+| `#f64` | `#f64` | `#fn identity { #params = ((value #f64)); #returns = #f64; #body = ( (#return value) ); }` (function signature) | 64-bit IEEE 754 floating-point scalar type. |
+| `#fn` | `#fn name { #params = ((arg Type) (...)); #returns = ReturnType; #body = ( body... ); }`; the parameter list may also use nested pairs | `#fn add { #params = ((a #u64) (b #u64)); #returns = #u64; #body = ( (#return (#u64::add-wrap a b)) ); }` (top level) | Declares a monomorphic function with explicit parameter/return types and body. |
 | `#for` | `(#for init condition step body...)` | `(#for (#let-mut i #u64 0u64) (#u64::lt i 4u64) (#set i (#u64::add-wrap i 1u64)) (#set sum (#u64::add-wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
 | `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i #u64) 0u64 4u64 (#set sum (#u64::add-wrap sum i)))` (statement) | Evaluates start, then end, once and iterates the typed, half-open range `[start, end)`. |
 | `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Discards a value without cleanup; use after explicit resource release. Forgetting a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. Lim never inserts destructors. Task handles/results cannot be forgotten. |
@@ -3016,17 +3028,17 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#gn-symbol-append` | `(#gn-symbol-append symbol string-or-symbol)` | `(#gn-symbol-append PinnedFrame "read")` (generator expression) | Joins the base and literal suffix with `::`, producing `PinnedFrame::read`, and checks that the result parses as exactly one symbol. Used for concrete generated type and function names. |
 | `#gn-symbol?` | `(#gn-symbol? syntax)` | `(#gn-symbol? value)` (generator expression) | Tests whether a syntax value is a symbol. |
 | `#gn-variant` | `(#gn-variant enum-type string-or-symbol)` | `(#gn-variant Result "Ok")` (generator expression) | Constructs the variant identifier `Result.Ok`, requiring an uppercase enum type and uppercase variant suffix. The emitted enum declaration still verifies the owner and payload type. |
-| `#i128` | `#i128` | `#fn identity ((value #i128)) #i128 (#return value)` (function signature) | Signed 128-bit integer scalar type. |
-| `#i16` | `#i16` | `#fn identity ((value #i16)) #i16 (#return value)` (function signature) | Signed 16-bit integer scalar type. |
-| `#i32` | `#i32` | `#fn identity ((value #i32)) #i32 (#return value)` (function signature) | Signed 32-bit integer scalar type. |
-| `#i64` | `#i64` | `#fn identity ((value #i64)) #i64 (#return value)` (function signature) | Signed 64-bit integer scalar type. |
-| `#i8` | `#i8` | `#fn identity ((value #i8)) #i8 (#return value)` (function signature) | Signed 8-bit integer scalar type. |
+| `#i128` | `#i128` | `#fn identity { #params = ((value #i128)); #returns = #i128; #body = ( (#return value) ); }` (function signature) | Signed 128-bit integer scalar type. |
+| `#i16` | `#i16` | `#fn identity { #params = ((value #i16)); #returns = #i16; #body = ( (#return value) ); }` (function signature) | Signed 16-bit integer scalar type. |
+| `#i32` | `#i32` | `#fn identity { #params = ((value #i32)); #returns = #i32; #body = ( (#return value) ); }` (function signature) | Signed 32-bit integer scalar type. |
+| `#i64` | `#i64` | `#fn identity { #params = ((value #i64)); #returns = #i64; #body = ( (#return value) ); }` (function signature) | Signed 64-bit integer scalar type. |
+| `#i8` | `#i8` | `#fn identity { #params = ((value #i8)); #returns = #i8; #body = ( (#return value) ); }` (function signature) | Signed 8-bit integer scalar type. |
 | `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |
 | `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
 | `#if-valid` | `(#if-valid condition success [failure])` | `(#if-valid (#call valid ((value value))) (#call submit ((value value))))` (function body) | Execute validation and grant evidence on success. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
 | `#index-proven` | `(#index-proven array-reference usize-index)` | `(#index-proven values position)` (expression) | Requires exact `#usize::lt` evidence for the fixed-array length; omits the production bounds check and audits the access in instrumented builds. |
-| `#isize` | `#isize` | `#fn identity ((value #isize)) #isize (#return value)` (function signature) | Signed integer scalar type with the target's native pointer width. |
+| `#isize` | `#isize` | `#fn identity { #params = ((value #isize)); #returns = #isize; #body = ( (#return value) ); }` (function signature) | Signed integer scalar type with the target's native pointer width. |
 | `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count #u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
 | `#let-else` | `(#let-else variant-pattern value (#else statements...))`; typed aggregate/failure-pattern form: `(#let-else pattern Type value fallback...)` | `(#let-else (Some x) maybe (#else (#return 0u64)))` (function body) | Destructures on success. A named variant fixes its owning enum without a repeated type annotation. Every else path must exit before subsequent success code. |
@@ -3041,14 +3053,14 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |
 | `#memory-release` | `#memory-release` | `(#atomic-store r 1u64 #memory-release)` (ordering operand) | Selects release ordering where permitted. |
 | `#memory-seq-cst` | `#memory-seq-cst` | `(#atomic-load r #memory-seq-cst)` (ordering operand) | Selects sequentially consistent ordering. |
-| `#mut` | `(#mut parameter Type)` | `#fn advance ((#mut count #u64)) #u64 (#set count 1u64) (#return count)` (parameter list) | Marks a function parameter mutable; local mutable bindings use `#let-mut`. |
+| `#mut` | `(#mut parameter Type)` | `#fn advance { #params = ((#mut count #u64)); #returns = #u64; #body = ( (#set count 1u64) (#return count) ); }` (parameter list) | Marks a function parameter mutable; local mutable bindings use `#let-mut`. |
 | `#offset-of` | `(#offset-of ReprCType field)` | `(#offset-of Header payload)` (expression) | Computes a field's offset in the declared C layout; requires a `#repr-c` struct. |
 | `#old` | `(#old observation)` | `(#old (#deref value))` (postcondition operand) | Snapshot an entry observation for a postcondition. |
 | `#opaque` | `#opaque StructName` | `#struct Token () ((slot #u64)); #opaque Token` (top level) | Restricts construction, field access, and cloning of a linear struct to its defining source module; external code can use its public functions. The annotation must appear in the same source module as the concrete struct. |
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `#cfg-if (#cfg-is #os linux) (#type Fd #i32)` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
-| `#params` | `#params = { name = Type; };` | `(#params { value = #u64; })` (function section) | Required parameter list with function-local binders. |
+| `#params` | `#params = { name = Type; };` | `#fn identity { #params = { value = #u64; }; #returns = #u64; #body: #return value; }` (top level) | Required parameter list with function-local binders; grouped pairs also work. |
 | `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. Pinning a linear local permanently prevents moving it, even after derived views end; Copy referents retain ordinary loan-duration restrictions. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
@@ -3074,7 +3086,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-shared-release` | `(#pin-shared-release shared-owner)` | `(#let pointer (#ptr-mut Node) (#unsafe (#pin-shared-release shared)))` (expression) | Consumes a shared owner and returns its allocation pointer; it does not check the strong count. Unsafe: the caller must prove this is the final owner, destroy all views, run final in-place cleanup, and deallocate only afterward. |
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `#cfg-if (#cfg-is #platform linux) (#type Fd #i32)` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
-| `#preserves` | `(#preserves predicate)` | `(#preserves (#call sorted ((values values))))` (function header) | Keep supplied evidence without imposing an entry requirement. |
+| `#preserves` | `#preserves = (predicates...);` | `#fn accept { #params = { values = (#slice #u64); }; #returns = (); #preserves = ((#call sorted ((values values)))); #body: #return (); }` (top level) | Keep supplied evidence without imposing an entry requirement. |
 | `#println` | `(#println (#borrow string))` | `(#assert (#i64::eq (#println (#borrow message)) 0i64))` (expression) | Writes a borrowed `String`'s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level `#std`. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr #u8) (#ptr-null (#ptr #u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr #u8)))` (expression) | Converts a raw pointer to its machine address as `#usize` without dereferencing it; useful for checking syscall error-pointer results before access. |
@@ -3092,10 +3104,10 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#ref-ptr` | `(#ref-ptr reference)` | `(#let p (#ptr-mut Node) (#ref-ptr pinned))` (expression) | Safely extracts a thin ordinary or pinned reference's raw pointer with the same pointee and mutability. Lends the input handle without moving or duplicating it; the pointer retains no loan and does not extend the pointee lifetime or pinning guarantee. Slices are rejected. Raw memory access and pointer-to-reference borrowing still require unsafe context and valid lifetime/aliasing proofs. Raw pointers do not automatically implement Send or Sync. |
 | `#repr-c` | Property in `#struct Name (#repr-c) fields` or `#enum Name (#repr-c) variants` | `#struct Header (#repr-c) ((tag #u8) (length #u32))` (top level) | Requests C layout metadata for layout queries; does not make arbitrary Lim values FFI-safe. |
 | `#require-generated` | `#require-generated Name GeneratorName (CompanionName...)`; companions may be omitted | `#require-generated Work::Frame #async-fn-pinned (Work::Poll Work::poll)` (top level) | Requires one actual invocation of the named generator to have produced all listed identifiers; checked after expansion with compiler-recorded ancestry. |
-| `#requires` | `(#requires predicate)` | `(#requires (#call valid ((value value))))` (function header) | Require caller evidence and grant it inside the function. |
+| `#requires` | `#requires = (predicates...);` | `#fn accept { #params = { value = #u64; }; #returns = #u64; #requires = ((#call valid ((value value)))); #body: #return value; }` (top level) | Require caller evidence and grant it inside the function. |
 | `#result` | `(#result)` | `(#result)` (postcondition operand) | Name the normally returned value. |
 | `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
-| `#returns` | `#returns = Type;` | `(#returns ())` (function section) | Required explicit return type; unit is `()`. |
+| `#returns` | `#returns = Type;` | `#fn main { #params = {}; #returns = (); #body: #return (); }` (top level) | Required explicit return type; unit is `()`. |
 | `#saturate` | `[#I #saturate; expression]` | `[#u8 #saturate; 255 + 1]` (infix expression) | Saturating arithmetic in this expression and directly nested math groups. |
 | `#send` | `#unsafe-impl #send Type` | `#struct Handle () ((raw (#ptr #u8))); #unsafe-impl #send Handle` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
 | `#set` | `(#set name value)` | `(#set count (#u32::add-wrap count 1u32))` (statement) | Reassigns a mutable local. |
@@ -3127,18 +3139,18 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#thread-task-spawn` | `(#thread-task-spawn FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-spawn ReadTask::spawn ((input #u64)) ReadTask::SpawnResult)` (generated signature) | Internal generated function signature for creating a worker task. |
 | `#tuple` | `(#tuple Type...)` as a type; `(#tuple TupleType value...)` as a value; `(#tuple pattern...)` as a pattern | `(#let pair (#tuple #u64 #bool) (#tuple (#tuple #u64 #bool) 3u64 true))` (binding) | Declares, constructs, or destructures a fixed tuple. |
 | `#type` | `#type Name Type` | `#type UserId #u64` (top level) | Declares a transparent alias; uses remain strongly and statically typed. |
-| `#u128` | `#u128` | `#fn identity ((value #u128)) #u128 (#return value)` (function signature) | Unsigned 128-bit integer scalar type. |
-| `#u16` | `#u16` | `#fn identity ((value #u16)) #u16 (#return value)` (function signature) | Unsigned 16-bit integer scalar type. |
-| `#u32` | `#u32` | `#fn identity ((value #u32)) #u32 (#return value)` (function signature) | Unsigned 32-bit integer scalar type. |
-| `#u64` | `#u64` | `#fn identity ((value #u64)) #u64 (#return value)` (function signature) | Unsigned 64-bit integer scalar type. |
-| `#u8` | `#u8` | `#fn identity ((value #u8)) #u8 (#return value)` (function signature) | Unsigned 8-bit integer scalar type. |
+| `#u128` | `#u128` | `#fn identity { #params = ((value #u128)); #returns = #u128; #body = ( (#return value) ); }` (function signature) | Unsigned 128-bit integer scalar type. |
+| `#u16` | `#u16` | `#fn identity { #params = ((value #u16)); #returns = #u16; #body = ( (#return value) ); }` (function signature) | Unsigned 16-bit integer scalar type. |
+| `#u32` | `#u32` | `#fn identity { #params = ((value #u32)); #returns = #u32; #body = ( (#return value) ); }` (function signature) | Unsigned 32-bit integer scalar type. |
+| `#u64` | `#u64` | `#fn identity { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }` (function signature) | Unsigned 64-bit integer scalar type. |
+| `#u8` | `#u8` | `#fn identity { #params = ((value #u8)); #returns = #u8; #body = ( (#return value) ); }` (function signature) | Unsigned 8-bit integer scalar type. |
 | `#unreachable` | `(#unreachable)` | `(#case impossible (#unreachable))` (expression) | Marks a path that must never execute; execution traps. |
 | `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, raw syscalls, and `#unsafe-call`; does not permit unsafe callees through `#call`. |
 | `#unsafe-call` | `(#unsafe-call function ((name value) (...)))` | `(#unsafe (#unsafe-call read-byte ((pointer p))))` (expression) | Calls only a statically named unsafe or external function and requires an enclosing `#unsafe` block. Uses the same named arguments, parameter declaration evaluation order, signature checks, and ownership rules as `#call`; rejects safe callees. |
-| `#unsafe-fn` | `#unsafe-fn name ((arg Type)...) ReturnType body...` | `#unsafe-fn read-byte ((p (#ptr #u8))) #u8 (#return (#unsafe (#ptr-read p)))` (top level) | Declares caller safety obligations: calls use `#unsafe-call` inside `#unsafe`, and raw operations in the body still need explicit unsafe blocks. |
+| `#unsafe-fn` | `#unsafe-fn name { #params = ((arg Type)...); #returns = ReturnType; #body = ( body... ); }` | `#unsafe-fn read-byte { #params = ((p (#ptr #u8))); #returns = #u8; #body = ( (#return (#unsafe (#ptr-read p))) ); }` (top level) | Declares caller safety obligations: calls use `#unsafe-call` inside `#unsafe`, and raw operations in the body still need explicit unsafe blocks. |
 | `#unsafe-impl` | `#unsafe-impl property Type` | `#unsafe-impl #send NativeHandle` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
 | `#unstable` | `(#unstable path.lim::declaration)` | `#alias inspect = (#unstable ./library/private.lim::inspect)` (alias target) | Explicitly bypasses entry-point/export restrictions for the selected declaration. Does not grant struct field access or waive ordinary safety checking. |
-| `#usize` | `#usize` | `#fn identity ((value #usize)) #usize (#return value)` (function signature) | Unsigned integer scalar type with the target's native pointer width. |
+| `#usize` | `#usize` | `#fn identity { #params = ((value #usize)); #returns = #usize; #body = ( (#return value) ); }` (function signature) | Unsigned integer scalar type with the target's native pointer width. |
 | `#value` | `#value = expression;` | `#static answer { #type = #u64; #value = 42; }` (declaration section) | Required initializer in a static or constant record. |
 | `#variant-is` | `(#variant-is enum-reference Variant)` | `(#let is-some #bool (#variant-is value Some))` (expression) | Tests an enum reference's active variant without consuming the reference or enum; accepts ordinary or pinned shared/exclusive references. It does not statically refine later payload projections, which retain their runtime active-variant check. |
 | `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64::gt x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
