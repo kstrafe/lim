@@ -162,7 +162,7 @@ fn declaration_records_normalize_with_required_fields_and_empty_defaults() {
 
 #[test]
 fn generated_function_records_keep_unquoted_names_and_canonical_structure() {
-    let source = "#gn make (name) `((#fn ,name { #params = {}; #returns = #u64; #body = (#return 42u64;); }))\n#generate make read\n #fn main { #params = {}; #returns = #u64; #body = (#return read {};); }";
+    let source = "#gn make (name) `((#fn ,name { #params = {}; #returns = #u64; #body = (#return 42u64;); }))\n#generate make read\n#fn main { #params = {}; #returns = #u64; #body = (#return read {};); }";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
     let aggregate = "#gn make (name) `((#struct ,name () ((value #u64))) (#fn create ((value #u64)) ,name (#return (#struct-literal ,name ((value value))))))\n#generate make Item\n#fn main () #u64 (#return (#get (create ((value 42))) value))\n";
     lim::check_types(&lim::parse_program(aggregate).unwrap()).unwrap();
@@ -200,7 +200,7 @@ fn implicit_calls_use_aliases_of_quoted_file_targets() {
 
 #[test]
 fn marker_free_calls_retain_function_identity_and_unsafe_requirements() {
-    let source = "#fn panic ((value #u64)) #u64 (#return value)\n #fn main { #params = {}; #returns = #u64; #body: \n  #return panic { value = 42; };\n}";
+    let source = "#fn panic ((value #u64)) #u64 (#return value)\n#fn main { #params = {}; #returns = #u64; #body: \n  #return panic { value = 42; };\n}";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
     assert_eq!(
         trees("((name Example) (fields ((value #u64))))"),
@@ -211,7 +211,7 @@ fn marker_free_calls_retain_function_identity_and_unsafe_requirements() {
         trees("((argument identity ((value 42))))")
     );
     for call in ["danger {}", "(danger ())", "danger ()"] {
-        let source = format!("#unsafe-fn danger () () (#return ())\n #fn main {{ #params = {{}}; #returns = (); #body = (#unsafe ({call}); #return ();); }}");
+        let source = format!("#unsafe-fn danger () () (#return ())\n#fn main {{ #params = {{}}; #returns = (); #body = (#unsafe ({call}); #return ();); }}");
         assert!(lim::parse_program(&source)
             .unwrap_err()
             .contains("#unsafe-call"));

@@ -188,7 +188,7 @@ fn operator_reference_examples_typecheck() {
         assert!(name > previous, "operator families must be sorted: {name}");
         previous = name.clone();
         let example = cells[2].split('`').nth(1).unwrap().replace("\\|", "|");
-        let source = format!("(#fn example () () (#drop {example}) (#return ()))");
+        let source = format!("#fn example () () (#drop {example}) (#return ())");
         let program =
             lim::parse_program(&source).unwrap_or_else(|error| panic!("{name}: {error}\n{source}"));
         lim::check_types(&program).unwrap_or_else(|error| panic!("{name}: {error}\n{source}"));
@@ -225,7 +225,7 @@ fn operator_reference_examples_typecheck() {
             for &arity in arities {
                 let operands = vec![operand.as_str(); arity].join(" ");
                 let source = format!(
-                    "(#fn example () () (#drop (#{qualifier}::{operation} {operands})) (#return ()))"
+                    "#fn example () () (#drop (#{qualifier}::{operation} {operands})) (#return ())"
                 );
                 let program =
                     lim::parse_program(&source).unwrap_or_else(|error| panic!("{error}\n{source}"));
