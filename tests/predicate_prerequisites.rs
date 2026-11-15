@@ -141,14 +141,54 @@ fn mutation_invalidates_prerequisites_and_dependent_predicate_facts() {
     let source = function("base", "(value (#ref #u64))", "#bool", "(#return (#u64::ne (#deref value) 0u64))")
         + &function("partial", "(value (#ref #u64))", "#bool", &format!("{} (#return true)", requires("base", "value", "value")))
         + &function("consume", "(value (#ref #u64))", "()", &format!("{} (#return ())", requires("partial", "value", "value")))
-        + &function("caller", "(value (#ref-mut #u64))", "()", &format!("{} (#deref-set value 0u64) {} (#return ())", requires("partial", "value", "value"), call("consume", "value", "value")));
-    assert!(check(&source).unwrap_err().contains("missing evidence"));
+        + &function("caller", "(value (#ref-mut #u64))", "()", &format!("{} (#deref-set value 0u64) {} (#return ())", requires("partial", "value", "value"), call("consume", "value", "(#borrow (#deref value))")));
+    let error = check(&source).unwrap_err();
+    assert!(error.contains("missing evidence"), "{error}");
     check(&source.replace("(#deref-set value 0u64)", "")).unwrap();
     // Re-establishing base alone must not resurrect partial's old evidence,
     // whose prerequisite read was invalidated even though its own body is true.
     let revalidated = source.replace("(#deref-set value 0u64)", "(#deref-set value 0u64) (#assume (#call base ((value value))))");
     let error = check(&revalidated).unwrap_err();
     assert!(error.contains("missing evidence") && error.contains("partial"), "{error}");
+}
+
+#[test]
+fn imported_prerequisites_are_rechecked_after_warm_cache_and_source_edits() {
+    let scratch = support::Scratch::new("prerequisite-cache");
+    let directory = scratch.path();
+    let library = chain()
+        + &function("extra", "(item #u64)", "#bool", "(#return true)");
+    std::fs::write(directory.join("library.lim"), &library).unwrap();
+    let source = "#alias base = ./library.lim::base\n\
+        #alias middle = ./library.lim::middle\n\
+        #alias outer = ./library.lim::outer\n\
+        #alias consume = ./library.lim::consume\n".to_owned()
+        + &function("main", "", "()", &format!(
+            "(#let item #u64 1u64) (#assume {}) (#assume {}) (#assume {}) {} (#return ())",
+            call("base", "original", "item"), call("middle", "renamed", "item"),
+            call("outer", "subject", "item"), call("consume", "input", "item"),
+        ));
+    let compile = || lim::with_cache_report(|| lim::compile_source_to_assembly(
+        &source, &directory.join("main.lim"), &lim::CompileConfig::default(),
+        &directory.join("cache"), lim::TargetDescription::X86_64_SYSTEM_V,
+    ));
+    let cold = compile().0.unwrap();
+    let (warm, report) = compile();
+    assert_eq!(cold, warm.unwrap());
+    assert!(report.contains("semantic-summary") && report.contains("\"decision\":\"hit\""), "{report}");
+
+    let edited = library.replace(
+        "(#return (#u64::ne original 0u64))",
+        "(#requires (#call extra ((item original)))) (#return (#u64::ne original 0u64))",
+    );
+    std::fs::write(directory.join("library.lim"), edited).unwrap();
+    let cold_error = compile().0.unwrap_err();
+    let warm_error = compile().0.unwrap_err();
+    assert_eq!(cold_error, warm_error);
+    assert!(cold_error.message.contains("missing evidence") && cold_error.message.contains("extra"), "{cold_error:?}");
+
+    std::fs::write(directory.join("library.lim"), library).unwrap();
+    assert_eq!(compile().0.unwrap(), cold);
 }
 
 fn run(source: &str, instrumented: bool) -> std::process::ExitStatus {

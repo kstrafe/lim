@@ -129,7 +129,12 @@ does not provide information. Hover ranges select the authored token in UTF-16;
 explicit binding, parameter and field types retain their source notation.
 Function information includes named parameters, return types and the declaration's
 `#requires`, `#ensures` and `#preserves` contracts without checking or changing their
-meaning. Information queries do not publish generated source or write buffers.
+meaning. When checked metadata is available, it separately displays computed
+predicate prerequisites in evaluation order, with substituted arguments and
+numbered source-origin edges. Canonical declaration spans identify the contract
+through aliases and private library names; shared prerequisites are shown once.
+Display limits bound large dependency graphs and report omitted information.
+Information queries do not publish generated source or write buffers.
 When an unfinished named call prevents normal expansion from completing,
 display-only queries can reuse the existing declaration planner before call
 normalization, retaining generated signatures and canonical file scopes. This

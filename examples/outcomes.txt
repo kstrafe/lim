@@ -466,3 +466,4 @@ module generator_contexts.lim generator_contexts/lib.lim - -
 module library_boundary.lim encapsulation/lib.lim - -
 module library_boundary.lim encapsulation/storage.lim - -
 exit 42 encapsulation/test.lim - -
+exit 42 predicate_prerequisites.lim - -

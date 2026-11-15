@@ -10,12 +10,13 @@ defines the syntax. [contracts.lim](../examples/contracts.lim) is executable.
 
 ## What the compiler verifies
 
-- A call has evidence for every declared requirement.
+- A call has evidence for every declared requirement and its declared
+  predicate prerequisites, instantiated with the same argument identities.
 - Successful `#if-valid` branches grant facts about exactly the checked subjects.
 - Joins retain facts common to every continuing path.
 - Possible writes revoke facts and saved Boolean evidence that depend on them.
-- Structural read/write footprints cross calls; semantic contracts require
-  explicit annotations at every intermediary.
+- Structural read/write footprints cross calls. Written predicate requirements
+  inherit declared prerequisites; ordinary body calls never infer interfaces.
 - Constrained bindings, fields, parameters and results require evidence.
 - Fixed storage constraints must be restored when exclusive loans end. A
   returned/reborrowed alias carries the same obligation.
@@ -32,6 +33,8 @@ Requirements and restoration rules remain compiler obligations in production.
 `src/contracts` replaces the former `src/proof` and `src/theorem.rs` modules:
 
 - `mod.rs` collects explicit clauses and constrained types before erasure.
+- `prerequisites.rs` builds a bounded dependency DAG from declared requirements,
+  with prerequisite-first ordering and source edges for diagnostic traces.
 - `summaries.rs` records transitive structural reads, writes and returned
   reference origins. It never infers semantic contracts.
 - `flow.rs` tracks subject identities, predicate facts, dependency versions,
@@ -44,6 +47,26 @@ unfolding, symbolic execution of function bodies, or hidden runtime proof
 object. The rule checker follows ordinary control flow and declared interfaces.
 Checked function/type metadata is tied to its lowered AST; modifying a parsed
 program cannot retain contracts for a different body.
+
+A predicate may be partial: its own `#requires` clauses specify the evidence
+needed before calling it. Listing that predicate as a requirement inherits
+those clauses transitively, substituting its actual arguments at each edge.
+The compiler retains authored roots separately from this derived set. Shared
+prerequisites deduplicate without enumerating every path through a diamond;
+cycles and bounded-work exhaustion reject the interface. Instrumented builds
+evaluate prerequisite checks before invoking a partial predicate.
+
+Inherited prerequisites are not inferred truths. Explicit `#assume`, `#ensures`
+and `#preserves` clauses promise only what they name, not the domain of a
+partial predicate. Checked constrained-value boundaries require both. Evidence
+for a partial predicate depends on its prerequisites' observations, so changing
+those observations invalidates the dependent fact too. This dependency is
+derived from declarations, never by proving implications from function bodies.
+
+Persistent semantic summaries are not safety certificates. Their context key
+includes the expanded program, source dependencies, compiler, target and cfg;
+changing an imported prerequisite invalidates that context. Contract checks
+still run on every compilation, including cache hits.
 
 Typed scalar comparisons also form exact atomic facts. They carry their
 operator, scalar type and operand identities; a comparison does not imply a

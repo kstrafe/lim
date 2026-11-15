@@ -1999,12 +1999,28 @@ Place contract clauses first in a function body:
 | `(#ensures Q)` | Receives Q after normal return | Programmer promises Q; checked dynamically when instrumented |
 | `(#preserves P)` | P survives if it was available before the call | Conditional promise: entry P implies exit P |
 
-A validator is an ordinary function without the requirement it tests. Every
-intermediary must explicitly annotate the requirements and guarantees it
-exports. Only structural read/write footprints propagate through calls;
-semantic contracts are never inferred from callees. Consequently, writes to an
-unread sibling field need not revoke a predicate, but a wrapper that changes a
-predicate's inputs must declare its own `#preserves` or `#ensures`.
+A predicate can itself declare requirements. A function that lists that
+predicate in `#requires` also requires its declared prerequisites, with the
+arguments substituted at each step. For example, if `ready(subject)` requires
+`valid(subject)`, then requiring `ready(user)` also requires `valid(user)`.
+The compiler computes this dependency set separately from the written roots;
+removing a root removes prerequisites that no remaining root needs. Cycles
+and excessive expansion are errors. Diagnostics show the chain from the call
+through the written requirement to the missing prerequisite.
+
+Only declared requirements participate in this inheritance. Calling a
+predicate inside a function body still checks its requirements against the
+evidence available there; it does not change that function's interface. A
+validator may test a partial predicate after establishing its prerequisites.
+No facts are inferred from a predicate's body, and exact predicate and
+argument identities still apply.
+
+Structural read/write footprints propagate through calls. Evidence for a
+partial predicate also depends on the observations used by its prerequisites;
+mutating one revokes the dependent evidence. Writes to an unread sibling field
+need not revoke it. A wrapper that changes a predicate's inputs must declare
+its own `#preserves` or `#ensures`. An explicit `#assume`, `#ensures`, or
+`#preserves` promise of a predicate does not promise its prerequisites.
 
 `(#result)` names the result in `#ensures`. `(#old observation)` snapshots an
 entry observation for a postcondition. Snapshot scalar observations rather

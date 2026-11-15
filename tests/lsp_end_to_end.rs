@@ -2461,8 +2461,8 @@ fn aliased_contract_information_uses_declaration_identity_and_private_names_over
   #body = ( (#requires (#call selected ((subject input)))) (#return input) );
 }
 "#;
-    let implementation = fixture.write("implementation.lim", library);
-    fixture.write("facade.lim", "#alias api = ./implementation.lim::consume\n#alias predicate = ./implementation.lim::selected\n");
+    let implementation = fixture.write("library/lib.lim", library);
+    fixture.write("facade.lim", "#alias api = ./library/lib.lim::consume\n#alias predicate = ./library/lib.lim::selected\n");
     let source = r#"#alias renamed = ./facade.lim::api
 #alias needed = ./facade.lim::predicate
 #fn consume {
@@ -2489,7 +2489,7 @@ fn aliased_contract_information_uses_declaration_identity_and_private_names_over
         "(#fn consume", "// Authored contracts", "// Computed requirements",
         "(#requires (#call available ((value input))))",
         "(#requires (#call selected ((subject input))))",
-        "[2] -> prerequisite [1]", "implementation.lim:",
+        "[2] -> prerequisite [1]", "lib.lim:",
     ] {
         assert!(hover.contains(part), "missing {part}: {hover}");
     }
@@ -2504,7 +2504,7 @@ fn aliased_contract_information_uses_declaration_identity_and_private_names_over
         .get("documentation").unwrap().get("value").unwrap().string().unwrap();
     assert!(documentation.contains("inherited prerequisite"), "{documentation}");
     assert!(documentation.contains("#call available"), "{documentation}");
-    assert!(documentation.contains("implementation.lim:"), "{documentation}");
+    assert!(documentation.contains("lib.lim:"), "{documentation}");
     assert!(!documentation.contains(".lim::"), "{documentation}");
     let ordinary = client.hover(&path, source, "consume ((input input))", "consume");
     assert!(ordinary.contains("(#fn consume"), "{ordinary}");
