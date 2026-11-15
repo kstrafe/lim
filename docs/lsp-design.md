@@ -120,6 +120,45 @@ publication path, including generated distributed-enum contributions. A request
 must not overwrite edited snapshots or create a generated target from an
 invalid expansion. Ordinary checking remains source/cache-write-free.
 
+## Distributed dispatch source roles
+
+`#dispatch-fn` declares a concrete function signature. Its parameter labels bind
+local names; parameter and return types retain ordinary type roles.
+`#dispatch-on` is a metadata key with no definition; its value refers to exactly
+one declared parameter. Contract parameter uses and effect targets keep their
+ordinary roles. Record punctuation and other section keywords have no target.
+
+The `#dispatch-fn` and `#dispatch-case` keywords open the checked, inspectable
+hash-cached implementation artifact. The dispatch declaration's name and runtime
+call sites target the emitted ordinary function. Registration operands resolve
+by canonical identity: dispatcher to emitted function, variant to its exact
+variant contribution, handler to its exact function declaration. Aliases and
+file-qualified operands do not change those destinations or confer visibility.
+Quoted registrations remain syntax data until expanded.
+
+The compiler retains each current-compilation `DispatchManifest` on `Program`;
+`with_dispatch_manifest` also exposes it to tools without requiring editor
+internals. `DispatchRegistration` contains the authored registration and exact
+emitted case, case-keyword, variant and handler spans. These spans are parsed
+from the actual compiled artifact, including cache hits. Cache origin comments
+are display information, never trusted source maps or access capabilities.
+
+In an editor snapshot, the generated function name navigates back to its
+`#dispatch-fn` declaration. A generated case keyword navigates to every identical
+registration and the handler definition. Generated variant and direct-call
+handler references use ordinary exact-definition navigation. Diagnostics inside
+an emitted case include registration and handler locations in related
+information, alongside the dispatcher expansion origin. Missing coverage points
+to the dispatcher name and uncovered variant; conflicting registration points
+to the conflicting handler operand and the earlier registration. UTF-16 ranges
+must use the corresponding file, including unsaved overlays.
+
+These maps add no dispatch behavior to native lowering, borrowing or calls.
+Program copies preserve metadata and remap source IDs when combining validation
+witnesses. Generated editor snapshots still require ordinary safety validation;
+a rejected registration must not publish an implementation artifact. Public
+LSP coverage lives in `tests/lsp_distributed_dispatch.rs`.
+
 ## Hover and signature help
 
 Hover and signature help share the source-role resolver and declaration metadata

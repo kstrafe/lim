@@ -111,6 +111,7 @@ pub(crate) fn copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
         generated_source_invocations: HashMap::new(),
         generated_definition_contexts: HashMap::new(),
         syntax_bundle_uses: HashMap::new(),
+        dispatch_manifests: Vec::new(),
         contracts: crate::contracts::Metadata::default(),
         generator_validation: None,
     };
@@ -535,6 +536,7 @@ pub(crate) struct PreparedProgramSyntax {
     contract_checks: bool,
     graph_dependency_context: String,
     pub(crate) bundles: syntax_bundle::Bundles,
+    pub(crate) dispatch_artifacts: Vec<crate::distributed_dispatch::Artifact>,
     pub(crate) capture_cache_directory: Option<PathBuf>,
     pub(crate) root_source: String,
     pub(crate) expressions: Vec<SpannedExpr>,
@@ -641,7 +643,7 @@ pub(crate) fn prepare_program_syntax(
     for expression in &mut expressions {
         if expression.children.is_empty()
             && matches!(&expression.expr, Expr::List(parts)
-                if matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#enum-contribute" | "#syntax")))
+                if matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#enum-contribute" | "#syntax" | "#dispatch-fn" | "#dispatch-case")))
         {
             let origin = expression.span;
             let text = crate::declaration_source(&expression.expr)?;
@@ -661,6 +663,9 @@ pub(crate) fn prepare_program_syntax(
                 source: text,
             });
             generated_source_invocations.insert(source_id, origin);
+            if let Some(definition) = crate::generator_authority::source_context(origin, &generator_origins.definitions) {
+                generator_origins.definitions.insert(source_id, definition);
+            }
             *expression = tree;
         }
     }
@@ -753,6 +758,14 @@ pub(crate) fn prepare_program_syntax(
             }
         }
     }
+    let (expressions, dispatch_artifacts) = crate::distributed_dispatch::materialize(
+        expressions,
+        &mut source_files,
+        &mut generated_source_invocations,
+        &mut generator_origins,
+        cache_directory,
+    )
+    .map_err(|error| error.attach(&source_files))?;
     let (expressions, generation_requirements) = crate::generator_provenance::extract(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
     let mut with_protocols = Vec::with_capacity(expressions.len());
@@ -897,6 +910,7 @@ pub(crate) fn prepare_program_syntax(
             )
         },
         bundles,
+        dispatch_artifacts,
         capture_cache_directory: cache_directory.map(Path::to_path_buf),
         root_source: source.to_owned(),
         expressions,
@@ -1251,6 +1265,11 @@ pub(crate) fn parse_prepared_program_items(
         generated_source_invocations,
         generated_definition_contexts,
         syntax_bundle_uses: prepared.bundles.uses.clone(),
+        dispatch_manifests: prepared
+            .dispatch_artifacts
+            .iter()
+            .map(|artifact| artifact.manifest(&prepared.source_files))
+            .collect(),
         contracts: crate::contracts::Metadata::default(),
         generator_validation: None,
     };
@@ -1430,6 +1449,13 @@ fn write_prepared_generated_sources_reusing_graph(
     let generated_cache = cache_directory
         .map(Path::to_path_buf)
         .unwrap_or_else(|| directory.join("cache"));
+    for artifact in &prepared.dispatch_artifacts {
+        artifact.publish(
+            &generated_cache,
+            &prepared.source_files,
+            &prepared.generated_source_invocations,
+        )?;
+    }
     let location = |span: Span| {
         let path = prepared
             .source_files

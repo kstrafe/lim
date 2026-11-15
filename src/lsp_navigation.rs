@@ -144,7 +144,7 @@ impl<'a> Index<'a> {
                     || (program.is_none()
                         && matches!(
                             head(node),
-                            "fn" | "unsafe-fn"
+                            "fn" | "unsafe-fn" | "dispatch-fn"
                                 | "extern-fn"
                                 | "struct"
                                 | "enum"
@@ -389,11 +389,7 @@ impl<'a> Index<'a> {
 
     // Metadata gives @ targets declaration roles. Check these before
     // general qualification can accept a declaration of the wrong kind.
-    fn effect_reference(
-        &self,
-        node: &Node,
-        in_function: bool,
-    ) -> Option<Vec<Span>> {
+    fn effect_reference(&self, node: &Node, in_function: bool) -> Option<Vec<Span>> {
         if !self.contains(node)
             || matches!(node.expr, Expr::Quote(_) | Expr::QuasiQuote(_))
         {
@@ -401,7 +397,7 @@ impl<'a> Index<'a> {
         }
         let in_function = in_function || matches!(
             head(node),
-            "fn" | "unsafe-fn" | "extern-fn"
+            "fn" | "unsafe-fn" | "extern-fn" | "dispatch-fn"
                 | "thread-task-spawn" | "thread-task-join"
         );
         if in_function && head(node) == "effects" {
@@ -835,6 +831,131 @@ impl<'a> Index<'a> {
             self.variant_target(name)
         }
     }
+    fn dispatch_declaration(&self, node: &Node) -> Vec<Span> {
+        if let Some(name) = node.children.get(1).filter(|node| self.contains(node)) {
+            return symbol(name).map_or_else(Vec::new, |name| self.global(name));
+        }
+        let Some(record) = node.children.get(2) else {
+            return vec![];
+        };
+        let fields = &record.children;
+        let mut scope = Scope::new();
+        let returns = fields
+            .iter()
+            .find(|field| head(field) == "returns")
+            .and_then(|field| field.children.get(1));
+        scope.insert(
+            "\0contract-result".into(),
+            Binding {
+                spans: vec![],
+                ty: returns.and_then(ty),
+            },
+        );
+        if let Some(args) = fields
+            .iter()
+            .find(|field| head(field) == "params")
+            .and_then(|field| field.children.get(1))
+        {
+            for arg in &args.children {
+                let Some(binding) = arg.children.first() else {
+                    continue;
+                };
+                self.explicit_locals.borrow_mut().insert(binding.span);
+                let targets =
+                    self.bind_pattern(binding, arg.children.get(1).and_then(ty), &mut scope);
+                if !targets.is_empty() {
+                    return targets;
+                }
+                if let Some(kind) = arg.children.get(1).filter(|kind| self.contains(kind)) {
+                    return self.type_reference(kind);
+                }
+            }
+        }
+        for field in fields.iter().filter(|field| self.contains(field)) {
+            let Some(value) = field.children.get(1).filter(|value| self.contains(value)) else {
+                return vec![];
+            };
+            return match head(field) {
+                "dispatch-on" => symbol(value)
+                    .and_then(|name| scope.get(name))
+                    .map(|binding| binding.spans.clone())
+                    .unwrap_or_default(),
+                "returns" => self.type_reference(value),
+                "effects" => self.effects(field),
+                "requires" | "ensures" | "preserves" => {
+                    self.sequence(&value.children, &mut scope, &Scope::new())
+                }
+                _ => vec![],
+            };
+        }
+        vec![]
+    }
+
+    /// Manifest spans come from this expansion, including warm cache runs.
+    /// Source registrations never borrow the generated function's authority.
+    fn dispatch_reference(&self) -> Option<Vec<Span>> {
+        let program = self.program?;
+        for manifest in &program.dispatch_manifests {
+            if let Some(function) = program.declaration_expressions.get(&manifest.name) {
+                if function
+                    .children
+                    .get(1)
+                    .is_some_and(|name| self.contains(name))
+                {
+                    return Some(vec![manifest.declaration.children.get(1)?.span]);
+                }
+            }
+            if self.contains(&manifest.declaration) {
+                return Some(self.dispatch_declaration(&manifest.declaration));
+            }
+            for registration in &manifest.registrations {
+                if registration.generated_case_keyword.is_some_and(|span| {
+                    span.source_id == self.file && span.start <= self.byte && self.byte < span.end
+                }) {
+                    let mut targets = vec![registration.source.children.first()?.span];
+                    targets.extend(self.global(&registration.handler));
+                    // Identical registrations share a case but keep all origins.
+                    for duplicate in &manifest.registrations {
+                        if duplicate.variant == registration.variant
+                            && duplicate.handler == registration.handler
+                        {
+                            targets.push(duplicate.source.children.first()?.span);
+                        }
+                    }
+                    return Some(targets);
+                }
+                if self.contains(&registration.source) {
+                    let targets = if registration
+                        .source
+                        .children
+                        .get(1)
+                        .is_some_and(|node| self.contains(node))
+                    {
+                        self.global(&registration.dispatcher)
+                    } else if registration
+                        .source
+                        .children
+                        .get(2)
+                        .is_some_and(|node| self.contains(node))
+                    {
+                        self.variant_target(&registration.variant)
+                    } else if registration
+                        .source
+                        .children
+                        .get(3)
+                        .is_some_and(|node| self.contains(node))
+                    {
+                        self.global(&registration.handler)
+                    } else {
+                        vec![]
+                    };
+                    return Some(targets);
+                }
+            }
+        }
+        None
+    }
+
     fn function(&self, node: &Node) -> Vec<Span> {
         let ni = name_index(node);
         let mut scope = Scope::new();
@@ -928,6 +1049,16 @@ impl<'a> Index<'a> {
         }
         let xs = &node.children;
         match head(node) {
+            "dispatch-fn" => return self.dispatch_declaration(node),
+            "dispatch-case" => {
+                if let Some(target) = xs.get(2).filter(|node| self.contains(node)) {
+                    return symbol(target).map_or_else(Vec::new, |name| self.variant_target(name));
+                }
+                for target in [xs.get(1), xs.get(3)].into_iter().flatten().filter(|node| self.contains(node)) {
+                    return symbol(target).map_or_else(Vec::new, |name| self.global(name));
+                }
+                return vec![];
+            }
             "effects" => return self.effects(node),
             "requires" | "ensures" | "preserves" | "assume" | "old" => {
                 return xs
@@ -1696,6 +1827,11 @@ impl<'a> Index<'a> {
         self.walk(node, &mut Scope::new(), &Scope::new())
     }
     pub fn resolve(&self) -> Vec<Span> {
+        if let Some(mut targets) = self.dispatch_reference() {
+            targets.sort_by_key(|span| (span.source_id, span.start, span.end));
+            targets.dedup();
+            return targets;
+        }
         for node in self.forms {
             if let Some(targets) = self.effect_reference(node, false) {
                 return targets;

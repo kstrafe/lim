@@ -518,6 +518,48 @@ impl Resolver<'_> {
             }
             return rebuild(node);
         }
+        if kind == "#dispatch-fn" {
+            if let Some(name) = node.children.get_mut(1) {
+                self.rewrite(name, file, locals)?;
+            }
+            if let Some(fields) = node.children.get_mut(2) {
+                for field in &mut fields.children {
+                    if field.children.first().and_then(symbol) == Some("#params") {
+                        if let Some(parameters) = field.children.get_mut(1) {
+                            for parameter in &mut parameters.children {
+                                if let Some(name) = parameter.children.first().and_then(symbol) {
+                                    inner.insert(name.to_owned());
+                                    if self
+                                        .lookup(file, name, &mut Vec::new())
+                                        .map_err(SourceError::from)?
+                                        .is_some()
+                                    {
+                                        return Err(SourceError::from(format!("parameter '{name}' would shadow a file-local declaration or alias")).at(parameter.children[0].span));
+                                    }
+                                }
+                                for ty in parameter.children.iter_mut().skip(1) {
+                                    self.rewrite(ty, file, locals)?;
+                                }
+                                rebuild(parameter)?;
+                            }
+                            rebuild(parameters)?;
+                        }
+                        rebuild(field)?;
+                    }
+                }
+                for field in &mut fields.children {
+                    let key = field.children.first().and_then(symbol).unwrap_or("");
+                    if !matches!(key, "#params" | "#dispatch-on") {
+                        for value in field.children.iter_mut().skip(1) {
+                            self.rewrite(value, file, &inner)?;
+                        }
+                        rebuild(field)?;
+                    }
+                }
+                rebuild(fields)?;
+            }
+            return rebuild(node);
+        }
         if matches!(
             kind.as_str(),
             "#fn" | "#unsafe-fn" | "#extern-fn" | "#gn" | "#gn-fn"

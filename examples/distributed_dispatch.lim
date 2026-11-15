@@ -1,0 +1,33 @@
+#distributed-enum Message ()
+
+#dispatch-fn evaluate {
+  #params = { message = Message; offset = #u64; };
+  #returns = #u64;
+  #dispatch-on = message;
+}
+
+#enum-contribute Message (Message.Number #u64)
+#enum-contribute Message (Message.Empty)
+#dispatch-case evaluate Message.Number evaluate-number
+#dispatch-case evaluate Message.Empty evaluate-empty
+
+#fn evaluate-number {
+  #params = { offset = #u64; message = #u64; };
+  #returns = #u64;
+  #body = ((#return (#u64::add-wrap message offset)));
+}
+
+#fn evaluate-empty {
+  #params = { offset = #u64; };
+  #returns = #u64;
+  #body = ((#return offset));
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body = (
+    (#assert (#u64::eq (evaluate { message = Message.Empty; offset = 42u64; }) 42u64))
+    (#return (evaluate { message = (Message.Number 40u64); offset = 2u64; }))
+  );
+}

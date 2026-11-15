@@ -32,7 +32,7 @@ syn match limTypeProperty +#\%(linear\|repr-c\)\ze\%($\|[[:space:](){}=;\[\]"'`,
 syn match limType +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|tuple\|pin-ref\|pin-ref-mut\|pin-own\|pin-shared-own\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)::[^[:space:](){}=;\[\]"'`,@#]\++
-syn match limDeclaration +#\%(alias\|fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|type\|static\|let\|let-mut\|const\|export\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
+syn match limDeclaration +#\%(alias\|fn\|extern-fn\|struct\|enum\|distributed-enum\|enum-contribute\|dispatch-fn\|dispatch-case\|type\|static\|let\|let-mut\|const\|export\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limContract +#\%(requires\|ensures\|preserves\|assume\|if-valid\|where\|old\|result\|index-proven\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 " Effect interfaces and fixed byte I/O use exact builtin spellings.
 let s:effect_end = '\ze\%($\|[[:space:](){}=;\[\]"''`,@#]'
@@ -59,7 +59,7 @@ syn match limNumber "\<\d[[:digit:]_]*\.\d[[:digit:]_]*\([eE][+-]\?[[:digit:]_]*
 
 
 " Structured declaration fields and arithmetic mode headers.
-syn match limSection +#\%(params\|returns\|body\|value\)\ze\%($\|[[:space:](){}=;\[\]"\'`,@#]\|:\%($\|[[:space:]]\)\)+
+syn match limSection +#\%(params\|returns\|body\|value\|dispatch-on\)\ze\%($\|[[:space:](){}=;\[\]"\'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limOperator +#\%(wrap\|saturate\)\ze\%($\|[[:space:](){}=;\[\]"\'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limSeparator "[;=]"
 syn match limSeparator "\%(:\)\@<!:\%(:\)\@!\ze\%(\s\|$\)"

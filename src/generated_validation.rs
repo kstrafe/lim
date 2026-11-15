@@ -126,6 +126,18 @@ pub(crate) fn resolve(program: &Program) -> Result<crate::typed_ir::Declarations
                     .collect(),
             )
         }));
+    analysis
+        .dispatch_manifests
+        .extend(
+            witnesses
+                .dispatch_manifests
+                .iter()
+                .cloned()
+                .map(|mut manifest| {
+                    manifest.remap_sources(&sources);
+                    manifest
+                }),
+        );
     analysis.contracts.effects = crate::effects::collect(&analysis)
         .map_err(|error| (error.message, error.code, error.span, Vec::new()))?;
     let mut declarations = resolve_program_for_analysis(&analysis, true)

@@ -1067,6 +1067,7 @@ fn monomorphize_program<'a>(
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
         syntax_bundle_uses: program.syntax_bundle_uses.clone(),
+        dispatch_manifests: program.dispatch_manifests.clone(),
         contracts: program.contracts.clone(),
         generator_validation: program.generator_validation.clone(),
     }))
@@ -1249,6 +1250,7 @@ fn prepare_checked_program(
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
         syntax_bundle_uses: program.syntax_bundle_uses.clone(),
+        dispatch_manifests: program.dispatch_manifests.clone(),
         contracts: program.contracts.clone(),
         generator_validation: program.generator_validation.clone(),
     };

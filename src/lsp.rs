@@ -1422,6 +1422,13 @@ fn generator_reference(expressions: &[SpannedExpr], byte: usize) -> Option<(Span
         {
             continue;
         }
+        if let Some(at) = expression.children.first().filter(|child| {
+            matches!(&child.expr, Expr::Symbol(head) if matches!(head.as_str(), "#dispatch-fn" | "#dispatch-case"))
+        }) {
+            if at.span.start <= byte && byte < at.span.end {
+                return Some((at.span, None));
+            }
+        }
         if let Some(at) = expression
             .children
             .first()
@@ -1664,7 +1671,7 @@ fn declarations(source: &str) -> Vec<Declaration> {
                 return None;
             };
             let kind = match head.as_str() {
-                "#fn" | "#unsafe-fn" | "#extern-fn" => 12,
+                "#fn" | "#unsafe-fn" | "#extern-fn" | "#dispatch-fn" => 12,
                 "#struct" => 23,
                 "#enum" | "#distributed-enum" => 10,
                 "#let" | "#let-mut" => 13,

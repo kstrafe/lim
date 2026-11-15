@@ -58,6 +58,18 @@ for [s:token, s:group] in [
   endif
 endfor
 
+" Dispatch declarations and their contextual selector use exact tokens.
+for [s:token, s:group] in [['dispatch-fn', 'limDeclaration'],
+      \ ['dispatch-case', 'limDeclaration'], ['dispatch-on', 'limSection']]
+  call s:check('#' . s:token, s:group)
+  call s:check(s:token, '')
+  call s:check('#' . s:token . '-custom', 'limKeyword')
+  call s:check('#' . s:token . '::custom', 'limKeyword')
+endfor
+call s:check('"#dispatch-fn #dispatch-case #dispatch-on"', 'limString')
+call setline(1, '// #dispatch-fn #dispatch-case #dispatch-on')
+call assert_equal('limComment', synIDattr(synID(1, 4, 1), 'name'))
+
 " Contract forms use exact tokens; keywords never consume identifier suffixes.
 for s:contract in ['requires', 'ensures', 'preserves', 'assume', 'if-valid', 'where', 'old', 'result', 'index-proven']
   call s:check('#' . s:contract, 'limContract')

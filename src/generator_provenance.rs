@@ -53,6 +53,7 @@ pub(crate) fn declared_names(expr: &Expr) -> Vec<&str> {
             | "#const"
             | "#thread-task"
             | "#syntax"
+            | "#dispatch-fn"
             | "#distributed-enum"
     ) {
         names.extend(

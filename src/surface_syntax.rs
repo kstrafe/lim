@@ -68,6 +68,7 @@ fn syntax_operand(terms: &[Node]) -> bool {
                     | "#syntax"
                     | "#struct"
                     | "#enum"
+                    | "#dispatch-fn"
                     | "#distributed-enum"
             ) || matches!(terms[0].expr, Expr::Generate)))
         || (terms.len() == 2 && name(&terms[0]) == "#extern-fn")

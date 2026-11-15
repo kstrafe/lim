@@ -131,8 +131,14 @@ impl<'a> SourceForms<'a> {
             if delimiters.is_empty() && (token.kind == TokenKind::Colon || layout_suffix) {
                 colon_operand = true;
             }
+            // The producer is a literal identifier, even when it names a
+            // compiler producer whose spelling is also a declaration head.
+            // Only this fixed operand position bypasses sibling detection.
+            let producer_operand = tokens.len() == 2
+                && matches!(&tokens[0].kind, TokenKind::Symbol(head) if head == "#require-generated");
             if delimiters.is_empty()
                 && !colon_operand
+                && !producer_operand
                 && (token.kind == TokenKind::Generate
                     || matches!(&token.kind, TokenKind::Symbol(head) if declaration_head(head)))
                 && !matches!(
@@ -181,12 +187,19 @@ impl<'a> SourceForms<'a> {
             if let Some(child) = node
                 .children
                 .iter()
+                .enumerate()
                 .skip(1)
-                .find(|child| match &child.expr {
-                    crate::Expr::Symbol(head) => declaration_head(head),
-                    crate::Expr::Generate => true,
-                    _ => false,
+                .find(|(index, child)| {
+                    if *index == 2 && matches!(&tokens[0].kind, TokenKind::Symbol(head) if head == "#require-generated") {
+                        return false;
+                    }
+                    match &child.expr {
+                        crate::Expr::Symbol(head) => declaration_head(head),
+                        crate::Expr::Generate => true,
+                        _ => false,
+                    }
                 })
+                .map(|(_, child)| child)
             {
                 return Err(crate::ParseError {
                     message: "root declarations require a newline or semicolon separator".into(),
@@ -295,6 +308,8 @@ fn declaration_head(name: &str) -> bool {
             | "#unsafe-impl"
             | "#capability"
             | "#syntax"
+            | "#dispatch-fn"
+            | "#dispatch-case"
             | "#distributed-enum"
             | "#enum-contribute"
             | "#thread-task"

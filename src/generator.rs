@@ -1595,7 +1595,7 @@ fn recorded_generated_origins(source: &str) -> Vec<String> {
         })
 }
 
-fn annotate_generated_source(source: &str, origins: &[String]) -> String {
+pub(crate) fn annotate_generated_source(source: &str, origins: &[String]) -> String {
     let body = if source.starts_with(GENERATED_ORIGINS_HEADER) {
         source.split_once("\n\n").map_or(source, |(_, body)| body)
     } else {

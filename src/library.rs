@@ -103,6 +103,31 @@ pub(crate) struct Visibility {
 }
 
 impl Visibility {
+    pub(crate) fn for_dispatch(
+        forms: &[SpannedExpr],
+        files: &[SourceFile],
+        origins: &HashMap<u32, Span>,
+        authorities: &HashMap<u32, Span>,
+        extra_declarations: &HashMap<String, Span>,
+    ) -> Result<Self, SourceError> {
+        let mut declarations: HashMap<String, Span> = forms
+            .iter()
+            .flat_map(|form| {
+                crate::generator_provenance::declared_names(&form.expr)
+                    .into_iter()
+                    .map(move |name| (name.to_owned(), form.span))
+            })
+            .collect();
+        declarations.extend(
+            extra_declarations
+                .iter()
+                .map(|(name, span)| (name.clone(), *span)),
+        );
+        let mut visibility = Self::new(files, origins, declarations)?;
+        visibility.authorities.clone_from(authorities);
+        Ok(visibility)
+    }
+
     fn new(
         files: &[SourceFile],
         origins: &HashMap<u32, Span>,

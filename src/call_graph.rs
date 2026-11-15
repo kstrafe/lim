@@ -220,6 +220,9 @@ pub(crate) fn lower(program: &mut Program) -> Result<(), SourceError> {
     combined
         .syntax_bundle_uses
         .extend(witnesses.syntax_bundle_uses.clone());
+    combined
+        .dispatch_manifests
+        .extend(witnesses.dispatch_manifests.clone());
     lower_inner(&mut combined)?;
     let mut checked_witnesses = combined.clone();
     checked_witnesses.items.retain(|item| {

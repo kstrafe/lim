@@ -2202,6 +2202,24 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td>Writes through a mutable Lim reference.</td>
 </tr>
 <tr>
+<td><code>#dispatch-case</code></td>
+<td><code>#dispatch-case dispatcher Enum.Variant handler</code></td>
+<td><code>#dispatch-case evaluate Message.Number evaluate-number</code> (top level)</td>
+<td>Registers one direct handler for a closed dispatcher. Identical resolved registrations deduplicate; conflicts and missing coverage fail. See <a href="distributed-dispatch.md">distributed dispatch</a>.</td>
+</tr>
+<tr>
+<td><code>#dispatch-fn</code></td>
+<td><code>#dispatch-fn name { #params = { parameter = EnumType; }; #returns = ReturnType; #dispatch-on = parameter; }</code></td>
+<td><code>#dispatch-fn evaluate { #params = { message = Message; }; #returns = #u64; #dispatch-on = message; }</code> (top level)</td>
+<td>Emits an inspectable ordinary function with an exhaustive match after generator expansion and enum collection. Effects and contracts are explicit.</td>
+</tr>
+<tr>
+<td><code>#dispatch-on</code></td>
+<td><code>#dispatch-on = parameter;</code> inside <code>#dispatch-fn</code></td>
+<td><code>#dispatch-fn evaluate { #params = { message = Message; }; #returns = #u64; #dispatch-on = message; }</code> (top level)</td>
+<td>Selects one declared enum parameter, owned or behind an ordinary/pinned shared/exclusive reference. This section is not a runtime expression.</td>
+</tr>
+<tr>
 <td><code>#distributed-enum</code></td>
 <td><code>#distributed-enum Name (properties...)</code></td>
 <td><code>#distributed-enum Error ()</code> (top level)</td>

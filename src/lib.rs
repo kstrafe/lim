@@ -23,6 +23,7 @@ mod codegen;
 mod conditional_records;
 mod contracts;
 mod diagnostic_json;
+mod distributed_dispatch;
 mod distributed_enum;
 mod editor;
 mod effects;
@@ -88,6 +89,10 @@ pub use cache_report::with_cache_report;
 pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
 pub use diagnostic_json::render_diagnostic_json;
+pub use distributed_dispatch::{
+    with_manifest as with_dispatch_manifest, Manifest as DispatchManifest,
+    Registration as DispatchRegistration,
+};
 pub use editor::check_source_for_editor;
 pub use generated_lookup::{locate_generated, locate_generated_details, GeneratedArtifact};
 pub use output::{reject_source_output_collision, write_output_atomic, write_output_atomic_with};
@@ -1202,7 +1207,7 @@ pub fn format_source(source: &str) -> Result<String, String> {
         }
         let declaration = matches!(&expression.expr, Expr::List(items)
             if matches!(items.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#gn" | "#gn-fn")));
+                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#gn" | "#gn-fn" | "#dispatch-fn")));
         if previous_declaration.is_some_and(|previous| previous || declaration)
             && !output.ends_with("\n\n")
         {
@@ -1292,7 +1297,7 @@ pub fn format_syntax(source: &str) -> Result<String, String> {
         }
         let declaration = matches!(&expression.expr, Expr::List(items)
             if matches!(items.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#gn" | "#gn-fn")));
+                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#gn" | "#gn-fn" | "#dispatch-fn")));
         if previous_declaration.is_some_and(|previous| previous || declaration)
             && !output.ends_with("\n\n")
         {
@@ -2009,6 +2014,7 @@ pub struct Program {
     pub(crate) generated_source_invocations: HashMap<u32, Span>,
     pub(crate) generated_definition_contexts: HashMap<u32, Span>,
     pub(crate) syntax_bundle_uses: HashMap<Span, Vec<Span>>,
+    pub(crate) dispatch_manifests: Vec<distributed_dispatch::Manifest>,
     /// Ordinary validation witnesses supplied by code generators. They are
     /// checked in the runtime declaration context but never emitted.
     pub(crate) generator_validation:
@@ -2545,6 +2551,18 @@ fn analysis_diagnostic(
                 source_name: Some(file.path.display().to_string()),
                 source_text: Some(file.source.clone()),
             });
+        }
+    }
+    if let Some(span) = structured_span {
+        for (origin, message) in distributed_dispatch::diagnostic_origins(program, span) {
+            if let Some(file) = program.source_files.get(origin.source_id as usize) {
+                diagnostic.labels.push(DiagnosticLabel {
+                    message: message.into(),
+                    span: origin,
+                    source_name: Some(file.path.display().to_string()),
+                    source_text: Some(file.source.clone()),
+                });
+            }
         }
     }
     let mut origin = structured_span;
@@ -5446,6 +5464,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "ptr"
             | "ptr-mut"
             | "gn"
+            | "dispatch-fn"
+            | "dispatch-case"
             | "distributed-enum"
             | "enum-contribute"
             | "require-generated"

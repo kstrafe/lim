@@ -85,6 +85,9 @@ mod tests {
         "debug-assert",
         "deref",
         "deref-set",
+        "dispatch-case", // Keyword opens artifact; operands resolve dispatcher/variant/handler.
+        "dispatch-fn", // Explicit signature; selected parameter is a local use.
+        "dispatch-on", // Contextual metadata; value targets a declared parameter.
         "distributed-enum",
         "drop",
         "effects", // Explicit permissions: function/global targets, never keyword definitions.
