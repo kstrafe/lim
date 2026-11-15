@@ -1645,21 +1645,21 @@ fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
         .unwrap();
     let (_, suffix) = after_second_poll.split_once("  (#forget frame)").unwrap();
     let cancelled = format!(
-        "{prefix}\
-          (#let cleanup Local-self-ref::Frame::Cleanup\n\
-            (#call Local-self-ref::Poll::cleanup ((task pending-frame))))\n\
-          (#let result #u64 (#match (#get cleanup owner)\n\
-            (#case Local-self-ref::Frame::Cleanup::Owner.Empty (#unreachable))\n\
-            (#case (Local-self-ref::Frame::Cleanup::Owner.Full extracted) (#block\n\
-              (#let-mut owned LocalOwner extracted)\n\
-              (#set-field owned payload (#struct-literal LocalPayload ((left 41u64) (right 5u64))))\n\
-              (#let value #u64 (#get (#get owned payload) left))\n\
-              (#forget owned) value))))\n\
-          (#match (#get cleanup await-0)\n\
-            (#case Local-self-ref::Frame::Cleanup::Await-0.Empty ())\n\
-            (#case (Local-self-ref::Frame::Cleanup::Await-0.Full child) (#forget child)))\n\
-          (#forget cleanup)\n\
-          (#forget frame){suffix}"
+        "{prefix}
+  (#let cleanup Local-self-ref::Frame::Cleanup
+  (#call Local-self-ref::Poll::cleanup ((task pending-frame))))
+  (#let result #u64 (#match (#get cleanup owner)
+  (#case Local-self-ref::Frame::Cleanup::Owner.Empty (#unreachable))
+  (#case (Local-self-ref::Frame::Cleanup::Owner.Full extracted) (#block
+  (#let-mut owned LocalOwner extracted)
+  (#set-field owned payload (#struct-literal LocalPayload ((left 41u64) (right 5u64))))
+  (#let value #u64 (#get (#get owned payload) left))
+  (#forget owned) value))))
+  (#match (#get cleanup await-0)
+  (#case Local-self-ref::Frame::Cleanup::Await-0.Empty ())
+  (#case (Local-self-ref::Frame::Cleanup::Await-0.Full child) (#forget child)))
+  (#forget cleanup)
+  (#forget frame){suffix}"
     );
     let generated = build_and_run_graph(&cancelled, 41);
     assert_single_poll(&generated, "Local-self-ref::poll");
@@ -5974,11 +5974,11 @@ fn async_while_body_can_return_after_body_await() {
         )
         .replace(
             "(#return (#u64::add-wrap true-result false-result))",
-            "(#let true-value #u64 (#get true-result value))\n\
-             (#let false-value #u64 (#get false-result value))\n\
-             (#forget true-result)\n\
-             (#forget false-result)\n\
-             (#return (#u64::add-wrap true-value false-value))",
+            "(#let true-value #u64 (#get true-result value))
+  (#let false-value #u64 (#get false-result value))
+  (#forget true-result)
+  (#forget false-result)
+  (#return (#u64::add-wrap true-value false-value))",
         );
     let generated = build_and_run_graph(&linear_source, 18);
     assert_single_poll(&generated, "Work::poll");
@@ -6385,11 +6385,11 @@ fn async_awaited_while_return_branch_and_continue_branch_resume_correctly() {
         )
         .replace(
             "(#return (#u64::add-wrap returned continued))",
-            "(#let returned-value #u64 (#get returned value))\n\
-             (#let continued-value #u64 (#get continued value))\n\
-             (#forget returned)\n\
-             (#forget continued)\n\
-             (#return (#u64::add-wrap returned-value continued-value))",
+            "(#let returned-value #u64 (#get returned value))
+  (#let continued-value #u64 (#get continued value))
+  (#forget returned)
+  (#forget continued)
+  (#return (#u64::add-wrap returned-value continued-value))",
         );
     build_and_run_graph(&linear_source, 18);
     let reused = linear_source.replace(
@@ -7031,7 +7031,8 @@ fn async_clones_indexed_computed_reference_owners() {
             "(#return result)\n#enum Step (#linear)",
             "(#if (#unsafe (#usize::eq (#ptr-read calls) 2usize))
                (#block (#unsafe (#linux-syscall () 60u64 (87u64))) (#unreachable)) ())
-             (#return result))\n      (#enum Step (#linear)",
+             (#return result)
+#enum Step (#linear)",
         );
     assert!(invalid_outer.contains("(#linux-syscall () 60u64 (87u64))"));
     // If the first bounds check is deferred until after the second index
