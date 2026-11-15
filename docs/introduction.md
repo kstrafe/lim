@@ -1,4 +1,4 @@
-# Meet Lim {#introduction}
+# Introducing Lim {#introduction}
 
 Lim is an experimental, compiled **Lisp with explicit, strong static types**
 and a **human-readable target for generated code**. Write it by hand or generate
