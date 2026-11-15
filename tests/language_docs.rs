@@ -74,8 +74,14 @@ fn builtin_reference_is_sorted_and_covers_parser_forms() {
                 .split(delimiter)
                 .next()
                 .unwrap();
-            lim::parse(example)
-                .unwrap_or_else(|error| panic!("{name}: invalid example syntax: {error}"));
+            let parsed = if cells[3].contains("(top level)")
+                || cells[3].contains("(compiler-generated file header)")
+            {
+                lim::parse_source_unit(example)
+            } else {
+                lim::parse(example)
+            };
+            parsed.unwrap_or_else(|error| panic!("{name}: invalid example syntax: {error}"));
             assert!(
                 example.contains(name),
                 "{name}: contextual example must demonstrate this builtin"
