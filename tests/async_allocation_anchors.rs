@@ -192,13 +192,13 @@ fn source() -> String {
         .replace("  (#let waker #u64 0u64)", "  (#unsafe (#atomic-store (#borrow cancelled) 0u64 #memory-relaxed))\n  (#let waker #u64 0u64)");
     let main = source.rfind("#fn main ").unwrap();
     let mut source = source[..main].to_owned();
-    source.push_str("#fn main {\n  #params = ();\n  #returns = #u64;\n");
+    source.push_str("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = (\n");
     for choice in 0..3 {
         for cancel in [0, 1, 2, 9] {
             source.push_str(&format!("  (#assert (#u64::eq (#call run ((choice {choice}u64) (cancel-at {cancel}u64))) 42u64))\n"));
         }
     }
-    source.push_str("  (#return 42u64)");
+    source.push_str("  (#return 42u64)\n  );\n}\n");
     source
 }
 

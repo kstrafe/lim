@@ -95,8 +95,10 @@ fn cancellation_selects_only_the_child_live_at_the_current_await() {
 #[test]
 fn runtime_array_child_is_cancelled_before_destroying_its_selected_owner() {
     let program = source()
-        .replace("#fn destroy-owner {\n  #params = ((value Owner));\n  #returns = ();\n  #body = (\n          (#assert (#u64::eq (#get value amount) 40u64))\n  );\n}",
-            "#fn destroy-owner {\n  #params = ((value (#array Owner 2)));\n  #returns = ();\n  #body = (\n        (#assert (#u64::eq (#get (#index value 0usize) amount) 10u64))\n        (#assert (#u64::eq (#get (#index value 1usize) amount) 40u64))\n  );\n}")
+        .replace("#fn destroy-owner {\n  #params = ((value Owner));",
+            "#fn destroy-owner {\n  #params = ((value (#array Owner 2)));")
+        .replace("(#assert (#u64::eq (#get value amount) 40u64))",
+            "(#assert (#u64::eq (#get (#index value 0usize) amount) 10u64))\n        (#assert (#u64::eq (#get (#index value 1usize) amount) 40u64))")
         .replace("(#let owner Owner (#struct-literal Owner ((amount 40u64))))",
             "(#let owner (#array Owner 2) (#array-of (#array Owner 2)\n            (#struct-literal Owner ((amount 10u64))) (#struct-literal Owner ((amount 40u64)))))\n          (#let-mut index #usize 1usize)")
         .replace("(Child.Holding (#tuple (#borrow owner) 0u64))",
@@ -134,8 +136,9 @@ fn exclusive_dependent_mutates_owner_before_owner_destruction() {
         .replace("(#borrow owner)", "(#borrow-mut owner)")
         .replace("(#drop view) (#forget count)",
             "(#deref-set (#borrow-mut (#get view amount)) 41u64) (#drop view) (#forget count)")
-        .replace("#fn destroy-owner {\n  #params = ((value Owner));\n  #returns = ();\n  #body = (\n          (#assert (#u64::eq (#get value amount) 40u64))\n  );\n}",
-            "#fn destroy-owner {\n  #params = ((value Owner));\n  #returns = ();\n  #body = (\n        (#assert (#u64::eq (#get value amount) 41u64))\n  );\n}");
+        .replace("(#assert (#u64::eq (#get value amount) 40u64))",
+            "(#assert (#u64::eq (#get value amount) 41u64))");
+    assert!(program.contains("(#assert (#u64::eq (#get value amount) 41u64))"));
     run(&program, "async-exclusive-dependent-cancellation");
 }
 
@@ -301,8 +304,9 @@ fn metadata_discard_does_not_allow_forgetting_a_live_childs_owner() {
 
 #[test]
 fn reference_free_pinned_child_cancels_in_word_storage_exactly_once() {
+    // The child function is literal #generate AST data, not an authored declaration.
     let program = pinned_source()
-        .replace("#fn child {\n  #params = ((view (#ref Owner)));", "#fn child {\n  #params = ((amount #u64));")
+        .replace("(#fn child ((view (#ref Owner)))", "(#fn child ((amount #u64))")
         .replace("(#get view amount)", "amount")
         .replace("#call child ((view (#borrow owner)))", "#call child ((amount (#get owner amount)))")
         .replace("#fn cancel-step {\n  #params = ((value Step));\n  #returns = ();\n  #body = ( (#forget value) (#return ())\n  );\n}",
@@ -316,8 +320,8 @@ fn reference_free_pinned_child_cancels_in_word_storage_exactly_once() {
 fn reference_free_pinned_child_rejects_moving_cancellation_handlers() {
     let program = pinned_source()
         .replace(
-            "#fn child {\n  #params = ((view (#ref Owner)));",
-            "#fn child {\n  #params = ((amount #u64));",
+            "(#fn child ((view (#ref Owner)))",
+            "(#fn child ((amount #u64))",
         )
         .replace("(#get view amount)", "amount")
         .replace(
