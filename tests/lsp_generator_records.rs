@@ -136,13 +136,15 @@ fn bundled_standard_generator_paths_have_callee_and_label_roles() {
         (3, "textDocument/definition", source.find("name =").unwrap()),
         (4, "textDocument/hover", source.find("name =").unwrap()),
     ]);
-    for id in [2, 3] {
-        let target = location(result(&messages, id));
-        assert!(target.get("uri").unwrap().string().unwrap().ends_with("/cell.lim"), "{target:?}");
-    }
-    let library = include_str!("../library/cell.lim");
-    let declaration = library.find("#gn cell").unwrap() + "#gn ".len();
-    assert_eq!(location(result(&messages, 2)).get("range").unwrap().get("start"), Some(&position(library, declaration)));
+    let target = location(result(&messages, 2));
+    let snapshot = lsp::uri_to_path(target.get("uri").unwrap().string().unwrap()).unwrap();
+    let bundled = fs::read_to_string(&snapshot).unwrap();
+    assert!(bundled.starts_with("// Bundled source:"));
+    assert!(bundled.ends_with(include_str!("../library/cell.lim")));
+    let declaration = bundled.find("#gn cell").unwrap() + "#gn ".len();
+    assert_definition(result(&messages, 2), &snapshot, &bundled, declaration, "cell");
+    let label = bundled.find("name; create;").unwrap();
+    assert_definition(result(&messages, 3), &snapshot, &bundled, label, "name");
     assert!(hover(&messages, 4).contains("generator label and binding name"), "{}", hover(&messages, 4));
 }
 

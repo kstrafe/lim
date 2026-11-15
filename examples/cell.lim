@@ -1,6 +1,6 @@
-#alias cell = #std/cell.lim::cell
+#alias cell-generator = #std/cell.lim::cell
 // The generated type and its operations are concrete, named Lim declarations.
-#generate cell {
+#generate cell-generator {
   name = CellU32;
   get = CellU32::get;
   value-type = #u32;

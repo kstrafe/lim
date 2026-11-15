@@ -33,7 +33,11 @@ pub(crate) fn project_root(entry: &Path) -> PathBuf {
 }
 
 pub(crate) fn reference_path(base: &Path, name: &str, root: &Path) -> PathBuf {
-    if let Some(relative) = name.strip_prefix("#std/") {
+    if let Some(relative) = name.strip_prefix("#std/")
+        .or_else(|| name.strip_prefix("/%3Clim-std%3E/"))
+    {
+        // Generated declarations use escaped canonical file identities. Their
+        // standard-library references must load the same embedded source.
         Path::new(crate::standard_library::DIRECTORY).join(relative)
     } else if let Some(relative) = name
         .strip_prefix("project::")
@@ -355,12 +359,6 @@ impl Resolver<'_> {
         let result = if let Some((target, name, _, _)) = self.aliases[file].get(name) {
             self.lookup(*target, name, active)?
                 .or_else(|| Some(identity(&self.files[*target], name, *target == 0)))
-        } else if let Some((owner, variant)) = name.split_once('.') {
-            self.lookup(file, owner, active)?
-                .map(|owner| format!("{owner}.{variant}"))
-        } else if let Some((owner, suffix)) = name.split_once("::") {
-            self.lookup(file, owner, active)?
-                .map(|owner| format!("{owner}::{suffix}"))
         } else {
             let mut found = None;
             for imported in &self.imports[file] {
@@ -373,7 +371,20 @@ impl Resolver<'_> {
                     found = Some(value);
                 }
             }
-            found
+            // Resolve a complete imported spelling before deriving a suffix
+            // from its owner. An explicit String::view alias may live in a
+            // different source file from the String declaration itself.
+            if found.is_some() {
+                found
+            } else if let Some((owner, variant)) = name.split_once('.') {
+                self.lookup(file, owner, active)?
+                    .map(|owner| format!("{owner}.{variant}"))
+            } else if let Some((owner, suffix)) = name.split_once("::") {
+                self.lookup(file, owner, active)?
+                    .map(|owner| format!("{owner}::{suffix}"))
+            } else {
+                None
+            }
         };
         self.memo.borrow_mut().insert(key, result.clone());
         active.pop();

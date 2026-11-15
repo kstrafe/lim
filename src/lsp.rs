@@ -1004,6 +1004,16 @@ impl Server<'_> {
                 if let Some(location) = self.span_location(doc, program, span) {
                     locations.insert(location);
                 }
+            } else if crate::standard_library::source(&file.path) == Some(file.source.as_str()) {
+                // Lexical label resolution can finish before expanding the
+                // program. Bundled declarations are already trusted source,
+                // so their targets still need an editor-readable snapshot.
+                let header = format!("// Bundled source: {}\n", file.path.display());
+                if let Some(location) = self.snapshot_location(
+                    doc, &format!("{header}{}", file.source), header.len(), span,
+                ) {
+                    locations.insert(location);
+                }
             }
         }
         match locations.len() {

@@ -172,7 +172,7 @@
         (#deref-set (#borrow-mut (#get iterator cursor)) (#usize::add-wrap index (#get decoded 1)))
         (#return (,(#gn-variant (#gn-symbol-append name "CharResult") "Char") (#get decoded 0)))))
 
-#generate utf8-view { config = ((name StringView) (owner (#ref String))); }
+#generate utf8-view { config = ((name StringView) (owner (#ref @String))); }
 #generate utf8-view { config = ((name Utf8Slice) (owner (#slice #u8))); }
 // String already guarantees UTF-8, so borrowing its complete contents is O(1).
 #fn String::view {

@@ -151,3 +151,30 @@ fn ordinary_standard_items_do_not_enable_keyword_named_user_generators() {
     let error = compile(scratch.path(), "#gn #cell { value; } (#gn-list)\n").unwrap_err();
     assert!(error.message.contains("reserved"), "{error:?}");
 }
+
+#[test]
+fn standard_prelude_views_resolve_their_literal_owner_in_the_definition_file() {
+    let scratch = support::Scratch::new("std-view-owner");
+    execute(scratch.path(), "#std\n\
+        #generate #std/utf8_view.lim::utf8-view { config = ((name BorrowedString) (owner (#ref @String))); }\n\
+        #fn main { #params = {}; #returns = #u64; #body = ((#return 42u64)); }\n", 42);
+}
+
+#[test]
+fn prelude_imports_prefer_the_full_alias_over_a_type_derived_suffix() {
+    let scratch = support::Scratch::new("std-view-alias");
+    execute(scratch.path(), r#"#std
+#fn main {
+  #params = {}; #returns = #u64;
+  #effects = ((#effects-of String::view) (#effects-of String::free));
+  #body = (
+    (#let text String (#call String::new ()))
+    (#let view StringView (#call String::view ((string (#borrow text)))))
+    (#let length #usize (#call StringView::len ((view (#borrow view)))))
+    (#forget view)
+    (#call String::free ((string text)))
+    (#return (#if (#usize::eq length 0usize) 42u64 1u64))
+  );
+}
+"#, 42);
+}

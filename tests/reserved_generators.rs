@@ -87,7 +87,7 @@ fn standard_generators_can_be_explicitly_aliased() {
 }
 
 #[test]
-fn bundled_standard_generator_uses_the_same_reserved_spelling() {
+fn bundled_standard_generator_uses_an_ordinary_prelude_alias() {
     compile(
         "#std
 #generate utf8-view { config = ((name ByteView) (owner (#slice #u8))); }
