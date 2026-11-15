@@ -171,10 +171,14 @@
 <h2>Follow a name to its definition</h2>
 <p>A direct file reference names both a source file and a declaration. An explicit alias gives that exact declaration a shorter file-local spelling:</p>
 <pre class="lisp"><code><span class="lim-comment">// Two ways to name the same function in math.lim:</span>
-(<span class="lim-keyword">#alias</span> add <span class="lim-operator">=</span> .<span class="lim-operator">/</span>math.lim::add)
-(<span class="lim-keyword">#fn</span> answer () <span class="lim-type">#u64</span>
-  (<span class="lim-keyword">#let</span> first <span class="lim-type">#u64</span> (.<span class="lim-operator">/</span>math.lim::add { left <span class="lim-operator">=</span> <span class="lim-literal">20</span>; right <span class="lim-operator">=</span> <span class="lim-literal">22</span>; }))
-  (<span class="lim-keyword">#return</span> (add { left <span class="lim-operator">=</span> first; right <span class="lim-operator">=</span> <span class="lim-literal">0</span>; })))</code></pre>
+<span class="lim-keyword">#alias</span> add <span class="lim-operator">=</span> .<span class="lim-operator">/</span>math.lim::add
+<span class="lim-keyword">#fn</span> answer {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
+    <span class="lim-keyword">#let</span> first <span class="lim-type">#u64</span> (.<span class="lim-operator">/</span>math.lim::add { left <span class="lim-operator">=</span> <span class="lim-literal">20</span>; right <span class="lim-operator">=</span> <span class="lim-literal">22</span>; });
+    <span class="lim-keyword">#return</span> add { left <span class="lim-operator">=</span> first; right <span class="lim-operator">=</span> <span class="lim-literal">0</span>; };
+}</code></pre>
 <p>The declaration&#39;s identity is its <strong>canonical file plus declaration name</strong>. Aliases change the spelling you use, not the identity, signature or ownership rules. This gives text search and editor go-to-definition a direct route to the source. There is no nested namespace lookup, chain of implicit imports or receiver-based method dispatch to unravel. A family spelling such as <code>VecU64::sort</code> is a single declaration name; <code>::</code> within that name does not introduce a namespace. See <a href="#direct-file-references-and-aliases">direct references and aliases</a> for path resolution and visibility rules.</p>
 </section>
 <section id="why-a-new-language" class="level2">
@@ -333,7 +337,7 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 </table>
 <p>Inline colons consume through a newline, semicolon, or enclosing closing delimiter. Consecutive colons nest to the right. Semicolons inside explicit parentheses or an indented group belong to that group. Use spaces for layout.</p>
 <p>Curly braces contain only <code>key = value;</code> entries, with <code>key:</code> available when the value is colon-grouped. Parentheses delimit ordinary forms; square brackets select infix parsing. Nested square brackets inherit their arithmetic header only through direct bracket nesting. A function-call parenthesis ends that inheritance, so brackets inside the call need their own header.</p>
-<p>Canonical S-expressions remain useful for generators and fully explicit code:</p>
+<p>Canonical S-expressions describe the trees used by generators. This example shows syntax data beneath the surface notation; source files use bare roots:</p>
 <pre class="lisp"><code>(<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
   (<span class="lim-keyword">#return</span> (<span class="lim-operator">#u64::add-wrap</span> <span class="lim-literal">40u64</span> <span class="lim-literal">2u64</span>)))</code></pre>
 </section>
@@ -514,7 +518,7 @@ Lim compilation pipeline
 <section id="language-reference" class="level1">
 <h1>Language reference</h1>
 <p>Lim code fences carry explicit test metadata: <code>run=N</code> compiles and runs with exit code N; <code>library</code> compiles through native emission; <code>fragment=NAME</code> uses the named function wrapper in <code>tests/language_docs.rs</code>; <code>error=CODE</code> must fail with that diagnostic. <code>syntax</code> marks schematic forms or signatures with intentionally undefined placeholders; these are parsed, not type-checked. The documentation tests cover this reference, README, allocator notes, and the soundness audit, and reject unclassified Lim fences.</p>
-<p>Lim is a compiled, statically typed Lisp. Its syntax is made of S-expressions, but its type and evaluation rules are deliberately explicit. The compiler currently targets Linux x86-64 System V. It emits inspectable assembly, then encodes and links ELF binaries internally, including supported ELF objects and shared-library calls. Unsupported assembly or object features produce a link diagnostic; the compiler does not invoke <code>as</code> or <code>ld</code>.</p>
+<p>Lim is a compiled, statically typed Lisp. Its syntax lowers to S-expression trees, with bare declarations at source-file roots. Its type and evaluation rules are deliberately explicit. The compiler currently targets Linux x86-64 System V. It emits inspectable assembly, then encodes and links ELF binaries internally, including supported ELF objects and shared-library calls. Unsupported assembly or object features produce a link diagnostic; the compiler does not invoke <code>as</code> or <code>ld</code>.</p>
 <p>This document describes the language implemented by this crate. Builtin forms and all sixteen scalar types use a leading <code>#</code>, such as <code>#u64</code> or <code>#bool</code>; unprefixed builtin forms and scalar types are rejected. Numeric literal suffixes keep their established spelling, such as <code>42u64</code>. User-defined type names remain ordinary identifiers and never receive a <code>#</code> prefix.</p>
 <p>Declaration spelling identifies its role. Every <code>::</code> component in a type name starts with an ASCII uppercase letter (<code>Reading</code>, <code>Work::Frame</code>). Functions, parameters, fields and variables start lowercase or with <code>_</code>; a function can have uppercase type prefixes (<code>Work::poll</code>). A dot is reserved for enum variants: <code>Work::Poll.Ready</code> is variant <code>Ready</code> of enum <code>Work::Poll</code>. These are single global identifiers, not namespace or field-access operations. The compiler enforces the same rules on generated declarations and handwritten code. Compiler-issued hygienic <code>#gn-gensym</code> names occupy a separate reserved domain; they can also name private types without colliding with public declarations.</p>
 <p>User function names retain their identity in named calls, even when a name also spells a builtin. For example, <code>panic { value = reference; }</code> calls the declared user function named <code>panic</code>; <code>(#panic)</code> remains the builtin trap. Calls require named arguments, evaluate their expressions in written call-site order, and apply the declared function signature and ordinary eager-call ownership rules. Ordinary calls accept only safe functions, even inside <code>#unsafe</code>. Use <code>#unsafe-call</code> for unsafe or external functions; it requires an enclosing <code>#unsafe</code> block and uses the same named arguments, evaluation order, signature checks, and ownership rules.</p>
@@ -535,7 +539,7 @@ Lim compilation pipeline
 <h2>Design and scope</h2>
 <section id="surface-notation" class="level3">
 <h3>Surface notation</h3>
-<p>Surface forms lower to the same explicit S-expression representation used by generators and the checker. Canonical parenthesized forms remain supported. The executable <a href="../examples/surface_syntax.lim">surface example</a> combines generated arrays, contracts, infix expressions and local indentation lists.</p>
+<p>Surface forms lower to the same explicit S-expression representation used by generators and the checker. Every source-file root starts with a bare declaration head: the reader supplies its outer list. Explicit root wrappers, such as <code>(#fn main {...})</code>, and doubled-list wrappers are rejected. Parentheses remain valid inside declarations and in quoted generator syntax trees. The executable <a href="../examples/surface_syntax.lim">surface example</a> combines generated arrays, contracts, infix expressions and local indentation lists.</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> increment {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { value <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; };
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
@@ -565,9 +569,9 @@ Lim compilation pipeline
 <li><code>:</code> groups the following syntax as parentheses. On the same line it consumes the remaining forms until the newline, the enclosing closing delimiter, or a semicolon. Repeated colons nest: <code>(a : b : c)</code> is <code>(a (b (c)))</code>. A colon can appear anywhere a form is expected; it has no special meaning at the head of a list.</li>
 <li>A colon at the end of a line groups the following indented syntax. Dedent closes the group. Semicolons inside it group statements, just as they do in an explicit parenthesized sequence. An indented header form ends on dedent without another semicolon. Loops accept a body collection written either with explicit parentheses or with colon grouping.</li>
 <li>In records, <code>key: syntax;</code>, <code>key : syntax;</code>, and <code>key = : syntax;</code> assign that grouped value. Inline entries retain their terminating semicolon; multiline groups close the entry on dedent. Blank/comment lines do not affect scope. Use spaces for indentation. <code>::</code>, embedded <code>left:right</code>, and prefixed <code>:label</code> remain ordinary identifier text; a standalone colon or a single trailing colon starts a group.</li>
-<li>At module scope, <code>#fn</code>, <code>#unsafe-fn</code>, <code>#static</code>, <code>#const</code> and <code>#generate</code> accept an unparenthesized name and record. Its closing brace ends the form. Static and constant records require <code>#type</code> and <code>#value</code>.</li>
+<li>Every module declaration uses a bare head, including <code>#alias</code>, <code>#struct</code>, <code>#enum</code>, <code>#gn</code>, <code>#generate</code> and <code>#std</code>. A newline or EOF ends its logical form unless an explicit delimiter or indented continuation remains open. A semicolon at root depth also ends a declaration; use it to separate roots on one physical line. Nested bodies retain their own colon and semicolon boundaries. A function&#39;s closing <code>}</code> needs no trailing semicolon. Static and constant records require <code>#type</code> and <code>#value</code>.</li>
 </ul>
-<p>The formatter retains authored layout in forms using this notation and removes trailing horizontal whitespace. Its canonical S-expression formatting remains available for fully delimited sources. Reader nesting limits also bound trees created by flat infix chains. Surface syntax does not infer contracts or change the exact identity of comparison evidence.</p>
+<p>The formatter retains authored layout in forms using this notation and removes trailing horizontal whitespace. Source formatting emits bare roots; the separate syntax-tree formatter handles canonical AST data. Reader nesting limits also bound trees created by flat infix chains. Surface syntax does not infer contracts or change the exact identity of comparison evidence.</p>
 <p>Inline colons also work inside a function&#39;s body field:</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -595,11 +599,11 @@ Lim compilation pipeline
 <h2>Shared allocator state and cells</h2>
 <p>Dynamic allocation follows the concrete allocator ABI in <a href="allocator.md">allocator.md</a>. Allocator values are passed explicitly and generated collections retain an immutable allocator reference; interior mutability belongs to the allocator implementation.</p>
 <p><code>#generate #cell</code> is a standard-library generator in <code>library/cell.lim</code>, not a builtin type. Each invocation explicitly names the concrete type and three free-standing functions. It currently accepts the integer widths supported by <code>#atomic</code> (<code>#i8/#i16/#i32/#i64</code>, <code>#u8/#u16/#u32/#u64</code>, and <code>#usize</code>); it does not support floats, pointers, or enums. The generated get/set functions take a shared reference to the concrete cell and never return a reference to its contents:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#alias</span> cell-generator <span class="lim-operator">=</span> ..<span class="lim-operator">/</span>library<span class="lim-operator">/</span>cell.lim::#cell)
+<pre class="lisp"><code><span class="lim-keyword">#alias</span> cell-generator <span class="lim-operator">=</span> ..<span class="lim-operator">/</span>library<span class="lim-operator">/</span>cell.lim::#cell
 
-(<span class="lim-keyword">#generate</span> cell-generator <span class="lim-type">#u64</span> CellU64 CellU64::create CellU64::get CellU64::set)
+<span class="lim-keyword">#generate</span> cell-generator <span class="lim-type">#u64</span> CellU64 CellU64::create CellU64::get CellU64::set
 
-(<span class="lim-keyword">#struct</span> Arena () { cursor <span class="lim-operator">=</span> CellU64; })
+<span class="lim-keyword">#struct</span> Arena () { cursor <span class="lim-operator">=</span> CellU64; }
 
 <span class="lim-keyword">#fn</span> advance {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { cursor <span class="lim-operator">=</span> (<span class="lim-keyword">#ref</span> CellU64); };
@@ -636,15 +640,15 @@ Lim compilation pipeline
 <li>An aggregate has a property only when all of its stored fields/payloads have that property.</li>
 </ul>
 <p>Unsafe native or opaque types may opt in explicitly:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> NativeResource () { handle <span class="lim-operator">=</span> (<span class="lim-keyword">#ptr</span> <span class="lim-type">#u8</span>); })
-(<span class="lim-keyword">#unsafe-impl</span> <span class="lim-keyword">#send</span> NativeResource)
-(<span class="lim-keyword">#unsafe-impl</span> <span class="lim-keyword">#sync</span> NativeResource)</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> NativeResource () { handle <span class="lim-operator">=</span> (<span class="lim-keyword">#ptr</span> <span class="lim-type">#u8</span>); }
+<span class="lim-keyword">#unsafe-impl</span> <span class="lim-keyword">#send</span> NativeResource
+<span class="lim-keyword">#unsafe-impl</span> <span class="lim-keyword">#sync</span> NativeResource</code></pre>
 <p>These declarations are promises by the author and override the structural result for that property. They must only be used when the type&#39;s invariants make cross-thread transfer or shared access sound. Generic-type overrides are currently rejected; duplicate or undeclared targets are errors. The <code>#generate #thread-spawn</code> with <code>((task TaskType) (worker worker-function))</code> validates a monomorphic worker&#39;s parameter and return types against <code>Send</code>. It generates <code>TaskType-spawn</code> and <code>TaskType-join</code> functions and a private native thread entry point; user code never passes a function pointer. Spawn arguments are copied into a private task packet before the worker starts. Scalar and aggregate arguments/results use the compiler&#39;s native calling convention. Spawn returns <code>TaskType-spawn-result</code>: <code>TaskType-spawn-ok</code> carries the opaque task handle and <code>TaskType-spawn-error</code> carries an allocation or thread-creation error. Join returns <code>TaskType-join-result</code>: <code>TaskType-join-ok</code> carries the worker result; <code>TaskType-join-error</code> carries the still-owned task handle and native error code. This distinguishes runtime failure from valid zero-valued results and allows the caller to retry a failed join. A failed join does not release captured borrows or free the task packet.</p>
 <p>On the Linux x86-64 backend, generated threads use direct kernel calls, not libc or pthreads. <code>mmap</code> reserves a stack and task packet; <code>mprotect</code> leaves the bottom page inaccessible. The compiler sizes each worker&#39;s stack from its emitted call graph, rounded to pages with a 64-KiB minimum and allowances for the entry trampoline and red zone. An unknown or unbounded worker call path is a compilation error rather than a guessed stack size.</p>
 <p>The native <code>clone</code> trampoline starts execution on the new stack. The parent and child share a kernel-managed TID word: parent-TID publication avoids an immediate-exit race, and child-TID clearing wakes a shared futex after exit. Join waits for that clearing before copying the result and unmapping the stack/packet. <code>EINTR</code> and <code>EAGAIN</code> retry internally; other futex errors retain the task handle in the join-error result. Allocation/protection and creation failures keep the existing distinct spawn-error variants. See the Linux <a href="https://man7.org/linux/man-pages/man2/clone.2.html">clone contract</a> and <a href="https://man7.org/linux/man-pages/man2/set_tid_address.2.html">clear-child-TID contract</a>.</p>
 <p>Workers have no libc TLS: their FS base is explicitly zero, and reachable foreign or indirect callees are rejected, including calls through Lim helper functions. Explicit FFI outside worker call graphs remains available. Unsafe worker assembly must obey the same no-foreign-runtime and stack contracts; it must not terminate the thread early or change its clear-child-TID address. Installing custom signal handlers is also an unsafe responsibility: block their signals before spawning, arrange a worker-owned alternate signal stack, then unblock them. The computed Lim stack bound does not cover arbitrary signal-handler frames. The backend provides no pthread cancellation or TLS destructor behavior.</p>
 <p><code>examples/kernel_threads.lim</code> exercises concurrent parent/worker progress, shared PID/distinct TIDs, the worker TLS boundary, repeated joining, and stdout. <code>tests/kernel_threads.rs</code> checks static ELF linkage, argument/result layouts, nested workers, large stack frames, and an actual guard-page fault. Its opt-in ptrace tests also verify kernel calls and inject spawn/join failures.</p>
-<p>For inspection, <code>(#generate #thread-spawn ((task TaskType) (worker worker)))</code> materializes in <code>.lim/</code> as a <code>#thread-task</code> declaration containing explicit <code>#thread-task-spawn</code> and <code>#thread-task-join</code> builtin signatures, followed by <code>#enum</code> declarations for their results. The spawn signature exposes <code>TaskType-spawn</code>; its result enum contains <code>TaskType-spawn-ok</code> and <code>TaskType-spawn-error</code>. The join signature exposes <code>TaskType-join</code>, and its result enum contains <code>TaskType-join-ok</code> and <code>TaskType-join-error</code>. The compiler validates and reuses matching signatures and enums rather than synthesizing duplicates.</p>
+<p>For inspection, <code>#generate #thread-spawn ((task TaskType) (worker worker))</code> materializes in <code>.lim/</code> as a <code>#thread-task</code> declaration containing explicit <code>#thread-task-spawn</code> and <code>#thread-task-join</code> builtin signatures, followed by <code>#enum</code> declarations for their results. The spawn signature exposes <code>TaskType-spawn</code>; its result enum contains <code>TaskType-spawn-ok</code> and <code>TaskType-spawn-error</code>. The join signature exposes <code>TaskType-join</code>, and its result enum contains <code>TaskType-join-ok</code> and <code>TaskType-join-error</code>. The compiler validates and reuses matching signatures and enums rather than synthesizing duplicates.</p>
 <p>Task handles are affine: match spawn results, and join each successful task handle exactly once. The join error arm must retain or retry the returned handle; discarding either generated result is rejected. References captured by a worker remain borrowed until a successful join; shared captures require <code>Sync</code>, mutable captures exclude parent access until join. These restrictions are checked statically. Unsafe <code>#send</code>/<code>#sync</code> overrides are promises, not synchronization: the author must ensure the underlying resource remains sound under concurrent access.</p>
 </section>
 <section id="inferred-lexical-borrows" class="level2">
@@ -662,7 +666,7 @@ Lim compilation pipeline
 }</code></pre>
 <p>Multiple shared borrows may overlap, but a mutable borrow cannot overlap any other borrow, and a shared borrow cannot overlap a mutation. References to locals cannot escape their function; incoming reference referents and globals may be returned. A by-value parameter&#39;s own storage is local too: returning <code>(#borrow parameter)</code> is invalid even if the parameter itself contains references. Loading one of those incoming references preserves its external referent instead. <code>#deref</code> reads through a reference, and <code>#deref-set</code> writes through a mutable reference when the target fits the native value registers. The known target type is used for aggregate RHS values, including one-word structs. Writing a zero-sized aggregate evaluates both operands but writes no bytes. A field reference can be derived from a named reference to a struct with <code>(#borrow (#get reference field))</code> or <code>#borrow-mut</code> for an exclusive field reference. The derived reference retains the original referent&#39;s borrow: it cannot escape when that referent is local, and a mutable parent reference is suspended while its derived field reference remains live. Tuple and array projections use <code>#get</code> and <code>#index</code>; enum payload fields use <code>(#get-payload reference Variant index)</code>. Each variant has zero or one payload. Use a named struct as the payload when a variant needs multiple fields. Projections may also start at an owned local, without borrowing the entire aggregate first: <code>(#borrow (#get owner field))</code>. Nested struct, tuple, array, and enum-payload projections address the original storage; a dynamic index is evaluated once before the borrow&#39;s body. Mutable borrowing requires a mutable local or an exclusive reference root. The same rules apply to <code>#pin-borrow</code> and <code>#pin-borrow-mut</code>, and reborrowing through a pinned reference preserves pinning. A projection cannot borrow a computed aggregate temporary. When crossing a reference-valued field, bind that reference first so the next borrow has an explicit reference root. See <code>examples/owned_field_borrow.lim</code>.</p>
 <p>Reference-valued fields may be projected through nested aggregates; their original source borrow remains active for as long as the containing aggregate is live.</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> Point () { x <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; y <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; })
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> Point () { x <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; y <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; }
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -708,14 +712,14 @@ Lim compilation pipeline
 <p>Imports and generated declarations preserve the calling requirement. Implicit entry points (<code>main</code>, aggregate clone hooks, and thread workers) must be safe; use a safe wrapper that explicitly discharges the unsafe function&#39;s obligations. Generator capability contracts currently describe safe operations, so an unsafe operation does not satisfy one. The Linux library uses this contract for all raw-pointer wrappers and integer-only APIs with hidden memory or execution-state obligations. Reference-bounded byte/time helpers remain safe. See the <a href="syscall-coverage.md#caller-safety-contracts">syscall caller contracts</a>.</p>
 <p>The operations are <code>#addr-of</code>, <code>#addr-of-mut</code>, <code>#ptr-read</code>, <code>#ptr-write</code>, and <code>(#ptr-offset pointer element-index)</code>. <code>(#ptr-null (#ptr-mut T))</code> or <code>(#ptr-null (#ptr T))</code> constructs a typed null pointer; constructing one is safe, but dereferencing it is not. <code>(#ptr-is-null pointer)</code> safely tests whether a raw pointer is null without consuming it. <code>(#ptr-address pointer)</code> returns the machine address as <code>#usize</code> without dereferencing it; it can check Linux error-pointer returns before any access. The offset consumes a raw pointer and returns a pointer with the same mutability and pointee type; its index must be <code>#usize</code>. Offsets use the pointee&#39;s byte width (for example, <code>*mut u8</code> advances one byte). Byte-offset multiplication and address addition are checked for overflow and trap on overflow. Reads and writes access only the pointee&#39;s width. Writing requires <code>(#ptr-mut T)</code>. Reads and writes do not check allocation bounds, and raw-pointer operations are rejected outside <code>#unsafe</code>; callers must uphold pointer validity and bounds themselves. <code>#ptr-borrow</code> and <code>#ptr-borrow-mut</code> also require <code>#unsafe</code>; their first argument is a reference used as the inferred lifetime anchor, and the second is the pointer to the referenced value. The <code>#pin-ptr-borrow</code> variants require a pinned-reference anchor and preserve the pinned-reference type/provenance. The caller must ensure the pointer is valid, stable, and uniquely accessible as required for the full anchor lifetime. These forms do not make allocation or pointer validity safe by themselves.</p>
 <p>Pinning is exposed through generated opaque objects rather than a special binding statement. Import <code>library/pin.lim</code> and declare a concrete API:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#generate</span> <span class="lim-keyword">#pin</span> ((type Frame) (name PinnedFrame) (fields ((value <span class="lim-type">#u64</span>)))))
-(<span class="lim-keyword">#generate</span> <span class="lim-keyword">#pin-scope</span> ((type Frame) (pin PinnedFrame) (name with-pinned-frame)
-  (run drive-frame) (destroy destroy-frame) (result <span class="lim-type">#u64</span>)))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#generate</span> <span class="lim-keyword">#pin</span> ((type Frame) (name PinnedFrame) (fields ((value <span class="lim-type">#u64</span>))))
+<span class="lim-keyword">#generate</span> <span class="lim-keyword">#pin-scope</span> ((type Frame) (pin PinnedFrame) (name with-pinned-frame)
+    (run drive-frame) (destroy destroy-frame) (result <span class="lim-type">#u64</span>))</code></pre>
 <p><code>#generate #pin</code> emits opaque <code>PinnedFrame</code> and <code>PinnedFrame::Shared</code> handles, unsafe constructors, and <code>PinnedFrame::Read::value</code> / <code>PinnedFrame::Write::value</code> free functions (plus the shared reader). Field types are literal generator inputs; ordinary checking verifies them and rejects moving linear fields or replacing fields that do not satisfy the pinned-field restrictions. Optional <code>copy true</code> emits whole-value readers and a writer only after checking a structural Copy proof. All implementation functions are inspectable in the generated cache. For linear fields, <code>projections ((child PinnedChild))</code> generates <code>PinnedFrame::Project::child</code> and <code>PinnedFrame::ProjectMut::child</code>, returning the existing concrete child pin handles without moving the field. Shared handles also get a shared projection. Projection consumes the parent handle; it does not leave a second mutable handle to the same storage. Derived handles retain their source&#39;s borrow and cannot outlive it. Unsafe <code>PinnedFrame::into-view</code> consumes a handle and exposes its low-level pinned reference for trusted implementations; it does not unpin or move the referent.</p>
 <p>The same declarations also generate <code>PinnedFrame::BorrowMut::child</code>, taking <code>((pin (#ref-mut PinnedFrame)))</code>, and <code>PinnedFrame::Borrow::child</code>, taking <code>((pin (#ref PinnedFrame)))</code>. Shared wrappers have their own shared <code>::borrow</code> function. These reborrow the child without consuming the parent handle. Disjoint mutable child fields can coexist, as can overlapping shared views; overlapping exclusive access is rejected at the offending call argument. Callee footprints follow the wrapper&#39;s actual pinned pointer slot, including helper calls and transferred child arguments, not just its stack address. Forgetting a wrapper does not unpin or destroy its referent: child views still retain that referent, and prevent scope escape or heap release. See <code>examples/pin_projection_borrows.lim</code> for two independently writable children.</p>
 <p><code>with-pinned-frame</code> takes <code>value Frame</code>, initializes private stack storage, and calls <code>drive-frame</code> with <code>pin PinnedFrame</code>. It then calls <code>destroy-frame</code> with a fresh pin handle before retiring that storage in place. The run function returns the specified result type; the destruction function returns unit. Both functions must consume their handles explicitly. The original storage is inaccessible to callbacks, even if they forget their handles. Returned borrows cannot escape the scope, and cancellation/resource cleanup must be implemented in the destruction callback. No function pointers, lambdas, <code>#let-pin</code>, or <code>#pin-end</code> are needed. See <code>examples/stationary_pin.lim</code>.</p>
 <p>For an initialized local, <code>(#pin local)</code> creates an exclusive <code>(#pin-ref-mut T)</code> and requires a <code>#let-mut</code> binding. <code>(#pin-shared local)</code> creates a shared <code>(#pin-ref T)</code> and also accepts immutable locals. Neither accepts a temporary, projection, reference variable, top-level constant, or static: use <code>#pin-borrow</code>/<code>#pin-borrow-mut</code> for projection reborrows. Both local operations permanently freeze the original storage, including Copy locals. Forgetting the reference ends its loan, but does not allow moving or assigning the original local again. A branch that may pin a local also freezes it after the branch joins. Copy values can still be read or copied from frozen storage when normal loan rules permit: copying a Copy value does not move the storage itself. Whole-local assignment remains forbidden. Each new loop iteration initializes fresh local storage; explicitly end the previous iteration&#39;s local after its views end.</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> LocalJob (<span class="lim-keyword">#linear</span>) { state <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; })
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> LocalJob (<span class="lim-keyword">#linear</span>) { state <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; }
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -751,7 +755,7 @@ Lim compilation pipeline
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> <span class="lim-keyword">#unsafe</span><span class="lim-operator">:</span> <span class="lim-keyword">#linux-syscall</span> <span class="lim-type">#i64</span> <span class="lim-literal">39usize</span> ();
 }</code></pre>
 <p><code>library/linux_x86_64.lim</code> builds byte input/output, process helpers, and file-descriptor operations (<code>openat</code>, positional and sequential IO, metadata, directory queries, resource limits and usage, advice, locking, allocation, descriptor duplication, anonymous files, wall-clock/process-time queries, and private futex operations) on this primitive. The low-level pointer wrappers do not validate kernel buffer ranges; callers must uphold pointer validity and length preconditions. These wrappers are <code>#unsafe-fn</code>: the compiler requires <code>#unsafe-call</code> inside <code>#unsafe</code>, even for null pointers or zero-length buffers. Safe reference-bounded helpers use <code>#call</code>. For example, this unsafe forwarding function passes its caller&#39;s buffer contract through to the low-level read wrapper:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#alias</span> linux-read <span class="lim-operator">=</span> ..<span class="lim-operator">/</span>library<span class="lim-operator">/</span>linux_x86_64.lim::linux-read)
+<pre class="lisp"><code><span class="lim-keyword">#alias</span> linux-read <span class="lim-operator">=</span> ..<span class="lim-operator">/</span>library<span class="lim-operator">/</span>linux_x86_64.lim::linux-read
 <span class="lim-keyword">#unsafe-fn</span> read-buffer {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { fd <span class="lim-operator">=</span> <span class="lim-type">#i64</span>; destination <span class="lim-operator">=</span> (<span class="lim-keyword">#ptr-mut</span> <span class="lim-type">#u8</span>); count <span class="lim-operator">=</span> <span class="lim-type">#usize</span>; };
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#i64</span>;
@@ -817,10 +821,10 @@ nix develop --command cargo run -- fmt examples/modules/main.lim</code></pre>
 <section id="compile-time-configuration" class="level2">
 <h2>Compile-time configuration</h2>
 <p><code>#cfg-if</code> includes only the selected top-level forms. Its condition is built from <code>#cfg-is</code>, <code>#cfg-not</code>, <code>#cfg-and</code>, and <code>#cfg-or</code>; branches contain forms directly, with an optional final <code>#cfg-else</code> branch:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#cfg-if</span> (<span class="lim-keyword">#cfg-and</span> (<span class="lim-keyword">#cfg-is</span> <span class="lim-keyword">#platform</span> linux) (<span class="lim-keyword">#cfg-is</span> <span class="lim-keyword">#feature</span> fast))
-  (<span class="lim-keyword">#fn</span> selected () <span class="lim-type">#u64</span> (<span class="lim-keyword">#return</span> <span class="lim-literal">1u64</span>))
-  (<span class="lim-keyword">#cfg-else</span>
-    (<span class="lim-keyword">#fn</span> selected () <span class="lim-type">#u64</span> (<span class="lim-keyword">#return</span> <span class="lim-literal">0u64</span>))))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#cfg-if</span> (<span class="lim-keyword">#cfg-and</span> (<span class="lim-keyword">#cfg-is</span> <span class="lim-keyword">#platform</span> linux) (<span class="lim-keyword">#cfg-is</span> <span class="lim-keyword">#feature</span> fast))
+    (<span class="lim-keyword">#fn</span> selected () <span class="lim-type">#u64</span> (<span class="lim-keyword">#return</span> <span class="lim-literal">1u64</span>))
+    (<span class="lim-keyword">#cfg-else</span>
+      (<span class="lim-keyword">#fn</span> selected () <span class="lim-type">#u64</span> (<span class="lim-keyword">#return</span> <span class="lim-literal">0u64</span>)))</code></pre>
 <p><code>#platform</code> and <code>#os</code> are populated automatically from the compiler host OS (<code>linux</code>, <code>macos</code>, or <code>windows</code>, where applicable); <code>#arch</code> is the target architecture (such as <code>x86_64</code>), and <code>#target</code> is its canonical target triple (currently <code>x86_64-unknown-linux-gnu</code> for the supported backend). Other keys must be passed with <code>--cfg KEY=VALUE</code>; for example, <code>--cfg feature=fast</code>. Command-line settings override automatic values. Configured values are literal symbols or strings in <code>#cfg-is</code>. Excluded forms are removed before imports, generators, name checks, and type checking are processed.</p>
 <p>Pass <code>--cfg</code> repeatedly to set several keys. It works in both binary and assembly-output modes; a key supplied more than once uses its last value.</p>
 <p>Use <code>--collect-cfgs INPUT</code> to print the sorted, unique cfg keys referenced by the source and its imports. Collection scans every cfg branch, including inactive branches, and follows imports found inside those branches:</p>
@@ -832,15 +836,15 @@ nix develop --command cargo run -- fmt examples/modules/main.lim</code></pre>
 <section id="literal-syntax-bundles" class="level3">
 <h3>Literal syntax bundles</h3>
 <p>Use <code>#syntax</code> to declare an immutable list of literal syntax, and explicitly splice its elements into another list with <code>#syntax-splice</code>. Neither form evaluates values or infers types. An await protocol can be named once:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#syntax</span> StepAwait (<span class="lim-type">#u64</span> Step StepPoll.StepPending StepPoll.StepReady step-poll))
+<pre class="lisp"><code><span class="lim-keyword">#syntax</span> StepAwait (<span class="lim-type">#u64</span> Step StepPoll.StepPending StepPoll.StepReady step-poll)
 (<span class="lim-keyword">#await</span> StepAwait step)</code></pre>
 <p>The second form expands to <code>(#await #u64 Step StepPending StepReady step-poll step)</code> before async lowering. It is only valid inside an async function. The longer <code>(#await (#syntax-splice StepAwait) step)</code> spelling is equivalent. Both async function generators export a bundle automatically. Supply one explicit protocol name instead of listing all five generated names:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#generate</span> <span class="lim-keyword">#async-fn</span> ((protocol WorkAwait) (waker LocalWaker)
-  (function (<span class="lim-keyword">#fn</span> work ((offset <span class="lim-type">#u64</span>)) <span class="lim-type">#u64</span>
-    (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#await</span> StepAwait (Waiting offset)))))))
+<pre class="lisp"><code><span class="lim-keyword">#generate</span> <span class="lim-keyword">#async-fn</span> ((protocol WorkAwait) (waker LocalWaker)
+    (function (<span class="lim-keyword">#fn</span> work ((offset <span class="lim-type">#u64</span>)) <span class="lim-type">#u64</span>
+      (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#await</span> StepAwait (Waiting offset))))))
 <span class="lim-comment">// In another async function:</span>
 (<span class="lim-keyword">#await</span> WorkAwait (<span class="lim-keyword">#call</span> work (($ offset))))</code></pre>
-<p>For <code>work</code>, the generated names are <code>Work::Task</code>, <code>Work::Poll</code>, <code>Work::Pending</code>, <code>Work::Ready</code>, and <code>Work::poll</code>. The exported declaration is <code>(#syntax WorkAwait (#u64 Work::Task Work::Pending Work::Ready Work::poll))</code>. <code>#generate #async-fn-pinned</code> instead generates <code>Work::Frame</code> and exports <code>(#syntax WorkAwait (#u64 (#pin-ref-mut Work::Frame) Work::Pending Work::Ready Work::poll))</code>. Callers must pin a frame explicitly before awaiting that protocol. Both generated task and frame structs are <code>#opaque</code>: callers use their constructor, poll and cleanup functions, not their internal fields. This protects the initialization invariants used by generated unsafe accesses. Pinning alone guarantees address stability, not initialization or alias safety. Generated task, result, variant, and poll names come from the source function name. Supply <code>: protocol</code> to select the exported bundle name. Protocols are collected after imports, generators and cfg selection, before await expansion, so functions can refer forward to one another&#39;s protocols. Duplicate bundles and declaration collisions are rejected. The bundle appears in the same inspectable, hash-cached generated file as the function&#39;s code. This shorthand supplies types explicitly; it adds neither type inference nor implicit pinning, allocation or cancellation.</p>
+<p>For <code>work</code>, the generated names are <code>Work::Task</code>, <code>Work::Poll</code>, <code>Work::Pending</code>, <code>Work::Ready</code>, and <code>Work::poll</code>. The exported declaration is <code>#syntax WorkAwait (#u64 Work::Task Work::Pending Work::Ready Work::poll)</code>. <code>#generate #async-fn-pinned</code> instead generates <code>Work::Frame</code> and exports <code>#syntax WorkAwait (#u64 (#pin-ref-mut Work::Frame) Work::Pending Work::Ready Work::poll)</code>. Callers must pin a frame explicitly before awaiting that protocol. Both generated task and frame structs are <code>#opaque</code>: callers use their constructor, poll and cleanup functions, not their internal fields. This protects the initialization invariants used by generated unsafe accesses. Pinning alone guarantees address stability, not initialization or alias safety. Generated task, result, variant, and poll names come from the source function name. Supply <code>: protocol</code> to select the exported bundle name. Protocols are collected after imports, generators and cfg selection, before await expansion, so functions can refer forward to one another&#39;s protocols. Duplicate bundles and declaration collisions are rejected. The bundle appears in the same inspectable, hash-cached generated file as the function&#39;s code. This shorthand supplies types explicitly; it adds neither type inference nor implicit pinning, allocation or cancellation.</p>
 <p>On the graph route, pinned functions can request post-terminal access to reference-free Copy parameters with <code>: access ((amount AmountAccess))</code>. This emits <code>AmountAccess::read</code> and <code>AmountAccess::replace</code> ordinary functions with pinned frame receivers; the latter also takes a named <code>value</code> argument. They assert completion/cancellation and cleared loans before accessing the same stationary storage. They do not restart the future, infer lifetimes, or allow moving its frame. Without an access request no accessor bodies are generated. See <a href="async-graph-production.md#post-terminal-parameter-access">parameter access</a>.</p>
 <p>The default graph route can also be selected with <code>--cfg async-lowering=graph</code>. It uses the same await protocol names, independently checked ordinary generated code, and a source-named cleanup record instead of the legacy per-state cancellation interface. Warm hash hits skip emission. Unsupported graph cases fail closed; there is no publicly selectable legacy route or fallback. See <a href="async-graph-production.md">graph async lowering</a> for the cleanup contract, supported guards/scoped borrows, and current limitations.</p>
 <p>Bundles can also supply function parameters or named call arguments. Definitions are top-level, may refer forward to other bundles, and may contain nested splices. Names must be unique across declarations; cycles, unknown names, malformed definitions, and splices outside a surrounding list are errors. File dependencies and cfg selection happen first; aliases resolve bundle names and referenced identifiers to their defining files. Quoted syntax and generator templates stay literal until emitted. Generated bundle declarations are supported, and ordinary type, borrow, and linearity checking still applies to their expanded code.</p>
@@ -848,37 +852,37 @@ nix develop --command cargo run -- fmt examples/modules/main.lim</code></pre>
 <section id="generator-declarations" class="level3">
 <h3>Generator declarations</h3>
 <p>Generators are compile-time syntax functions. Their parameters receive the invocation arguments literally; generator values are immutable syntax nodes: symbols, literals, or lists. A generator returns a list of top-level forms, which are expanded before ordinary Lim parsing and type checking.</p>
-<p>Language and standard-library generator names are reserved and start with <code>#</code>: for example, <code>(#generate #optional ((type #u64) (name MaybeU64)))</code>, <code>#generate #cell</code>, and <code>#generate #utf8-view</code>. User generators use ordinary names, such as <code>#generate make-record</code>. The <code>#generate</code> keyword invokes generation/import; a generator name&#39;s <code>#</code> identifies a reserved name, not a different execution or caching mechanism. Standard-library generators remain ordinary immutable Lim declarations and must be imported before use. Their shipped declarations cannot be redefined. All <code>#</code>-prefixed names are unavailable for user declarations, including declarations emitted by generators. There are no compatibility aliases for the old unprefixed builtin spellings; unprefixed names belong to users, including names such as <code>optional</code> or <code>cell</code>.</p>
+<p>Language and standard-library generator names are reserved and start with <code>#</code>: for example, <code>#generate #optional ((type #u64) (name MaybeU64))</code>, <code>#generate #cell</code>, and <code>#generate #utf8-view</code>. User generators use ordinary names, such as <code>#generate make-record</code>. The <code>#generate</code> keyword invokes generation/import; a generator name&#39;s <code>#</code> identifies a reserved name, not a different execution or caching mechanism. Standard-library generators remain ordinary immutable Lim declarations and must be imported before use. Their shipped declarations cannot be redefined. All <code>#</code>-prefixed names are unavailable for user declarations, including declarations emitted by generators. There are no compatibility aliases for the old unprefixed builtin spellings; unprefixed names belong to users, including names such as <code>optional</code> or <code>cell</code>.</p>
 <p>Capabilities are explicit declarations for generator requirements. A concrete type opts in with <code>#capability</code>, and a generator parameter can require one:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#fn</span> u64-less ((left (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)) (right (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>))) <span class="lim-type">#bool</span>
-  (<span class="lim-keyword">#return</span> (<span class="lim-operator">#u64::lt</span> (<span class="lim-keyword">#deref</span> left) (<span class="lim-keyword">#deref</span> right))))
-(<span class="lim-keyword">#capability</span> sortable <span class="lim-type">#u64</span>
-  ((u64-less ((<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>) (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)) <span class="lim-type">#bool</span>)))
-(<span class="lim-keyword">#gn</span> make-sortable ((element sortable))
-  `((<span class="lim-keyword">#type</span> Sortable ,element)))
-(<span class="lim-keyword">#generate</span> make-sortable <span class="lim-type">#u64</span>)</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#fn</span> u64-less ((left (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)) (right (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>))) <span class="lim-type">#bool</span>
+    (<span class="lim-keyword">#return</span> (<span class="lim-operator">#u64::lt</span> (<span class="lim-keyword">#deref</span> left) (<span class="lim-keyword">#deref</span> right)))
+<span class="lim-keyword">#capability</span> sortable <span class="lim-type">#u64</span>
+    ((u64-less ((<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>) (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)) <span class="lim-type">#bool</span>))
+<span class="lim-keyword">#gn</span> make-sortable ((element sortable))
+    `((<span class="lim-keyword">#type</span> Sortable ,element))
+<span class="lim-keyword">#generate</span> make-sortable <span class="lim-type">#u64</span></code></pre>
 <p>The list after a generator&#39;s name is its parameter declaration list, not a pattern match. A bare symbol such as <code>name</code> declares an ordinary literal-syntax parameter. A pair such as <code>(element sortable)</code> declares one parameter that requires a capability; it does not destructure the invocation argument. All invocation arguments are literal syntax; there is no implicit registry lookup or distributed syntax expansion. This mirrors function signatures, where each nested pair declares one named parameter and its type.</p>
 <pre class="text"><code>parameters := (parameter ...)
 parameter  := name | (name capability-name ...)</code></pre>
-<p>For example, <code>(#gn alias (name target) ...)</code> has two literal-syntax parameters. <code>(#gn sortable ((element sortable)) ...)</code> has one parameter named <code>element</code> requiring the <code>sortable</code> capability. Likewise, <code>((left right))</code> declares one parameter named <code>left</code> with a capability annotation <code>right</code>; it never binds two names. Nested lists in the name or annotation position are rejected as malformed declarations. No implicit destructuring takes place; use <code>#gn-first</code>, <code>#gn-rest</code>, or <code>#gn-for-each</code> inside the generator body to inspect literal list arguments.</p>
+<p>For example, <code>#gn alias (name target) ...</code> has two literal-syntax parameters. <code>#gn sortable ((element sortable)) ...</code> has one parameter named <code>element</code> requiring the <code>sortable</code> capability. Likewise, <code>((left right))</code> declares one parameter named <code>left</code> with a capability annotation <code>right</code>; it never binds two names. Nested lists in the name or annotation position are rejected as malformed declarations. No implicit destructuring takes place; use <code>#gn-first</code>, <code>#gn-rest</code>, or <code>#gn-for-each</code> inside the generator body to inspect literal list arguments.</p>
 <p>Each capability declaration lists concrete free-standing operations and their full argument/return types. Before any generator runs, the compiler verifies that every named function exists and exactly matches its declared signature. A missing capability reports the parameter, capability, and concrete type; there are no implicit structural or interface requirements hidden inside a generator. Capability definitions are part of the generated-code cache key, so changing an operation contract cannot reuse expansions made under an older contract.</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#gn</span> aliases (pairs)
-  (<span class="lim-keyword">#gn-for-each</span> pair pairs
-    (<span class="lim-keyword">#gn-list</span>
-      (<span class="lim-keyword">#gn-symbol</span> <span class="lim-string">&quot;#type&quot;</span>)
-      (<span class="lim-keyword">#gn-first</span> pair)
-      (<span class="lim-keyword">#gn-first</span> (<span class="lim-keyword">#gn-rest</span> pair)))))
+<pre class="lisp"><code><span class="lim-keyword">#gn</span> aliases (pairs)
+    (<span class="lim-keyword">#gn-for-each</span> pair pairs
+      (<span class="lim-keyword">#gn-list</span>
+        (<span class="lim-keyword">#gn-symbol</span> <span class="lim-string">&quot;#type&quot;</span>)
+        (<span class="lim-keyword">#gn-first</span> pair)
+        (<span class="lim-keyword">#gn-first</span> (<span class="lim-keyword">#gn-rest</span> pair))))
 
-(<span class="lim-keyword">#generate</span> aliases ((Byte <span class="lim-type">#u8</span>) (Word <span class="lim-type">#u16</span>)))</code></pre>
+<span class="lim-keyword">#generate</span> aliases ((Byte <span class="lim-type">#u8</span>) (Word <span class="lim-type">#u16</span>))</code></pre>
 <p>Generator helpers can be declared with <code>#gn-fn</code> and called with <code>#gn-call</code>. They take and return only syntax values (symbols, literals, or lists), so predicate booleans remain internal to conditionals. Helpers may call other helpers, but direct or indirect recursive calls are rejected. For example:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#gn-fn</span> make-alias (name target)
-  `(<span class="lim-keyword">#type</span> ,name ,target))
+<pre class="lisp"><code><span class="lim-keyword">#gn-fn</span> make-alias (name target)
+    `(<span class="lim-keyword">#type</span> ,name ,target)
 
-(<span class="lim-keyword">#gn</span> aliases (pairs)
-  `(,@(<span class="lim-keyword">#gn-for-each</span> pair pairs
-       (<span class="lim-keyword">#gn-call</span> make-alias
-         (<span class="lim-keyword">#gn-first</span> pair)
-         (<span class="lim-keyword">#gn-first</span> (<span class="lim-keyword">#gn-rest</span> pair))))))</code></pre>
+<span class="lim-keyword">#gn</span> aliases (pairs)
+    `(,@(<span class="lim-keyword">#gn-for-each</span> pair pairs
+         (<span class="lim-keyword">#gn-call</span> make-alias
+           (<span class="lim-keyword">#gn-first</span> pair)
+           (<span class="lim-keyword">#gn-first</span> (<span class="lim-keyword">#gn-rest</span> pair)))))</code></pre>
 <p>Backtick starts a syntax template, comma evaluates one generator expression inside it, and comma-at splices a list of syntax values into a template list. Unquote and splice are valid only within a backtick template, and splicing a non-list is an error. Nested templates preserve nested unquotes. These reader forms are generator-only; they do not evaluate Lim code or add runtime values. The lower-level <code>#gn-list</code> and <code>#gn-symbol</code> operations remain available.</p>
 <p><code>#gn-gensym</code> evaluates its string hint and returns a fresh syntax symbol. The hint must parse as exactly one non-keyword ordinary identifier. Generated symbols remain ordinary syntax-symbol values, so they can be reused in the generated declaration and its references; they do not introduce a new syntax datatype. Each evaluation is fresh within its deterministic invocation scope. Use a <code>#gn-fn</code> helper to pass one generated symbol through all places that need to refer to the same binding. Identical generator invocations still deduplicate, and cold or warm cache runs produce the same output.</p>
 <p>Names beginning with the compiler-owned <code>lim.gensym.</code> prefix are reserved. Source code cannot name them, and <code>#gn-symbol</code> and <code>#gn-symbol-append</code> cannot forge or alter them. This facility does not automatically make ordinary generated symbols hygienic: public API names passed to a generator remain literal names, and ordinary generated identifiers still undergo the usual duplicate-name, parsing, type, and borrow checks. Source no-shadowing rules are unchanged, and generated output is validated as well. See <code>examples/gensym.lim</code> for a helper that reuses one fresh local name in a generated function.</p>
@@ -888,40 +892,40 @@ parameter  := name | (name capability-name ...)</code></pre>
 <section id="generator-to-generator-contracts" class="level3">
 <h3>Generator-to-generator contracts</h3>
 <p>Generators can require that public inputs were emitted by a particular generator, without reading its output during expansion:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#require-generated</span> Work::Frame <span class="lim-keyword">#async-fn-pinned</span>
-  (Work::Poll Work::Poll.Pending Work::Poll.Ready Work::poll))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#require-generated</span> Work::Frame <span class="lim-keyword">#async-fn-pinned</span>
+    (Work::Poll Work::Poll.Pending Work::Poll.Ready Work::poll)</code></pre>
 <p>The first identifier and optional companion identifiers must share one invocation of the named generator. Requirements are checked after expansion, so they may appear before the producer invocation. They neither schedule generators nor inspect unfinished distributed enums. Ordinary typechecking still checks every generated declaration and call.</p>
 <p>The compiler records actual generation ancestry. Handwritten lookalikes or unrelated generators cannot claim that origin. Wrappers retain both their own origin and the nested producer&#39;s origin, including deduplicated invocations. Cached output is recorded under the actual invocation just like fresh output; source comments and generated properties do not grant provenance.</p>
 </section>
 </section>
 <section id="imports" class="level2">
 <h2>Imports</h2>
-<p>Distributed enums collect variants from active imports and generator outputs. Declare <code>(#distributed-enum Error ())</code> once, and add individual variants with <code>(#enum-contribute Error (Failure #u32))</code>. After expansion, the compiler merges identical variants by name, rejects conflicts, and compiles one ordinary enum. See <a href="collections-and-tasks.md">collections and tasks</a> for the full rules and cooperative async generators. General distributed syntax is not supported.</p>
+<p>Distributed enums collect variants from active imports and generator outputs. Declare <code>#distributed-enum Error ()</code> once, and add individual variants with <code>#enum-contribute Error (Failure #u32)</code>. After expansion, the compiler merges identical variants by name, rejects conflicts, and compiles one ordinary enum. See <a href="collections-and-tasks.md">collections and tasks</a> for the full rules and cooperative async generators. General distributed syntax is not supported.</p>
 <p>Struct and enum declarations require a property list between the name and their fields or variants. Use <code>()</code> when no properties are needed. The supported properties are <code>#linear</code> and <code>#repr-c</code>:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> FileHandle (<span class="lim-keyword">#linear</span>) ((descriptor <span class="lim-type">#u64</span>)))
-(<span class="lim-keyword">#enum</span> Maybe (<span class="lim-keyword">#repr-c</span>) ((Maybe.Some <span class="lim-type">#u64</span>) Maybe.None))
-(<span class="lim-keyword">#struct</span> NativeOwner (<span class="lim-keyword">#linear</span> <span class="lim-keyword">#repr-c</span>) ((handle (<span class="lim-keyword">#ptr</span> <span class="lim-type">#u8</span>))))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> FileHandle (<span class="lim-keyword">#linear</span>) ((descriptor <span class="lim-type">#u64</span>))
+<span class="lim-keyword">#enum</span> Maybe (<span class="lim-keyword">#repr-c</span>) ((Maybe.Some <span class="lim-type">#u64</span>) Maybe.None)
+<span class="lim-keyword">#struct</span> NativeOwner (<span class="lim-keyword">#linear</span> <span class="lim-keyword">#repr-c</span>) ((handle (<span class="lim-keyword">#ptr</span> <span class="lim-type">#u8</span>)))</code></pre>
 <p>Aggregates become linear transitively when they own a linear field or, for an enum, any linear payload in any variant. References do not make their containing aggregate linear because they do not own their referents. Explicit <code>#linear</code> forces a struct or enum to be linear even when all fields or payloads are plain data. It does not change layout or Send/Sync. Generated task state types use this property.</p>
 <p>File references identify declarations directly, without copying source or prepending prefixes. Aliases give those declarations explicit local spellings:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#alias</span> read <span class="lim-operator">=</span> .<span class="lim-operator">/</span>shared.lim::read)
-(<span class="lim-keyword">#alias</span> Widget <span class="lim-operator">=</span> project::compat<span class="lim-operator">/</span>lib.lim::Widget)</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#alias</span> read <span class="lim-operator">=</span> .<span class="lim-operator">/</span>shared.lim::read
+<span class="lim-keyword">#alias</span> Widget <span class="lim-operator">=</span> project::compat<span class="lim-operator">/</span>lib.lim::Widget</code></pre>
 <p><code>./</code> paths resolve relative to the source containing the reference. <code>project::</code> paths resolve from the nearest <code>lim.project</code> ancestor of the principal source; when there is no manifest, its directory is the project root. All dependencies use that same root. <code>/</code> retains filesystem-absolute meaning. Rooted paths cannot contain <code>..</code>; direct references do not search module-path lists. Files are loaded once by canonical identity, and alias cycles and runtime recursion are rejected.</p>
 <p>A directory containing <code>lib.lim</code> establishes a library permission boundary. Each source belongs to its nearest boundary, including a separately compiled white-box test. References within that library may name implementation files; references from outside must target <code>lib.lim</code> and select an exported declaration. Nested library directories establish independent boundaries. Canonical paths prevent symlink and <code>..</code> privacy bypasses. <code>#unstable</code> explicitly bypasses the entry-point/export restrictions for a selected declaration, not its struct fields.</p>
-<p>Only <code>lib.lim</code> may contain <code>(#export Type function ...)</code>, listing the declarations available outside the library. Other declarations remain library-internal. Exporting a struct type does not export its representation: external code cannot construct, read, write, borrow, or project its fields. Exporting an enum exposes every variant for construction and matching; individual variants cannot appear in <code>#export</code>. Every payload type must also be publicly accessible, including in unused variants. Adding a variant changes the exhaustive matching contract. An unexported enum remains private. To hide its representation, store it inside an exported opaque struct and expose functions that operate on that struct; see <code>examples/opaque_handle.lim</code> and <code>examples/opaque_handle/lib.lim</code>. Exported function signatures and aliases cannot expose private types. All implementation declarations remain visible to whole-program borrow checking and optimization.</p>
+<p>Only <code>lib.lim</code> may contain <code>#export Type function ...</code>, listing the declarations available outside the library. Other declarations remain library-internal. Exporting a struct type does not export its representation: external code cannot construct, read, write, borrow, or project its fields. Exporting an enum exposes every variant for construction and matching; individual variants cannot appear in <code>#export</code>. Every payload type must also be publicly accessible, including in unused variants. Adding a variant changes the exhaustive matching contract. An unexported enum remains private. To hide its representation, store it inside an exported opaque struct and expose functions that operate on that struct; see <code>examples/opaque_handle.lim</code> and <code>examples/opaque_handle/lib.lim</code>. Exported function signatures and aliases cannot expose private types. All implementation declarations remain visible to whole-program borrow checking and optimization.</p>
 <p>Generated declarations belong to their invocation&#39;s library, not the physical <code>.lim</code> cache directory. Each generated file has access to its producer&#39;s definition library and its invocation library, including private functions, types, and representations. A nested generator gets its own definition library and the original invocation library; it does not accumulate its ancestors&#39; definition-library privileges. A canonical file has one declaration identity, regardless of which alias reaches it. Separate source paths can carry different library versions.</p>
 <p>Write <code>@name</code> to resolve a name before generator execution. Inside a generator definition it uses that definition&#39;s file scope; in supplied arguments it uses the invocation source&#39;s file scope. Qualification produces the actual flat file-qualified identifier (for example, <code>/project/library/helper.lim::Helper</code>), not a hidden binding or a runtime expression. Forwarding and substitution never qualify it again. Literal strings, generator parameters, and unmarked local bindings are not interpreted by this operation. Handwritten forward declarations are collected before qualification. Exported generated targets can be qualified using their library&#39;s literal export contract; other unknown names cannot be qualified. In particular, <code>@local</code> cannot silently become a local reference after splicing a literal function. Pass new declaration names as literal symbols.</p>
 <p>Invocation references are checked using caller permissions before interpreting the generator, including explicitly qualified references inside quoted syntax. A caller cannot pass <code>@lib@secret</code> when that declaration is private to <code>lib</code>. Literal strings and selectors remain data: a generator may deliberately turn them into references using <code>#gn-symbol</code>, <code>#gn-symbol-append</code>, or <code>#gn-variant</code>. The resulting code uses its generated file&#39;s permissions. Thus generators are privileged library APIs: their authors must validate data and executable syntax they incorporate into their output. Qualification checks are not a sandbox for an arbitrary code-splicing generator. <code>#unsafe</code> obligations remain unchanged.</p>
 <p>Inspectable generated files record permissions as reader syntax, for example:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#generated-context</span>
-  ((producer <span class="lim-string">&quot;lib@make&quot;</span>)
-   (definition-module <span class="lim-string">&quot;/project/library/lib.lim&quot;</span>)
-   (definition-file <span class="lim-string">&quot;lib&quot;</span>)
-   (invocation-module <span class="lim-string">&quot;/project/app/lib.lim&quot;</span>)
-   (invocation-file <span class="lim-string">&quot;&quot;</span>)))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#generated-context</span>
+    ((producer <span class="lim-string">&quot;lib@make&quot;</span>)
+     (definition-module <span class="lim-string">&quot;/project/library/lib.lim&quot;</span>)
+     (definition-file <span class="lim-string">&quot;lib&quot;</span>)
+     (invocation-module <span class="lim-string">&quot;/project/app/lib.lim&quot;</span>)
+     (invocation-file <span class="lim-string">&quot;&quot;</span>))</code></pre>
 <p>This compiler-owned header is checked against the current generator and invocation on cache reuse. It contains no serialized source IDs or per-symbol permission comments. Copying a header into source, supplying one to a generator, or manufacturing one with generator operations is rejected. A generator cannot manufacture late <code>@</code> qualification either: qualification is a source operation. Files outside a <code>lib.lim</code> boundary share the <code>&lt;global&gt;</code> module; physical invocation locations remain in the existing generated-file origin comments and do not prevent equivalent expansions in that module from sharing a cache artifact.</p>
 <p>For example, an exported <code>counter-reader</code> generator can emit a call to a private <code>counter-value</code> helper. The consumer still cannot invoke that helper directly:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#alias</span> counter-reader <span class="lim-operator">=</span> .<span class="lim-operator">/</span>encapsulation<span class="lim-operator">/</span>lib.lim::counter-reader)
-(<span class="lim-keyword">#generate</span> counter-reader read-generated-counter)</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#alias</span> counter-reader <span class="lim-operator">=</span> .<span class="lim-operator">/</span>encapsulation<span class="lim-operator">/</span>lib.lim::counter-reader
+<span class="lim-keyword">#generate</span> counter-reader read-generated-counter</code></pre>
 <p>See <code>examples/generator_private_helpers.lim</code> for a complete executable example.</p>
 <p>An expansion instance includes the invoking file&#39;s identity, generator, and literal arguments. Identical calls in one file can reuse a generated declaration; calls in different files retain separate declaration identities. Cache keys also include resolved references, dependency contents, and validated definition/caller contexts. Multiple aliases to one source share that source; separate dependency versions occupy different source paths.</p>
 <p>An exported generator may invoke its library-private generator helpers, including nested generators. Syntax equality and argument deduplication compare values, not the way symbols were constructed. Builtin expansions also distinguish producing definition contexts. Cache keys include definition/invocation context headers as well as generator/dependency identities, and digests cover the complete generated file. Cached authority is reconstructed from the current expansion, not accepted from a file&#39;s self-asserted claims. <code>#std</code> remains one compiler-provided prelude. Its facade explicitly lists its declarations; parameter labels retain their original source spelling. See <code>examples/library_boundary.lim</code> and <code>examples/encapsulation/test.lim</code>.</p>
@@ -1014,12 +1018,12 @@ Choice.Ready</code></pre>
 <pre class="lisp"><code>(<span class="lim-keyword">#let</span> values (<span class="lim-keyword">#array</span> <span class="lim-type">#u32</span> <span class="lim-literal">3</span>)
   (<span class="lim-keyword">#array-of</span> (<span class="lim-keyword">#array</span> <span class="lim-type">#u32</span> <span class="lim-literal">3</span>) <span class="lim-literal">10u32</span> <span class="lim-literal">20u32</span> <span class="lim-literal">30u32</span>))</code></pre>
 <p>An immutable slice type is written <code>(#slice T)</code>. Borrow an array directly with <code>(#borrow-slice array)</code>, or select <code>[start, end)</code> with <code>(#borrow-slice array start end)</code>. These operations explicitly borrow storage; they neither move the array nor allocate. Both bounds must be <code>#usize</code>. <code>(#slice-of array-reference)</code> instead converts an existing immutable array reference into a slice without extending its backing storage&#39;s lifetime. Use <code>(#slice-len view)</code> for its runtime length and <code>(#slice-idx view index)</code> to get a shared reference to an element. Indexing checks the index against the slice length and traps if it is out of bounds. Use <code>(#slice-range view start end)</code> to create an immutable half-open subrange <code>[start, end)</code>. Both bounds are <code>#usize</code>; the operation traps if <code>start &gt; end</code> or <code>end &gt; (#slice-len view)</code>. Empty and end-boundary ranges are valid. A subslice retains the original borrow provenance, including across function returns; it does not extend the referent&#39;s lifetime. Slices remain immutable.</p>
-<p>User-defined names refer to concrete structs, enums, and aliases. Generic declarations and angle-bracket applications are not part of Lim. Generators create concrete specializations explicitly, such as <code>(#generate #vec ((element #u64) (allocator Alloc) (name VecU64)))</code>. Allocator-backed collections add their concrete operations explicitly with <code>(#generate #vec-alloc ((element #u64) (allocator Root) (vector VecU64) (destroy destroy)))</code>; <code>Root::State</code> must denote <code>Alloc</code>, the state type passed to <code>#generate #vec</code>. The root provides a byte-pointer allocation enum, safe <code>::allocate</code>, and unsafe <code>::grow</code> / <code>::deallocate</code>; grow takes <code>:old-layout</code> and the requested <code>:layout</code>. Handwritten and generated bundles follow the same ordinary naming convention, without a producer requirement. <code>#std</code> provides <code>SystemAllocator::Allocator</code>, whose empty state is constructed with <code>(#struct-literal SystemAllocator ())</code>. Providers promise fresh, unique, aligned, non-null successful allocations, preservation of the old allocation on growth failure, and matching deallocation. Names and type checking cannot prove these semantic promises. The generated API includes <code>VecU64::new</code>, <code>::reserve</code>, <code>::push</code>, <code>::get</code>, <code>::get-mut</code>, <code>::set</code>, <code>::pop</code>, and <code>::free</code>. <code>(#generate #vec-sort ((element #u64) (vector VecU64) (comparator compare-u64)))</code> adds <code>VecU64::sort</code>; its named comparator accepts two immutable element references and returns <code>#bool</code>. Allocation failure and capacity overflow are returned in generated result types. See <a href="allocator.md">the allocator ABI</a> for the allocator and destruction function signatures.</p>
+<p>User-defined names refer to concrete structs, enums, and aliases. Generic declarations and angle-bracket applications are not part of Lim. Generators create concrete specializations explicitly, such as <code>#generate #vec ((element #u64) (allocator Alloc) (name VecU64))</code>. Allocator-backed collections add their concrete operations explicitly with <code>#generate #vec-alloc ((element #u64) (allocator Root) (vector VecU64) (destroy destroy))</code>; <code>Root::State</code> must denote <code>Alloc</code>, the state type passed to <code>#generate #vec</code>. The root provides a byte-pointer allocation enum, safe <code>::allocate</code>, and unsafe <code>::grow</code> / <code>::deallocate</code>; grow takes <code>:old-layout</code> and the requested <code>:layout</code>. Handwritten and generated bundles follow the same ordinary naming convention, without a producer requirement. <code>#std</code> provides <code>SystemAllocator::Allocator</code>, whose empty state is constructed with <code>(#struct-literal SystemAllocator ())</code>. Providers promise fresh, unique, aligned, non-null successful allocations, preservation of the old allocation on growth failure, and matching deallocation. Names and type checking cannot prove these semantic promises. The generated API includes <code>VecU64::new</code>, <code>::reserve</code>, <code>::push</code>, <code>::get</code>, <code>::get-mut</code>, <code>::set</code>, <code>::pop</code>, and <code>::free</code>. <code>#generate #vec-sort ((element #u64) (vector VecU64) (comparator compare-u64))</code> adds <code>VecU64::sort</code>; its named comparator accepts two immutable element references and returns <code>#bool</code>. Allocation failure and capacity overflow are returned in generated result types. See <a href="allocator.md">the allocator ABI</a> for the allocator and destruction function signatures.</p>
 <p><code>()</code> is the unit value and <code>!</code> is the never type. A function returning <code>!</code> must not reach a normal return. A void function returns explicitly with <code>(#return ())</code>.</p>
 <section id="heap-owned-utf-8-strings" class="level3">
 <h3>Heap-owned UTF-8 strings</h3>
 <p>Import <code>library/string.lim</code> for the concrete, opaque, linear <code>String</code> type. String literals remain fixed character arrays; conversion is explicit. The native Lim process allocator owns the bytes. It pools small allocations and uses Linux memory-mapping syscalls for backing storage, without libc or FFI. This is an ordinary library, not a new builtin or an implicit allocation.</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#std</span>)
+<pre class="lisp"><code><span class="lim-keyword">#std</span>
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1040,7 +1044,7 @@ Choice.Ready</code></pre>
 <p><code>String::new</code> creates an empty string without allocating. <code>String::with-capacity</code>, <code>String::from-chars</code>, <code>String::from-utf8</code>, and <code>String::try-clone</code> return <code>StringCreateResult</code>: <code>StringCreated</code> contains an owned string; <code>StringCreateFailed</code> contains a <code>StringError</code>. Cloning is an explicit, fallible deep copy, never a shallow <code>#clone</code> of the allocation handle.</p>
 <p><code>String::len</code> and <code>String::capacity</code> take <code>((string (#ref String)))</code> and count <strong>bytes</strong>, not characters. <code>String::is-empty</code> uses the same shared argument. <code>String::reserve</code> takes <code>((string (#ref-mut String)) (additional #usize))</code>; additional capacity is relative to the current length. <code>String::push-char</code>, <code>String::push-chars</code>, and <code>String::push-utf8</code> take a mutable string and, respectively, <code>: value #char</code>, <code>: text (#slice #char)</code>, or <code>: bytes (#slice #u8)</code>. These operations return <code>StringStatus</code>: <code>StringOk</code> or <code>(StringErr error)</code>. Validation, overflow, and allocation failures leave the original string unchanged. Errors are <code>StringOutOfMemory</code>, <code>StringCapacityOverflow</code>, <code>StringInvalidUtf8</code>, and <code>StringInvalidChar</code>. <code>String::push-string ((string (#ref-mut String)) (text (#ref String)))</code> appends the borrowed source string and returns the same <code>StringStatus</code>. It does not consume either string; the source remains available after the call.</p>
 <p>With <code>#std</code>, the embedded String module can be used without an explicit import. This example builds a string from fixed character arrays, appends a second owned string by shared borrow, and releases both owners:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#std</span>)
+<pre class="lisp"><code><span class="lim-keyword">#std</span>
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1077,9 +1081,9 @@ Choice.Ready</code></pre>
 </section>
 <section id="borrowed-utf-8-views" class="level3">
 <h3>Borrowed UTF-8 views</h3>
-<p><code>(#std)</code> also provides <code>StringView</code> and <code>Utf8Slice</code>: opaque, allocation-free UTF-8 views that retain a shared borrow of their source. <code>String::view ((string (#ref String)))</code> borrows the complete String in constant time, since safe String operations already guarantee valid UTF-8. <code>Utf8Slice::from-owner ((owner (#slice #u8)))</code> validates the complete byte slice and returns <code>(Utf8Slice::Result.Valid view)</code> or <code>Utf8Slice::Result.InvalidUtf8</code>, without allocating or copying the bytes. Empty input and embedded NUL are valid.</p>
+<p><code>#std</code> also provides <code>StringView</code> and <code>Utf8Slice</code>: opaque, allocation-free UTF-8 views that retain a shared borrow of their source. <code>String::view ((string (#ref String)))</code> borrows the complete String in constant time, since safe String operations already guarantee valid UTF-8. <code>Utf8Slice::from-owner ((owner (#slice #u8)))</code> validates the complete byte slice and returns <code>(Utf8Slice::Result.Valid view)</code> or <code>Utf8Slice::Result.InvalidUtf8</code>, without allocating or copying the bytes. Empty input and embedded NUL are valid.</p>
 <p>Both APIs come from an ordinary library generator. To declare another concrete view, choose its public name and source layout explicitly:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#std</span>)
+<pre class="lisp"><code><span class="lim-keyword">#std</span>
 
 <span class="lim-keyword">#generate</span> <span class="lim-keyword">#utf8-view</span> { name <span class="lim-operator">=</span> BorrowedText; owner <span class="lim-operator">=</span> (<span class="lim-keyword">#slice</span> <span class="lim-type">#u8</span>); }
 
@@ -1242,9 +1246,9 @@ Choice.Ready</code></pre>
     <span class="lim-keyword">#return</span> [<span class="lim-type">#u64</span>; value <span class="lim-operator">&lt;</span> <span class="lim-literal">100u64</span>];
 }
 
-(<span class="lim-keyword">#type</span> Small (<span class="lim-keyword">#where</span> (value <span class="lim-type">#u64</span>) (below-100 { value <span class="lim-operator">=</span> value; })))
+<span class="lim-keyword">#type</span> Small (<span class="lim-keyword">#where</span> (value <span class="lim-type">#u64</span>) (below-100 { value <span class="lim-operator">=</span> value; }))
 
-(<span class="lim-keyword">#struct</span> Request () { count <span class="lim-operator">=</span> Small; tag <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; })
+<span class="lim-keyword">#struct</span> Request () { count <span class="lim-operator">=</span> Small; tag <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; }
 
 <span class="lim-keyword">#fn</span> consume-small {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { value <span class="lim-operator">=</span> Small; };
@@ -1271,7 +1275,7 @@ Choice.Ready</code></pre>
     <span class="lim-keyword">#return</span> ();
 }
 
-(<span class="lim-keyword">#type</span> Index4 (<span class="lim-keyword">#where</span> (index <span class="lim-type">#usize</span>) [<span class="lim-type">#usize</span>; index <span class="lim-operator">&lt;</span> <span class="lim-literal">4usize</span>]))
+<span class="lim-keyword">#type</span> Index4 (<span class="lim-keyword">#where</span> (index <span class="lim-type">#usize</span>) [<span class="lim-type">#usize</span>; index <span class="lim-operator">&lt;</span> <span class="lim-literal">4usize</span>])
 
 <span class="lim-keyword">#fn</span> read-four {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { values <span class="lim-operator">=</span> (<span class="lim-keyword">#ref</span> (<span class="lim-keyword">#array</span> <span class="lim-type">#u64</span> <span class="lim-literal">4</span>)); index <span class="lim-operator">=</span> Index4; };
@@ -1300,10 +1304,10 @@ Choice.Ready</code></pre>
 </section>
 <section id="functions" class="level3">
 <h3>Functions</h3>
-<p>Functions are always free-standing; Lim has no methods or <code>impl</code> blocks. The canonical form is:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#fn</span> add ((left <span class="lim-type">#u32</span>) (right <span class="lim-type">#u32</span>)) <span class="lim-type">#u32</span>
-  (<span class="lim-keyword">#let</span> total <span class="lim-type">#u32</span> (<span class="lim-operator">#u32::add-wrap</span> left right))
-  (<span class="lim-keyword">#return</span> total))</code></pre>
+<p>Functions are always free-standing; Lim has no methods or <code>impl</code> blocks. A function may retain an explicit positional signature and body payload:</p>
+<pre class="lisp"><code><span class="lim-keyword">#fn</span> add ((left <span class="lim-type">#u32</span>) (right <span class="lim-type">#u32</span>)) <span class="lim-type">#u32</span>
+    (<span class="lim-keyword">#let</span> total <span class="lim-type">#u32</span> (<span class="lim-operator">#u32::add-wrap</span> left right))
+    (<span class="lim-keyword">#return</span> total)</code></pre>
 <p>The parameter list is a list of <code>(name Type)</code> pairs. Function records also accept a parameter record such as <code>{ left = #u32; right = #u32; }</code>:</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> add {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { left <span class="lim-operator">=</span> <span class="lim-type">#u32</span>; right <span class="lim-operator">=</span> <span class="lim-type">#u32</span>; };
@@ -1360,7 +1364,7 @@ add { left <span class="lim-operator">=</span> <span class="lim-literal">20u32</
 <p>Generic function declarations and angle-bracket calls are rejected. Use a generator to emit a concrete function for each required type combination.</p>
 <p>There are no implicit returns. Every reachable function path must use <code>#return</code>; a unit return must use <code>(#return ())</code>.</p>
 <p>Native functions declare their calling convention explicitly. <code>#abi-c</code> selects the target&#39;s C ABI; external signatures currently accept scalar values and raw pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsafe FFI boundaries and must use <code>#unsafe-call</code> inside <code>#unsafe</code>:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#extern-fn</span> <span class="lim-keyword">#abi-c</span> abs ((value <span class="lim-type">#i32</span>)) <span class="lim-type">#i32</span>)
+<pre class="lisp"><code><span class="lim-keyword">#extern-fn</span> <span class="lim-keyword">#abi-c</span> abs ((value <span class="lim-type">#i32</span>)) <span class="lim-type">#i32</span>
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1369,7 +1373,7 @@ add { left <span class="lim-operator">=</span> <span class="lim-literal">20u32</
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> <span class="lim-keyword">#as</span> (<span class="lim-keyword">#unsafe</span> (<span class="lim-keyword">#unsafe-call</span> abs { value <span class="lim-operator">=</span> <span class="lim-literal">-42i32</span>; })) <span class="lim-type">#u64</span>;
 }</code></pre>
 <p>Binary compilation links statically without libc or pthread when the assembled objects have no unresolved symbols and no libraries were explicitly requested. Foreign references still require the runtime linking path; generated threads do not. Additional native link inputs can be supplied repeatedly with <code>--link-lib NAME</code> and <code>--link-object PATH</code>. The internal linker reads object definitions and relocations, resolves requested shared libraries, and reports missing libraries or symbols before publishing output. These options apply to binary output, not <code>--emit-asm</code>.</p>
-<p><code>(#std)</code> is an explicit top-level opt-in to Lim&#39;s bundled standard modules, including <code>String</code> and standard output. Their immutable source is embedded in the compiler, so this works outside a source checkout. Without <code>#std</code>, these names are not added to the program. <code>(#println (#borrow string))</code> writes the UTF-8 bytes of a borrowed <code>String</code>, then a newline, and returns <code>#i64</code>: zero on success or a negative errno on failure. It neither converts string literals implicitly nor consumes the string. Output can be partial on failure, and the newline is skipped when writing the string bytes fails. See <code>examples/string_println.lim</code> for building and printing a string.</p>
+<p><code>#std</code> is an explicit top-level opt-in to Lim&#39;s bundled standard modules, including <code>String</code> and standard output. Their immutable source is embedded in the compiler, so this works outside a source checkout. Without <code>#std</code>, these names are not added to the program. <code>(#println (#borrow string))</code> writes the UTF-8 bytes of a borrowed <code>String</code>, then a newline, and returns <code>#i64</code>: zero on success or a negative errno on failure. It neither converts string literals implicitly nor consumes the string. Output can be partial on failure, and the newline is skipped when writing the string bytes fails. See <code>examples/string_println.lim</code> for building and printing a string.</p>
 <p><code>std-read-line ((string (#ref-mut String)))</code> explicitly appends a UTF-8 line from stdin to an existing String. <code>StdLineRead usize</code> reports appended bytes (excluding the consumed LF); <code>StdEndOfInput</code> reports EOF before any new text. <code>StdReadFailed StdReadError</code> distinguishes <code>StdIoError i64</code> (negative errno) from <code>StdTextError StringError</code> (invalid UTF-8 or allocation failure). Existing text and successfully appended complete characters remain intact on failure. EOF after a partial line returns that line normally; interrupted reads retry. This API is included in <code>#std</code>. See <a href="stdin.md">the input contract</a> and <code>examples/string_stdin.lim</code> for an echo loop with explicit cleanup.</p>
 <p><code>examples/echo_input.lim</code> shows byte-at-a-time input and output using Linux x86-64 <code>read</code> and <code>write</code> syscalls inside unsafe <code>#asm</code> blocks; <code>tests/io_examples.rs</code> runs it with piped input and checks that stdout matches. To try it yourself:</p>
 <pre class="sh"><code>printf &#39;hello from Lim\n&#39; | ./target/debug/lim examples/echo_input.lim -o /tmp/lim-echo
@@ -1382,15 +1386,15 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </section>
 <section id="type-aliases" class="level3">
 <h3>Type aliases</h3>
-<pre class="lisp"><code>(<span class="lim-keyword">#type</span> UserId <span class="lim-type">#u64</span>)
-(<span class="lim-keyword">#type</span> Pair (<span class="lim-keyword">#tuple</span> <span class="lim-type">#u64</span> <span class="lim-type">#bool</span>))
-(<span class="lim-keyword">#type</span> Matrix (<span class="lim-keyword">#array</span> <span class="lim-type">#f32</span> <span class="lim-literal">4</span>))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#type</span> UserId <span class="lim-type">#u64</span>
+<span class="lim-keyword">#type</span> Pair (<span class="lim-keyword">#tuple</span> <span class="lim-type">#u64</span> <span class="lim-type">#bool</span>)
+<span class="lim-keyword">#type</span> Matrix (<span class="lim-keyword">#array</span> <span class="lim-type">#f32</span> <span class="lim-literal">4</span>)</code></pre>
 <p>Aliases are concrete. Recursive aliases are rejected.</p>
 </section>
 <section id="structs" class="level3">
 <h3>Structs</h3>
 <p>Structs are value types with named fields:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> Point () { x <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; y <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; })
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> Point () { x <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; y <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; }
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1404,8 +1408,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <section id="enums" class="level3">
 <h3>Enums</h3>
 <p>Variants may be fieldless or carry one payload. Use a named struct when a variant needs multiple fields:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> MovePayload () { x <span class="lim-operator">=</span> <span class="lim-type">#i32</span>; y <span class="lim-operator">=</span> <span class="lim-type">#i32</span>; })
-(<span class="lim-keyword">#enum</span> Message () (Message.Quit (Message.Move MovePayload) (Message.Write (<span class="lim-keyword">#array</span> <span class="lim-type">#char</span> <span class="lim-literal">8</span>))))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> MovePayload () { x <span class="lim-operator">=</span> <span class="lim-type">#i32</span>; y <span class="lim-operator">=</span> <span class="lim-type">#i32</span>; }
+<span class="lim-keyword">#enum</span> Message () (Message.Quit (Message.Move MovePayload) (Message.Write (<span class="lim-keyword">#array</span> <span class="lim-type">#char</span> <span class="lim-literal">8</span>)))</code></pre>
 <p>Discriminants are assigned from zero, or can be explicitly supplied using a numeric value after the variant name. Variant names are global within a program and must be unique.</p>
 <p>Native <code>#match</code> dispatch uses a bounds-checked jump table for enums with 4–4096 contiguous discriminants when at least four distinct arms are initial targets. Explicit nonzero and full-width tags are supported; declaration and arm order need not follow tag order. Entries are signed 32-bit offsets in read-only storage, resolved by Lim&#39;s own linker. Invalid tags trap before indexing the table. Guards and refutable payload patterns retain their ordered fallback checks. Small or sparse enums, matches with few destinations, and or-patterns keep direct comparison chains. This changes no language semantics, and whole-program stack analysis follows every table target. See <code>examples/enum_dispatch.lim</code> for a runnable payload-dispatch example.</p>
 <p>To inspect an enum without extracting its owner or payload, use <code>(#variant-is reference Variant)</code>. It works through ordinary and pinned, shared and exclusive references. The reference is evaluated once; only the discriminant is read. The test grants no permission to move a payload or ignore a live loan. Later payload projections still check the active variant at runtime. See <code>examples/variant_is.lim</code> for inspection of a linear owner followed by explicit consumption.</p>
@@ -1413,9 +1417,9 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <section id="globals-and-statics" class="level3">
 <h3>Globals and statics</h3>
 <p>Top-level <code>#const</code>/<code>#let</code> values are immutable compile-time values. <code>#static</code> creates immutable storage and is useful for aggregate data. Ordinary statics are placed in read-only memory; statics containing atomic fields use writable memory so their explicit interior-mutability operations can run. Every read of a static must occur inside <code>#unsafe</code>, including reads used to create a reference to it:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#const</span> answer <span class="lim-type">#u64</span> <span class="lim-literal">42u64</span>)
+<pre class="lisp"><code><span class="lim-keyword">#const</span> answer <span class="lim-type">#u64</span> <span class="lim-literal">42u64</span>
 
-(<span class="lim-keyword">#static</span> values (<span class="lim-keyword">#array</span> <span class="lim-type">#u64</span> <span class="lim-literal">3</span>) (<span class="lim-keyword">#array</span> (<span class="lim-keyword">#array</span> <span class="lim-type">#u64</span> <span class="lim-literal">3</span>) <span class="lim-literal">10u64</span> <span class="lim-literal">20u64</span> <span class="lim-literal">30u64</span>))
+<span class="lim-keyword">#static</span> values (<span class="lim-keyword">#array</span> <span class="lim-type">#u64</span> <span class="lim-literal">3</span>) (<span class="lim-keyword">#array</span> (<span class="lim-keyword">#array</span> <span class="lim-type">#u64</span> <span class="lim-literal">3</span>) <span class="lim-literal">10u64</span> <span class="lim-literal">20u64</span> <span class="lim-literal">30u64</span>)
 
 <span class="lim-keyword">#fn</span> first-value {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1425,7 +1429,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 }</code></pre>
 <p>Initializers must be compile-time values. Constant references, arithmetic, casts, conditionals, tuples, arrays, structs, enums, and floating-point values are supported. Cyclic constant references are rejected.</p>
 <p>Atomic initializers may also be constant, including inside structs, tuples, arrays and enum payloads. They do not execute runtime initialization functions:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#static</span> counter (<span class="lim-keyword">#atomic</span> <span class="lim-type">#u64</span>) (<span class="lim-keyword">#atomic-init</span> <span class="lim-type">#u64</span> <span class="lim-literal">0u64</span>))
+<pre class="lisp"><code><span class="lim-keyword">#static</span> counter (<span class="lim-keyword">#atomic</span> <span class="lim-type">#u64</span>) (<span class="lim-keyword">#atomic-init</span> <span class="lim-type">#u64</span> <span class="lim-literal">0u64</span>)
 
 <span class="lim-keyword">#fn</span> increment-counter {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1448,8 +1452,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <p>A derived field reference also suspends overlapping parent access through function calls. Moving the child into another aggregate, or moving and restoring its holder through pinned storage, does not erase that restriction. Calls may use the child&#39;s own reference; explicitly release the child holder before lending the parent again. <code>examples/reference_parent_call.lim</code> demonstrates that order, and <code>tests/ui/call-suspended-parent.lim</code> shows a rejected parent call.</p>
 <p>The same access restriction applies when a function returns the child reference, directly or inside an aggregate. A returned call reborrow retains the referent&#39;s loan even if its temporary parent handle is released; it does not require that handle&#39;s storage to stay alive. See <code>examples/returned_reference_parent.lim</code> for a returned reference carried out of a labeled loop and used after parent-handle cleanup. <code>tests/ui/call-returned-parent.lim</code> rejects lending the parent again while its returned child is live.</p>
 <p>Struct types are not constructors. Create a value with <code>#struct-literal</code>, or write a named free-standing constructor function that returns one. Every field must be supplied exactly once; fields may appear in any order, and omitted fields are not defaulted:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> Point () { x <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; y <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; })
-(<span class="lim-keyword">#let</span> point Point (<span class="lim-keyword">#struct-literal</span> Point { y <span class="lim-operator">=</span> <span class="lim-literal">22u64</span>; x <span class="lim-operator">=</span> <span class="lim-literal">20u64</span>; }))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> Point () { x <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; y <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; }
+<span class="lim-keyword">#let</span> point Point (<span class="lim-keyword">#struct-literal</span> Point { y <span class="lim-operator">=</span> <span class="lim-literal">22u64</span>; x <span class="lim-operator">=</span> <span class="lim-literal">20u64</span>; })</code></pre>
 <p>Unknown, duplicate, or missing fields are compile-time errors. A type name in call position, such as <code>(Point 20u64 22u64)</code>, is rejected; give constructor functions distinct names such as <code>make-point</code>. The UI suite covers this rejection in <code>tests/ui/type-as-constructor.lim</code>; it also pins the diagnostic spans for positional calls, generic function declarations, and angle-bracket generic call syntax in <code>tests/ui/positional-call.lim</code>, <code>tests/ui/generic-function.lim</code>, and <code>tests/ui/generic-angle-call.lim</code>.</p>
 <p>Aggregate projections can be updated with <code>#set-index</code>, <code>#set-field</code>, and <code>#set-payload</code>:</p>
 <pre class="lisp"><code>(<span class="lim-keyword">#set-index</span> values <span class="lim-literal">0u64</span> <span class="lim-literal">10u64</span>)
@@ -1472,7 +1476,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <section id="explicit-enum-construction" class="level3">
 <h3>Explicit enum construction</h3>
 <p><code>#enum-literal</code> marks value construction, just as <code>#struct-literal</code> does for structs. The variant declaration determines the concrete enum and payload type; this does not introduce type inference. A payload expression is evaluated once. A fieldless variant has no payload argument, while a variant carrying unit explicitly receives <code>()</code>.</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#enum</span> Answer () ((Answer.Value <span class="lim-type">#u64</span>) Answer.Empty))
+<pre class="lisp"><code><span class="lim-keyword">#enum</span> Answer () ((Answer.Value <span class="lim-type">#u64</span>) Answer.Empty)
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1484,7 +1488,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <p>Patterns do not use the construction keyword: <code>(Answer::Value value)</code> binds the payload, and <code>Answer::Empty</code> tests the fieldless variant.</p>
 <p>Local destructuring and <code>#let-else</code> support tuples, arrays, structs, and enum patterns. The <code>else</code> body must diverge, for example with <code>#return</code>, <code>#break</code>, or <code>#panic</code>.</p>
 <p>For a named enum variant, omit the redundant enum annotation and explicitly delimit the failure body with <code>#else</code>:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#enum</span> Outcome () ((Outcome.Success <span class="lim-type">#u64</span>) Outcome.Failure))
+<pre class="lisp"><code><span class="lim-keyword">#enum</span> Outcome () ((Outcome.Success <span class="lim-type">#u64</span>) Outcome.Failure)
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1494,10 +1498,10 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
     <span class="lim-keyword">#return</span> answer;
 }</code></pre>
 <p>The named variant determines its declared owning enum; the value must have that type. This is declaration lookup, not inference from the value. The value is evaluated exactly once; use <code>#block</code> for a multi-statement computation. Success bindings become available only after the statement, never inside <code>#else</code>. Every failure path must return, break/continue an enclosing loop, or otherwise diverge. Exiting a loop created inside <code>#else</code> is not sufficient: it must be impossible to reach the following statement on failure.</p>
-<p><code>(#std)</code> provides <code>#generate #enum-project</code>, a generator rather than a runtime projection keyword. It accepts <code>((enum Enum) (variant Variant) (payload Payload) (mode ReferenceMode) (name Name))</code> and emits <code>Name::Some</code>/<code>Name::None</code> plus exactly one function, <code>Name::project</code>. The required mode is <code>#ref</code>, <code>#ref-mut</code>, <code>#pin-ref</code>, or <code>#pin-ref-mut</code>. Both the function&#39;s <code>source</code> parameter and its optional payload use that reference mode, around <code>Enum</code> and <code>Payload</code> respectively. Its ordinary safe <code>#match</code> body uses <code>#case-ref</code>, <code>#case-ref-mut</code>, <code>#case-pin</code>, or <code>#case-pin-mut</code> and returns <code>None</code> on a different variant. No allocation, payload move, unchecked projection, or asserting getter is involved. The optional reference retains its owner&#39;s loan through ordinary <code>#let-else</code>:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#std</span>)
+<p><code>#std</code> provides <code>#generate #enum-project</code>, a generator rather than a runtime projection keyword. It accepts <code>((enum Enum) (variant Variant) (payload Payload) (mode ReferenceMode) (name Name))</code> and emits <code>Name::Some</code>/<code>Name::None</code> plus exactly one function, <code>Name::project</code>. The required mode is <code>#ref</code>, <code>#ref-mut</code>, <code>#pin-ref</code>, or <code>#pin-ref-mut</code>. Both the function&#39;s <code>source</code> parameter and its optional payload use that reference mode, around <code>Enum</code> and <code>Payload</code> respectively. Its ordinary safe <code>#match</code> body uses <code>#case-ref</code>, <code>#case-ref-mut</code>, <code>#case-pin</code>, or <code>#case-pin-mut</code> and returns <code>None</code> on a different variant. No allocation, payload move, unchecked projection, or asserting getter is involved. The optional reference retains its owner&#39;s loan through ordinary <code>#let-else</code>:</p>
+<pre class="lisp"><code><span class="lim-keyword">#std</span>
 
-(<span class="lim-keyword">#enum</span> Task () ((Task.Work <span class="lim-type">#u64</span>) Task.Idle))
+<span class="lim-keyword">#enum</span> Task () ((Task.Work <span class="lim-type">#u64</span>) Task.Idle)
 
 <span class="lim-keyword">#generate</span> <span class="lim-keyword">#enum-project</span> {
   enum <span class="lim-operator">=</span> Task;
@@ -1531,11 +1535,11 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <pre class="lisp"><code>(<span class="lim-keyword">#let-mut</span> count <span class="lim-type">#u64</span> <span class="lim-literal">0u64</span>)
 (<span class="lim-keyword">#set</span> count [<span class="lim-type">#u64</span> <span class="lim-keyword">#wrap</span>; count <span class="lim-operator">+</span> <span class="lim-literal">1u64</span>])</code></pre>
 <p>Loop conditions run repeatedly; any outer value they inspect must be explicitly cloned so it remains available on the next iteration. Both sides of a branch are checked, and a value moved on either path is unavailable after the join. <code>#clone</code> cannot duplicate mutable references or thread-task handles. If a function named <code>&lt;Type&gt;-clone</code> exists with signature <code>(&lt;Type&gt;) -&gt; &lt;Type&gt;</code>, <code>#clone</code> dispatches to it; use that function to define deep-copy behavior for resource-owning types. Otherwise the backend clones the value representation. Every function return checks that all still-live linear bindings have been consumed. Pass an owned value to another function, or explicitly consume it with <code>#forget</code>. <code>#forget</code> does not run cleanup; it is intended for use after a user-written destruction function has released a value&#39;s resources. For example:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> Buffer () ((allocation Allocation)))
-(<span class="lim-keyword">#fn</span> Buffer::destroy ((buffer Buffer)) ()
-  (Allocation::release (<span class="lim-keyword">#get</span> buffer allocation))
-  (<span class="lim-keyword">#forget</span> buffer)
-  (<span class="lim-keyword">#return</span> ()))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> Buffer () ((allocation Allocation))
+<span class="lim-keyword">#fn</span> Buffer::destroy ((buffer Buffer)) ()
+    (Allocation::release (<span class="lim-keyword">#get</span> buffer allocation))
+    (<span class="lim-keyword">#forget</span> buffer)
+    (<span class="lim-keyword">#return</span> ())</code></pre>
 <p>Destruction is an ordinary explicit call, not a type hook. A destructor takes the owned value by value, destructures resource-bearing fields, and calls the appropriate field destructors before forgetting any remaining representation. Moving or returning a value transfers the caller&#39;s cleanup responsibility; every explicit <code>#return</code> is checked for still-live linear locals. Early-return paths must likewise consume the values they own before returning. The compiler never inserts a destructor, so discarding resources with <code>#forget</code> remains an intentional leak rather than hidden cleanup. Generated collections follow the same rule: their generated <code>-free</code> function explicitly destroys each remaining element and releases storage once, and consuming the vector prevents a second free.</p>
 <p><code>#drop</code> also consumes a value and remains useful for explicitly ending a reference&#39;s borrow. A value cannot be silently overwritten, abandoned at a scope exit, or consumed on only some control-flow paths. The compiler does not insert destruction calls or silently discard linear values. For a struct, tuple, array, or enum containing references, the borrow checker tracks the provenance of every contained reference. Dropping the aggregate releases each recorded field loan, so all owners become available again only after the aggregate itself is dropped. Code generation does not emit runtime work for references because they are non-owning values.</p>
 </section>
@@ -1690,18 +1694,18 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
     <span class="lim-keyword">#return</span><span class="lim-operator">:</span> increment { value <span class="lim-operator">=</span> <span class="lim-literal">41u64</span>; };
 }</code></pre>
 <p>Generator expressions instead run at compile time. Here a helper checks its syntax input, reports an error for a non-symbol, and emits a concrete type alias. Quasiquote and unquote are syntax punctuation, not <code>#</code> builtins:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#gn-fn</span> alias-declaration (name)
-  (<span class="lim-keyword">#gn-if</span> (#gn-symbol? name)
-    `(<span class="lim-keyword">#type</span> ,name <span class="lim-type">#u64</span>)
-    (<span class="lim-keyword">#gn-error</span> <span class="lim-string">&quot;alias name must be a symbol&quot;</span>)))
+<pre class="lisp"><code><span class="lim-keyword">#gn-fn</span> alias-declaration (name)
+    (<span class="lim-keyword">#gn-if</span> (#gn-symbol? name)
+      `(<span class="lim-keyword">#type</span> ,name <span class="lim-type">#u64</span>)
+      (<span class="lim-keyword">#gn-error</span> <span class="lim-string">&quot;alias name must be a symbol&quot;</span>))
 
-(<span class="lim-keyword">#gn</span> make-alias (name)
-  (<span class="lim-keyword">#gn-list</span> (<span class="lim-keyword">#gn-call</span> alias-declaration name)))
+<span class="lim-keyword">#gn</span> make-alias (name)
+    (<span class="lim-keyword">#gn-list</span> (<span class="lim-keyword">#gn-call</span> alias-declaration name))
 
-(<span class="lim-keyword">#generate</span> make-alias Answer)
+<span class="lim-keyword">#generate</span> make-alias Answer
 
-(<span class="lim-keyword">#fn</span> main () Answer
-  (<span class="lim-keyword">#return</span> <span class="lim-literal">42u64</span>))</code></pre>
+<span class="lim-keyword">#fn</span> main () Answer
+    (<span class="lim-keyword">#return</span> <span class="lim-literal">42u64</span>)</code></pre>
 <table>
 <colgroup>
 <col style="width: 25%" />
@@ -1721,7 +1725,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#abi-c</code></td>
 <td><code>#abi-c</code> in <code>#extern-fn</code></td>
-<td><code>(#extern-fn #abi-c abs ((value #i32)) #i32)</code> (declaration)</td>
+<td><code>#extern-fn #abi-c abs ((value #i32)) #i32</code> (declaration)</td>
 <td>Selects the C calling convention; foreign calls use <code>#unsafe-call</code> inside <code>#unsafe</code>.</td>
 </tr>
 <tr>
@@ -1738,8 +1742,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#alias</code></td>
-<td><code>(#alias local-name = path.lim::declaration)</code></td>
-<td><code>(#alias read = ./library/lib.lim::read)</code> (top level)</td>
+<td><code>#alias local-name = path.lim::declaration</code></td>
+<td><code>#alias read = ./library/lib.lim::read</code> (top level)</td>
 <td>Binds a file-local spelling to an exact declaration identity. Preserves types, parameter labels, visibility, and ownership rules; the target may be wrapped in <code>#unstable</code>.</td>
 </tr>
 <tr>
@@ -1751,7 +1755,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#arch</code></td>
 <td><code>(#cfg-is #arch literal)</code></td>
-<td><code>(#cfg-if (#cfg-is #arch x86_64) (#type Word #u64))</code> (top level)</td>
+<td><code>#cfg-if (#cfg-is #arch x86_64) (#type Word #u64)</code> (top level)</td>
 <td>Automatically populated target architecture cfg key; overridable with <code>--cfg arch=VALUE</code>.</td>
 </tr>
 <tr>
@@ -1865,7 +1869,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#bool</code></td>
 <td><code>#bool</code></td>
-<td><code>(#fn identity ((value #bool)) #bool (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #bool)) #bool (#return value)</code> (function signature)</td>
 <td>Boolean scalar type; values are <code>true</code> and <code>false</code>.</td>
 </tr>
 <tr>
@@ -1918,8 +1922,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#capability</code></td>
-<td><code>(#capability name Type ((operation (Args...) Result)...))</code></td>
-<td><code>(#capability ordered #u64 ((less ((#ref #u64) (#ref #u64)) #bool)))</code> (declaration)</td>
+<td><code>#capability name Type ((operation (Args...) Result)...)</code></td>
+<td><code>#capability ordered #u64 ((less ((#ref #u64) (#ref #u64)) #bool))</code> (declaration)</td>
 <td>Declares a generator-time signature contract that a concrete type may satisfy.</td>
 </tr>
 <tr>
@@ -1966,8 +1970,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#cfg-if</code></td>
-<td><code>(#cfg-if condition form... [(#cfg-else form...)])</code></td>
-<td><code>(#cfg-if (#cfg-is #os linux) (#fn os-call () () (#return ())))</code> (top level)</td>
+<td><code>#cfg-if condition form... [(#cfg-else form...)]</code></td>
+<td><code>#cfg-if (#cfg-is #os linux) (#fn os-call () () (#return ()))</code> (top level)</td>
 <td>Includes only the selected top-level forms before imports and semantic checks.</td>
 </tr>
 <tr>
@@ -1991,7 +1995,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#char</code></td>
 <td><code>#char</code></td>
-<td><code>(#fn identity ((value #char)) #char (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #char)) #char (#return value)</code> (function signature)</td>
 <td>Unicode scalar value type, distinct from UTF-8 byte type <code>#u8</code>.</td>
 </tr>
 <tr>
@@ -2002,8 +2006,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#const</code></td>
-<td><code>(#const name Type value)</code></td>
-<td><code>(#const LIMIT #u64 16u64)</code> (top level)</td>
+<td><code>#const name Type value</code></td>
+<td><code>#const LIMIT #u64 16u64</code> (top level)</td>
 <td>Declares an immutable compile-time constant with an explicit type.</td>
 </tr>
 <tr>
@@ -2038,8 +2042,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#distributed-enum</code></td>
-<td><code>(#distributed-enum Name (properties...))</code></td>
-<td><code>(#distributed-enum Error ())</code> (top level)</td>
+<td><code>#distributed-enum Name (properties...)</code></td>
+<td><code>#distributed-enum Error ()</code> (top level)</td>
 <td>Declares an enum whose variants are collected after generator expansion; the central declaration owns its properties.</td>
 </tr>
 <tr>
@@ -2056,14 +2060,14 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#enum</code></td>
-<td><code>(#enum Name (properties...) ((Variant [discriminant] [PayloadType])...))</code></td>
-<td><code>(#enum Maybe (#repr-c) ((Some #u64) None))</code> (top level)</td>
+<td><code>#enum Name (properties...) ((Variant [discriminant] [PayloadType])...)</code></td>
+<td><code>#enum Maybe (#repr-c) ((Some #u64) None)</code> (top level)</td>
 <td>Declares a concrete enum; each variant has zero or one payload, and properties may include <code>#linear</code> and <code>#repr-c</code>. Use a named struct for multiple fields.</td>
 </tr>
 <tr>
 <td><code>#enum-contribute</code></td>
-<td><code>(#enum-contribute EnumName (Variant [PayloadType]))</code></td>
-<td><code>(#enum-contribute Error (ReadFailure #u32))</code> (top level)</td>
+<td><code>#enum-contribute EnumName (Variant [PayloadType])</code></td>
+<td><code>#enum-contribute Error (ReadFailure #u32)</code> (top level)</td>
 <td>Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations.</td>
 </tr>
 <tr>
@@ -2074,32 +2078,32 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#export</code></td>
-<td><code>(#export name...)</code></td>
-<td><code>(#export Counter counter-new counter-destroy)</code> (in <code>lib.lim</code>)</td>
+<td><code>#export name...</code></td>
+<td><code>#export Counter counter-new counter-destroy</code> (in <code>lib.lim</code>)</td>
 <td>Exposes declarations outside the nearest directory library. Struct representation remains private; exporting an enum exposes all variants and requires publicly accessible payload types. Individual variant exports are rejected.</td>
 </tr>
 <tr>
 <td><code>#extern-fn</code></td>
-<td><code>(#extern-fn #abi-c name ((arg Type) (...)) ReturnType)</code>; the parameter list may also use nested pairs</td>
-<td><code>(#extern-fn #abi-c c_abs ((value #i32)) #i32)</code> (top level)</td>
+<td><code>#extern-fn #abi-c name ((arg Type) (...)) ReturnType</code>; the parameter list may also use nested pairs</td>
+<td><code>#extern-fn #abi-c c_abs ((value #i32)) #i32</code> (top level)</td>
 <td>Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library.</td>
 </tr>
 <tr>
 <td><code>#f32</code></td>
 <td><code>#f32</code></td>
-<td><code>(#fn identity ((value #f32)) #f32 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #f32)) #f32 (#return value)</code> (function signature)</td>
 <td>32-bit IEEE 754 floating-point scalar type.</td>
 </tr>
 <tr>
 <td><code>#f64</code></td>
 <td><code>#f64</code></td>
-<td><code>(#fn identity ((value #f64)) #f64 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #f64)) #f64 (#return value)</code> (function signature)</td>
 <td>64-bit IEEE 754 floating-point scalar type.</td>
 </tr>
 <tr>
 <td><code>#fn</code></td>
-<td><code>(#fn name ((arg Type) (...)) ReturnType body...)</code>; the parameter list may also use nested pairs</td>
-<td><code>(#fn add ((a #u64) (b #u64)) #u64 (#return (#u64::add-wrap a b)))</code> (top level)</td>
+<td><code>#fn name ((arg Type) (...)) ReturnType body...</code>; the parameter list may also use nested pairs</td>
+<td><code>#fn add ((a #u64) (b #u64)) #u64 (#return (#u64::add-wrap a b))</code> (top level)</td>
 <td>Declares a monomorphic function with explicit parameter/return types and body.</td>
 </tr>
 <tr>
@@ -2122,14 +2126,14 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#generate</code></td>
-<td><code>(#generate generator arguments...)</code></td>
-<td><code>(#generate #optional ((type #u64) (name Number)))</code> (top level)</td>
+<td><code>#generate generator arguments...</code></td>
+<td><code>#generate #optional ((type #u64) (name Number))</code> (top level)</td>
 <td>Expands a generator into inspectable, cached Lim declarations. Arguments are literal syntax, with named lists for builtin generators.</td>
 </tr>
 <tr>
 <td><code>#generated-context</code></td>
-<td><code>(#generated-context ((producer &quot;name&quot;) (definition-module &quot;path&quot;) (definition-file &quot;path&quot;) (invocation-module &quot;path&quot;) (invocation-file &quot;path&quot;)))</code></td>
-<td><code>(#generated-context ((producer &quot;/lib/lib.lim::make&quot;) (definition-module &quot;/lib/lib.lim&quot;) (definition-file &quot;/lib/lib.lim&quot;) (invocation-module &quot;&lt;global&gt;&quot;) (invocation-file &quot;/app/main.lim&quot;)))</code> (compiler-generated file header)</td>
+<td><code>#generated-context ((producer &quot;name&quot;) (definition-module &quot;path&quot;) (definition-file &quot;path&quot;) (invocation-module &quot;path&quot;) (invocation-file &quot;path&quot;))</code></td>
+<td><code>#generated-context ((producer &quot;/lib/lib.lim::make&quot;) (definition-module &quot;/lib/lib.lim&quot;) (definition-file &quot;/lib/lib.lim&quot;) (invocation-module &quot;&lt;global&gt;&quot;) (invocation-file &quot;/app/main.lim&quot;))</code> (compiler-generated file header)</td>
 <td>Records definition and invocation file identities and permission boundaries for generated-file private access. Validated against the expansion/cache key; forbidden in handwritten source and generator-produced forms.</td>
 </tr>
 <tr>
@@ -2146,8 +2150,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#gn</code></td>
-<td><code>(#gn name (name-or-(name capability...)...) body)</code></td>
-<td><code>(#gn make-alias (name) `((#type ,name #u64)))</code> (top level)</td>
+<td><code>#gn name (name-or-(name capability...)...) body</code></td>
+<td><code>#gn make-alias (name) `((#type ,name #u64))</code> (top level)</td>
 <td>Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values.</td>
 </tr>
 <tr>
@@ -2176,8 +2180,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#gn-fn</code></td>
-<td><code>(#gn-fn name (parameter...) body)</code></td>
-<td><code>(#gn-fn identity (value) value)</code> (top level)</td>
+<td><code>#gn-fn name (parameter...) body</code></td>
+<td><code>#gn-fn identity (value) value</code> (top level)</td>
 <td>Declares a reusable generator-time function with one syntax-producing body.</td>
 </tr>
 <tr>
@@ -2255,31 +2259,31 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#i128</code></td>
 <td><code>#i128</code></td>
-<td><code>(#fn identity ((value #i128)) #i128 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #i128)) #i128 (#return value)</code> (function signature)</td>
 <td>Signed 128-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#i16</code></td>
 <td><code>#i16</code></td>
-<td><code>(#fn identity ((value #i16)) #i16 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #i16)) #i16 (#return value)</code> (function signature)</td>
 <td>Signed 16-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#i32</code></td>
 <td><code>#i32</code></td>
-<td><code>(#fn identity ((value #i32)) #i32 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #i32)) #i32 (#return value)</code> (function signature)</td>
 <td>Signed 32-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#i64</code></td>
 <td><code>#i64</code></td>
-<td><code>(#fn identity ((value #i64)) #i64 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #i64)) #i64 (#return value)</code> (function signature)</td>
 <td>Signed 64-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#i8</code></td>
 <td><code>#i8</code></td>
-<td><code>(#fn identity ((value #i8)) #i8 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #i8)) #i8 (#return value)</code> (function signature)</td>
 <td>Signed 8-bit integer scalar type.</td>
 </tr>
 <tr>
@@ -2315,7 +2319,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#isize</code></td>
 <td><code>#isize</code></td>
-<td><code>(#fn identity ((value #isize)) #isize (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #isize)) #isize (#return value)</code> (function signature)</td>
 <td>Signed integer scalar type with the target&#39;s native pointer width.</td>
 </tr>
 <tr>
@@ -2344,8 +2348,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#linear</code></td>
-<td>Property in <code>(#struct Name (#linear) fields)</code> or <code>(#enum Name (#linear) variants)</code></td>
-<td><code>(#struct FileHandle (#linear) ((descriptor #u64)))</code> (top level)</td>
+<td>Property in <code>#struct Name (#linear) fields</code> or <code>#enum Name (#linear) variants</code></td>
+<td><code>#struct FileHandle (#linear) ((descriptor #u64))</code> (top level)</td>
 <td>Forces the declared struct or enum to be linear; also inherited by aggregates that own linear fields or payloads.</td>
 </tr>
 <tr>
@@ -2405,7 +2409,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#mut</code></td>
 <td><code>(#mut parameter Type)</code></td>
-<td><code>(#fn advance ((#mut count #u64)) #u64 (#set count 1u64) (#return count))</code> (parameter list)</td>
+<td><code>#fn advance ((#mut count #u64)) #u64 (#set count 1u64) (#return count)</code> (parameter list)</td>
 <td>Marks a function parameter mutable; local mutable bindings use <code>#let-mut</code>.</td>
 </tr>
 <tr>
@@ -2422,8 +2426,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#opaque</code></td>
-<td><code>(#opaque StructName)</code></td>
-<td><code>(#struct Token () ((slot #u64))) (#opaque Token)</code> (top level)</td>
+<td><code>#opaque StructName</code></td>
+<td><code>#struct Token () ((slot #u64)); #opaque Token</code> (top level)</td>
 <td>Restricts construction, field access, and cloning of a linear struct to its defining source module; external code can use its public functions. The annotation must appear in the same source module as the concrete struct.</td>
 </tr>
 <tr>
@@ -2435,7 +2439,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#os</code></td>
 <td><code>(#cfg-is #os literal)</code></td>
-<td><code>(#cfg-if (#cfg-is #os linux) (#type Fd #i32))</code> (top level)</td>
+<td><code>#cfg-if (#cfg-is #os linux) (#type Fd #i32)</code> (top level)</td>
 <td>Automatically populated OS cfg key; overridable with <code>--cfg os=VALUE</code>.</td>
 </tr>
 <tr>
@@ -2597,7 +2601,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#platform</code></td>
 <td><code>(#cfg-is #platform literal)</code></td>
-<td><code>(#cfg-if (#cfg-is #platform linux) (#type Fd #i32))</code> (top level)</td>
+<td><code>#cfg-if (#cfg-is #platform linux) (#type Fd #i32)</code> (top level)</td>
 <td>Automatically populated platform cfg key, initially the host OS; overridable with <code>--cfg platform=VALUE</code>.</td>
 </tr>
 <tr>
@@ -2610,7 +2614,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td><code>#println</code></td>
 <td><code>(#println (#borrow string))</code></td>
 <td><code>(#assert (#i64::eq (#println (#borrow message)) 0i64))</code> (expression)</td>
-<td>Writes a borrowed <code>String</code>&#39;s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level <code>(#std)</code>.</td>
+<td>Writes a borrowed <code>String</code>&#39;s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level <code>#std</code>.</td>
 </tr>
 <tr>
 <td><code>#ptr</code></td>
@@ -2698,14 +2702,14 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#repr-c</code></td>
-<td>Property in <code>(#struct Name (#repr-c) fields)</code> or <code>(#enum Name (#repr-c) variants)</code></td>
-<td><code>(#struct Header (#repr-c) ((tag #u8) (length #u32)))</code> (top level)</td>
+<td>Property in <code>#struct Name (#repr-c) fields</code> or <code>#enum Name (#repr-c) variants</code></td>
+<td><code>#struct Header (#repr-c) ((tag #u8) (length #u32))</code> (top level)</td>
 <td>Requests C layout metadata for layout queries; does not make arbitrary Lim values FFI-safe.</td>
 </tr>
 <tr>
 <td><code>#require-generated</code></td>
-<td><code>(#require-generated Name GeneratorName (CompanionName...))</code>; companions may be omitted</td>
-<td><code>(#require-generated Work::Frame #async-fn-pinned (Work::Poll Work::poll))</code> (top level)</td>
+<td><code>#require-generated Name GeneratorName (CompanionName...)</code>; companions may be omitted</td>
+<td><code>#require-generated Work::Frame #async-fn-pinned (Work::Poll Work::poll)</code> (top level)</td>
 <td>Requires one actual invocation of the named generator to have produced all listed identifiers; checked after expansion with compiler-recorded ancestry.</td>
 </tr>
 <tr>
@@ -2740,8 +2744,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#send</code></td>
-<td><code>(#unsafe-impl #send Type)</code></td>
-<td><code>(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #send Handle)</code> (top level)</td>
+<td><code>#unsafe-impl #send Type</code></td>
+<td><code>#struct Handle () ((raw (#ptr #u8))); #unsafe-impl #send Handle</code> (top level)</td>
 <td>Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally.</td>
 </tr>
 <tr>
@@ -2842,20 +2846,20 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#static</code></td>
-<td><code>(#static name Type value)</code></td>
-<td><code>(#static answer #u64 42u64)</code> (top level)</td>
+<td><code>#static name Type value</code></td>
+<td><code>#static answer #u64 42u64</code> (top level)</td>
 <td>Declares storage with static lifetime; accesses must be inside <code>#unsafe</code>.</td>
 </tr>
 <tr>
 <td><code>#std</code></td>
-<td><code>(#std)</code></td>
-<td><code>(#std)</code> (top level)</td>
+<td><code>#std</code></td>
+<td><code>#std</code> (top level)</td>
 <td>Loads the embedded standard String and stdout modules into the program. This is explicit opt-in and works without a source checkout.</td>
 </tr>
 <tr>
 <td><code>#struct</code></td>
-<td><code>(#struct Name (properties...) ((field Type)...))</code></td>
-<td><code>(#struct Point () ((x #u64) (y #u64)))</code> (top level)</td>
+<td><code>#struct Name (properties...) ((field Type)...)</code></td>
+<td><code>#struct Point () ((x #u64) (y #u64))</code> (top level)</td>
 <td>Declares a concrete struct; properties may include <code>#linear</code> and <code>#repr-c</code>.</td>
 </tr>
 <tr>
@@ -2866,14 +2870,14 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#sync</code></td>
-<td><code>(#unsafe-impl #sync Type)</code></td>
-<td><code>(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #sync Handle)</code> (top level)</td>
+<td><code>#unsafe-impl #sync Type</code></td>
+<td><code>#struct Handle () ((raw (#ptr #u8))); #unsafe-impl #sync Handle</code> (top level)</td>
 <td>Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally.</td>
 </tr>
 <tr>
 <td><code>#syntax</code></td>
-<td><code>(#syntax Name (syntax ...))</code></td>
-<td><code>(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))</code> (top level)</td>
+<td><code>#syntax Name (syntax ...)</code></td>
+<td><code>#syntax StepAwait (#u64 Step StepPending StepReady step-poll)</code> (top level)</td>
 <td>Declares an immutable literal syntax bundle with a unique identifier; no values are evaluated and no types are inferred.</td>
 </tr>
 <tr>
@@ -2885,13 +2889,13 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#target</code></td>
 <td><code>(#cfg-is #target literal)</code></td>
-<td><code>(#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word #u64))</code> (top level)</td>
+<td><code>#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word #u64)</code> (top level)</td>
 <td>Automatically populated canonical target triple cfg key; overridable with <code>--cfg target=VALUE</code>.</td>
 </tr>
 <tr>
 <td><code>#thread-task</code></td>
-<td><code>(#thread-task TaskType worker [spawn-signature join-signature])</code></td>
-<td><code>(#thread-task ReadTask read-value)</code> (generated declaration)</td>
+<td><code>#thread-task TaskType worker [spawn-signature join-signature]</code></td>
+<td><code>#thread-task ReadTask read-value</code> (generated declaration)</td>
 <td>Declares a concrete task type and its named worker; generated builtins are compiler-managed.</td>
 </tr>
 <tr>
@@ -2914,38 +2918,38 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#type</code></td>
-<td><code>(#type Name Type)</code></td>
-<td><code>(#type UserId #u64)</code> (top level)</td>
+<td><code>#type Name Type</code></td>
+<td><code>#type UserId #u64</code> (top level)</td>
 <td>Declares a transparent alias; uses remain strongly and statically typed.</td>
 </tr>
 <tr>
 <td><code>#u128</code></td>
 <td><code>#u128</code></td>
-<td><code>(#fn identity ((value #u128)) #u128 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #u128)) #u128 (#return value)</code> (function signature)</td>
 <td>Unsigned 128-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#u16</code></td>
 <td><code>#u16</code></td>
-<td><code>(#fn identity ((value #u16)) #u16 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #u16)) #u16 (#return value)</code> (function signature)</td>
 <td>Unsigned 16-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#u32</code></td>
 <td><code>#u32</code></td>
-<td><code>(#fn identity ((value #u32)) #u32 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #u32)) #u32 (#return value)</code> (function signature)</td>
 <td>Unsigned 32-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#u64</code></td>
 <td><code>#u64</code></td>
-<td><code>(#fn identity ((value #u64)) #u64 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #u64)) #u64 (#return value)</code> (function signature)</td>
 <td>Unsigned 64-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#u8</code></td>
 <td><code>#u8</code></td>
-<td><code>(#fn identity ((value #u8)) #u8 (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #u8)) #u8 (#return value)</code> (function signature)</td>
 <td>Unsigned 8-bit integer scalar type.</td>
 </tr>
 <tr>
@@ -2968,26 +2972,26 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#unsafe-fn</code></td>
-<td><code>(#unsafe-fn name ((arg Type)...) ReturnType body...)</code></td>
-<td><code>(#unsafe-fn read-byte ((p (#ptr #u8))) #u8 (#return (#unsafe (#ptr-read p))))</code> (top level)</td>
+<td><code>#unsafe-fn name ((arg Type)...) ReturnType body...</code></td>
+<td><code>#unsafe-fn read-byte ((p (#ptr #u8))) #u8 (#return (#unsafe (#ptr-read p)))</code> (top level)</td>
 <td>Declares caller safety obligations: calls use <code>#unsafe-call</code> inside <code>#unsafe</code>, and raw operations in the body still need explicit unsafe blocks.</td>
 </tr>
 <tr>
 <td><code>#unsafe-impl</code></td>
-<td><code>(#unsafe-impl property Type)</code></td>
-<td><code>(#unsafe-impl #send NativeHandle)</code> (top level)</td>
+<td><code>#unsafe-impl property Type</code></td>
+<td><code>#unsafe-impl #send NativeHandle</code> (top level)</td>
 <td>Unsafely overrides a type&#39;s structural thread-safety property; this is an author promise.</td>
 </tr>
 <tr>
 <td><code>#unstable</code></td>
 <td><code>(#unstable path.lim::declaration)</code></td>
-<td><code>(#alias inspect = (#unstable ./library/private.lim::inspect))</code> (alias target)</td>
+<td><code>#alias inspect = (#unstable ./library/private.lim::inspect)</code> (alias target)</td>
 <td>Explicitly bypasses entry-point/export restrictions for the selected declaration. Does not grant struct field access or waive ordinary safety checking.</td>
 </tr>
 <tr>
 <td><code>#usize</code></td>
 <td><code>#usize</code></td>
-<td><code>(#fn identity ((value #usize)) #usize (#return value))</code> (function signature)</td>
+<td><code>#fn identity ((value #usize)) #usize (#return value)</code> (function signature)</td>
 <td>Unsigned integer scalar type with the target&#39;s native pointer width.</td>
 </tr>
 <tr>
@@ -3366,13 +3370,13 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
   (<span class="lim-keyword">#case</span> (Some _) <span class="lim-literal">0u64</span>)
   (<span class="lim-keyword">#case</span> None <span class="lim-literal">0u64</span>))</code></pre>
 <p>No wildcard is needed when integer patterns cover the entire domain. This example tests the inclusive boundary between two ranges:</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#fn</span> classify ((value <span class="lim-type">#u8</span>)) <span class="lim-type">#u64</span>
-  (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#match</span> value
-    (<span class="lim-keyword">#case</span> (<span class="lim-keyword">#range</span> <span class="lim-literal">0u8</span> <span class="lim-literal">127u8</span>) <span class="lim-literal">0u64</span>)
-    (<span class="lim-keyword">#case</span> (<span class="lim-keyword">#range</span> <span class="lim-literal">128u8</span> <span class="lim-literal">255u8</span>) <span class="lim-literal">42u64</span>))))
-(<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
-  (<span class="lim-keyword">#assert</span> (<span class="lim-operator">#u64::eq</span> (<span class="lim-keyword">#call</span> classify ((value <span class="lim-literal">127u8</span>))) <span class="lim-literal">0u64</span>))
-  (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#call</span> classify ((value <span class="lim-literal">128u8</span>)))))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#fn</span> classify ((value <span class="lim-type">#u8</span>)) <span class="lim-type">#u64</span>
+    (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#match</span> value
+      (<span class="lim-keyword">#case</span> (<span class="lim-keyword">#range</span> <span class="lim-literal">0u8</span> <span class="lim-literal">127u8</span>) <span class="lim-literal">0u64</span>)
+      (<span class="lim-keyword">#case</span> (<span class="lim-keyword">#range</span> <span class="lim-literal">128u8</span> <span class="lim-literal">255u8</span>) <span class="lim-literal">42u64</span>)))
+<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
+    (<span class="lim-keyword">#assert</span> (<span class="lim-operator">#u64::eq</span> (<span class="lim-keyword">#call</span> classify ((value <span class="lim-literal">127u8</span>))) <span class="lim-literal">0u64</span>))
+    (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#call</span> classify ((value <span class="lim-literal">128u8</span>))))</code></pre>
 <p>Destructuring uses the same aggregate pattern shapes:</p>
 <pre class="lisp"><code>(<span class="lim-keyword">#let</span> (<span class="lim-keyword">#tuple</span> left right) (<span class="lim-keyword">#tuple</span> <span class="lim-type">#u64</span> <span class="lim-type">#u64</span>) pair)</code></pre>
 <p>The pattern syntax is checked against the explicitly declared type; bindings are not inferred. When the matched value is a pinned enum reference, ordinary <code>#case</code> is reserved for the wildcard fallback <code>(#case _ body)</code>. Every named variant uses <code>#case-pin</code> or <code>#case-pin-mut</code>, including fieldless variants such as <code>(#case-pin Empty body)</code>. The shared form binds a <code>#pin-ref</code> payload, including when the input itself is mutable; the mutable form binds a <code>#pin-ref-mut</code> and therefore requires exclusive input. Payload arms accept only one binder or <code>_</code>. Guards, wildcard defaults, exhaustiveness, and duplicate checks follow the usual match rules. The payload stays in its original stack or heap slot, and returned payload references retain the matched owner’s lifetime. Existing unsafe <code>#pin-write</code> and checked <code>#pin-set-field</code> rules still apply inside an exclusive arm.</p>
@@ -3383,33 +3387,33 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
   <span class="lim-literal">0u64</span>)</code></pre>
 <p>This is equivalent to <code>(#case (Work::Pending pending) (#block (#forget pending) 0u64))</code>. A body is required even after a guard.</p>
 <p>Async lowering can still conservatively reject an exclusive match receiver returned by another function: its frame retains a conflicting parent reference handle. This is a generator limitation, not a restriction on ordinary functions; <code>async_generator_matches_reference_returned_by_call</code> records the pending case.</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#enum</span> Choice () ((Choice.Full <span class="lim-type">#u64</span>) Choice.Empty Choice.Other))
-(<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
-  (<span class="lim-keyword">#let-mut</span> choice Choice (Choice.Full <span class="lim-literal">41u64</span>))
-  (<span class="lim-keyword">#let</span> observed <span class="lim-type">#u64</span> (<span class="lim-keyword">#match</span> (<span class="lim-keyword">#borrow</span> choice)
-    (<span class="lim-keyword">#case-ref</span> (Choice.Full payload) (<span class="lim-keyword">#deref</span> payload))
-    (<span class="lim-keyword">#case-ref</span> Choice.Empty <span class="lim-literal">0u64</span>)
-    (<span class="lim-keyword">#case</span> _ <span class="lim-literal">0u64</span>)))
-  (<span class="lim-keyword">#let</span> updated <span class="lim-type">#u64</span> (<span class="lim-keyword">#match</span> (<span class="lim-keyword">#borrow-mut</span> choice)
-    (<span class="lim-keyword">#case-ref-mut</span> (Choice.Full payload) (<span class="lim-keyword">#block</span> (<span class="lim-keyword">#deref-set</span> payload <span class="lim-literal">42u64</span>) (<span class="lim-keyword">#deref</span> payload)))
-    (<span class="lim-keyword">#case-ref-mut</span> Choice.Empty <span class="lim-literal">0u64</span>)
-    (<span class="lim-keyword">#case</span> _ <span class="lim-literal">0u64</span>)))
-  (<span class="lim-keyword">#assert</span> (<span class="lim-operator">#u64::eq</span> observed <span class="lim-literal">41u64</span>))
-  (<span class="lim-keyword">#return</span> updated))</code></pre>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> Payload () ((value <span class="lim-type">#u64</span>)))
-(<span class="lim-keyword">#enum</span> Choice () ((Choice.Full Payload) Choice.Empty))
-(<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
-  (<span class="lim-keyword">#let-mut</span> choice Choice (Choice.Full (<span class="lim-keyword">#struct-literal</span> Payload ((value <span class="lim-literal">41u64</span>)))))
-  (<span class="lim-keyword">#let</span> pin (<span class="lim-keyword">#pin-ref-mut</span> Choice) (<span class="lim-keyword">#pin</span> choice))
-  (<span class="lim-keyword">#let</span> answer <span class="lim-type">#u64</span> (<span class="lim-keyword">#match</span> pin
-    (<span class="lim-keyword">#case-pin-mut</span> (Choice.Full payload)
-      (<span class="lim-keyword">#block</span>
-        (<span class="lim-keyword">#pin-set-field</span> payload value <span class="lim-literal">42u64</span>)
-        (<span class="lim-keyword">#get</span> payload value)))
-    (<span class="lim-keyword">#case-pin-mut</span> Choice.Empty <span class="lim-literal">0u64</span>)))
-  (<span class="lim-keyword">#forget</span> pin)
-  (<span class="lim-keyword">#forget</span> choice)
-  (<span class="lim-keyword">#return</span> answer))</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#enum</span> Choice () ((Choice.Full <span class="lim-type">#u64</span>) Choice.Empty Choice.Other)
+<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
+    (<span class="lim-keyword">#let-mut</span> choice Choice (Choice.Full <span class="lim-literal">41u64</span>))
+    (<span class="lim-keyword">#let</span> observed <span class="lim-type">#u64</span> (<span class="lim-keyword">#match</span> (<span class="lim-keyword">#borrow</span> choice)
+      (<span class="lim-keyword">#case-ref</span> (Choice.Full payload) (<span class="lim-keyword">#deref</span> payload))
+      (<span class="lim-keyword">#case-ref</span> Choice.Empty <span class="lim-literal">0u64</span>)
+      (<span class="lim-keyword">#case</span> _ <span class="lim-literal">0u64</span>)))
+    (<span class="lim-keyword">#let</span> updated <span class="lim-type">#u64</span> (<span class="lim-keyword">#match</span> (<span class="lim-keyword">#borrow-mut</span> choice)
+      (<span class="lim-keyword">#case-ref-mut</span> (Choice.Full payload) (<span class="lim-keyword">#block</span> (<span class="lim-keyword">#deref-set</span> payload <span class="lim-literal">42u64</span>) (<span class="lim-keyword">#deref</span> payload)))
+      (<span class="lim-keyword">#case-ref-mut</span> Choice.Empty <span class="lim-literal">0u64</span>)
+      (<span class="lim-keyword">#case</span> _ <span class="lim-literal">0u64</span>)))
+    (<span class="lim-keyword">#assert</span> (<span class="lim-operator">#u64::eq</span> observed <span class="lim-literal">41u64</span>))
+    (<span class="lim-keyword">#return</span> updated)</code></pre>
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> Payload () ((value <span class="lim-type">#u64</span>))
+<span class="lim-keyword">#enum</span> Choice () ((Choice.Full Payload) Choice.Empty)
+<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
+    (<span class="lim-keyword">#let-mut</span> choice Choice (Choice.Full (<span class="lim-keyword">#struct-literal</span> Payload ((value <span class="lim-literal">41u64</span>)))))
+    (<span class="lim-keyword">#let</span> pin (<span class="lim-keyword">#pin-ref-mut</span> Choice) (<span class="lim-keyword">#pin</span> choice))
+    (<span class="lim-keyword">#let</span> answer <span class="lim-type">#u64</span> (<span class="lim-keyword">#match</span> pin
+      (<span class="lim-keyword">#case-pin-mut</span> (Choice.Full payload)
+        (<span class="lim-keyword">#block</span>
+          (<span class="lim-keyword">#pin-set-field</span> payload value <span class="lim-literal">42u64</span>)
+          (<span class="lim-keyword">#get</span> payload value)))
+      (<span class="lim-keyword">#case-pin-mut</span> Choice.Empty <span class="lim-literal">0u64</span>)))
+    (<span class="lim-keyword">#forget</span> pin)
+    (<span class="lim-keyword">#forget</span> choice)
+    (<span class="lim-keyword">#return</span> answer)</code></pre>
 </section>
 <section id="generated-declarations" class="level2">
 <h2>Generated declarations</h2>
@@ -3418,7 +3422,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <span class="lim-keyword">#generate</span> <span class="lim-keyword">#result</span> { ok <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; error <span class="lim-operator">=</span> <span class="lim-type">#u32</span>; name <span class="lim-operator">=</span> Result; }</code></pre>
 <section id="fixed-array-apis" class="level3">
 <h3>Fixed-array APIs</h3>
-<p><code>(#generate #array ((element T) (length N) (name Name)))</code> emits an alias for <code>(#array T N)</code> and ordinary functions. <code>N</code> must be an unsuffixed nonnegative integer literal that fits <code>#usize</code>. The generated functions use the existing named-call syntax:</p>
+<p><code>#generate #array ((element T) (length N) (name Name))</code> emits an alias for <code>(#array T N)</code> and ordinary functions. <code>N</code> must be an unsuffixed nonnegative integer literal that fits <code>#usize</code>. The generated functions use the existing named-call syntax:</p>
 <table>
 <colgroup>
 <col style="width: 25%" />
@@ -3487,12 +3491,12 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </section>
 <section id="optional-and-result-apis" class="level3">
 <h3>Optional and result APIs</h3>
-<p><code>(#generate #optional ((type T) (name Name)))</code> always creates an enum with <code>Name.Some</code> and <code>Name.None</code>, plus the free-standing <code>Name::construct</code> constructor. When the enum and its payload are Copy, it also creates:</p>
+<p><code>#generate #optional ((type T) (name Name))</code> always creates an enum with <code>Name.Some</code> and <code>Name.None</code>, plus the free-standing <code>Name::construct</code> constructor. When the enum and its payload are Copy, it also creates:</p>
 <ul>
 <li><code>Name::is-some</code></li>
 <li><code>Name::unwrap-or</code></li>
 </ul>
-<p><code>(#generate #result ((ok Ok) (error Err) (name Name)))</code> always creates an enum with <code>Name.Ok</code> and <code>Name.Err</code>, plus the <code>Name::ok</code> and <code>Name::err</code> constructors. When the enum and both payloads are Copy, it also creates:</p>
+<p><code>#generate #result ((ok Ok) (error Err) (name Name))</code> always creates an enum with <code>Name.Ok</code> and <code>Name.Err</code>, plus the <code>Name::ok</code> and <code>Name::err</code> constructors. When the enum and both payloads are Copy, it also creates:</p>
 <ul>
 <li><code>Name::is-ok</code>;</li>
 <li><code>Name::unwrap-or</code> and <code>Name::unwrap-err-or</code>.</li>
@@ -3509,12 +3513,12 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <h2>Direct file references and aliases</h2>
 <p>An explicit file reference has the spelling <code>./path/file.lim::declaration</code>. The <code>.lim::</code> delimiter separates the path from the complete declaration name, which may itself contain <code>::</code> or an enum variant&#39;s dot. Paths resolve relative to the source file containing the reference. Canonical file identity and the declaration name identify the target; two files may declare the same name. No library source is copied or rewritten to add prefixes.</p>
 <p>Bind a file-local spelling with <code>#alias</code>:</p>
-<pre class="text"><code>(#alias allocate = ./allocator/lib.lim::allocate)
-(#alias Value = ./values.lim::Value)</code></pre>
+<pre class="text"><code>#alias allocate = ./allocator/lib.lim::allocate
+#alias Value = ./values.lim::Value</code></pre>
 <p>Calls may use an alias or a direct reference. Named argument labels keep the callee&#39;s declared spelling. Aliases preserve type and function identity and cannot shadow declarations, other aliases, or local bindings. Unused aliases are checked too. Cyclic aliases and conflicting imported spellings are errors. There are no wildcard or prefixing import forms. Every dependency is an explicit file reference or alias; <code>#std</code> selects the compiler-provided standard prelude.</p>
 <p>Files in the same nearest <code>lib.lim</code> boundary may refer to implementation files. Cross-library references must target <code>lib.lim</code> and select an exported name. The entry point can export aliases to declarations in its implementation files. Exporting a struct alias keeps the representation opaque; exporting an enum alias exposes its variants under the aliased type name.</p>
 <p>For an intentional dependency on an implementation detail, wrap the target:</p>
-<pre class="text"><code>(#alias inspect = (#unstable ./library/internal.lim::inspect))</code></pre>
+<pre class="text"><code>#alias inspect = (#unstable ./library/internal.lim::inspect)</code></pre>
 <p><code>#unstable</code> bypasses the entry-point and export restrictions for that exact declaration. It does not expose other declarations or struct representations. Selecting an enum type includes that enum&#39;s variants, as for an enum export. It does not remove type, borrow, linearity, or unsafe-call checks. Private functions may rely on library invariants, so this escape hatch is a deliberate dependency on an internal contract, not a promise that arbitrary calls are safe.</p>
 <p>Generator definitions resolve their own references in their definition file. Explicit <code>@name</code> inputs resolve in the caller&#39;s file before interpretation; unmarked generator arguments remain literal syntax. Generated aliases contain resolved file references and retain the validated definition/invocation context. A generator may deliberately expose a declaration it can access by emitting an alias; this grants access to that declaration, never to its struct fields or unrelated private helpers. Forward generated targets are checked after expansion. Generator cache identities include resolved references and loaded dependencies. Fresh declarations belong to their source file. A resolved reference cannot be used to declare a symbol in another file; generators should receive a separate fresh local name for their outputs. See <code>examples/file_access.lim</code> for two same-named functions in different files.</p>
 </section>
@@ -3532,8 +3536,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <p>The library exposes these stages:</p>
 <ol type="1">
 <li><code>lex</code> converts source into tokens with byte and line/column spans.</li>
-<li><code>parse</code> builds untyped S-expressions and preserves <code>#generate</code> as <code>Expr::Generate</code>.</li>
-<li><code>parse_program</code> or <code>parse_program</code> lowers declarations and builtin forms into the typed program representation, including generated forms and concrete generator expansions.</li>
+<li><code>parse_source_unit</code> groups bare source declarations into untyped syntax trees and preserves <code>#generate</code> as <code>Expr::Generate</code>. The separate <code>parse</code> API reads standalone syntax-tree data, including parenthesized roots.</li>
+<li><code>parse_program</code> expands generators and lowers declarations and builtin forms into the program representation.</li>
 <li><code>check_types</code> validates declarations, expressions, layouts, patterns, calls, constants, mutability, and the acyclic call graph.</li>
 <li><code>generate_assembly</code> emits native x86-64 assembly.</li>
 </ol>
@@ -3543,14 +3547,16 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <p>The crate is dependency-free. Its primary public types and functions are:</p>
 <ul>
 <li><code>lex(&amp;str) -&gt; Result&lt;Vec&lt;Token&gt;, LexError&gt;</code>;</li>
-<li><code>parse(&amp;str) -&gt; Result&lt;Vec&lt;SpannedExpr&gt;, String&gt;</code>;</li>
+<li><code>parse(&amp;str) -&gt; Result&lt;Vec&lt;SpannedExpr&gt;, String&gt;</code> for standalone syntax-tree data, including parenthesized roots;</li>
+<li><code>parse_source_unit(&amp;str) -&gt; Result&lt;Vec&lt;SpannedExpr&gt;, String&gt;</code> for compilation units with mandatory bare declaration roots;</li>
 <li><code>parse_program(&amp;str) -&gt; Result&lt;Program, String&gt;</code> for Lim programs and surface notation;</li>
 <li><code>check_types(&amp;Program) -&gt; Result&lt;(), String&gt;</code>;</li>
 <li><code>generate_assembly(&amp;Program) -&gt; Result&lt;String, String&gt;</code>;</li>
 <li><code>wasm::check(&amp;str) -&gt; Result&lt;(), Diagnostic&gt;</code> for self-contained browser input;</li>
 <li><code>wasm::compile(&amp;str) -&gt; Result&lt;wasm::Module, Diagnostic&gt;</code> for the scalar WebAssembly teaching backend, with runtime contract audits enabled;</li>
 <li><code>render_diagnostic(&amp;Diagnostic, source, filename) -&gt; String</code> and <code>render_error(source, filename, error) -&gt; String</code> for Rust-style terminal source excerpts;</li>
-<li><code>format_source(&amp;str) -&gt; Result&lt;String, String&gt;</code>;</li>
+<li><code>format_source(&amp;str) -&gt; Result&lt;String, String&gt;</code> for compilation units with bare declaration roots;</li>
+<li><code>format_syntax(&amp;str) -&gt; Result&lt;String, String&gt;</code> for standalone syntax-tree data, preserving explicit root lists;</li>
 <li><code>compile_source_to_assembly</code> and <code>link_native_binary</code>, which return <code>Result&lt;_, Diagnostic&gt;</code> with stable phase codes for lexer, parser, generator, analysis, code generation, assembler, and linker failures;</li>
 <li><code>write_generated_sources_diagnostic</code> for recoverable generator-materializing diagnostics;</li>
 <li><code>write_generated_sources(&amp;str, &amp;Path) -&gt; Result&lt;(), String&gt;</code>;</li>
@@ -3599,7 +3605,7 @@ identifier    = { letter | digit | &quot;_&quot; | &quot;-&quot; | &quot;.&quot;
 <p>Checked forwarding functions propagate a word reader&#39;s owning-pointer requirement as an entry obligation. Inferring that obligation does not turn abstract numeric input storage into an allocation. Each actual caller must still supply a primary, non-lifetime owning loan with the required mutability and pinning; ordinary call and return substitution rejects non-owning slots.</p>
 <p>Restoring an owning pointer also retains the loans stored in its allocation. These are pointee metadata, not extra words in the backing array. A checked reader exports requirements for both the owning pointer and its retained reference fields, including through forwarding calls. Concrete restoration requires existing pointee loans; neither a layout nor an owner of a different reference-free pointee fabricates them. Mutation of a retained field&#39;s referent and release with a live owning-pin view remain borrow errors.</p>
 <p>Moving an input owner preserves pointee loans supplied by its checked entry contract, even when those loans are not adjacent slots in the moved value. Allocation contents are initialized from that existing provenance only on first registration. A later clear or replacement remains authoritative and does not re-import stale entry loans. Typed word writes likewise register the actual owner and pointee loans they store; raw bytes alone do not register them.</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#struct</span> RefValue () { value <span class="lim-operator">=</span> (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>); })
+<pre class="lisp"><code><span class="lim-keyword">#struct</span> RefValue () { value <span class="lim-operator">=</span> (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>); }
 
 <span class="lim-keyword">#fn</span> read-value {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { words <span class="lim-operator">=</span> (<span class="lim-keyword">#slice</span> <span class="lim-type">#u64</span>); };
@@ -3963,7 +3969,7 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/build-reference.py --
 <section id="browser-output" class="level2">
 <h2>Print numbers in the browser</h2>
 <p>Choose <strong>Print 1 through 10</strong> in the playground. This example executes compiled loop and call instructions; the host receives each number from the running WebAssembly module. <strong>Standard output</strong> displays its text separately from the <strong>Result</strong> panel&#39;s <code>main</code> return value.</p>
-<pre class="lisp"><code>(<span class="lim-keyword">#extern-fn</span> <span class="lim-keyword">#abi-c</span> browser-print-u64 ((value <span class="lim-type">#u64</span>)) ())
+<pre class="lisp"><code><span class="lim-keyword">#extern-fn</span> <span class="lim-keyword">#abi-c</span> browser-print-u64 ((value <span class="lim-type">#u64</span>)) ()
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> ();
