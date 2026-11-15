@@ -168,8 +168,8 @@ fn self_reference_example_uses_source_named_access_and_cleanup_on_the_same_frame
         .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait");
     let artifact = run_expected(&source, "async-graph-self-reference-example", 58);
-    assert!(artifact.contains("#fn work-owner-replace "));
-    assert!(artifact.contains("#fn work-owner-read "));
+    assert!(generated_source::contains_function(&artifact, "OwnerAccess::replace"));
+    assert!(generated_source::contains_function(&artifact, "OwnerAccess::read"));
     assert!(artifact.contains("#struct Work::Frame::Cleanup (#linear)"));
     assert!(!source.contains("Work::Poll::cancel"));
     assert!(!source.contains("work-frame-await-0"));
@@ -181,7 +181,7 @@ fn self_reference_example_uses_source_named_access_and_cleanup_on_the_same_frame
 fn self_reference_graph_pending_handle_blocks_frame_destruction() {
     let original = include_str!("../examples/async_fn_self_reference.lim");
     let prefix = original
-        .split("  (#let second Read-after-await::Poll")
+        .split("    (#let second Read-after-await::Poll")
         .next()
         .unwrap();
     let source = format!("{prefix}
@@ -189,7 +189,7 @@ fn self_reference_graph_pending_handle_blocks_frame_destruction() {
       (#let second Read-after-await::Poll
         (#call Read-after-await::poll ((task pending-frame) (waker (#borrow waker)))))
       (#return (#match second (#case (Read-after-await::Poll.Ready value) value)
-        (#case (Read-after-await::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))");
+        (#case (Read-after-await::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))");
     let scratch = support::Scratch::new("async-graph-self-reference-pending");
     let error = lim::compile_source_to_assembly(
         &source,
