@@ -1349,7 +1349,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "call-graph-arity" => Some("#call-graph"),
             "call-graph-return-escape" => Some("(#return (#call-graph))"),
             "unknown-function" => Some("missing"),
-            "nonboolean-if-condition" => Some("(#if 1u64 2u64 3u64)"),
+            "nonboolean-if-condition" => Some("1u64"),
             "if-branch-mismatch" => Some("false"),
             "match-branch-mismatch" => Some("false"),
             "match-missing-case" => Some("(true 1u64)"),

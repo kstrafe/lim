@@ -81,6 +81,22 @@ call s:check('"#effects #io-output-byte"', 'limString')
 call setline(1, '// #effects #io-output-byte')
 call assert_equal('limComment', synIDattr(synID(1, 4, 1), 'name'))
 
+" Conditional metadata is distinct from identifiers and longer keywords.
+for s:field in ['condition', 'then', 'else']
+  call s:check('#' . s:field, 'limConditional')
+  call s:check(s:field, '')
+  call s:check('#' . s:field . '-custom', 'limKeyword')
+  call s:check('#' . s:field . '::custom', 'limKeyword')
+  call setline(1, '{ #' . s:field . ':')
+  for s:column in range(3, 3 + strlen(s:field))
+    call assert_equal('limConditional', synIDattr(synID(1, s:column, 1), 'name'))
+  endfor
+  call assert_equal('limSeparator', synIDattr(synID(1, 4 + strlen(s:field), 1), 'name'))
+endfor
+call s:check('"#condition #then #else"', 'limString')
+call setline(1, '// #condition #then #else')
+call assert_equal('limComment', synIDattr(synID(1, 4, 1), 'name'))
+
 call s:check('#theorem', 'limKeyword')
 call s:check('#proof-contract', 'limKeyword')
 call s:check('#proof-requires-validation-unknown', 'limKeyword')

@@ -20,6 +20,7 @@ mod call_graph;
 mod call_self_loans;
 mod capture_storage;
 mod codegen;
+mod conditional_records;
 mod contracts;
 mod diagnostic_json;
 mod distributed_enum;

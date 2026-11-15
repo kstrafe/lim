@@ -1,6 +1,94 @@
 mod support;
 
 #[test]
+fn conditional_records_keep_value_roles_and_distinct_branch_scopes() {
+    let source = r#"
+#fn [[identity|identity]] {
+  #params = { [[parameter|value]] = #u64; };
+  #returns = #u64;
+  #body: #return value;
+}
+#fn choose {
+  #params = { [[flag|flag]] = #bool; [[input|input]] = #u64; };
+  #returns = #u64;
+  #body:
+    #let result #u64 (#[[if|if]] {
+      [[else-marker|#else]] = (#block
+        (#let [[else-local|branch]] #u64 [[else-input|input]])
+        ([[else-callee|identity]] { [[else-label|value]] = [[else-use|branch]]; }));
+      [[condition-marker|#condition]] [[equal|=]] [[condition-use|flag]];
+      [[then-marker|#then]][[colon|:]]
+        #let [[then-local|branch]] #u64 [[then-input|input]];
+        [[then-callee|identity]] { [[then-label|value]] = [[then-use|branch]]; };
+    });
+    #return [[after|input]];
+}
+"#;
+    for source in [source.to_owned(), source.replace("#[[if|if]]", "#[[if|if-valid]]")] {
+        run(&source, &[
+            ("if", &[]), ("condition-marker", &[]), ("then-marker", &[]),
+            ("else-marker", &[]), ("equal", &[]), ("colon", &[]),
+            ("condition-use", &["flag"]),
+            ("then-input", &["input"]), ("else-input", &["input"]),
+            ("then-use", &["then-local"]), ("else-use", &["else-local"]),
+            ("then-callee", &["identity"]), ("else-callee", &["identity"]),
+            ("then-label", &["parameter"]), ("else-label", &["parameter"]),
+            ("after", &["input"]),
+        ]);
+    }
+}
+
+#[test]
+fn conditional_branches_do_not_expose_initializers_sibling_or_following_locals() {
+    run(r#"
+#fn choose {
+  #params = { [[flag|flag]] = #bool; };
+  #returns = #u64;
+  #body:
+    #let result #u64 (#if {
+      #condition = [[condition|flag]];
+      #then:
+        #let [[local|branch]] #u64 [[initializer|branch]];
+        [[then-use|branch]];
+      #else = [[sibling|branch]];
+    });
+    #return [[after|branch]];
+}
+"#, &[
+        ("condition", &["flag"]), ("initializer", &[]),
+        ("then-use", &["local"]), ("sibling", &[]), ("after", &[]),
+    ]);
+}
+
+#[test]
+fn conditional_data_is_inert_and_async_function_input_retains_lexical_roles() {
+    run(r#"
+#fn [[runtime|input]] { #params = {}; #returns = #u64; #body: #return 42u64; }
+#gn emit { payload; } `()
+#generate emit { payload = (#if {
+  [[marker|#condition]] = [[condition-data|input]];
+  #then = [[then-data|input]];
+  #else = [[else-data|input]];
+}); }
+#generate #async-fn {
+  protocol = WorkAwait;
+  waker = #u64;
+  function = (#fn work (([[flag|flag]] #bool) ([[parameter|value]] #u64)) #u64
+    (#return (#if {
+      [[async-marker|#condition]] = [[condition-use|flag]];
+      #then: [[then-use|value]];
+      #else = [[else-use|value]];
+    })));
+}
+"#, &[
+        ("marker", &[]), ("condition-data", &[]),
+        ("then-data", &[]), ("else-data", &[]), ("async-marker", &[]),
+        ("condition-use", &["flag"]),
+        ("then-use", &["parameter"]), ("else-use", &["parameter"]),
+    ]);
+}
+
+#[test]
 fn positional_calls_and_arg_resolve_to_their_explicit_signature() {
     run(
         "#type [[type|Number]] #u64\n#fn [[function|increment]] {\n  #params = [[parameter|Number]];\n  #returns = Number;\n  #body: #return [#u64 #wrap; [[arg-use|#arg]] + 1u64];\n}\n#fn view {\n #params = (#[[ref-key|ref]] [[ref-type|Number]]);\n #returns = Number;\n #body: #return (#deref #arg);\n}\n#fn main {\n #params = {}; #returns = #u64;\n #body:\n   #let [[local|input]] #u64 41u64;\n   #return ([[callee|increment]] [[operand|input]]);\n}",

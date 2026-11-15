@@ -1126,6 +1126,10 @@ impl<'a> Index<'a> {
                 return self.sequence(xs.get(4..).unwrap_or_default(), &mut inner, labels);
             }
             "if" | "if-valid" => {
+                // Record fields have already lowered to condition/then/else
+                // operands with their authored value spans. Metadata markers
+                // have no child or target; each branch keeps a separate scope,
+                // including the existing #block introduced by a colon value.
                 for child in xs.iter().skip(1).filter(|node| self.contains(node)) {
                     return self.walk(child, &mut scope.clone(), labels);
                 }

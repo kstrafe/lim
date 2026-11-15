@@ -202,6 +202,24 @@ or change navigation of the surrounding user function's declarations.
 
 ### Surface notation source roles
 
+Conditional records lower to the existing `#if`/`#if-valid` operands with
+authored value spans. `#condition` is an ordinary lexical expression;
+`#then` and `#else` each receive a separate copy of the enclosing scope.
+An `=` value remains an expression, including an explicit `#block`; a colon
+branch becomes a block whose local bindings cannot escape to its sibling or
+the following statements. Condition evaluation does not introduce branch
+bindings. Predicate evidence is still checked by the compiler, including
+mutation invalidation and joins; navigation does not manufacture evidence.
+
+`#if`, `#if-valid`, `#condition`, `#then`, `#else`, braces, `=` and colon
+delimiters have no definition target. Calls, argument labels, types and value
+uses inside the fields keep their existing roles, hover and signature help.
+Unknown, duplicate or missing fields remain parse errors, rather than
+creating speculative bindings. Fully specified function literals inside
+generator/async input use the same roles; opaque generator data and quoted
+conditional payloads remain inert. Public LSP regressions cover positive and
+negative branch scopes, exact value/keyword diagnostics and UTF-16 ranges.
+
 The surface reader preserves the original spans while lowering records, implicit
 calls, semicolon groups, infix brackets and indentation lists. Function names,
 parameter binders, type operands and body references retain their canonical

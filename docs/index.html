@@ -103,6 +103,7 @@
 <li><a href="#expressions-and-builtin-forms" id="toc-expressions-and-builtin-forms">Expressions and builtin forms</a>
 <ul>
 <li><a href="#complete--builtin-reference-alphabetical" id="toc-complete--builtin-reference-alphabetical">Complete <code>#</code> builtin reference (alphabetical)</a></li>
+<li><a href="#conditional-records" id="toc-conditional-records">Conditional records</a></li>
 <li><a href="#conditionals-and-blocks" id="toc-conditionals-and-blocks">Conditionals and blocks</a></li>
 <li><a href="#loops" id="toc-loops">Loops</a></li>
 </ul></li>
@@ -2466,9 +2467,9 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#if</code></td>
-<td><code>(#if condition then [else])</code></td>
-<td><code>(#return (#if ready 1u64 0u64))</code> (expression)</td>
-<td>Selects an expression by a boolean; without <code>else</code>, the then branch must be unit.</td>
+<td><code>#if { #condition = condition; #then = value; #else = fallback; }</code></td>
+<td><code>(#if { #condition = ready; #then = 1u64; #else = 0u64; })</code> (expression)</td>
+<td>Evaluates the condition once and selects one branch. All three record fields are required; colon branches contain statements in a block. Canonical generator trees may use <code>(#if condition then [else])</code>, with a unit then branch when else is omitted.</td>
 </tr>
 <tr>
 <td><code>#if-let</code></td>
@@ -2478,9 +2479,9 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#if-valid</code></td>
-<td><code>(#if-valid condition success [failure])</code></td>
-<td><code>(#if-valid (#call valid ((value value))) (#call submit ((value value))))</code> (function body)</td>
-<td>Execute validation and grant evidence on success.</td>
+<td><code>#if-valid { #condition = predicate; #then = success; #else = failure; }</code></td>
+<td><code>(#if-valid { #condition = (valid { value; }); #then = (submit { value; }); #else = (); })</code> (expression)</td>
+<td>Uses the same record fields and branch blocks as <code>#if</code>; only the successful branch receives validated evidence. Canonical generator trees may retain <code>(#if-valid condition success [failure])</code>.</td>
 </tr>
 <tr>
 <td><code>#index</code></td>
@@ -3509,6 +3510,25 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </table>
 <p>Plain integer arithmetic such as <code>#u64::add</code> is rejected. There is no generic <code>#T.op</code> builtin: expand the documented family to a concrete identifier. User-defined cfg keys such as <code>#feature</code>, <code>#debug</code>, or <code>#backend</code> are not additional builtins and are not automatically populated; set them with <code>--cfg KEY=VALUE</code>. The <code>#generate</code> generators and quote/backtick reader syntax are documented separately; they are not <code>#</code> builtins.</p>
 </section>
+</section>
+<section id="conditional-records" class="level3">
+<h3>Conditional records</h3>
+<p>Inside a function, <code>#if</code> and <code>#if-valid</code> accept a record with exactly <code>#condition</code>, <code>#then</code> and <code>#else</code>. Every field is required, in any order; unknown or duplicate fields are errors. Use <code>#else = ();</code> when the alternative has no value or work to perform. The condition is evaluated once, and only the selected branch runs.</p>
+<pre class="lisp"><code><span class="lim-keyword">#fn</span> choose {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { ready <span class="lim-operator">=</span> <span class="lim-type">#bool</span>; value <span class="lim-operator">=</span> <span class="lim-type">#u64</span>; };
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
+    <span class="lim-keyword">#return</span> (<span class="lim-keyword">#if</span> {
+      <span class="lim-keyword">#condition</span> <span class="lim-operator">=</span> ready;
+      <span class="lim-keyword">#then</span><span class="lim-operator">:</span>
+        <span class="lim-keyword">#let</span> answer <span class="lim-type">#u64</span> [<span class="lim-type">#u64</span> <span class="lim-keyword">#wrap</span>; value <span class="lim-operator">+</span> <span class="lim-literal">2u64</span>];
+        answer;
+      <span class="lim-keyword">#else</span> <span class="lim-operator">=</span> <span class="lim-literal">0u64</span>;
+    });
+}</code></pre>
+<p>An <code>=</code> field holds an expression, including an explicit <code>#block</code>. A colon branch groups statements into an existing <code>#block</code>: its final expression is the branch value, and <code>#return</code>, <code>#break</code>, <code>#continue</code> and divergence retain their statement rules. Writing <code>#then = (#return value);</code> does not make <code>#return</code> an expression; use a colon branch or explicit block for that exit. Branch-local bindings stay within their branch, and mutable values still invalidate dependent evidence.</p>
+<p><code>#if-valid</code> has the same fields and scoping, with validated predicate evidence available only in <code>#then</code>. A successful conjunction can provide both facts; mutations during validation or the branch can invalidate them. Ordinary <code>#if</code> does not grant evidence, and a continuing <code>#else</code> path does not carry the successful branch&#39;s facts past the join. The <a href="../examples/conditional_records.lim">conditional record example</a> combines validation, a branch-local binding and a nested conditional.</p>
+<p>Literal function syntax inside generator templates and builtin async input uses the same lowering. Opaque generator arguments and quoted conditional data remain syntax data. Canonical conditional trees remain available for generated code.</p>
 </section>
 <section id="conditionals-and-blocks" class="level3">
 <h3>Conditionals and blocks</h3>

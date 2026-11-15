@@ -735,6 +735,11 @@ impl<'a> Parser<'a> {
     }
 
     fn normalize_declaration(&self, node: Node) -> Result<Node, ParseError> {
+        let node = self.declaration_record(node)?;
+        crate::conditional_records::function(node, &self.records, self.source)
+    }
+
+    fn declaration_record(&self, node: Node) -> Result<Node, ParseError> {
         let children = &node.children;
         let Some(head) = children.first().map(name) else {
             return Ok(node);
@@ -773,7 +778,7 @@ impl<'a> Parser<'a> {
                 pairs.push(list(vec![key.clone(), value], section.span));
             }
             let fields = list(pairs, children[2].span);
-            return self.normalize_declaration(list(
+            return self.declaration_record(list(
                 vec![children[0].clone(), children[1].clone(), fields],
                 node.span,
             ));

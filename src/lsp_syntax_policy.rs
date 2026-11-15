@@ -12,6 +12,10 @@
 //! and bare record values never acquire local roles through token spelling.
 //! Bundled #std/...lim::symbol callees use file-target navigation, including
 //! when the leading # would otherwise resemble an ordinary reserved keyword.
+//!
+//! Conditional records retain lexical roles in #condition and separate scopes
+//! in #then/#else. '=' values remain expressions; colon branches are #block
+//! statements. The reserved field markers and delimiters have no targets.
 
 #[cfg(test)]
 mod tests {
@@ -75,6 +79,7 @@ mod tests {
         "char",
         "clone",
         "const",
+        "condition", // Conditional record metadata; never a value reference.
         "continue",
         "continue-to",
         "debug-assert",
@@ -227,6 +232,7 @@ mod tests {
         "syntax",
         "syntax-splice",
         "target",
+        "then", // Conditional record metadata; branch scopes remain separate.
         "thread-task",
         "thread-task-join",
         "thread-task-spawn",

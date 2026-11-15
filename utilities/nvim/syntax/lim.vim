@@ -44,7 +44,7 @@ execute 'syn match limEffect +#\%('
 execute 'syn match limIO +#\%(io-input-byte\|io-output-byte\)'
       \ . s:effect_end . '+'
 unlet s:effect_end
-syn match limConditional +#\%(if\|if-let\|match\|case\|case-pin\|case-pin-mut\|case-ref\|case-ref-mut\|let-else\|else\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
+syn match limConditional +#\%(if\|if-let\|match\|case\|case-pin\|case-pin-mut\|case-ref\|case-ref-mut\|let-else\|condition\|then\|else\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limUnsafe +#\%(unsafe\|unsafe-call\|unsafe-fn\|unsafe-impl\|unstable\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+

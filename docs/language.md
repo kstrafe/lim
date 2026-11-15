@@ -3195,9 +3195,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#i32` | `#i32` | `#fn identity { #params = ((value #i32)); #returns = #i32; #body = ( (#return value) ); }` (function signature) | Signed 32-bit integer scalar type. |
 | `#i64` | `#i64` | `#fn identity { #params = ((value #i64)); #returns = #i64; #body = ( (#return value) ); }` (function signature) | Signed 64-bit integer scalar type. |
 | `#i8` | `#i8` | `#fn identity { #params = ((value #i8)); #returns = #i8; #body = ( (#return value) ); }` (function signature) | Signed 8-bit integer scalar type. |
-| `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |
+| `#if` | `#if { #condition = condition; #then = value; #else = fallback; }` | `(#if { #condition = ready; #then = 1u64; #else = 0u64; })` (expression) | Evaluates the condition once and selects one branch. All three record fields are required; colon branches contain statements in a block. Canonical generator trees may use `(#if condition then [else])`, with a unit then branch when else is omitted. |
 | `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
-| `#if-valid` | `(#if-valid condition success [failure])` | `(#if-valid (#call valid ((value value))) (#call submit ((value value))))` (function body) | Execute validation and grant evidence on success. |
+| `#if-valid` | `#if-valid { #condition = predicate; #then = success; #else = failure; }` | `(#if-valid { #condition = (valid { value; }); #then = (submit { value; }); #else = (); })` (expression) | Uses the same record fields and branch blocks as `#if`; only the successful branch receives validated evidence. Canonical generator trees may retain `(#if-valid condition success [failure])`. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
 | `#index-proven` | `(#index-proven array-reference usize-index)` | `(#index-proven values position)` (expression) | Requires exact `#usize::lt` evidence for the fixed-array length; omits the production bounds check and audits the access in instrumented builds. |
 | `#io` | `#io` in `#effects` | `(#effects (#io))` (function signature clause) | Permits input, output and opaque IO boundaries; does not itself grant memory permissions. |
@@ -3384,6 +3384,50 @@ User-defined cfg keys such as `#feature`, `#debug`, or `#backend` are not
 additional builtins and are not automatically populated; set them with
 `--cfg KEY=VALUE`. The `#generate` generators and quote/backtick reader syntax are
 documented separately; they are not `#` builtins.
+
+### Conditional records
+
+Inside a function, `#if` and `#if-valid` accept a record with exactly
+`#condition`, `#then` and `#else`. Every field is required, in any order;
+unknown or duplicate fields are errors. Use `#else = ();` when the alternative
+has no value or work to perform. The condition is evaluated once, and only the
+selected branch runs.
+
+```lisp library
+#fn choose {
+  #params = { ready = #bool; value = #u64; };
+  #returns = #u64;
+  #body:
+    #return (#if {
+      #condition = ready;
+      #then:
+        #let answer #u64 [#u64 #wrap; value + 2u64];
+        answer;
+      #else = 0u64;
+    });
+}
+```
+
+An `=` field holds an expression, including an explicit `#block`. A colon
+branch groups statements into an existing `#block`: its final expression is
+the branch value, and `#return`, `#break`, `#continue` and divergence retain
+their statement rules. Writing `#then = (#return value);` does not make
+`#return` an expression; use a colon branch or explicit block for that exit.
+Branch-local bindings stay within their branch, and mutable values still
+invalidate dependent evidence.
+
+`#if-valid` has the same fields and scoping, with validated predicate evidence
+available only in `#then`. A successful conjunction can provide both facts;
+mutations during validation or the branch can invalidate them. Ordinary `#if`
+does not grant evidence, and a continuing `#else` path does not carry the
+successful branch's facts past the join. The
+[conditional record example](../examples/conditional_records.lim) combines
+validation, a branch-local binding and a nested conditional.
+
+Literal function syntax inside generator templates and builtin async input
+uses the same lowering. Opaque generator arguments and quoted conditional
+data remain syntax data. Canonical conditional trees remain available for
+generated code.
 
 ### Conditionals and blocks
 

@@ -5330,9 +5330,13 @@ fn find_operator_argument(
                 .unwrap_or_else(|| head.strip_prefix('#').unwrap_or(head));
             if operators.iter().any(|operator| {
                 normalized == *operator
+                    || normalized == "if-valid" && *operator == "if"
                     || normalized.split('.').skip(1).any(|part| part == *operator)
             }) {
                 if let Some(argument) = expression.children.get(argument) {
+                    if matches!(normalized, "if" | "if-valid") {
+                        return Some(conditional_result_span(argument));
+                    }
                     return Some(argument.span);
                 }
             }
@@ -5342,6 +5346,20 @@ fn find_operator_argument(
         .children
         .iter()
         .find_map(|child| find_operator_argument(child, operators, argument))
+}
+
+// Colon branches are existing blocks. Point at the block's result, preserving
+// the authored value span rather than selecting an unrelated literal by type.
+fn conditional_result_span(mut expression: &crate::SpannedExpr) -> crate::Span {
+    while matches!(&expression.expr, Expr::List(items)
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#block" | "block")))
+    {
+        let Some(result) = expression.children.get(1..).and_then(|body| body.last()) else {
+            break;
+        };
+        expression = result;
+    }
+    expression.span
 }
 
 fn source_operator_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
@@ -7711,7 +7729,8 @@ fn list_expression(
                 aliases,
                 Some(&Type::Bool),
             )?;
-            require_type(&condition, &Type::Bool, "if condition")?;
+            require_type(&condition, &Type::Bool, "if condition")
+                .map_err(|error| error.at(ErrorSite::Argument("if".into(), 1)))?;
             let then_type = expression(
                 &items[2],
                 variables,
@@ -7745,7 +7764,7 @@ fn list_expression(
                 },
             )?;
             merge_types(&then_type, &else_type, "if branches")
-                .map_err(|error| error.at(ErrorSite::BranchMismatch(else_type.clone())))
+                .map_err(|error| error.at(ErrorSite::Argument("if".into(), 3)))
         }
         "as" => {
             require_arity(operator, items, 3)?;
