@@ -4,6 +4,9 @@
   #body = (
     (#let left #f32 1.5)
     (#let right #f32 2.5)
-    (#return (#if (#f32::gt (#f32::add left right) 3.0) 42 0))
+    (#return (#if (#f32::gt (#f32::add left right) 3.0)
+        42
+        0
+      ))
   );
 }

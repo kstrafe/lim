@@ -1,15 +1,10 @@
-#enum Wrapped ()
-    ((Wrapped.Values (#array #u64 7)) Wrapped.Empty)
+#enum Wrapped () ((Wrapped.Values (#array #u64 7)) Wrapped.Empty)
 
 #fn make {
   #params = ();
   #returns = Wrapped;
-  #body = (
-    (#return
-      (Wrapped.Values
-        (#array (#array #u64 7)
-          1u64 2u64 3u64 4u64 5u64 6u64 42u64)))
-  );
+  #body =
+  ((#return (Wrapped.Values (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))));
 }
 
 #fn main {
@@ -17,9 +12,13 @@
   #returns = #u64;
   #body = (
     (#let value Wrapped (#call make ()))
-    (#return
-      (#match value
-        (#case (Wrapped.Values payload) (#index payload 6u64))
-        (#case Wrapped.Empty 0u64)))
+    (#return (#match value
+        (#case (Wrapped.Values payload)
+          (#index payload 6u64)
+        )
+        (#case Wrapped.Empty
+          0u64
+        )
+      ))
   );
 }

@@ -3,8 +3,6 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return
-      (#as (#call Result::unwrap-err-or ((value (#call Result::err ((error 7)))) (fallback 0))) #u64))
-  );
+  #body = ((#return (#as (#call Result::unwrap-err-or ((value (#call Result::err ((error 7))))
+            (fallback 0))) #u64)));
 }

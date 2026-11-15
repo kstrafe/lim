@@ -25,8 +25,8 @@
   #params = ((executor (#ref WakeExecutor)) (metadata (#ref WakeMetadata)));
   #returns = ();
   #body = (
-    (#assert (#call wake-ready4-notify
-      ((queue (#borrow (#get executor queue))) (token (#get metadata token)))))
+    (#assert (#call wake-ready4-notify ((queue (#borrow (#get executor queue))) (token (#get
+              metadata token)))))
     (#return ())
   );
 }
@@ -34,46 +34,43 @@
 #fn clone-metadata {
   #params = ((metadata (#ref WakeMetadata)));
   #returns = WakeMetadata;
-  #body = (
-    (#return (#struct-literal WakeMetadata ((token (#get metadata token)))))
-  );
+  #body = ((#return (#struct-literal WakeMetadata ((token (#get metadata token))))));
 }
 
 #fn destroy-metadata {
   #params = ((executor (#ref WakeExecutor)) (metadata WakeMetadata));
   #returns = ();
-  #body = (
-    (#forget metadata)
-    (#return ())
-  );
+  #body = ((#forget metadata) (#return ()));
 }
 
-#generate lim-gen-local-waker
-    (LocalWaker local-waker-create local-waker-wake
-      local-waker-wake-by-ref local-waker-clone local-waker-destroy)
-    (WakeExecutor WakeMetadata)
-    (notify clone-metadata destroy-metadata)
+#generate lim-gen-local-waker (LocalWaker local-waker-create local-waker-wake
+  local-waker-wake-by-ref local-waker-clone local-waker-destroy) (WakeExecutor WakeMetadata)
+  (notify clone-metadata destroy-metadata)
 
-#generate lim-gen-task (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady) #u64
-    ((JobTask.First #u64) (JobTask.Second #u64))
+#generate lim-gen-task (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady) #u64 ((JobTask.First
+    #u64) (JobTask.Second #u64))
 
 #fn job-poll {
   #params = ((task JobTask) (waker (#ref LocalWaker)));
   #returns = JobPoll;
-  #body = (
-    (#return (#match task
-      (#case (JobTask.First remaining)
-        (#if (#u64::eq remaining 0u64)
-          (JobPoll.JobReady 40u64)
-          (#block
-            (#call local-waker-wake-by-ref ((waker waker)))
-            (#call local-waker-wake-by-ref ((waker waker)))
-            (JobPoll.JobPending (JobTask.First (#u64::sub-wrap remaining 1u64))))))
-      (#case (JobTask.Second remaining)
-        (#if (#u64::eq remaining 0u64)
-          (JobPoll.JobReady 2u64)
-          (JobPoll.JobPending (JobTask.Second (#u64::sub-wrap remaining 1u64)))))))
-  );
+  #body = ((#return (#match task
+        (#case (JobTask.First remaining)
+          (#if (#u64::eq remaining 0u64)
+            (JobPoll.JobReady 40u64)
+            (#block
+              (#call local-waker-wake-by-ref ((waker waker)))
+              (#call local-waker-wake-by-ref ((waker waker)))
+              (JobPoll.JobPending (JobTask.First (#u64::sub-wrap remaining 1u64)))
+            )
+          )
+        )
+        (#case (JobTask.Second remaining)
+          (#if (#u64::eq remaining 0u64)
+            (JobPoll.JobReady 2u64)
+            (JobPoll.JobPending (JobTask.Second (#u64::sub-wrap remaining 1u64)))
+          )
+        )
+      )));
 }
 
 #fn wait-ready {
@@ -83,12 +80,16 @@
     (#let waits (#ref-mut #u64) (#borrow-mut (#get context waits)))
     (#deref-set waits (#u64::add-wrap (#deref waits) 1u64))
     (#drop waits)
-    (#let waited AsyncPoll4Result
-      (#call async-poll4-wait
-        ((sources (#get context sources)) (timeout-ms -1i32))))
+    (#let waited AsyncPoll4Result (#call async-poll4-wait ((sources (#get context sources))
+          (timeout-ms -1i32))))
     (#return (#match waited
-      (#case (AsyncPoll4Result.AsyncPoll4Ready mask) (WaitResult.WaitReady mask))
-      (#case (AsyncPoll4Result.AsyncPoll4Failed error) (WaitResult.WaitStopped error))))
+        (#case (AsyncPoll4Result.AsyncPoll4Ready mask)
+          (WaitResult.WaitReady mask)
+        )
+        (#case (AsyncPoll4Result.AsyncPoll4Failed error)
+          (WaitResult.WaitStopped error)
+        )
+      ))
   );
 }
 
@@ -99,86 +100,92 @@
     (#match state
       (#case (JobPoll.JobPending task)
         (#match task
-          (#case (JobTask.First remaining) (#forget remaining))
-          (#case (JobTask.Second remaining) (#forget remaining))))
-      (#case (JobPoll.JobReady result) (#forget result)))
+          (#case (JobTask.First remaining)
+            (#forget remaining)
+          )
+          (#case (JobTask.Second remaining)
+            (#forget remaining)
+          )
+        )
+      )
+      (#case (JobPoll.JobReady result)
+        (#forget result)
+      )
+    )
     (#return ())
   );
 }
 
-#generate lim-gen-wake-executor run-jobs
-    (JobResults JobOutcome JobLifecycle JobLifecycle.JobRunning
-      JobOutcome.JobComplete JobLifecycle.JobCancelling JobOutcome.JobStopped)
-    (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady #u64 job-poll LocalWaker)
-    (WaitResult WaitResult.WaitReady WaitResult.WaitStopped #i64 wait-ready
-      (context (#ref-mut WakeWaitContext)))
-    cancel-job-poll
-    ((first-state first-task first-waker first 0u32)
-     (second-state second-task second-waker second 1u32))
+#generate lim-gen-wake-executor run-jobs (JobResults JobOutcome JobLifecycle
+  JobLifecycle.JobRunning JobOutcome.JobComplete JobLifecycle.JobCancelling JobOutcome.JobStopped)
+  (JobTask JobPoll JobPoll.JobPending JobPoll.JobReady #u64 job-poll LocalWaker) (WaitResult
+  WaitResult.WaitReady WaitResult.WaitStopped #i64 wait-ready (context (#ref-mut WakeWaitContext)))
+  cancel-job-poll ((first-state first-task first-waker first 0u32) (second-state second-task
+    second-waker second 1u32))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let timer-created TimerCreate1
-      (#call timer-reactor1-create ((nanoseconds 20000000u64))))
+    (#let timer-created TimerCreate1 (#call timer-reactor1-create ((nanoseconds 20000000u64))))
     (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
     (#let queue WakeReady4 (#call wake-ready4-create ()))
     (#let-mut executor WakeExecutor (#struct-literal WakeExecutor ((queue queue))))
     (#let executor-mut (#ref-mut WakeExecutor) (#borrow-mut executor))
-    (#let registration-first WakeRegister4
-      (#call wake-ready4-register
-        ((queue (#borrow-mut (#get executor-mut queue))) (slot 0usize))))
+    (#let registration-first WakeRegister4 (#call wake-ready4-register ((queue (#borrow-mut (#get
+                executor-mut queue))) (slot 0usize))))
     (#let-else (WakeRegister4.WakeRegistered4 first-token) WakeRegister4 registration-first
       (#unreachable))
-    (#let registration-second WakeRegister4
-      (#call wake-ready4-register
-        ((queue (#borrow-mut (#get executor-mut queue))) (slot 1usize))))
+    (#let registration-second WakeRegister4 (#call wake-ready4-register ((queue (#borrow-mut (#get
+                executor-mut queue))) (slot 1usize))))
     (#let-else (WakeRegister4.WakeRegistered4 second-token) WakeRegister4 registration-second
       (#unreachable))
     (#drop executor-mut)
     (#let executor-ref (#ref WakeExecutor) (#borrow executor))
-    (#let first-waker LocalWaker
-      (#call local-waker-create
-        ((executor executor-ref)
-         (metadata (#struct-literal WakeMetadata ((token first-token)))))))
-    (#let second-waker LocalWaker
-      (#call local-waker-create
-        ((executor executor-ref)
-         (metadata (#struct-literal WakeMetadata ((token second-token)))))))
+    (#let first-waker LocalWaker (#call local-waker-create ((executor executor-ref) (metadata
+            (#struct-literal WakeMetadata ((token first-token)))))))
+    (#let second-waker LocalWaker (#call local-waker-create ((executor executor-ref) (metadata
+            (#struct-literal WakeMetadata ((token second-token)))))))
     (#let-mut wait-count #u64 0u64)
-    (#let outcome JobOutcome
-      (#block
-        (#let first-source AsyncPollSource4
-          (#call async-poll4-source
-            ((fd -1i64) (queue (#borrow (#get executor-ref queue))) (token first-token))))
+    (#let outcome JobOutcome (#block
+        (#let first-source AsyncPollSource4 (#call async-poll4-source ((fd -1i64) (queue (#borrow
+                  (#get executor-ref queue))) (token first-token))))
         (#let second-source AsyncPollSource4
           (#call timer-reactor1-source ((timer (#borrow timer)))))
-        (#let source-array (#array AsyncPollSource4 2)
-          (#array-of (#array AsyncPollSource4 2) first-source second-source))
+        (#let source-array (#array AsyncPollSource4 2) (#array-of (#array AsyncPollSource4 2)
+            first-source second-source))
         (#let sources (#slice AsyncPollSource4) (#borrow-slice source-array))
-        (#let-mut wait-context WakeWaitContext
-          (#struct-literal WakeWaitContext ((sources sources) (waits 0u64))))
-        (#let outcome JobOutcome
-          (#call run-jobs
-            ((first-task (JobTask.First 1u64)) (second-task (JobTask.Second 1u64))
-             (first-waker (#borrow first-waker))
-             (second-waker (#borrow second-waker))
-             (context (#borrow-mut wait-context)))))
+        (#let-mut wait-context WakeWaitContext (#struct-literal WakeWaitContext ((sources sources)
+              (waits 0u64))))
+        (#let outcome JobOutcome (#call run-jobs ((first-task (JobTask.First 1u64)) (second-task
+                (JobTask.Second 1u64)) (first-waker (#borrow first-waker)) (second-waker (#borrow
+                  second-waker)) (context (#borrow-mut wait-context)))))
         (#let context-ref (#ref WakeWaitContext) (#borrow wait-context))
         (#set wait-count (#get context-ref waits))
         (#drop context-ref)
         (#forget wait-context)
-        outcome))
+        outcome
+      ))
     (#assert (#u64::eq wait-count 2u64))
     (#let result JobResults (#match outcome
-      (#case (JobOutcome.JobComplete results) results)
-      (#case (JobOutcome.JobStopped reason) (#block (#forget reason) (#unreachable)))))
+        (#case (JobOutcome.JobComplete results)
+          results
+        )
+        (#case (JobOutcome.JobStopped reason)
+          (#block
+            (#forget reason)
+            (#unreachable)
+          )
+        )
+      ))
     (#let total #u64 (#u64::add-wrap (#get result first) (#get result second)))
     (#call local-waker-destroy ((waker first-waker)))
     (#call local-waker-destroy ((waker second-waker)))
     (#let timer-closed #i64 (#call timer-reactor1-cancel ((timer timer))))
     (#forget executor)
-    (#return (#if (#i64::eq timer-closed 0i64) total 0u64))
+    (#return (#if (#i64::eq timer-closed 0i64)
+        total
+        0u64
+      ))
   );
 }

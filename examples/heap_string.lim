@@ -6,82 +6,34 @@
 #alias StringCreateResult = ../library/string.lim::StringCreateResult
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #i32;
   #body = (
-    (
-      #let
-      chars
-      (#array #char 14)
-      "Heap: naïve 🙂\n"
-    )
-    (
-      #return
-      (
-        #match
-        (
-          #call
-          String::from-chars
-          ((text (#borrow-slice chars)))      )
-        (
-          #case
-          (StringCreateResult.StringCreated text)
-          (
-            #block
-            (
-              #let-mut
-              index
-              #usize
-              (#literal #usize 0)
-            )
-            (
-              #while
-              (
-                #usize::lt
-                index
-                (
-                  #call
-                  String::len
-                  ((string (#borrow text)))              )            )
-              (
-                #match
-                (
-                  #call
-                  String::byte-at
-                  ((string (#borrow text)) (index index))              )
-                (
-                  #case
-                  (StringByteResult.StringByte byte)
-                  (
-                    #assert
-                    (
-                      #i64::eq
-                      (
-                        #call
-                        linux-write-byte
-                        ((source (#borrow byte)))                    )
-                      (#literal #i64 1)                  )                )              )
-                (
-                  #case
-                  StringByteResult.StringByteOutOfBounds
-                  (#assert false)
-                )            )
-              (
-                #set
-                index
-                (
-                  #usize::add-wrap
-                  index
-                  (#literal #usize 1)
+    (#let chars (#array #char 14) "Heap: naïve 🙂\n")
+    (#return (#match (#call String::from-chars ((text (#borrow-slice chars))))
+        (#case (StringCreateResult.StringCreated text)
+          (#block
+            (#let-mut index #usize (#literal #usize 0))
+            (#while (#usize::lt index (#call String::len ((string (#borrow text)))))
+              (#match (#call String::byte-at ((string (#borrow text)) (index index)))
+                (#case (StringByteResult.StringByte byte)
+                  (#assert (#i64::eq (#call linux-write-byte ((source (#borrow byte)))) (#literal
+                        #i64 1)))
                 )
-              )          )
-            (
-              #call
-              String::free
-              ((string text))          )
-            42        )      )
-        (#case _ 1)    )  )
+                (#case StringByteResult.StringByteOutOfBounds
+                  (#assert false)
+                )
+              )
+              (#set index (#usize::add-wrap index (#literal #usize 1)))
+            )
+            (#call String::free ((string text)))
+            42
+          )
+        )
+        (#case _
+          1
+        )
+      ))
   );
 }

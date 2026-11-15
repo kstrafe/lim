@@ -1,28 +1,7 @@
-#struct
-    Point ()
-    (
-      (x #u64)
-      (y #u64)
-    )
+#struct Point () ((x #u64) (y #u64))
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #as
-        (#usize::add-wrap
-          (#size-of Point)
-          (
-            #size-of
-            (#array #u32 2)
-          )
-        )
-        #u64
-      )
-    )
-  );
+  #body = ((#return (#as (#usize::add-wrap (#size-of Point) (#size-of (#array #u32 2))) #u64)));
 }

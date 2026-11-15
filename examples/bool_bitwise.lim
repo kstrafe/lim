@@ -1,19 +1,8 @@
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #if
-        (#bool::bit-xor
-          (#bool::bit-and  true true)
-          false
-        )
+  #body = ((#return (#if (#bool::bit-xor (#bool::bit-and true true) false)
         42
         0
-      )
-    )
-  );
+      )));
 }

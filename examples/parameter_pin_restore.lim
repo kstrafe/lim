@@ -6,9 +6,13 @@
   #params = ((target (#pin-ref-mut Holder)) (replacement (#ref #u64)));
   #returns = ();
   #body = (
-    (#let moved Holder (#unsafe (#pin-read target)))
+    (#let moved Holder (#unsafe
+        (#pin-read target)
+      ))
     (#forget moved)
-    (#unsafe (#pin-write target (#struct-literal Holder ((view replacement)))))
+    (#unsafe
+      (#pin-write target (#struct-literal Holder ((view replacement))))
+    )
     (#return ())
   );
 }

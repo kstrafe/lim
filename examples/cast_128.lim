@@ -1,29 +1,11 @@
-#fn
-    widen {
+#fn widen {
   #params = ();
   #returns = #u128;
-  #body = (
-    (
-      #return
-      (#as 42 #u128)
-    )
-  );
+  #body = ((#return (#as 42 #u128)));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #let
-      value
-      #u128
-      (#call widen ())
-    )
-    (
-      #return
-      (#as value #u64)
-    )
-  );
+  #body = ((#let value #u128 (#call widen ())) (#return (#as value #u64)));
 }

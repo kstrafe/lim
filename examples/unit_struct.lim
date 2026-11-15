@@ -3,24 +3,17 @@
 #fn make {
   #params = ();
   #returns = Marker;
-  #body = (
-    (#return (#struct-literal Marker ()))
-  );
+  #body = ((#return (#struct-literal Marker ())));
 }
 
 #fn consume {
   #params = ((marker Marker));
   #returns = #u64;
-  #body = (
-    (#return 41)
-  );
+  #body = ((#return 41));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let marker Marker (#call make ()))
-    (#return (#call consume ((marker marker))))
-  );
+  #body = ((#let marker Marker (#call make ())) (#return (#call consume ((marker marker)))));
 }

@@ -7,24 +7,31 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let handle api@Handle (#call api@handle-create ((value 42u64))))
-    (#let status api@Status (#call api@handle-status ((handle (#borrow handle)))))
-    (#let answer #u64
+  #body = ((#let handle api@Handle (#call api@handle-create ((value 42u64)))) (#let status
+      api@Status (#call api@handle-status ((handle (#borrow handle))))) (#let answer #u64
       (#match status
-        (#case (api@Status.Open value) value)
-        (#case api@Status.Closed 0u64)))
-    (#call api@handle-close ((handle handle)))
+        (#case (api@Status.Open value)
+          value
+        )
+        (#case api@Status.Closed
+          0u64
+        )
+      )) (#call api@handle-close ((handle handle)))
 
     // Both cases are publicly constructible without separate variant exports.
-    (#let made api@Status (#enum-literal api@Status.Open 7u64))
-    (#match made
-      (#case (api@Status.Open value) (#assert (#u64::eq value 7u64)))
-      (#case api@Status.Closed (#unreachable)))
-    (#let closed api@Status (#enum-literal api@Status.Closed))
-    (#match closed
-      (#case (api@Status.Open value) (#unreachable))
-      (#case api@Status.Closed ()))
-    (#return answer)
-  );
+    (#let made api@Status (#enum-literal api@Status.Open 7u64)) (#match made
+      (#case (api@Status.Open value)
+        (#assert (#u64::eq value 7u64))
+      )
+      (#case api@Status.Closed
+        (#unreachable)
+      )
+    ) (#let closed api@Status (#enum-literal api@Status.Closed)) (#match closed
+      (#case (api@Status.Open value)
+        (#unreachable)
+      )
+      (#case api@Status.Closed
+        ()
+      )
+    ) (#return answer));
 }

@@ -1,12 +1,11 @@
 #fn add {
   #params = { left = #u64; right = #u64; };
   #returns = #u64;
-  #body:
-    #return [#u64 #wrap; left + right];
+  #body: #return [#u64 #wrap; left + right];
 }
 
 #fn main {
-  #params = {};
+  #params = { };
   #returns = #u64;
   #body:
     #let left : #u64 = 40u64;

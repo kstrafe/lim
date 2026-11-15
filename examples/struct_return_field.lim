@@ -1,34 +1,13 @@
-#struct
-    Point ()
-    (
-      (x #u64)
-      (y #u64)
-    )
+#struct Point () ((x #u64) (y #u64))
 
-#fn
-    make {
+#fn make {
   #params = ();
   #returns = Point;
-  #body = (
-    (
-      #return
-      (#struct-literal Point ((x 7) (y 9)))
-    )
-  );
+  #body = ((#return (#struct-literal Point ((x 7) (y 9)))));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #get
-        (#call make ())
-        y
-      )
-    )
-  );
+  #body = ((#return (#get (#call make ()) y)));
 }

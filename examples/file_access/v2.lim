@@ -1,7 +1,5 @@
 #fn read {
   #params = ((offset #u64));
   #returns = #u64;
-  #body = (
-    (#return (#u64::add-wrap 22u64 offset))
-  );
+  #body = ((#return (#u64::add-wrap 22u64 offset)));
 }

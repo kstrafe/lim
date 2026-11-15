@@ -5,9 +5,13 @@
   #params = ((target (#pin-ref-mut Resource)));
   #returns = ();
   #body = (
-    (#let old Resource (#unsafe (#pin-read target)))
+    (#let old Resource (#unsafe
+        (#pin-read target)
+      ))
     (#forget old)
-    (#unsafe (#pin-write target (#struct-literal Resource ((number 42u64)))))
+    (#unsafe
+      (#pin-write target (#struct-literal Resource ((number 42u64))))
+    )
     (#return ())
   );
 }

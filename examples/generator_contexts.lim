@@ -3,19 +3,15 @@
 #fn read-input {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return 40u64)
-  );
+  #body = ((#return 40u64));
 }
-
 // The generated function can call both library@private-base and read-input.
 // Its .lim/generated artifact records both module contexts explicitly.
+
 #generate library@make-reader read-value @read-input
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#call read-value ()))
-  );
+  #body = ((#return (#call read-value ())));
 }

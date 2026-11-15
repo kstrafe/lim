@@ -1,32 +1,20 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let-mut values (#array #u64 4)
-      (#array-of (#array #u64 4) 1u64 2u64 3u64 4u64))
+  #body = ((#let-mut values (#array #u64 4) (#array-of (#array #u64 4) 1u64 2u64 3u64 4u64))
 
     // Constant half-open ranges can be borrowed independently.
-    (#let left (#slice-mut #u64) (#borrow-slice-mut values 0usize 2usize))
-    (#let right (#slice-mut #u64) (#borrow-slice-mut values 2usize 4usize))
-    (#deref-set (#slice-mut-idx left 0usize) 17u64)
-    (#deref-set (#slice-mut-idx right 0usize) 25u64)
-    (#forget left)
-    (#forget right)
+    (#let left (#slice-mut #u64) (#borrow-slice-mut values 0usize 2usize)) (#let right (#slice-mut
+        #u64) (#borrow-slice-mut values 2usize 4usize)) (#deref-set (#slice-mut-idx left 0usize)
+      17u64) (#deref-set (#slice-mut-idx right 0usize) 25u64) (#forget left) (#forget right)
 
     // Reborrowing a mutable slice suspends its parent until release.
-    (#let parent (#slice-mut #u64) (#borrow-slice-mut values))
-    (#let child (#slice-mut #u64) (#slice-mut-range parent 1usize 3usize))
-    (#deref-set (#slice-mut-idx child 0usize) 9u64)
-    (#forget child)
-    (#assert (#usize::eq (#slice-mut-len parent) 4usize))
-    (#forget parent)
+    (#let parent (#slice-mut #u64) (#borrow-slice-mut values)) (#let child (#slice-mut #u64)
+      (#slice-mut-range parent 1usize 3usize)) (#deref-set (#slice-mut-idx child 0usize) 9u64)
+    (#forget child) (#assert (#usize::eq (#slice-mut-len parent) 4usize)) (#forget parent)
 
     // Bounds can also be #usize variables.
-    (#let start #usize 0usize)
-    (#let end #usize 3usize)
-    (#let view (#slice #u64) (#borrow-slice values start end))
-    (#return (#u64::add-wrap
-      (#deref (#slice-idx view 0usize))
-      (#deref (#slice-idx view 2usize))))
-  );
+    (#let start #usize 0usize) (#let end #usize 3usize) (#let view (#slice #u64) (#borrow-slice
+        values start end)) (#return (#u64::add-wrap (#deref (#slice-idx view 0usize)) (#deref
+          (#slice-idx view 2usize)))));
 }

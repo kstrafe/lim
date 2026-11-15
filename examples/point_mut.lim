@@ -1,28 +1,11 @@
-#struct
-    Point ()
-    (
-      (x #u64)
-      (y #u64)
-    )
+#struct Point () ((x #u64) (y #u64))
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (
-      #let-mut
-      point
-      Point
-      (#struct-literal Point ((x 1) (y 2)))
-    )
+    (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
     (#set-field point y 40)
-    (
-      #return
-      (#u64::add-wrap
-        (#get point x)
-        (#get point y)
-      )
-    )
+    (#return (#u64::add-wrap (#get point x) (#get point y)))
   );
 }

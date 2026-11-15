@@ -5,8 +5,10 @@
   #returns = #u64;
   #body = (
     (#let value Maybe? (#call Maybe?::construct ((value 42))))
-    (#return
-      (#match value
-        (#case (#or Maybe?.Some Maybe?.None) 42)))
+    (#return (#match value
+        (#case (#or Maybe?.Some Maybe?.None)
+          42
+        )
+      ))
   );
 }

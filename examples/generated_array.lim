@@ -16,11 +16,9 @@
   #body = (
     (#let values Array4 (#array-of 10 42 30 40))
     (#let index #usize 1usize)
-    (#return
-      (#if-valid (#call #usize::lt ((left index) (right 2usize)))
-        (#block
+    (#return (#if-valid (#call #usize::lt ((left index) (right 2usize))) (#block
           (#call widen ((index index)))
-          (#call Array4::get ((values (#borrow values)) (index index))))
-        0u64))
+          (#call Array4::get ((values (#borrow values)) (index index)))
+        ) 0u64))
   );
 }

@@ -5,11 +5,17 @@
   #returns = #u64;
   #body = (
     (#let value Maybe (Maybe.Some 20))
-    (#return
-      (#match value
-        (#case (Maybe.Some payload) (#when (#u64::gt-wrap payload 40))
-          (#u64::add-wrap payload 8))
-        (#case (Maybe.Some _) 7)
-        (#case Maybe.None 0)))
+    (#return (#match value
+        (#case (Maybe.Some payload)
+          (#when (#u64::gt-wrap payload 40))
+          (#u64::add-wrap payload 8)
+        )
+        (#case (Maybe.Some _)
+          7
+        )
+        (#case Maybe.None
+          0
+        )
+      ))
   );
 }

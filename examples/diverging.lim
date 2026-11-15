@@ -1,10 +1,8 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return
-      (#if (#bool::eq true true)
+  #body = ((#return (#if (#bool::eq true true)
         42
-        (#unreachable)))
-  );
+        (#unreachable)
+      )));
 }

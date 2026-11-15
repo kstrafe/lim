@@ -1,8 +1,8 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return
-      (#if (#char::eq #\u{03bb} #\λ) 42 0))
-  );
+  #body = ((#return (#if (#char::eq #\u{03bb} #\λ)
+        42
+        0
+      )));
 }

@@ -1,22 +1,23 @@
-#struct BigValues () ((first #u64) (second #u64) (third #u64) (fourth #u64)
-    (fifth #u64) (sixth #u64) (seventh #u64))
+#struct BigValues () ((first #u64) (second #u64) (third #u64) (fourth #u64) (fifth #u64) (sixth
+    #u64) (seventh #u64))
 #enum BigPayload () ((BigPayload.Big BigValues) BigPayload.Empty)
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let-mut value BigPayload
-      (BigPayload.Big (#struct-literal BigValues
-        ((first 1u64) (second 2u64) (third 3u64) (fourth 4u64) (fifth 5u64) (sixth 6u64) (seventh 7u64)))))
-    (#set-payload value BigPayload.Big 0
-      (#struct-literal BigValues
-        ((first 1u64) (second 2u64) (third 3u64) (fourth 4u64)
-         (fifth 5u64) (sixth 6u64) (seventh 42u64))))
+    (#let-mut value BigPayload (BigPayload.Big (#struct-literal BigValues ((first 1u64) (second
+              2u64) (third 3u64) (fourth 4u64) (fifth 5u64) (sixth 6u64) (seventh 7u64)))))
+    (#set-payload value BigPayload.Big 0 (#struct-literal BigValues ((first 1u64) (second 2u64)
+          (third 3u64) (fourth 4u64) (fifth 5u64) (sixth 6u64) (seventh 42u64))))
     (#let copied BigPayload value)
-    (#return
-      (#match copied
-        (#case (BigPayload.Big values) (#get values seventh))
-        (#case BigPayload.Empty 0u64)))
+    (#return (#match copied
+        (#case (BigPayload.Big values)
+          (#get values seventh)
+        )
+        (#case BigPayload.Empty
+          0u64
+        )
+      ))
   );
 }

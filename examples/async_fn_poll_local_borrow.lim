@@ -4,40 +4,34 @@
 #fn increment {
   #params = ((target (#ref-mut #u64)));
   #returns = ();
-  #body = (
-    (#deref-set target (#u64::add-wrap (#deref target) 1u64))
-    (#return ())
-  );
+  #body = ((#deref-set target (#u64::add-wrap (#deref target) 1u64)) (#return ()));
 }
+
 #enum Step (#linear) (Step.Start Step.Resume)
 
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
 #syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll)
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return
-      (#match task
+  #body = ((#return (#match task
         (#case Step.Start
-          (StepPoll.StepPending Step.Resume))
+          (StepPoll.StepPending Step.Resume)
+        )
         (#case Step.Resume
-          (StepPoll.StepReady 0u64))))
-  );
+          (StepPoll.StepReady 0u64)
+        )
+      )));
 }
-#generate
-    #async-fn
-    ((protocol WorkAwait) (waker #u64) (function
-    (#fn work () #u64
-      (#let-mut counter Counter (#struct-literal Counter ((value 40u64))))
-      (#let view (#ref-mut Counter) (#borrow-mut counter))
-      (#call increment ((target (#borrow-mut (#get view value)))))
-      (#call increment ((target (#borrow-mut (#get view value)))))
-      (#forget view)
-      (#let answer #u64 (#borrow counter (#get counter value)))
-      (#forget counter)
-      (#let extra #u64 (#await StepAwait Step.Start))
-      (#return (#u64::add-wrap answer extra)))))
+
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#let-mut
+        counter Counter (#struct-literal Counter ((value 40u64)))) (#let view (#ref-mut Counter)
+        (#borrow-mut counter)) (#call increment ((target (#borrow-mut (#get view value))))) (#call
+        increment ((target (#borrow-mut (#get view value))))) (#forget view) (#let answer #u64
+        (#borrow counter (#get counter value))) (#forget counter) (#let extra #u64 (#await
+          StepAwait Step.Start)) (#return (#u64::add-wrap answer extra)))))
+
 #fn main {
   #params = ();
   #returns = #u64;
@@ -47,13 +41,16 @@
     (#let-else (Work::Poll.Pending task) Work::Poll first (#unreachable))
     (#let second Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
     (#forget waker)
-    (#return
-      (#match second
+    (#return (#match second
         (#case (Work::Poll.Ready answer)
-          answer)
+          answer
+        )
         (#case (Work::Poll.Pending unexpected)
           (#block
             (#forget unexpected)
-            (#unreachable)))))
+            (#unreachable)
+          )
+        )
+      ))
   );
 }

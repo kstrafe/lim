@@ -1,11 +1,9 @@
 #alias lim-gen-enum-project = ../library/enum_project.lim::#enum-project
-
 // Registration consumes only literal names. It never inspects unfinished enums.
 
 #distributed-enum ExecutorTask ()
 
-#gn register-future (executor future variant)
-    `((#require-generated
+#gn register-future (executor future variant) `((#require-generated
          ,(#gn-symbol-append future "Frame")
          #async-fn-pinned
          (,(#gn-symbol-append future "Poll")
@@ -15,17 +13,14 @@
       (#enum-contribute ,executor
         (,(#gn-variant executor variant)
          ,(#gn-symbol-append future "Frame"))))
-
 // Forward references are checked after expansion; they do not schedule it.
-#generate register-future @ExecutorTask @Work Work
-#generate lim-gen-enum-project
-    ((enum ExecutorTask) (variant ExecutorTask.Work) (payload Work::Frame)
-     (mode #pin-ref-mut) (name WorkProjection))
 
-#generate #async-fn-pinned
-    ((protocol Work::Await)
-     (waker #u64)
-     (function (#fn work () #u64 (#return 42u64))))
+#generate register-future @ExecutorTask @Work Work
+#generate lim-gen-enum-project ((enum ExecutorTask) (variant ExecutorTask.Work) (payload
+    Work::Frame) (mode #pin-ref-mut) (name WorkProjection))
+
+#generate #async-fn-pinned ((protocol Work::Await) (waker #u64) (function (#fn work () #u64
+      (#return 42u64))))
 
 #fn main {
   #params = ();
@@ -33,16 +28,20 @@
   #body = (
     (#let waker #u64 0u64)
     (#let-mut task ExecutorTask (#enum-literal ExecutorTask.Work (#call work ())))
-    (#let-else (WorkProjection.Some frame)
-      (#call WorkProjection::project ((source (#pin-borrow-mut task))))
-      (#else
-        (#forget task)
-        (#return 0u64)))
-    (#let result Work::Poll
-      (#call Work::poll ((task frame) (waker (#borrow waker)))))
+    (#let-else (WorkProjection.Some frame) (#call WorkProjection::project ((source
+            (#pin-borrow-mut task)))) (#else (#forget task) (#return 0u64)))
+    (#let result Work::Poll (#call Work::poll ((task frame) (waker (#borrow waker)))))
     (#let answer #u64 (#match result
-      (#case (Work::Poll.Ready value) value)
-      (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))
+        (#case (Work::Poll.Ready value)
+          value
+        )
+        (#case (Work::Poll.Pending pending)
+          (#block
+            (#forget pending)
+            (#unreachable)
+          )
+        )
+      ))
     (#forget task)
     (#return answer)
   );

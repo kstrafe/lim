@@ -2,57 +2,74 @@
 // Task construction increments total once, never again on a Work::Poll.Pending retry.
 #enum ConditionTask (#linear) ((ConditionTask.Check #u64) (ConditionTask.Recheck #u64))
 
-#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool))
+#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask)
+  (ConditionPoll.ConditionReady #bool))
+
 #fn condition-poll {
   #params = ((task ConditionTask) (waker (#ref #u64)));
   #returns = ConditionPoll;
-  #body = (
-    (#return (#match task
-      (#case (ConditionTask.Check index) (ConditionPoll.ConditionPending (ConditionTask.Recheck index)))
-      (#case (ConditionTask.Recheck index) (ConditionPoll.ConditionReady (#u64::lt index 2u64)))))
-  );
+  #body = ((#return (#match task
+        (#case (ConditionTask.Check index)
+          (ConditionPoll.ConditionPending (ConditionTask.Recheck index))
+        )
+        (#case (ConditionTask.Recheck index)
+          (ConditionPoll.ConditionReady (#u64::lt index 2u64))
+        )
+      )));
 }
 
 #enum Factory (#linear) ((Factory.MakeCondition #u64) (Factory.ResumeCondition #u64))
 
-#enum FactoryPoll () ((FactoryPoll.FactoryPending Factory) (FactoryPoll.FactoryReady ConditionTask))
+#enum FactoryPoll ()
+  ((FactoryPoll.FactoryPending Factory) (FactoryPoll.FactoryReady ConditionTask))
+
 #fn factory-poll {
   #params = ((task Factory) (waker (#ref #u64)));
   #returns = FactoryPoll;
-  #body = (
-    (#return (#match task
-      (#case (Factory.MakeCondition index) (FactoryPoll.FactoryPending (Factory.ResumeCondition index)))
-      (#case (Factory.ResumeCondition index) (FactoryPoll.FactoryReady (ConditionTask.Check index)))))
-  );
+  #body = ((#return (#match task
+        (#case (Factory.MakeCondition index)
+          (FactoryPoll.FactoryPending (Factory.ResumeCondition index))
+        )
+        (#case (Factory.ResumeCondition index)
+          (FactoryPoll.FactoryReady (ConditionTask.Check index))
+        )
+      )));
 }
 
 #enum BodyTask (#linear) ((BodyTask.Start #u64) (BodyTask.Resume #u64))
 
 #enum BodyPoll () ((BodyPoll.BodyPending BodyTask) (BodyPoll.BodyReady #u64))
+
 #fn body-poll {
   #params = ((task BodyTask) (waker (#ref #u64)));
   #returns = BodyPoll;
-  #body = (
-    (#return (#match task
-      (#case (BodyTask.Start value) (BodyPoll.BodyPending (BodyTask.Resume value)))
-      (#case (BodyTask.Resume value) (BodyPoll.BodyReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (BodyTask.Start value)
+          (BodyPoll.BodyPending (BodyTask.Resume value))
+        )
+        (#case (BodyTask.Resume value)
+          (BodyPoll.BodyReady value)
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work () #u64
-      (#let-mut index #u64 0u64)
-      (#let-mut total #u64 0u64)
-      (#while (#await #bool ConditionTask ConditionPoll.ConditionPending ConditionPoll.ConditionReady condition-poll
-        (#await ConditionTask Factory FactoryPoll.FactoryPending FactoryPoll.FactoryReady factory-poll
-          (#block
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#let-mut index
+        #u64 0u64) (#let-mut total #u64 0u64)
+      (#while (#await #bool ConditionTask ConditionPoll.ConditionPending
+        ConditionPoll.ConditionReady condition-poll (#await ConditionTask Factory
+          FactoryPoll.FactoryPending FactoryPoll.FactoryReady factory-poll (#block
             (#set total (#u64::add-wrap total 1u64))
-            (Factory.MakeCondition index))))
+            (Factory.MakeCondition index)
+          )))
         (#set index (#u64::add-wrap index 1u64))
-        (#if (#u64::eq index 1u64) (#continue) ())
-        (#let value #u64 (#await #u64 BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll (BodyTask.Start 40u64)))
-        (#set total (#u64::add-wrap total value)))
-      (#return total))))
+        (#if (#u64::eq index 1u64)
+          (#continue)
+          ()
+        )
+        (#let value #u64 (#await #u64 BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll
+            (BodyTask.Start 40u64)))
+        (#set total (#u64::add-wrap total value))
+      ) (#return total))))
 
 #fn main {
   #params = ();
@@ -63,8 +80,19 @@
     (#for-range (attempt #u64) 0u64 10u64
       (#let polled Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
       (#match polled
-        (#case (Work::Poll.Pending next) (#block (#set task next) ()))
-        (#case (Work::Poll.Ready result) (#block (#return result)))))
+        (#case (Work::Poll.Pending next)
+          (#block
+            (#set task next)
+            ()
+          )
+        )
+        (#case (Work::Poll.Ready result)
+          (#block
+            (#return result)
+          )
+        )
+      )
+    )
     (#forget task)
     (#return 0u64)
   );

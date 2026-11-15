@@ -3,11 +3,12 @@
   #returns = #u64;
   #body = (
     (#let-mut value #u64 40)
-    (#return
-      (#unsafe
+    (#return (#unsafe
         (#block
           (#let pointer (#ptr-mut #u64) (#addr-of-mut value))
           (#ptr-write pointer 42)
-          (#ptr-read pointer))))
+          (#ptr-read pointer)
+        )
+      ))
   );
 }

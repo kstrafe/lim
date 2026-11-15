@@ -7,9 +7,13 @@
   #body = (
     (#let-mut value Pair (Pair.Value (#struct-literal PairPayload ((left 20) (right 22)))))
     (#set-payload value Pair.Value 0 (#struct-literal PairPayload ((left 20) (right 30))))
-    (#return
-      (#match value
-        (#case (Pair.Value pair) (#u64::add-wrap (#get pair left) (#get pair right)))
-        (#case Pair.Empty 0)))
+    (#return (#match value
+        (#case (Pair.Value pair)
+          (#u64::add-wrap (#get pair left) (#get pair right))
+        )
+        (#case Pair.Empty
+          0
+        )
+      ))
   );
 }

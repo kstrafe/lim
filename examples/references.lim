@@ -3,15 +3,11 @@
 #fn identity {
   #params = ((value (#ref #u64)));
   #returns = (#ref #u64);
-  #body = (
-    (#return value)
-  );
+  #body = ((#return value));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#deref (#call identity ((value (#borrow answer))))))
-  );
+  #body = ((#return (#deref (#call identity ((value (#borrow answer)))))));
 }

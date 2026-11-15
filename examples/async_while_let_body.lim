@@ -8,9 +8,16 @@
     (#let index #u64 (#deref counter))
     (#deref-set counter (#u64::add-wrap index 1u64))
     (#return (#match index
-      (#case 0u64 (Value.Some 20u64))
-      (#case 1u64 (Value.Some 22u64))
-      (#case _ Value.None)))
+        (#case 0u64
+          (Value.Some 20u64)
+        )
+        (#case 1u64
+          (Value.Some 22u64)
+        )
+        (#case _
+          Value.None
+        )
+      ))
   );
 }
 
@@ -21,22 +28,21 @@
 #fn body-poll {
   #params = ((task BodyTask) (waker (#ref #u64)));
   #returns = BodyPoll;
-  #body = (
-    (#return (#match task
-      (#case (BodyTask.Start value) (BodyPoll.BodyPending (BodyTask.Resume value)))
-      (#case (BodyTask.Resume value) (BodyPoll.BodyReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (BodyTask.Start value)
+          (BodyPoll.BodyPending (BodyTask.Resume value))
+        )
+        (#case (BodyTask.Resume value)
+          (BodyPoll.BodyReady value)
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work () #u64
-      (#let-mut counter #u64 0u64)
-      (#let-mut total #u64 0u64)
-      (#while-let (Value.Some amount) (#call next-value ((counter (#borrow-mut counter))))
-        (#let result #u64 (#await BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll (BodyTask.Start amount)))
-        (#set total (#u64::add-wrap total result)))
-      (#assert (#u64::eq counter 3u64))
-      (#return total))))
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#let-mut
+        counter #u64 0u64) (#let-mut total #u64 0u64) (#while-let (Value.Some amount) (#call
+          next-value ((counter (#borrow-mut counter)))) (#let result #u64 (#await BodyTask
+            BodyPoll.BodyPending BodyPoll.BodyReady body-poll (BodyTask.Start amount))) (#set
+          total (#u64::add-wrap total result))) (#assert (#u64::eq counter 3u64)) (#return total))))
 
 #fn main {
   #params = ();
@@ -49,7 +55,15 @@
     (#let-else (Work::Poll.Pending second-task) Work::Poll second (#unreachable))
     (#let third Work::Poll (#call Work::poll ((task second-task) (waker (#borrow waker)))))
     (#return (#match third
-      (#case (Work::Poll.Ready value) value)
-      (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#case (Work::Poll.Ready value)
+          value
+        )
+        (#case (Work::Poll.Pending unexpected)
+          (#block
+            (#forget unexpected)
+            (#unreachable)
+          )
+        )
+      ))
   );
 }

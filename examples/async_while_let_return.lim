@@ -1,34 +1,43 @@
 #enum Choice () ((Choice.Chosen #u64) Choice.Empty)
 #enum ChoiceTask () ((ChoiceTask.ChoiceStart Choice) (ChoiceTask.ChoiceResume Choice))
 #enum ChoicePoll () ((ChoicePoll.ChoicePending ChoiceTask) (ChoicePoll.ChoiceReady Choice))
+
 #fn choice-poll {
   #params = ((task ChoiceTask) (waker (#ref #u64)));
   #returns = ChoicePoll;
-  #body = (
-    (#return (#match task
-      (#case (ChoiceTask.ChoiceStart value) (ChoicePoll.ChoicePending (ChoiceTask.ChoiceResume value)))
-      (#case (ChoiceTask.ChoiceResume value) (ChoicePoll.ChoiceReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (ChoiceTask.ChoiceStart value)
+          (ChoicePoll.ChoicePending (ChoiceTask.ChoiceResume value))
+        )
+        (#case (ChoiceTask.ChoiceResume value)
+          (ChoicePoll.ChoiceReady value)
+        )
+      )));
 }
+
 #enum Step () ((Step.Start #u64) (Step.Resume #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return (#match task
-      (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
-      (#case (Step.Resume value) (StepPoll.StepReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (Step.Start value)
+          (StepPoll.StepPending (Step.Resume value))
+        )
+        (#case (Step.Resume value)
+          (StepPoll.StepReady value)
+        )
+      )));
 }
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work ((choice Choice)) #u64
-      (#while-let (Choice.Chosen value)
-        (#await Choice ChoiceTask ChoicePoll.ChoicePending ChoicePoll.ChoiceReady choice-poll (ChoiceTask.ChoiceStart choice))
-        (#let first #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start value)))
-        (#let second #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start first)))
-        (#return second))
-      (#return 5u64))))
+
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((choice Choice)) #u64
+      (#while-let (Choice.Chosen value) (#await Choice ChoiceTask ChoicePoll.ChoicePending
+          ChoicePoll.ChoiceReady choice-poll (ChoiceTask.ChoiceStart choice)) (#let first #u64
+          (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start value)))
+        (#let second #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll
+            (Step.Start first))) (#return second)) (#return 5u64))))
+
 #fn run {
   #params = ((choice Choice) (waker (#ref #u64)));
   #returns = #u64;
@@ -37,17 +46,31 @@
     (#let-else (Work::Poll.Pending after-condition) Work::Poll first (#unreachable))
     (#let second Work::Poll (#call Work::poll ((task after-condition) (waker waker))))
     (#return (#match second
-      (#case (Work::Poll.Ready value) value)
-      (#case (Work::Poll.Pending after-first)
-        (#block
-          (#let third Work::Poll (#call Work::poll ((task after-first) (waker waker))))
-          (#let-else (Work::Poll.Pending after-second) Work::Poll third (#unreachable))
-          (#let fourth Work::Poll (#call Work::poll ((task after-second) (waker waker))))
-          (#match fourth
-            (#case (Work::Poll.Ready value) value)
-            (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))))
+        (#case (Work::Poll.Ready value)
+          value
+        )
+        (#case (Work::Poll.Pending after-first)
+          (#block
+            (#let third Work::Poll (#call Work::poll ((task after-first) (waker waker))))
+            (#let-else (Work::Poll.Pending after-second) Work::Poll third (#unreachable))
+            (#let fourth Work::Poll (#call Work::poll ((task after-second) (waker waker))))
+            (#match fourth
+              (#case (Work::Poll.Ready value)
+                value
+              )
+              (#case (Work::Poll.Pending unexpected)
+                (#block
+                  (#forget unexpected)
+                  (#unreachable)
+                )
+              )
+            )
+          )
+        )
+      ))
   );
 }
+
 #fn main {
   #params = ();
   #returns = #u64;

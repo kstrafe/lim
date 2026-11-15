@@ -7,10 +7,8 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#let counter counters@Counter
-      (#call counters@counter-new ((value 42u64))))
-    (#let answer #u64
-      (#call counters@counter-read ((counter (#borrow counter)))))
+    (#let counter counters@Counter (#call counters@counter-new ((value 42u64))))
+    (#let answer #u64 (#call counters@counter-read ((counter (#borrow counter)))))
     (#call counters@counter-destroy ((counter counter)))
     (#return answer)
   );

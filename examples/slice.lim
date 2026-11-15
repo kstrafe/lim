@@ -1,20 +1,15 @@
 #fn second {
   #params = ((view (#slice #u64)));
   #returns = #u64;
-  #body = (
-    (#return (#deref (#slice-idx view 1usize)))
-  );
+  #body = ((#return (#deref (#slice-idx view 1usize))));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let values (#array #u64 3)
-      (#array (#array #u64 3) 10u64 20u64 30u64))
+    (#let values (#array #u64 3) (#array (#array #u64 3) 10u64 20u64 30u64))
     (#let view (#slice #u64) (#borrow-slice values))
-    (#return (#u64::add-wrap
-      (#call second ((view view)))
-      (#as (#slice-len view) #u64)))
+    (#return (#u64::add-wrap (#call second ((view view))) (#as (#slice-len view) #u64)))
   );
 }

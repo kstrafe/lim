@@ -6,7 +6,10 @@
   #body = (
     (#let holder Holder (Holder.Has source))
     (#return (#match holder
-      (#case (Holder.Has view) view)))
+        (#case (Holder.Has view)
+          view
+        )
+      ))
   );
 }
 
@@ -15,8 +18,7 @@
   #returns = #u64;
   #body = (
     (#let owner #u64 42u64)
-    (#let selected (#ref #u64)
-      (#call select ((source (#borrow owner)))))
+    (#let selected (#ref #u64) (#call select ((source (#borrow owner)))))
     (#return (#deref selected))
   );
 }

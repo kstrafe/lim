@@ -5,12 +5,16 @@
 #fn step-choice {
   #params = ((target (#ref-mut Choice)) (value (#ref #u64)) (complete #bool));
   #returns = Outcome;
-  #body = (
-    (#return
-      (#if complete
-        (#block (#deref-set target (Choice.Empty)) (Outcome.Ready))
-        (#block (#deref-set target (Choice.Full value)) (Outcome.Pending))))
-  );
+  #body = ((#return (#if complete
+        (#block
+          (#deref-set target (Choice.Empty))
+          (Outcome.Ready)
+        )
+        (#block
+          (#deref-set target (Choice.Full value))
+          (Outcome.Pending)
+        )
+      )));
 }
 
 #fn loop-run {
@@ -21,33 +25,57 @@
     (#let-mut value #u64 42u64)
     (#let-mut holder Choice (Choice.Full (#borrow old)))
     (#let target (#ref-mut Choice) (#borrow-mut holder))
-    (#let first Outcome
-      (#call step-choice ((target target) (value (#borrow value)) (complete false))))
+    (#let first Outcome (#call step-choice ((target target) (value (#borrow value))
+          (complete false))))
     (#drop target)
-    (#let result #u64
-      (#match first
-        (#case (Outcome.Ready) 0u64)
+    (#let result #u64 (#match first
+        (#case (Outcome.Ready)
+          0u64
+        )
         (#case (Outcome.Pending)
           (#match holder
-            (#case (Choice.Empty) 0u64)
-            (#case (Choice.Full view) (#deref view))))))
+            (#case (Choice.Empty)
+              0u64
+            )
+            (#case (Choice.Full view)
+              (#deref view)
+            )
+          )
+        )
+      ))
     (#let next-target (#ref-mut Choice) (#borrow-mut holder))
     (#let-mut passes #u32 0u32)
-    (#let second Outcome
-      (#loop
+    (#let second Outcome (#loop
         (#if (#u32::lt passes 1u32)
-          (#block (#set passes (#u32::add-wrap passes 1u32)) (#continue))
-          ())
+          (#block
+            (#set passes (#u32::add-wrap passes 1u32))
+            (#continue)
+          )
+          ()
+        )
         (#if selected
           (#block
-            (#break (#call step-choice ((target next-target) (value (#borrow value)) (complete true)))))
+            (#break (#call step-choice ((target next-target) (value (#borrow value))
+                  (complete true))))
+          )
           (#block
-            (#break (#call step-choice ((target next-target) (value (#borrow value)) (complete true))))))))
+            (#break (#call step-choice ((target next-target) (value (#borrow value))
+                  (complete true))))
+          )
+        )
+      ))
     (#drop next-target)
-    (#let output #u64
-      (#match second
-        (#case (Outcome.Ready) (#block (#set value 1u64) result))
-        (#case (Outcome.Pending) (#unreachable))))
+    (#let output #u64 (#match second
+        (#case (Outcome.Ready)
+          (#block
+            (#set value 1u64)
+            result
+          )
+        )
+        (#case (Outcome.Pending)
+          (#unreachable)
+        )
+      ))
     (#forget holder)
     (#return output)
   );

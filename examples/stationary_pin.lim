@@ -1,14 +1,13 @@
 #alias lim-gen-pin = ../library/pin.lim::#pin
 #alias lim-gen-pin-scope = ../library/pin.lim::#pin-scope
-
 //; The generated scope privately owns the storage. User functions only see
 //; an opaque handle, never the movable Frame itself.
 
 #struct Frame (#linear) ((value #u64))
 
 #generate lim-gen-pin ((type Frame) (name PinnedFrame) (fields ((value #u64))))
-#generate lim-gen-pin-scope ((type Frame) (pin PinnedFrame) (name with-pinned-frame)
-    (run drive-frame) (destroy destroy-frame) (result #u64))
+#generate lim-gen-pin-scope ((type Frame) (pin PinnedFrame) (name with-pinned-frame) (run
+    drive-frame) (destroy destroy-frame) (result #u64))
 
 #fn drive-frame {
   #params = ((pin PinnedFrame));
@@ -25,18 +24,12 @@
 #fn destroy-frame {
   #params = ((pin PinnedFrame));
   #returns = ();
-  #body = (
-    //; Release any resources in place here, before the scope retires storage.
-    (#forget pin)
-    (#return ())
-  );
+  #body = (//; Release any resources in place here, before the scope retires storage.
+    (#forget pin) (#return ()));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#call with-pinned-frame
-      ((value (#struct-literal Frame ((value 0u64)))))))
-  );
+  #body = ((#return (#call with-pinned-frame ((value (#struct-literal Frame ((value 0u64))))))));
 }

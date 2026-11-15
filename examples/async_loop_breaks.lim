@@ -3,45 +3,58 @@
 #enum Step (#linear) ((Step.Waiting #u64) (Step.Resuming #u64))
 
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return (#match task
-      (#case (Step.Waiting value) (StepPoll.StepPending (Step.Resuming value)))
-      (#case (Step.Resuming value) (StepPoll.StepReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (Step.Waiting value)
+          (StepPoll.StepPending (Step.Resuming value))
+        )
+        (#case (Step.Resuming value)
+          (StepPoll.StepReady value)
+        )
+      )));
 }
 
 #fn identity {
   #params = ((value #u64));
   #returns = #u64;
-  #body = ( (#return value)
-  );
+  #body = ((#return value));
 }
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work ((choose #bool)) #u64
-      (#let result #u64
-        (#call identity ((value
-          (#loop
-            (#let awaited #u64
-              (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 41u64)))
-            (#let nested #u64 (#loop (#break 7u64)))
-            (#assert (#u64::eq nested 7u64))
-            (#if choose (#break 42u64) (#break awaited)))))))
-      (#return result))))
+
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((choose #bool)) #u64
+      (#let result #u64 (#call identity ((value (#loop
+                (#let awaited #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady
+                    step-poll (Step.Waiting 41u64)))
+                (#let nested #u64 (#loop
+                    (#break 7u64)
+                  ))
+                (#assert (#u64::eq nested 7u64))
+                (#if choose
+                  (#break 42u64)
+                  (#break awaited)
+                )
+              ))))) (#return result))))
 
 #fn run {
   #params = ((choose #bool) (waker (#ref #u64)));
   #returns = #u64;
   #body = (
-    (#let first Work::Poll
-      (#call Work::poll ((task (#call work ((choose choose)))) (waker waker))))
+    (#let first Work::Poll (#call Work::poll ((task (#call work ((choose choose)))) (waker waker))))
     (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
     (#let second Work::Poll (#call Work::poll ((task pending) (waker waker))))
     (#return (#match second
-      (#case (Work::Poll.Ready value) value)
-      (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#case (Work::Poll.Ready value)
+          value
+        )
+        (#case (Work::Poll.Pending unexpected)
+          (#block
+            (#forget unexpected)
+            (#unreachable)
+          )
+        )
+      ))
   );
 }
 

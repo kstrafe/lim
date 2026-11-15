@@ -5,12 +5,9 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return
-      (#if (#u64::and
-             (#u64::eq wrapped 18446744073709551614)
-             (#u64::eq saturated maximum))
+  #body = ((#return
+      (#if (#u64::and (#u64::eq wrapped 18446744073709551614) (#u64::eq saturated maximum))
         42
-        0))
-  );
+        0
+      )));
 }

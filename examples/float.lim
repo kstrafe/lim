@@ -1,59 +1,28 @@
-#fn
-    add {
-  #params = (
-      (left #f64)
-      (right #f64)
-    );
+#fn add {
+  #params = ((left #f64) (right #f64));
   #returns = #f64;
-  #body = (
-    (
-      #return
-      (#f64::add  left right)
-    )
-  );
+  #body = ((#return (#f64::add left right)));
 }
 
-#fn
-    choose {
-  #params = (
-      (value #u64)
-      (scale #f64)
-    );
+#fn choose {
+  #params = ((value #u64) (scale #f64));
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #if
-        (#f64::gt  scale 1.0)
+  #body = ((#return (#if (#f64::gt scale 1.0)
         value
         0
-      )
-    )
-  );
+      )));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let left #f64 1.5)
     (#let right #f64 2.25)
-    (
-      #let
-      total
-      #f64
-      (#call add ((left left) (right right)))
-    )
-    (
-      #return
-      (
-        #if
-        (#f64::gt  total 3.0)
+    (#let total #f64 (#call add ((left left) (right right))))
+    (#return (#if (#f64::gt total 3.0)
         (#call choose ((value 42) (scale 2.0)))
         0
-      )
-    )
+      ))
   );
 }

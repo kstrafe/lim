@@ -5,50 +5,36 @@
 #fn child-of {
   #params = ((owner (#ref-mut Owner)));
   #returns = (#ref-mut #u64);
-  #body = (
-    (#return (#borrow-mut (#get owner value)))
-  );
+  #body = ((#return (#borrow-mut (#get owner value))));
 }
 
 #fn view-of {
   #params = ((owner (#ref-mut Owner)));
   #returns = (#ref #u64);
-  #body = (
-    (#return (#borrow (#get owner value)))
-  );
+  #body = ((#return (#borrow (#get owner value))));
 }
 
 #fn increment {
   #params = ((target (#ref-mut #u64)));
   #returns = #u64;
-  #body = (
-    (#deref-set target (#u64::add-wrap (#deref target) 1u64))
-    (#return (#deref target))
-  );
+  #body = ((#deref-set target (#u64::add-wrap (#deref target) 1u64)) (#return (#deref target)));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let-mut owner Owner (#struct-literal Owner ((value 41u64))))
-    (#let parent (#ref-mut Owner) (#borrow-mut owner))
+  #body = ((#let-mut owner Owner (#struct-literal Owner ((value 41u64)))) (#let parent (#ref-mut
+        Owner) (#borrow-mut owner))
     // Transparent argument expressions retain the same parent permissions.
-    (#let shared (#ref #u64) (#call view-of ((owner (#block parent)))))
-    (#assert (#u64::eq (#deref shared) 41u64))
-    (#drop shared)
-    (#let selected #bool true)
-    (#let another (#ref #u64)
-      (#call view-of ((owner (#if selected parent parent)))))
-    (#assert (#u64::eq (#deref another) 41u64))
-    (#drop another)
-    (#let child (#ref-mut #u64)
-      (#label result
-        (#loop (#break-to result (#call child-of ((owner parent)))))))
-    (#drop parent)
-    (#let answer #u64 (#call increment ((target child))))
-    (#drop child)
-    (#forget owner)
-    (#return answer)
-  );
+    (#let shared (#ref #u64) (#call view-of ((owner (#block
+              parent
+            ))))) (#assert (#u64::eq (#deref shared) 41u64)) (#drop shared) (#let selected #bool
+      true) (#let another (#ref #u64) (#call view-of ((owner (#if selected
+              parent
+              parent
+            ))))) (#assert (#u64::eq (#deref another) 41u64)) (#drop another) (#let child
+      (#ref-mut #u64) (#label result (#loop
+          (#break-to result (#call child-of ((owner parent))))
+        ))) (#drop parent) (#let answer #u64 (#call increment ((target child)))) (#drop child)
+    (#forget owner) (#return answer));
 }

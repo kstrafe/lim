@@ -1,21 +1,11 @@
-#fn
-    noop {
+#fn noop {
   #params = ();
   #returns = ();
-  #body = (
-    (
-      #return
-      ()
-    )
-  );
+  #body = ((#return ()));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#call noop ())
-    (#return 42)
-  );
+  #body = ((#call noop ()) (#return 42));
 }

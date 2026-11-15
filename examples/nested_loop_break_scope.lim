@@ -3,8 +3,11 @@
   #returns = #u64;
   #body = (
     (#loop
-      (#loop (#break 7))
-      (#break))
+      (#loop
+        (#break 7)
+      )
+      (#break)
+    )
     (#return 42)
   );
 }

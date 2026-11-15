@@ -5,49 +5,39 @@
 #fn read-value {
   #params = ((value (#ref SharedValue)));
   #returns = #u64;
-  #body = (
-    (#return (#get value value))
-  );
+  #body = ((#return (#get value value)));
 }
 
 #fn scale {
   #params = ((value #f64));
   #returns = #f64;
-  #body = (
-    (#return (#f64::mul value 2.0f64))
-  );
+  #body = ((#return (#f64::mul value 2.0f64)));
 }
 
 #fn noop {
   #params = ();
   #returns = ();
-  #body = (
-    (#return ())
-  );
+  #body = ((#return ()));
 }
 
 #fn add-pair {
   #params = ((pair Pair));
   #returns = Pair;
-  #body = (
-    (#return (#struct-literal Pair ((left (#u64::add-wrap (#get pair left) 1)) (right (#u64::add-wrap (#get pair right) 1)))))
-  );
+  #body = ((#return (#struct-literal Pair ((left (#u64::add-wrap (#get pair left) 1)) (right
+            (#u64::add-wrap (#get pair right) 1))))));
 }
 
 #fn pass-large {
   #params = ((value Large));
   #returns = Large;
-  #body = (
-    (#return value)
-  );
+  #body = ((#return value));
 }
 
 #fn sum-seven {
   #params = ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64));
   #returns = #u64;
-  #body = (
-    (#return (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap a b) c) d) e) f) g))
-  );
+  #body = ((#return (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap
+              (#u64::add-wrap (#u64::add-wrap a b) c) d) e) f) g)));
 }
 
 #generate #thread-spawn ((task ReadValueTask) (worker read-value))
@@ -62,12 +52,20 @@
   #returns = #u64;
   #body = (
     (#let-mut shared SharedValue (#struct-literal SharedValue ((value 42))))
-    (#return
-      (#match (#call ReadValueTask::spawn ((value (#borrow shared))))
+    (#return (#match (#call ReadValueTask::spawn ((value (#borrow shared))))
         (#case (ReadValueTask::SpawnResult.Ok task)
           (#match (#call ReadValueTask::join ((task task)))
-            (#case (ReadValueTask::JoinResult.Ok result) result)
-            (#case (ReadValueTask::JoinResult.Error (#tuple retry-task error-code)) (#panic))))
-        (#case (ReadValueTask::SpawnResult.Error error) (#panic))))
+            (#case (ReadValueTask::JoinResult.Ok result)
+              result
+            )
+            (#case (ReadValueTask::JoinResult.Error (#tuple retry-task error-code))
+              (#panic)
+            )
+          )
+        )
+        (#case (ReadValueTask::SpawnResult.Error error)
+          (#panic)
+        )
+      ))
   );
 }

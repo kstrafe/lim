@@ -2,7 +2,10 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#if true "Hi" "No")
+    (#if true
+      "Hi"
+      "No"
+    )
     (#return 42)
   );
 }

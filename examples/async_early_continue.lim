@@ -1,39 +1,51 @@
 // The first iteration continues before reaching the body await.
 #enum ConditionTask (#linear) ((ConditionTask.Check #u64) (ConditionTask.Recheck #u64))
 
-#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool))
+#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask)
+  (ConditionPoll.ConditionReady #bool))
+
 #fn condition-poll {
   #params = ((task ConditionTask) (waker (#ref #u64)));
   #returns = ConditionPoll;
-  #body = (
-    (#return (#match task
-      (#case (ConditionTask.Check index) (ConditionPoll.ConditionPending (ConditionTask.Recheck index)))
-      (#case (ConditionTask.Recheck index) (ConditionPoll.ConditionReady (#u64::lt index 2u64)))))
-  );
+  #body = ((#return (#match task
+        (#case (ConditionTask.Check index)
+          (ConditionPoll.ConditionPending (ConditionTask.Recheck index))
+        )
+        (#case (ConditionTask.Recheck index)
+          (ConditionPoll.ConditionReady (#u64::lt index 2u64))
+        )
+      )));
 }
 
 #enum BodyTask (#linear) ((BodyTask.Start #u64) (BodyTask.Resume #u64))
 
 #enum BodyPoll () ((BodyPoll.BodyPending BodyTask) (BodyPoll.BodyReady #u64))
+
 #fn body-poll {
   #params = ((task BodyTask) (waker (#ref #u64)));
   #returns = BodyPoll;
-  #body = (
-    (#return (#match task
-      (#case (BodyTask.Start value) (BodyPoll.BodyPending (BodyTask.Resume value)))
-      (#case (BodyTask.Resume value) (BodyPoll.BodyReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (BodyTask.Start value)
+          (BodyPoll.BodyPending (BodyTask.Resume value))
+        )
+        (#case (BodyTask.Resume value)
+          (BodyPoll.BodyReady value)
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work () #u64
-      (#let-mut index #u64 0u64)
-      (#while (#await #bool ConditionTask ConditionPoll.ConditionPending ConditionPoll.ConditionReady condition-poll (ConditionTask.Check index))
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#let-mut index
+        #u64 0u64) (#while (#await #bool ConditionTask ConditionPoll.ConditionPending
+        ConditionPoll.ConditionReady condition-poll (ConditionTask.Check index))
         (#set index (#u64::add-wrap index 1u64))
-        (#if (#u64::eq index 1u64) (#continue) ())
-        (#let value #u64 (#await #u64 BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll (BodyTask.Start 40u64)))
-        (#return (#u64::add-wrap value index)))
-      (#return 0u64))))
+        (#if (#u64::eq index 1u64)
+          (#continue)
+          ()
+        )
+        (#let value #u64 (#await #u64 BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll
+            (BodyTask.Start 40u64)))
+        (#return (#u64::add-wrap value index))
+      ) (#return 0u64))))
 
 #fn main {
   #params = ();
@@ -48,7 +60,15 @@
     (#let-else (Work::Poll.Pending body) Work::Poll third (#unreachable))
     (#let fourth Work::Poll (#call Work::poll ((task body) (waker (#borrow waker)))))
     (#return (#match fourth
-      (#case (Work::Poll.Ready value) value)
-      (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#case (Work::Poll.Ready value)
+          value
+        )
+        (#case (Work::Poll.Pending unexpected)
+          (#block
+            (#forget unexpected)
+            (#unreachable)
+          )
+        )
+      ))
   );
 }

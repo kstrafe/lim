@@ -1,20 +1,11 @@
-#fn
-    identity-u64 {
+#fn identity-u64 {
   #params = ((value #u64));
   #returns = #u64;
-  #body = (
-    (#return value)
-  );
+  #body = ((#return value));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (#call identity-u64 ((value 42)))
-    )
-  );
+  #body = ((#return (#call identity-u64 ((value 42)))));
 }

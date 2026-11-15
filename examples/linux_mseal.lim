@@ -4,28 +4,45 @@
 #alias linux-mseal = ../library/linux_x86_64.lim::linux-mseal
 #alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap
 #alias linux-write = ../library/linux_x86_64.lim::linux-write
-
 // Requires mseal support. Pipeline.Only this short-lived program's mapping is sealed.
+
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
-    (#unsafe (#ptr-write memory 77u8))
-    (#unsafe (#ptr-write (#ptr-offset memory 1usize) 10u8))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mseal ((address memory) (length 4096usize) (flags 1usize)))) -22i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mseal ((address (#unsafe (#ptr-offset memory 1usize))) (length 1usize) (flags 0usize)))) -22i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mprotect ((address memory) (length 4096usize) (protection 1u32)))) 0i64))
+  #body = ((#let memory (#ptr-mut #u8) (#unsafe
+        (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)
+            (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))
+      )) (#unsafe
+      (#ptr-write memory 77u8)
+    ) (#unsafe
+      (#ptr-write (#ptr-offset memory 1usize) 10u8)
+    ) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mseal ((address memory) (length 4096usize) (flags 1usize)))
+        ) -22i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mseal ((address (#unsafe
+                  (#ptr-offset memory 1usize)
+                )) (length 1usize) (flags 0usize)))
+        ) -22i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mprotect ((address memory) (length 4096usize) (protection 1u32)))
+        ) 0i64))
     // A non-page-multiple length is rounded up. Sealing is idempotent.
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mseal ((address memory) (length 1usize) (flags 0usize)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mseal ((address memory) (length 4096usize) (flags 0usize)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mprotect ((address memory) (length 4096usize) (protection 3u32)))) -1i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-madvise ((address memory) (length 4096usize) (advice 4i32)))) -1i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))) -1i64))
+    (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mseal ((address memory) (length 1usize) (flags 0usize)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mseal ((address memory) (length 4096usize) (flags 0usize)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mprotect ((address memory) (length 4096usize) (protection 3u32)))
+        ) -1i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-madvise ((address memory) (length 4096usize) (advice 4i32)))
+        ) -1i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-munmap ((address memory) (length 4096usize)))
+        ) -1i64))
     // Protection/discard/unmap failures must leave these original bytes intact.
-    (#assert (#u8::eq (#unsafe (#ptr-read memory)) 77u8))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-write ((fd 1i64) (source memory) (count 2usize)))) 2i64))
+    (#assert (#u8::eq (#unsafe
+          (#ptr-read memory)
+        ) 77u8)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-write ((fd 1i64) (source memory) (count 2usize)))
+        ) 2i64))
     // There is no unseal operation: the kernel releases this page on exit.
-    (#return 42u64)
-  );
+    (#return 42u64));
 }

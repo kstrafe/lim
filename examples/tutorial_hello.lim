@@ -1,7 +1,7 @@
 #std
 
 #fn main {
-  #params = {};
+  #params = { };
   #returns = ();
   #body:
     #let greeting (#array #char 13) "Hello, world!";

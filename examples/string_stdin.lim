@@ -19,9 +19,23 @@
           (#block
             (#assert (#i64::eq (#println (#borrow line)) 0i64))
             (#call String::clear ((string (#borrow-mut line))))
-            ()))
-        (#case StdReadResult.StdEndOfInput (#block (#set finished true) ()))
-        (#case (StdReadResult.StdReadFailed error) (#block (#set finished true) ()))))
+            ()
+          )
+        )
+        (#case StdReadResult.StdEndOfInput
+          (#block
+            (#set finished true)
+            ()
+          )
+        )
+        (#case (StdReadResult.StdReadFailed error)
+          (#block
+            (#set finished true)
+            ()
+          )
+        )
+      )
+    )
     (#call String::free ((string line)))
     (#return 42u64)
   );

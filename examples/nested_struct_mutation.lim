@@ -5,7 +5,8 @@
   #params = ();
   #returns = #u64;
   #body = (
-    (#let-mut value Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 30))))
+    (#let-mut value Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right
+                  20)))) (tail 30))))
     (#set-field value inner (#struct-literal Inner ((left 50) (right 60))))
     (#return (#get (#get value inner) right))
   );

@@ -2,48 +2,66 @@
 #struct Values () ((z (#tuple #u16 #u16)) (a #u64))
 #enum InputTask () ((InputTask.InputStart Values) (InputTask.InputResume Values))
 #enum InputPoll () ((InputPoll.InputPending InputTask) (InputPoll.InputReady Values))
+
 #fn input-poll {
   #params = ((task InputTask) (waker (#ref #u64)));
   #returns = InputPoll;
-  #body = (
-    (#return (#match task
-      (#case (InputTask.InputStart values) (InputPoll.InputPending (InputTask.InputResume values)))
-      (#case (InputTask.InputResume values) (InputPoll.InputReady values))))
-  );
+  #body = ((#return (#match task
+        (#case (InputTask.InputStart values)
+          (InputPoll.InputPending (InputTask.InputResume values))
+        )
+        (#case (InputTask.InputResume values)
+          (InputPoll.InputReady values)
+        )
+      )));
 }
+
 #enum Step () ((Step.Start #u64) (Step.Resume #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return (#match task
-      (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
-      (#case (Step.Resume value) (StepPoll.StepReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (Step.Start value)
+          (StepPoll.StepPending (Step.Resume value))
+        )
+        (#case (Step.Resume value)
+          (StepPoll.StepReady value)
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work ((values Values)) #u64
-      (#let (Values (#tuple left right) bias) Values
-        (#await Values InputTask InputPoll.InputPending InputPoll.InputReady input-poll (InputTask.InputStart values)))
-      (#let second #u64
-        (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as right #u64))))
-      (#return (#u64::add-wrap (#u64::add-wrap (#as left #u64) second) bias)))))
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((values Values)) #u64
+      (#let (Values (#tuple left right) bias) Values (#await Values InputTask
+          InputPoll.InputPending InputPoll.InputReady input-poll (InputTask.InputStart values)))
+      (#let second #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll
+          (Step.Start (#as right #u64)))) (#return (#u64::add-wrap (#u64::add-wrap (#as left #u64)
+            second) bias)))))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
     (#let waker #u64 0u64)
-    (#let-mut task Work::Task
-      (#call work ((values
-        (#struct-literal Values ((a 22u64) (z (#tuple (#tuple #u16 #u16) 9u16 11u16))))))))
+    (#let-mut task Work::Task (#call work ((values (#struct-literal Values ((a 22u64) (z (#tuple
+                    (#tuple #u16 #u16) 9u16 11u16))))))))
     (#for-range (attempt #u64) 0u64 4u64
       (#let result Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
       (#match result
-        (#case (Work::Poll.Pending next) (#block (#set task next) ()))
-        (#case (Work::Poll.Ready value) (#block (#return value)))))
+        (#case (Work::Poll.Pending next)
+          (#block
+            (#set task next)
+            ()
+          )
+        )
+        (#case (Work::Poll.Ready value)
+          (#block
+            (#return value)
+          )
+        )
+      )
+    )
     (#forget task)
     (#return (#unreachable))
   );

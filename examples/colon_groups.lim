@@ -2,19 +2,14 @@
 #fn sum {
   #params = ((left #u32) (right #u32));
   #returns = #u32;
-  #body = (
-    (#return (#u32::add-wrap left right))
-  );
+  #body = ((#return (#u32::add-wrap left right)));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let left #u32 40u32)
-    (#let right #u32 2u32)
+  #body = ((#let left #u32 40u32) (#let right #u32 2u32)
     // Named call arguments can appear in any order.
     // ($ name) expands to (name name), forwarding a same-named variable.
-    (#return (#as (#call sum (($ right) ($ left))) #u64))
-  );
+    (#return (#as (#call sum (($ right) ($ left))) #u64)));
 }

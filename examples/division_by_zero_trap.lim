@@ -1,7 +1,5 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#u64::div-wrap 1 0))
-  );
+  #body = ((#return (#u64::div-wrap 1 0)));
 }

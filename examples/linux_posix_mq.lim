@@ -16,111 +16,225 @@
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
-    (#let pid #i64 (#call linux-getpid ()))
+  #body = ((#let memory (#ptr-mut #u8) (#unsafe
+        (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)
+            (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))
+      )) (#let pid #i64 (#call linux-getpid ()))
     // NUL::terminated slashless name: lim- plus an injective encoding of the PID.
-    (#unsafe (#asm () ((rdi memory) (rsi pid))
-      "mov DWORD PTR [rdi], 0x2d6d696c\nmov ecx, 8\n1:\nmov eax, esi\nand eax, 15\nadd eax, 97\nmov bYTE PTR [rdi+rcx+3], al\nshr esi, 4\ndec ecx\njnz 1b"))
-    (#let attributes (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64) ((rdi memory)) "lea rax, [rdi+128]")))
-    (#let observed (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64) ((rdi memory)) "lea rax, [rdi+192]")))
-    (#let event (#ptr-mut #u8) (#unsafe (#asm (#ptr-mut #u8) ((rdi memory)) "lea rax, [rdi+256]")))
-    (#let message (#ptr-mut #u8) (#unsafe (#asm (#ptr-mut #u8) ((rdi memory)) "lea rax, [rdi+320]")))
-    (#let received (#ptr-mut #u8) (#unsafe (#asm (#ptr-mut #u8) ((rdi memory)) "lea rax, [rdi+336]")))
-    (#let priority (#ptr-mut #u32) (#unsafe (#asm (#ptr-mut #u32) ((rdi memory)) "lea rax, [rdi+352]")))
-    (#let deadline (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64) ((rdi memory)) "lea rax, [rdi+368]")))
+    (#unsafe
+      (#asm () ((rdi memory) (rsi pid))
+        "mov DWORD PTR [rdi], 0x2d6d696c\nmov ecx, 8\n1:\nmov eax, esi\nand eax, 15\nadd eax, 97\nmov bYTE PTR [rdi+rcx+3], al\nshr esi, 4\ndec ecx\njnz 1b")
+    ) (#let attributes (#ptr-mut #i64) (#unsafe
+        (#asm (#ptr-mut #i64) ((rdi memory)) "lea rax, [rdi+128]")
+      )) (#let observed (#ptr-mut #i64) (#unsafe
+        (#asm (#ptr-mut #i64) ((rdi memory)) "lea rax, [rdi+192]")
+      )) (#let event (#ptr-mut #u8) (#unsafe
+        (#asm (#ptr-mut #u8) ((rdi memory)) "lea rax, [rdi+256]")
+      )) (#let message (#ptr-mut #u8) (#unsafe
+        (#asm (#ptr-mut #u8) ((rdi memory)) "lea rax, [rdi+320]")
+      )) (#let received (#ptr-mut #u8) (#unsafe
+        (#asm (#ptr-mut #u8) ((rdi memory)) "lea rax, [rdi+336]")
+      )) (#let priority (#ptr-mut #u32) (#unsafe
+        (#asm (#ptr-mut #u32) ((rdi memory)) "lea rax, [rdi+352]")
+      )) (#let deadline (#ptr-mut #i64) (#unsafe
+        (#asm (#ptr-mut #i64) ((rdi memory)) "lea rax, [rdi+368]")
+      ))
     // Native mq_attr has four longs plus four reserved longs: 64 bytes.
-    (#unsafe (#ptr-write (#ptr-offset attributes 1usize) 2i64))
-    (#unsafe (#ptr-write (#ptr-offset attributes 2usize) 8i64))
-    (#let queue #i64 (#unsafe (#unsafe-call linux-mq-open ((name memory) (flags 194i32) (mode 384u32) (attributes attributes)))))
-    (#assert (#i64::ge queue 0i64))
+    (#unsafe
+      (#ptr-write (#ptr-offset attributes 1usize) 2i64)
+    ) (#unsafe
+      (#ptr-write (#ptr-offset attributes 2usize) 8i64)
+    ) (#let queue #i64 (#unsafe
+        (#unsafe-call linux-mq-open ((name memory) (flags 194i32) (mode 384u32) (attributes
+              attributes)))
+      )) (#assert (#i64::ge queue 0i64))
     // Remove the name immediately. The queue lives until its last descriptor closes.
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-unlink ((name memory)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-unlink ((name memory)))) -2i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-open ((name memory) (flags 2i32) (mode 0u32) (attributes attributes)))) -2i64))
+    (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-unlink ((name memory)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-unlink ((name memory)))
+        ) -2i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-open ((name memory) (flags 2i32) (mode 0u32) (attributes
+                attributes)))
+        ) -2i64))
     // SIGEV_NONE avoids signals; registration remains exclusive until removed.
-    (#unsafe (#asm () ((rdi event)) "mov DWORD PTR [rdi+12], 1"))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-notify ((queue queue) (event event)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-notify ((queue queue) (event event)))) -16i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-notify ((queue queue) (event (#ptr-null (#ptr-mut #u8)))))) 0i64))
-    (#unsafe (#asm () ((rdi message)) "mov WORD PTR [rdi], 0x0a41"))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 9usize) (priority 1u32) (deadline deadline)))) -90i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize) (priority 1u32) (deadline deadline)))) 0i64))
-    (#unsafe (#ptr-write message 66u8))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize) (priority 9u32) (deadline deadline)))) 0i64))
+    (#unsafe
+      (#asm () ((rdi event)) "mov DWORD PTR [rdi+12], 1")
+    ) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-notify ((queue queue) (event event)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-notify ((queue queue) (event event)))
+        ) -16i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-notify ((queue queue) (event (#ptr-null (#ptr-mut #u8)))))
+        ) 0i64)) (#unsafe
+      (#asm () ((rdi message)) "mov WORD PTR [rdi], 0x0a41")
+    ) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 9usize)
+              (priority 1u32) (deadline deadline)))
+        ) -90i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize)
+              (priority 1u32) (deadline deadline)))
+        ) 0i64)) (#unsafe
+      (#ptr-write message 66u8)
+    ) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize)
+              (priority 9u32) (deadline deadline)))
+        ) 0i64))
     // Queue is full; an absolute deadline of zero has already expired.
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize) (priority 1u32) (deadline deadline)))) -110i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-getsetattr ((queue queue) (new-attributes (#ptr-null (#ptr-mut #i64))) (old-attributes observed)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#ptr-read (#ptr-offset observed 1usize))) 2i64))
-    (#assert (#i64::eq (#unsafe (#ptr-read (#ptr-offset observed 2usize))) 8i64))
-    (#assert (#i64::eq (#unsafe (#ptr-read (#ptr-offset observed 3usize))) 2i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 1usize) (priority priority) (deadline deadline)))) -90i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize) (priority priority) (deadline deadline)))) 2i64))
-    (#assert (#u32::eq (#unsafe (#ptr-read priority)) 9u32))
-    (#assert (#u8::eq (#unsafe (#ptr-read received)) 66u8))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-write ((fd 1i64) (source received) (count 2usize)))) 2i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize) (priority priority) (deadline deadline)))) 2i64))
-    (#assert (#u32::eq (#unsafe (#ptr-read priority)) 1u32))
-    (#assert (#u8::eq (#unsafe (#ptr-read received)) 65u8))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-write ((fd 1i64) (source received) (count 2usize)))) 2i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize) (priority priority) (deadline deadline)))) -110i64))
-    (#unsafe (#ptr-write attributes 2048i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-getsetattr ((queue queue) (new-attributes attributes) (old-attributes observed)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#ptr-read observed)) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize) (priority priority) (deadline deadline)))) -11i64))
-    (#unsafe (#ptr-write attributes 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-getsetattr ((queue queue) (new-attributes attributes) (old-attributes observed)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#ptr-read observed)) 2048i64))
+    (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize)
+              (priority 1u32) (deadline deadline)))
+        ) -110i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-getsetattr ((queue queue) (new-attributes (#ptr-null (#ptr-mut
+                    #i64))) (old-attributes observed)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#ptr-read (#ptr-offset observed 1usize))
+        ) 2i64)) (#assert (#i64::eq (#unsafe
+          (#ptr-read (#ptr-offset observed 2usize))
+        ) 8i64)) (#assert (#i64::eq (#unsafe
+          (#ptr-read (#ptr-offset observed 3usize))
+        ) 2i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 1usize)
+              (priority priority) (deadline deadline)))
+        ) -90i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize)
+              (priority priority) (deadline deadline)))
+        ) 2i64)) (#assert (#u32::eq (#unsafe
+          (#ptr-read priority)
+        ) 9u32)) (#assert (#u8::eq (#unsafe
+          (#ptr-read received)
+        ) 66u8)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-write ((fd 1i64) (source received) (count 2usize)))
+        ) 2i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize)
+              (priority priority) (deadline deadline)))
+        ) 2i64)) (#assert (#u32::eq (#unsafe
+          (#ptr-read priority)
+        ) 1u32)) (#assert (#u8::eq (#unsafe
+          (#ptr-read received)
+        ) 65u8)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-write ((fd 1i64) (source received) (count 2usize)))
+        ) 2i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize)
+              (priority priority) (deadline deadline)))
+        ) -110i64)) (#unsafe
+      (#ptr-write attributes 2048i64)
+    ) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-getsetattr ((queue queue) (new-attributes attributes)
+              (old-attributes observed)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#ptr-read observed)
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize)
+              (priority priority) (deadline deadline)))
+        ) -11i64)) (#unsafe
+      (#ptr-write attributes 0i64)
+    ) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-getsetattr ((queue queue) (new-attributes attributes)
+              (old-attributes observed)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#ptr-read observed)
+        ) 2048i64))
     // Test actual one-shot SIGEV_SIGNAL delivery with SIGUSR1 blocked.
-    (#let-mut signal-mask #i64 512i64)
-    (#let-mut original-mask #i64 0i64)
-    (#let mask-pointer (#ptr-mut #i64) (#unsafe (#addr-of-mut signal-mask)))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-rt-sigprocmask ((how 0usize) (signal-set mask-pointer) (old-set (#addr-of-mut original-mask)) (sigset-size 8usize)))) 0i64))
-    (#let info (#ptr-mut #u8) (#unsafe (#ptr-offset memory 512usize)))
-    (#let uid #u32 (#as (#call linux-getuid ()) #u32))
-    (#unsafe (#asm () ((rdi event))
-      "mov QWORD PTR [rdi], 78\nmov DWORD PTR [rdi+8], 10\nmov DWORD PTR [rdi+12], 0"))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-notify ((queue queue) (event event)))) 0i64))
-    (#for-range (iteration #u32) 0u32 2u32
-      (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize) (priority 1u32) (deadline deadline)))) 0i64))
+    (#let-mut signal-mask #i64 512i64) (#let-mut original-mask #i64 0i64) (#let mask-pointer
+      (#ptr-mut #i64) (#unsafe
+        (#addr-of-mut signal-mask)
+      )) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-rt-sigprocmask ((how 0usize) (signal-set mask-pointer) (old-set
+                (#addr-of-mut original-mask)) (sigset-size 8usize)))
+        ) 0i64)) (#let info (#ptr-mut #u8) (#unsafe
+        (#ptr-offset memory 512usize)
+      )) (#let uid #u32 (#as (#call linux-getuid ()) #u32)) (#unsafe
+      (#asm () ((rdi event))
+        "mov QWORD PTR [rdi], 78\nmov DWORD PTR [rdi+8], 10\nmov DWORD PTR [rdi+12], 0")
+    ) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-notify ((queue queue) (event event)))
+        ) 0i64)) (#for-range (iteration #u32) 0u32 2u32
+      (#assert (#i64::eq (#unsafe
+            (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize)
+                (priority 1u32) (deadline deadline)))
+          ) 0i64))
       // sigtimedwait uses a relative timeout. Zero polls the pending signal.
-      (#let notification #i64 (#unsafe (#unsafe-call linux-rt-sigtimedwait ((signal-set mask-pointer) (info info) (timeout deadline) (sigset-size 8usize)))))
+      (#let notification #i64 (#unsafe
+          (#unsafe-call linux-rt-sigtimedwait ((signal-set mask-pointer) (info info) (timeout
+                deadline) (sigset-size 8usize)))
+        ))
       (#if (#u32::eq iteration 0u32)
         (#block
           (#assert (#i64::eq notification 10i64))
-          (#assert (#i32::eq (#unsafe (#asm #i32 ((rdi info))
-            "mov eax, DWORD PTR [rdi+8]")) -3i32))
-          (#assert (#u32::eq (#unsafe (#asm #u32 ((rdi info))
-            "mov eax, DWORD PTR [rdi+16]")) (#as pid #u32)))
-          (#assert (#u32::eq (#unsafe (#asm #u32 ((rdi info))
-            "mov eax, DWORD PTR [rdi+20]")) uid))
-          (#assert (#u64::eq (#unsafe (#asm #u64 ((rdi info))
-            "mov rax, QWORD PTR [rdi+24]")) 78u64))
+          (#assert (#i32::eq (#unsafe
+                (#asm #i32 ((rdi info)) "mov eax, DWORD PTR [rdi+8]")
+              ) -3i32))
+          (#assert (#u32::eq (#unsafe
+                (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi+16]")
+              ) (#as pid #u32)))
+          (#assert (#u32::eq (#unsafe
+                (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi+20]")
+              ) uid))
+          (#assert (#u64::eq (#unsafe
+                (#asm #u64 ((rdi info)) "mov rax, QWORD PTR [rdi+24]")
+              ) 78u64))
           // Print the notification value itself, followed by the message newline.
-          (#assert (#i64::eq (#unsafe (#unsafe-call linux-write ((fd 1i64) (source (#unsafe (#ptr-offset info 24usize))) (count 1usize)))) 1i64))
-          (#assert (#i64::eq (#unsafe (#unsafe-call linux-write ((fd 1i64) (source (#unsafe (#ptr-offset message 1usize))) (count 1usize)))) 1i64)))
-        (#assert (#i64::eq notification -11i64)))
+          (#assert (#i64::eq (#unsafe
+                (#unsafe-call linux-write ((fd 1i64) (source (#unsafe
+                        (#ptr-offset info 24usize)
+                      )) (count 1usize)))
+              ) 1i64))
+          (#assert (#i64::eq (#unsafe
+                (#unsafe-call linux-write ((fd 1i64) (source (#unsafe
+                        (#ptr-offset message 1usize)
+                      )) (count 1usize)))
+              ) 1i64))
+        )
+        (#assert (#i64::eq notification -11i64))
+      )
       // Empty the queue again; the second empty-to-nonempty transition must not
       // notify because delivery consumed the original registration.
-      (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize) (priority priority) (deadline deadline)))) 2i64)))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-notify ((queue queue) (event event)))) 0i64))
+      (#assert (#i64::eq (#unsafe
+            (#unsafe-call linux-mq-timedreceive ((queue queue) (message received)
+                (capacity 8usize) (priority priority) (deadline deadline)))
+          ) 2i64))
+    ) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-notify ((queue queue) (event event)))
+        ) 0i64))
     // Rearming must enable another delivery, not merely accept registration.
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize) (priority 1u32) (deadline deadline)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-rt-sigtimedwait ((signal-set mask-pointer) (info info) (timeout deadline) (sigset-size 8usize)))) 10i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize) (priority priority) (deadline deadline)))) 2i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-notify ((queue queue) (event event)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-notify ((queue queue) (event (#ptr-null (#ptr-mut #u8)))))) 0i64))
+    (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize)
+              (priority 1u32) (deadline deadline)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-rt-sigtimedwait ((signal-set mask-pointer) (info info) (timeout
+                deadline) (sigset-size 8usize)))
+        ) 10i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize)
+              (priority priority) (deadline deadline)))
+        ) 2i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-notify ((queue queue) (event event)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-notify ((queue queue) (event (#ptr-null (#ptr-mut #u8)))))
+        ) 0i64))
     // A new empty-to-nonempty transition after cancellation must not notify.
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize) (priority 1u32) (deadline deadline)))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-rt-sigtimedwait ((signal-set mask-pointer) (info info) (timeout deadline) (sigset-size 8usize)))) -11i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize) (priority priority) (deadline deadline)))) 2i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-rt-sigprocmask ((how 2usize) (signal-set (#addr-of-mut original-mask)) (old-set (#ptr-null (#ptr-mut #i64))) (sigset-size 8usize)))) 0i64))
-    (#let-mut restored-mask #i64 0i64)
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-rt-sigprocmask ((how 2usize) (signal-set (#ptr-null (#ptr-mut #i64))) (old-set (#addr-of-mut restored-mask)) (sigset-size 8usize)))) 0i64))
-    (#assert (#i64::eq restored-mask original-mask))
-    (#assert (#i64::eq (#call linux-close ((fd queue))) 0i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-mq-getsetattr ((queue queue) (new-attributes attributes) (old-attributes observed)))) -9i64))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))) 0i64))
-    (#return 42u64)
-  );
+    (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedsend ((queue queue) (message message) (length 2usize)
+              (priority 1u32) (deadline deadline)))
+        ) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-rt-sigtimedwait ((signal-set mask-pointer) (info info) (timeout
+                deadline) (sigset-size 8usize)))
+        ) -11i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-timedreceive ((queue queue) (message received) (capacity 8usize)
+              (priority priority) (deadline deadline)))
+        ) 2i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-rt-sigprocmask ((how 2usize)
+              (signal-set (#addr-of-mut original-mask)) (old-set (#ptr-null (#ptr-mut #i64)))
+              (sigset-size 8usize)))
+        ) 0i64)) (#let-mut restored-mask #i64 0i64) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-rt-sigprocmask ((how 2usize)
+              (signal-set (#ptr-null (#ptr-mut #i64))) (old-set (#addr-of-mut restored-mask))
+              (sigset-size 8usize)))
+        ) 0i64)) (#assert (#i64::eq restored-mask original-mask)) (#assert (#i64::eq (#call
+          linux-close ((fd queue))) 0i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-mq-getsetattr ((queue queue) (new-attributes attributes)
+              (old-attributes observed)))
+        ) -9i64)) (#assert (#i64::eq (#unsafe
+          (#unsafe-call linux-munmap ((address memory) (length 4096usize)))
+        ) 0i64)) (#return 42u64));
 }

@@ -7,16 +7,13 @@
 #fn widen {
   #params = { index = #usize; };
   #returns = ();
-  #requires:
-    [#usize; index < 2];
-  #ensures:
-    [#usize; index < 4];
-  #body:
-    #return ();
+  #requires: [#usize; index < 2];
+  #ensures: [#usize; index < 4];
+  #body: #return ();
 }
 
 #fn main {
-  #params = {};
+  #params = { };
   #returns = #u64;
   #body:
     #let values Array4 (#array-of 10 42 30 40);

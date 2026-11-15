@@ -1,10 +1,8 @@
-#gn-fn emit-function (name temporary)
-    `((#fn ,name ((task #u64)) #u64
+#gn-fn emit-function (name temporary) `((#fn ,name ((task #u64)) #u64
        (#let ,temporary #u64 task)
        (#return (#u64::add-wrap task ,temporary))))
 
-#gn make-function (name)
-    (#gn-call emit-function name (#gn-gensym "task"))
+#gn make-function (name) (#gn-call emit-function name (#gn-gensym "task"))
 
 #generate make-function first
 #generate make-function second

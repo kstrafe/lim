@@ -1,23 +1,17 @@
 #fn make {
   #params = ();
   #returns = (#array #u64 3);
-  #body = (
-    (#return (#array (#array #u64 3) 10 20 37))
-  );
+  #body = ((#return (#array (#array #u64 3) 10 20 37)));
 }
 
 #fn consume {
   #params = ((values (#array #u64 3)));
   #returns = #u64;
-  #body = (
-    (#return (#index values 2))
-  );
+  #body = ((#return (#index values 2)));
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#call consume ((values (#call make ())))))
-  );
+  #body = ((#return (#call consume ((values (#call make ()))))));
 }

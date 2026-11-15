@@ -1,23 +1,7 @@
-#struct
-    BoxU64 ()
-    (
-      (value #u64)
-    )
+#struct BoxU64 () ((value #u64))
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #let
-      boxed
-      BoxU64
-      (#struct-literal BoxU64 ((value 42)))
-    )
-    (
-      #return
-      (#get boxed value)
-    )
-  );
+  #body = ((#let boxed BoxU64 (#struct-literal BoxU64 ((value 42)))) (#return (#get boxed value)));
 }

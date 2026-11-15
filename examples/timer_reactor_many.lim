@@ -6,273 +6,61 @@
 #alias timer-reactor1-cancel = ../library/timer_reactor1.lim::timer-reactor1-cancel
 #alias timer-reactor1-create = ../library/timer_reactor1.lim::timer-reactor1-create
 #alias timer-reactor1-poll = ../library/timer_reactor1.lim::timer-reactor1-poll
-
 // A bounded slice of borrowed timer owners can share one blocking poll call.
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (
-      #let
-      created-a
-      TimerCreate1
-      (
-        #call
-        timer-reactor1-create
-        ((nanoseconds 10000000u64))    )  )
-    (
-      #let-else
-      (TimerCreate1.TimerCreated1 a)
-      TimerCreate1
-      created-a
-      (#unreachable)
-    )
-    (
-      #let
-      created-b
-      TimerCreate1
-      (
-        #call
-        timer-reactor1-create
-        ((nanoseconds 20000000u64))    )  )
-    (
-      #let-else
-      (TimerCreate1.TimerCreated1 b)
-      TimerCreate1
-      created-b
-      (#unreachable)
-    )
-    (
-      #let
-      created-c
-      TimerCreate1
-      (
-        #call
-        timer-reactor1-create
-        ((nanoseconds 30000000u64))    )  )
-    (
-      #let-else
-      (TimerCreate1.TimerCreated1 c)
-      TimerCreate1
-      created-c
-      (#unreachable)
-    )
-    (
-      #let
-      duplicate-array
-      (
-        #array
-        (#ref TimerReactor1)
-        2
-      )
-      (
-        #array-of
-        (
-          #array
-          (#ref TimerReactor1)
-          2
+    (#let created-a TimerCreate1 (#call timer-reactor1-create ((nanoseconds 10000000u64))))
+    (#let-else (TimerCreate1.TimerCreated1 a) TimerCreate1 created-a (#unreachable))
+    (#let created-b TimerCreate1 (#call timer-reactor1-create ((nanoseconds 20000000u64))))
+    (#let-else (TimerCreate1.TimerCreated1 b) TimerCreate1 created-b (#unreachable))
+    (#let created-c TimerCreate1 (#call timer-reactor1-create ((nanoseconds 30000000u64))))
+    (#let-else (TimerCreate1.TimerCreated1 c) TimerCreate1 created-c (#unreachable))
+    (#let duplicate-array (#array (#ref TimerReactor1) 2) (#array-of
+        (#array (#ref TimerReactor1) 2) (#borrow a) (#borrow a)))
+    (#let duplicate-timers (#slice (#ref TimerReactor1)) (#slice-of (#borrow duplicate-array)))
+    (#let duplicate-result TimerManyWait
+      (#call timer-reactor-many-wait ((timers duplicate-timers))))
+    (#assert (#match duplicate-result
+        (#case (TimerManyWait.TimerManyFailed error)
+          (#i64::eq error (#literal #i64 -22))
         )
-        (#borrow a)
-        (#borrow a)
-      )
-    )
-    (
-      #let
-      duplicate-timers
-      (
-        #slice
-        (#ref TimerReactor1)
-      )
-      (
-        #slice-of
-        (#borrow duplicate-array)
-      )
-    )
-    (
-      #let
-      duplicate-result
-      TimerManyWait
-      (
-        #call
-        timer-reactor-many-wait
-        ((timers duplicate-timers))    )  )
-    (
-      #assert
-      (
-        #match
-        duplicate-result
-        (
-          #case
-          (TimerManyWait.TimerManyFailed error)
-          (
-            #i64::eq
-            error
-            (#literal #i64 -22)
-          )
-        )
-        (
-          #case
-          (TimerManyWait.TimerManyReady mask)
+        (#case (TimerManyWait.TimerManyReady mask)
           false
         )
-      )
-    )
-    (
-      #let
-      array
-      (
-        #array
-        (#ref TimerReactor1)
-        3
-      )
-      (
-        #array-of
-        (
-          #array
-          (#ref TimerReactor1)
-          3
+      ))
+    (#let array (#array (#ref TimerReactor1) 3) (#array-of (#array (#ref TimerReactor1) 3)
+        (#borrow a) (#borrow b) (#borrow c)))
+    (#let timers (#slice (#ref TimerReactor1)) (#slice-of (#borrow array)))
+    (#let wake TimerManyWait (#call timer-reactor-many-wait ((timers timers))))
+    (#let first-ready #bool (#match wake
+        (#case (TimerManyWait.TimerManyReady mask)
+          (#u64::ne (#u64::bit-and mask (#literal #u64 1)) (#literal #u64 0))
         )
-        (#borrow a)
-        (#borrow b)
-        (#borrow c)
-      )
-    )
-    (
-      #let
-      timers
-      (
-        #slice
-        (#ref TimerReactor1)
-      )
-      (
-        #slice-of
-        (#borrow array)
-      )
-    )
-    (
-      #let
-      wake
-      TimerManyWait
-      (
-        #call
-        timer-reactor-many-wait
-        ((timers timers))    )  )
-    (
-      #let
-      first-ready
-      #bool
-      (
-        #match
-        wake
-        (
-          #case
-          (TimerManyWait.TimerManyReady mask)
-          (
-            #u64::ne
-            (
-              #u64::bit-and
-              mask
-              (#literal #u64 1)
-            )
-            (#literal #u64 0)
-          )
-        )
-        (
-          #case
-          (TimerManyWait.TimerManyFailed error)
+        (#case (TimerManyWait.TimerManyFailed error)
           false
         )
-      )
-    )
-    (
-      #let
-      first-poll
-      TimerPoll1
-      (
-        #call
-        timer-reactor1-poll
-        ((timer (#borrow a)))    )  )
-    (
-      #let
-      first-done
-      #bool
-      (
-        #match
-        first-poll
-        (
-          #case
-          (TimerPoll1.TimerReady1 count)
-          (
-            #u64::eq
-            count
-            (#literal #u64 1)
-          )
+      ))
+    (#let first-poll TimerPoll1 (#call timer-reactor1-poll ((timer (#borrow a)))))
+    (#let first-done #bool (#match first-poll
+        (#case (TimerPoll1.TimerReady1 count)
+          (#u64::eq count (#literal #u64 1))
         )
-        (#case _ false)
-      )
-    )
-    (
-      #let
-      closed-a
-      #i64
-      (
-        #call
-        timer-reactor1-cancel
-        ((timer a))    )  )
-    (
-      #let
-      closed-b
-      #i64
-      (
-        #call
-        timer-reactor1-cancel
-        ((timer b))    )  )
-    (
-      #let
-      closed-c
-      #i64
-      (
-        #call
-        timer-reactor1-cancel
-        ((timer c))    )  )
-    (
-      #return
-      (
-        #if
-        (
-          #bool::and
-          first-ready
-          (
-            #bool::and
-            first-done
-            (
-              #bool::and
-              (
-                #i64::eq
-                closed-a
-                (#literal #i64 0)
-              )
-              (
-                #bool::and
-                (
-                  #i64::eq
-                  closed-b
-                  (#literal #i64 0)
-                )
-                (
-                  #i64::eq
-                  closed-c
-                  (#literal #i64 0)
-                )
-              )
-            )
-          )
+        (#case _
+          false
         )
+      ))
+    (#let closed-a #i64 (#call timer-reactor1-cancel ((timer a))))
+    (#let closed-b #i64 (#call timer-reactor1-cancel ((timer b))))
+    (#let closed-c #i64 (#call timer-reactor1-cancel ((timer c))))
+    (#return
+      (#if (#bool::and first-ready (#bool::and first-done (#bool::and (#i64::eq closed-a (#literal
+                #i64 0)) (#bool::and (#i64::eq closed-b (#literal #i64 0)) (#i64::eq closed-c
+                (#literal #i64 0))))))
         (#literal #u64 42)
         (#literal #u64 0)
-      )
-    )
+      ))
   );
 }

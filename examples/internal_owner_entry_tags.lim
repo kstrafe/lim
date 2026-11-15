@@ -7,7 +7,8 @@
   #body = (
     (#match (#pin-borrow (#get target value))
       (#case-pin (Value.Full view) (#pin-set-field target view view))
-      (#case-pin Value.Empty ()))
+      (#case-pin Value.Empty ())
+    )
     (#return target)
   );
 }
@@ -15,16 +16,21 @@
 #fn initialize-or-touch {
   #params = ((target (#pin-ref-mut Link)));
   #returns = (#pin-ref-mut Link);
-  #body = (
-    //; A later Value.Full tag is not evidence that the owner was Value.Full at entry.
+  #body = (//; A later Value.Full tag is not evidence that the owner was Value.Full at entry.
     (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
       (#block
-        (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64)))
+        (#unsafe
+          (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64))
+        )
         (#match (#pin-borrow-mut (#get target value))
-          (#case-pin-mut (Value.Full payload) (#unsafe (#pin-write payload 42u64)))
-          (#case-pin-mut Value.Empty ()))) ())
-    (#return target)
-  );
+          (#case-pin-mut (Value.Full payload) (#unsafe
+              (#pin-write payload 42u64)
+            ))
+          (#case-pin-mut Value.Empty ())
+        )
+      )
+      ()
+    ) (#return target));
 }
 
 #fn main {
@@ -32,15 +38,14 @@
   #returns = #u64;
   #body = (
     (#let outside #u64 0u64)
-    (#let-mut link Link (#struct-literal Link
-      ((value Value.Empty) (view (#pin-borrow outside)))))
-    (#let installed (#pin-ref-mut Link)
-      (#call initialize-or-touch ((target (#pin-borrow-mut link)))))
-    (#let updated (#pin-ref-mut Link)
-      (#call install ((target installed))))
+    (#let-mut link Link (#struct-literal Link ((value Value.Empty) (view (#pin-borrow outside)))))
+    (#let installed (#pin-ref-mut Link) (#call initialize-or-touch
+        ((target (#pin-borrow-mut link)))))
+    (#let updated (#pin-ref-mut Link) (#call install ((target installed))))
     (#let answer #u64 (#deref (#get updated view)))
     (#pin-set-field updated view (#pin-borrow outside))
-    (#drop updated) (#forget link)
+    (#drop updated)
+    (#forget link)
     (#return answer)
   );
 }

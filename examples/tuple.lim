@@ -1,53 +1,20 @@
-#fn
-    make {
+#fn make {
   #params = ();
   #returns = (#tuple #u64 #f32);
-  #body = (
-    (
-      #return
-      (#tuple 40 2.5)
-    )
-  );
+  #body = ((#return (#tuple 40 2.5)));
 }
 
-#fn
-    consume {
-  #params = (
-      (
-        value
-        (#tuple #u64 #f32)
-      )
-    );
+#fn consume {
+  #params = ((value (#tuple #u64 #f32)));
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (#u64::add-wrap
-        (#get value 0)
-        (
-          #as
-          (#get value 1)
-          #u64
-        )
-      )
-    )
-  );
+  #body = ((#return (#u64::add-wrap (#get value 0) (#as (#get value 1) #u64))));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (
-      #let
-      value
-      (#tuple #u64 #f32)
-      (#call make ())
-    )
-    (
-      #return
-      (#call consume ((value value)))
-    )
+    (#let value (#tuple #u64 #f32) (#call make ()))
+    (#return (#call consume ((value value))))
   );
 }

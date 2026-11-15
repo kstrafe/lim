@@ -1,19 +1,22 @@
-#const enabled #bool
-    (#bool::eq true true)
+#const enabled #bool (#bool::eq true true)
 
-#const answer #u64
-    (#if enabled 42u64 0u64)
+#const answer #u64 (#if enabled
+  42u64
+  0u64
+)
 
-#const scale #f32
-    (#if false 0.0f32 2.5f32)
+#const scale #f32 (#if false
+  0.0f32
+  2.5f32
+)
 
-#const namedScale #f32
-    (#if enabled 1.5f32 2.5f32)
+#const namedScale #f32 (#if enabled
+  1.5f32
+  2.5f32
+)
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return answer)
-  );
+  #body = ((#return answer));
 }

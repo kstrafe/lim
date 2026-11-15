@@ -14,8 +14,8 @@
   #returns = ();
   #body = (
     (#let cell (#ref CellU64) (#borrow (#get executor notifications)))
-    (#call CellU64::set ((cell (#clone cell)) (value (#u64::add-wrap (#call CellU64::get ((cell cell)))
-        (#get metadata amount)))))
+    (#call CellU64::set ((cell (#clone cell)) (value (#u64::add-wrap (#call CellU64::get ((cell
+                  cell))) (#get metadata amount)))))
     (#return ())
   );
 }
@@ -23,72 +23,79 @@
 #fn clone-metadata {
   #params = ((metadata (#ref WakeMetadata)));
   #returns = WakeMetadata;
-  #body = (
-    (#return (#struct-literal WakeMetadata ((amount (#get metadata amount)))))
-  );
+  #body = ((#return (#struct-literal WakeMetadata ((amount (#get metadata amount))))));
 }
 
 #fn destroy-metadata {
   #params = ((executor (#ref WakeExecutor)) (metadata WakeMetadata));
   #returns = ();
-  #body = (
-    (#forget metadata)
-    (#return ())
-  );
+  #body = ((#forget metadata) (#return ()));
 }
 
-#generate lim-gen-local-waker
-    (LocalWaker local-waker-create local-waker-wake
-      local-waker-wake-by-ref local-waker-clone local-waker-destroy)
-    (WakeExecutor WakeMetadata)
-    (notify clone-metadata destroy-metadata)
+#generate lim-gen-local-waker (LocalWaker local-waker-create local-waker-wake
+  local-waker-wake-by-ref local-waker-clone local-waker-destroy) (WakeExecutor WakeMetadata)
+  (notify clone-metadata destroy-metadata)
 
-#generate lim-gen-task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64))
+#generate lim-gen-task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting
+    #u64))
 
 #fn step-poll {
   #params = ((task Step) (waker (#ref LocalWaker)));
   #returns = StepPoll;
-  #body = (
-    (#return (#match task
-      (#case (Step.Waiting remaining)
-        (#if (#u64::eq (#clone remaining) 0u64)
-          (#block (#forget remaining) (StepPoll.StepReady 40u64))
-          (#block
-            (#call local-waker-wake-by-ref ((waker waker)))
-            (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap remaining 1u64))))))))
-  );
+  #body = ((#return (#match task
+        (#case (Step.Waiting remaining)
+          (#if (#u64::eq (#clone remaining) 0u64)
+            (#block
+              (#forget remaining)
+              (StepPoll.StepReady 40u64)
+            )
+            (#block
+              (#call local-waker-wake-by-ref ((waker waker)))
+              (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap remaining 1u64)))
+            )
+          )
+        )
+      )));
 }
 
-#generate lim-gen-async-wake
-    (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
-    ((Pipeline.Only (#await Step StepPoll.StepPending StepPoll.StepReady step-poll) (#return)))
-    LocalWaker
+#generate lim-gen-async-wake (Pipeline PipelinePoll PipelinePoll.PipelinePending
+  PipelinePoll.PipelineReady pipeline-poll) #u64 ((Pipeline.Only (#await Step StepPoll.StepPending
+      StepPoll.StepReady step-poll) (#return))) LocalWaker
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let executor WakeExecutor
-      (#struct-literal WakeExecutor ((notifications
-        (#call CellU64::create ((value 0u64)))))))
-    (#let waker LocalWaker
-      (#call local-waker-create ((executor (#borrow executor)) (metadata (#struct-literal WakeMetadata ((amount 2u64)))))))
-    (#let first PipelinePoll
-      (#call pipeline-poll ((task (Pipeline.Only (Step.Waiting 1u64))) (waker (#borrow waker)))))
-    (#let pending Pipeline
-      (#match first
-        (#case (PipelinePoll.PipelinePending task) task)
-        (#case (PipelinePoll.PipelineReady result) (#unreachable))))
-    (#let second PipelinePoll
-      (#call pipeline-poll ((task pending) (waker (#borrow waker)))))
-    (#let result #u64
-      (#match second
-        (#case (PipelinePoll.PipelineReady value) value)
+    (#let executor WakeExecutor (#struct-literal WakeExecutor ((notifications (#call
+              CellU64::create ((value 0u64)))))))
+    (#let waker LocalWaker (#call local-waker-create ((executor (#borrow executor)) (metadata
+            (#struct-literal WakeMetadata ((amount 2u64)))))))
+    (#let first PipelinePoll (#call pipeline-poll ((task (Pipeline.Only (Step.Waiting 1u64)))
+          (waker (#borrow waker)))))
+    (#let pending Pipeline (#match first
         (#case (PipelinePoll.PipelinePending task)
-          (#block (#forget task) (#unreachable)))))
+          task
+        )
+        (#case (PipelinePoll.PipelineReady result)
+          (#unreachable)
+        )
+      ))
+    (#let second PipelinePoll (#call pipeline-poll ((task pending) (waker (#borrow waker)))))
+    (#let result #u64 (#match second
+        (#case (PipelinePoll.PipelineReady value)
+          value
+        )
+        (#case (PipelinePoll.PipelinePending task)
+          (#block
+            (#forget task)
+            (#unreachable)
+          )
+        )
+      ))
     (#call local-waker-destroy ((waker waker)))
     (#let executor-ref (#ref WakeExecutor) (#borrow executor))
-    (#let notifications #u64 (#call CellU64::get ((cell (#borrow (#get executor-ref notifications))))))
+    (#let notifications #u64 (#call CellU64::get
+        ((cell (#borrow (#get executor-ref notifications))))))
     (#drop executor-ref)
     (#forget executor)
     (#return (#u64::add-wrap result notifications))

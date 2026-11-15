@@ -1,21 +1,9 @@
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (
-      #let-mut
-      values
-      (#array #u64 3)
-      (#array 1 2 3)
-    )
+    (#let-mut values (#array #u64 3) (#array 1 2 3))
     (#set-index values 1 40)
-    (
-      #return
-      (#u64::add-wrap
-        (#index values 0)
-        (#index values 1)
-      )
-    )
+    (#return (#u64::add-wrap (#index values 0) (#index values 1)))
   );
 }

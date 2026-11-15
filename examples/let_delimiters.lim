@@ -1,12 +1,11 @@
 #fn read-value {
   #params = { value = (#ref #u64); };
   #returns = #u64;
-  #body:
-    #return (#deref value);
+  #body: #return (#deref value);
 }
 
 #fn main {
-  #params = {};
+  #params = { };
   #returns = #u64;
   #body:
     #let-mut count : #u64 = 40u64;

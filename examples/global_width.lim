@@ -1,21 +1,10 @@
-#let
-    wRAPPED
-    #u8
-    (#u8::add-wrap  255 1)
+#let wRAPPED #u8 (#u8::add-wrap 255 1)
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #if
-        (#u8::eq  wRAPPED 0)
+  #body = ((#return (#if (#u8::eq wRAPPED 0)
         42
         0
-      )
-    )
-  );
+      )));
 }

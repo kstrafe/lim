@@ -1,28 +1,13 @@
 #generate #optional ((type #u64) (name Maybe?))
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (
-      #let-mut
-      value
-      Maybe?
-      (#call Maybe?::construct ((value 42)))
-    )
+    (#let-mut value Maybe? (#call Maybe?::construct ((value 42))))
     (#let-mut total #u64 0)
-    (
-      #while-let
-      (Maybe?.Some payload)
-      value
-      (
-        #set
-        total
-        (#u64::add-wrap  total payload)
-      )
-      (#set value Maybe?.None)
-    )
+    (#while-let (Maybe?.Some payload) value (#set total (#u64::add-wrap total payload)) (#set
+        value Maybe?.None))
     (#return total)
   );
 }

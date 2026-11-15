@@ -1,35 +1,19 @@
 #generate #optional ((type #u64) (name Maybe?))
 
-#fn
-    identity {
-  #params = (
-      (value Maybe?)
-    );
+#fn identity {
+  #params = ((value Maybe?));
   #returns = Maybe?;
-  #body = (
-    (#return value)
-  );
+  #body = ((#return value));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (
-      #let
-      value
-      Maybe?
-      (#call identity ((value (#call Maybe?::construct ((value 42))))))
-    )
-    (
-      #return
-      (
-        #if
-        (#call Maybe?::is-some ((value (#clone value))))
+    (#let value Maybe? (#call identity ((value (#call Maybe?::construct ((value 42)))))))
+    (#return (#if (#call Maybe?::is-some ((value (#clone value))))
         (#call Maybe?::unwrap-or ((value value) (fallback 0)))
         0
-      )
-    )
+      ))
   );
 }

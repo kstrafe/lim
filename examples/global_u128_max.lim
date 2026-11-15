@@ -1,21 +1,10 @@
 #let vALUE #u128 340282366920938463463374607431768211455
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #if
-        (#u128::eq
-          vALUE
-          (#as -1 #u128)
-        )
+  #body = ((#return (#if (#u128::eq vALUE (#as -1 #u128))
         42
         0
-      )
-    )
-  );
+      )));
 }

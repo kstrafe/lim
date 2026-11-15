@@ -1,17 +1,10 @@
-#struct Point ()
-    ((x #u64)
-     (y #u64))
+#struct Point () ((x #u64) (y #u64))
 
 #fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (#let point Point
-      (#struct-literal Point
-        ((y 22u64)
-         (x 20u64))))
-    (#return (#u64::add-wrap
-      (#get point x)
-      (#get point y)))
+    (#let point Point (#struct-literal Point ((y 22u64) (x 20u64))))
+    (#return (#u64::add-wrap (#get point x) (#get point y)))
   );
 }

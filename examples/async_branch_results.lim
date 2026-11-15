@@ -4,24 +4,29 @@
 #enum Step (#linear) ((Step.Waiting #u64) (Step.Resuming #u64))
 
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = (
-    (#return (#match task
-      (#case (Step.Waiting value) (StepPoll.StepPending (Step.Resuming value)))
-      (#case (Step.Resuming value) (StepPoll.StepReady value))))
-  );
+  #body = ((#return (#match task
+        (#case (Step.Waiting value)
+          (StepPoll.StepPending (Step.Resuming value))
+        )
+        (#case (Step.Resuming value)
+          (StepPoll.StepReady value)
+        )
+      )));
 }
 
-#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-    (#fn work ((choose #bool)) Token
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function (#fn work ((choose #bool)) Token
       (#return (#if choose
-        (#block
-          (#let awaited #u64
-            (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 41u64)))
-          (#struct-literal Token ((value (#u64::add-wrap awaited 1u64)))))
-        (#struct-literal Token ((value 0u64))))))))
+          (#block
+            (#let awaited #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll
+                (Step.Waiting 41u64)))
+            (#struct-literal Token ((value (#u64::add-wrap awaited 1u64))))
+          )
+          (#struct-literal Token ((value 0u64)))
+        )))))
 
 #fn run {
   #params = ((choose #bool) (waker (#ref #u64)));
@@ -29,11 +34,23 @@
   #body = (
     (#let first Work::Poll (#call Work::poll ((task (#call work ((choose choose)))) (waker waker))))
     (#let token Token (#match first
-      (#case (Work::Poll.Ready value) value)
-      (#case (Work::Poll.Pending pending)
-        (#match (#call Work::poll ((task pending) (waker waker)))
-          (#case (Work::Poll.Ready value) value)
-          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))
+        (#case (Work::Poll.Ready value)
+          value
+        )
+        (#case (Work::Poll.Pending pending)
+          (#match (#call Work::poll ((task pending) (waker waker)))
+            (#case (Work::Poll.Ready value)
+              value
+            )
+            (#case (Work::Poll.Pending unexpected)
+              (#block
+                (#forget unexpected)
+                (#unreachable)
+              )
+            )
+          )
+        )
+      ))
     (#let value #u64 (#get token value))
     (#forget token)
     (#return value)

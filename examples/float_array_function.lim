@@ -1,51 +1,23 @@
-#fn
-    sum {
-  #params = (
-      (
-        values
-        (#array #f32 2)
-      )
-    );
+#fn sum {
+  #params = ((values (#array #f32 2)));
   #returns = #f32;
-  #body = (
-    (
-      #return
-      (#index values 1)
-    )
-  );
+  #body = ((#return (#index values 1)));
 }
 
-#fn
-    make {
+#fn make {
   #params = ();
   #returns = (#array #f32 2);
-  #body = (
-    (
-      #return
-      (#array 1.5 2.5)
-    )
-  );
+  #body = ((#return (#array 1.5 2.5)));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
   #body = (
-    (
-      #let
-      value
-      #f32
-      (#call sum ((values (#call make ()))))
-    )
-    (
-      #return
-      (
-        #if
-        (#f32::gt  value 2.0)
+    (#let value #f32 (#call sum ((values (#call make ())))))
+    (#return (#if (#f32::gt value 2.0)
         42
         0
-      )
-    )
+      ))
   );
 }

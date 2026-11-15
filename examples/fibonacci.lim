@@ -10,14 +10,14 @@
       (#set next (#u64::add-wrap (#clone a) (#clone b)))
       (#set a (#clone b))
       (#set b next)
-      (#set i (#u64::add-wrap (#clone i) 1)))
+      (#set i (#u64::add-wrap (#clone i) 1))
+    )
     (#return a)
   );
 }
+
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#return (#call fib ((n 10))))
-  );
+  #body = ((#return (#call fib ((n 10)))));
 }

@@ -2,9 +2,7 @@
 #fn below-100 {
   #params = ((value #u64));
   #returns = #bool;
-  #body = (
-    (#return (#u64::lt value 100u64))
-  );
+  #body = ((#return (#u64::lt value 100u64)));
 }
 
 #type Small (#where (value #u64) (#call below-100 ((value value))))
@@ -13,9 +11,7 @@
 #fn send {
   #params = ((request (#ref Request)));
   #returns = #u64;
-  #body = (
-    (#return (#get request count))
-  );
+  #body = ((#return (#get request count)));
 }
 
 #fn submit {
@@ -35,8 +31,6 @@
   #returns = #u64;
   #body = (
     (#let input #u64 42u64)
-    (#return (#if-valid (#call below-100 ((value input)))
-      (#call submit ((value input)))
-      1u64))
+    (#return (#if-valid (#call below-100 ((value input))) (#call submit ((value input))) 1u64))
   );
 }

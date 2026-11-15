@@ -1,13 +1,7 @@
 #let aNSWER #u64 40
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (#u64::add-wrap  aNSWER 2)
-    )
-  );
+  #body = ((#return (#u64::add-wrap aNSWER 2)));
 }

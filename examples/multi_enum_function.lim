@@ -1,57 +1,32 @@
 #struct PairValues () ((left #u64) (right #u64))
 
-#enum
-    Pair ()
-    (
-      (Pair.Value PairValues)
-      Pair.Empty
-    )
+#enum Pair () ((Pair.Value PairValues) Pair.Empty)
 
-#fn
-    make {
+#fn make {
   #params = ();
   #returns = Pair;
   #body = (
-    (
-      #let
-      value
-      Pair
-      (#enum-literal Pair.Value (#struct-literal PairValues ((left 20u64) (right 22u64))))
-    )
+    (#let value Pair (#enum-literal Pair.Value (#struct-literal PairValues ((left 20u64) (right
+              22u64)))))
     (#return value)
   );
 }
 
-#fn
-    sum {
-  #params = (
-      (value Pair)
-    );
+#fn sum {
+  #params = ((value Pair));
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (
-        #match
-        value
-        (#case
-          (Pair.Value (PairValues left right))
-          (#u64::add-wrap  left right)
+  #body = ((#return (#match value
+        (#case (Pair.Value (PairValues left right))
+          (#u64::add-wrap left right)
         )
-        (#case Pair.Empty 0u64)
-      )
-    )
-  );
+        (#case Pair.Empty
+          0u64
+        )
+      )));
 }
 
-#fn
-    main {
+#fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (
-      #return
-      (#call sum ((value (#call make ()))))
-    )
-  );
+  #body = ((#return (#call sum ((value (#call make ()))))));
 }

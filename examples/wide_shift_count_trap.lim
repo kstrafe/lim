@@ -1,15 +1,11 @@
 #fn shift {
   #params = ((count #u128));
   #returns = #u128;
-  #body = (
-    (#return (#u128::shl 1u128 count))
-  );
+  #body = ((#return (#u128::shl 1u128 count)));
 }
+
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
-    (#let value #u128 (#call shift ((count 18446744073709551616u128))))
-    (#return 0u64)
-  );
+  #body = ((#let value #u128 (#call shift ((count 18446744073709551616u128)))) (#return 0u64));
 }
