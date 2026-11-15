@@ -35,6 +35,10 @@ reallocation path, then releases the successful allocation:
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (
+    (#effects-of system-reallocate)
+    (#effects-of system-deallocate)
+  );
   #body = (
     (#let allocation SystemAllocationResult
       (#unsafe (#unsafe-call system-reallocate

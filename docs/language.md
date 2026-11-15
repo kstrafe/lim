@@ -461,6 +461,7 @@ address and reading or writing through a raw pointer must occur inside an
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = (#io #global-access);
   #body:
     #let-mut value #u64 40;
     #return:
@@ -483,6 +484,7 @@ operations and unsafe calls still need an explicit block.
 #unsafe-fn read-byte {
   #params = { pointer = (#ptr #u8); };
   #returns = #u8;
+  #effects = (#io #global-access);
   #body:
     #return: #unsafe (#ptr-read pointer);
 }
@@ -490,6 +492,7 @@ operations and unsafe calls still need an explicit block.
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = ((#effects-of read-byte));
   #body:
     #let value #u8 42u8;
     #return: #as (#unsafe (#unsafe-call read-byte { pointer = (#addr-of value); })) #u64;
@@ -783,6 +786,7 @@ contracts.
 #fn process-id {
   #params = {};
   #returns = #i64;
+  #effects = (#io #global-access);
   #body:
     #return: #unsafe: #linux-syscall #i64 39usize ();
 }
@@ -805,6 +809,7 @@ to the low-level read wrapper:
 #unsafe-fn read-buffer {
   #params = { fd = #i64; destination = (#ptr-mut #u8); count = #usize; };
   #returns = #i64;
+  #effects = ((#effects-of linux-read));
   #body:
     #return:
       #unsafe (#unsafe-call linux-read { fd = fd; destination = destination; count = count; })
@@ -1764,6 +1769,10 @@ This is an ordinary library, not a new builtin or an implicit allocation.
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = (
+    (#effects-of String::from-chars)
+    (#effects-of String::free)
+  );
   #body:
     #let text (#array #char 3) "Aé🙂";
     #return:
@@ -1809,6 +1818,13 @@ second owned string by shared borrow, and releases both owners:
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = (
+    (#effects-of String::from-chars)
+    (#effects-of String::push-string)
+    (#effects-of String::push-char)
+    (#effects-of std-println)
+    (#effects-of String::free)
+  );
   #body:
     #let greeting (#array #char 5) "Hello";
     #let suffix (#array #char 9) ", world 🙂";
@@ -2353,11 +2369,13 @@ unsafe FFI boundaries and must use `#unsafe-call` inside `#unsafe`:
   #abi = #abi-c;
   #params = ((value #i32));
   #returns = #i32;
+  #effects = (#io #global-access);
 }
 
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = ((#effects-of abs));
   #body:
     #return: #as (#unsafe (#unsafe-call abs { value = -42i32; })) #u64;
 }
@@ -2512,6 +2530,7 @@ reference to it:
 #fn first-value {
   #params = {};
   #returns = #u64;
+  #effects = ((#read-global values));
   #body:
     #return: #unsafe (#index values 0u64);
 }
@@ -2530,6 +2549,7 @@ arrays and enum payloads. They do not execute runtime initialization functions:
 #fn increment-counter {
   #params = {};
   #returns = #u64;
+  #effects = ((#write-global counter));
   #body:
     #return: #unsafe (#atomic-fetch-add (#borrow counter) 1u64 #memory-relaxed);
 }
@@ -4196,6 +4216,7 @@ actual owner and pointee loans they store; raw bytes alone do not register them.
 #fn read-value {
   #params = { words = (#slice #u64); };
   #returns = #u64;
+  #effects = (#io #global-access);
   #body:
     #let restored RefValue: #unsafe (#word-read RefValue words);
     #let answer #u64: #deref (#get restored value);
@@ -4206,6 +4227,7 @@ actual owner and pointee loans they store; raw bytes alone do not register them.
 #fn main {
   #params = {};
   #returns = #u64;
+  #effects = (#io #global-access);
   #body:
     #let seed #u64 42u64;
     #let-mut words (#array #u64 1): #array-repeat 0u64;
