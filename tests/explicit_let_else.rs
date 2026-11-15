@@ -94,20 +94,26 @@ fn all_fallback_paths_must_exit_and_success_binding_is_not_in_else_scope() {
         "(#label inner (#loop (#break-to inner)))",
     ] {
         let source = format!(
-            "{ENUM}#fn main () #u64
-            (#let-else (Outcome.Success answer) Outcome.Failure (#else {fallback})) (#return answer)\n"
+            "{ENUM}
+#fn main () #u64
+            (#let-else (Outcome.Success answer) Outcome.Failure (#else {fallback})) (#return answer)
+"
         );
         let error = check(&source).unwrap_err();
         assert!(error.contains("diverge"), "{fallback}: {error}");
     }
     let source = format!(
-        "{ENUM}#fn main () #u64
-        (#let-else (Outcome.Success answer) Outcome.Failure (#else (#return answer))) (#return answer)\n"
+        "{ENUM}
+#fn main () #u64
+        (#let-else (Outcome.Success answer) Outcome.Failure (#else (#return answer))) (#return answer)
+"
     );
     assert!(check(&source).unwrap_err().contains("answer"));
     let source = format!(
-        "{ENUM}#fn main () #u64
-        (#let-else (Outcome.Success answer) Outcome.Failure (#else (#break))) (#return answer)\n"
+        "{ENUM}
+#fn main () #u64
+        (#let-else (Outcome.Success answer) Outcome.Failure (#else (#break))) (#return answer)
+"
     );
     assert!(check(&source).unwrap_err().contains("outside a loop"));
 }
@@ -116,10 +122,12 @@ fn all_fallback_paths_must_exit_and_success_binding_is_not_in_else_scope() {
 fn named_outer_transfers_and_all_path_returns_are_accepted() {
     for transfer in ["(#break-to outer)", "(#continue-to outer)"] {
         let source = format!(
-            "{ENUM}#fn main () #u64
+            "{ENUM}
+#fn main () #u64
             (#label outer (#loop
               (#let-else (Outcome.Success answer) Outcome.Failure (#else {transfer}))
-              (#return answer))) (#return 0u64)\n"
+              (#return answer))) (#return 0u64)
+"
         );
         let program = parse_program(&source).unwrap();
         check_types(&program).unwrap();
@@ -131,8 +139,10 @@ fn named_outer_transfers_and_all_path_returns_are_accepted() {
         "(#unreachable)",
     ] {
         check(&format!(
-            "{ENUM}#fn main () #u64
-            (#let-else (Outcome.Success answer) Outcome.Failure (#else {fallback})) (#return answer)\n"
+            "{ENUM}
+#fn main () #u64
+            (#let-else (Outcome.Success answer) Outcome.Failure (#else {fallback})) (#return answer)
+"
         ))
         .unwrap();
     }
@@ -141,8 +151,10 @@ fn named_outer_transfers_and_all_path_returns_are_accepted() {
 #[test]
 fn enum_owner_is_resolved_from_the_variant_not_the_value() {
     check(&format!(
-        "{ENUM}#fn main () #u64
-        (#let-else (Outcome.Success answer) 42u64 (#else (#return 0u64))) (#return answer)\n"
+        "{ENUM}
+#fn main () #u64
+        (#let-else (Outcome.Success answer) 42u64 (#else (#return 0u64))) (#return answer)
+"
     ))
     .unwrap_err();
     let error = check(
@@ -152,8 +164,10 @@ fn enum_owner_is_resolved_from_the_variant_not_the_value() {
     .unwrap_err();
     assert!(error.contains("unknown enum variant 'missing'"), "{error}");
     check(&format!(
-        "{ENUM}#fn main () #u64
-        (#let-else Outcome.Failure Outcome.Failure (#else (#return 0u64))) (#return 42u64)\n"
+        "{ENUM}
+#fn main () #u64
+        (#let-else Outcome.Failure Outcome.Failure (#else (#return 0u64))) (#return 42u64)
+"
     ))
     .unwrap();
 }
@@ -162,20 +176,24 @@ fn enum_owner_is_resolved_from_the_variant_not_the_value() {
 fn initializer_block_is_evaluated_once_and_fallback_locals_do_not_escape() {
     run(
         &format!(
-            "{ENUM}#fn main () #u64
+            "{ENUM}
+#fn main () #u64
         (#let-mut calls #u64 0u64)
         (#let-else (Outcome.Success answer)
           (#block (#set calls (#u64::add-wrap (#clone calls) 1u64)) (Outcome.Success 41u64))
           (#else (#return 0u64)))
-        (#return (#u64::add-wrap calls answer))\n"
+        (#return (#u64::add-wrap calls answer))
+"
         ),
         42,
     );
     let error = check(&format!(
-        "{ENUM}#fn main () #u64
+        "{ENUM}
+#fn main () #u64
         (#let-else (Outcome.Success answer) Outcome.Failure
           (#else (#let fallback #u64 0u64) (#return fallback)))
-        (#return (#u64::add-wrap answer fallback))\n"
+        (#return (#u64::add-wrap answer fallback))
+"
     ))
     .unwrap_err();
     assert!(error.contains("fallback"), "{error}");

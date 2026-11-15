@@ -17,7 +17,7 @@ fn compile(source: &str, path: &Path, cache: &Path) -> Result<String, lim::Diagn
 #[test]
 fn unsafe_calls_require_a_block_and_highlight_the_callee() {
     let scratch = support::Scratch::new("unsafe-function");
-    let source = format!("{DECLARATION}#fn main () #u64 (#return (#unsafe-call answer ()))\n");
+    let source = format!("{DECLARATION}\n#fn main () #u64 (#return (#unsafe-call answer ()))\n");
     let error = compile(
         &source,
         &scratch.path().join("main.lim"),
@@ -29,7 +29,7 @@ fn unsafe_calls_require_a_block_and_highlight_the_callee() {
     let span = error.span.unwrap();
     assert_eq!(&source[span.start..span.end], "answer");
     let source =
-        format!("{DECLARATION}#fn main () #u64 (#return (#unsafe (#unsafe-call answer ())))\n");
+        format!("{DECLARATION}\n#fn main () #u64 (#return (#unsafe (#unsafe-call answer ())))\n");
     let assembly = compile(
         &source,
         &scratch.path().join("main.lim"),
@@ -98,7 +98,7 @@ fn call_spelling_must_match_the_declarations_safety_even_inside_unsafe() {
     ] {
         for block in ["#block", "#unsafe"] {
             let source =
-                format!("{declaration}#fn main () #u64 (#return ({block} ({call} answer ())))\n");
+                format!("{declaration}\n#fn main () #u64 (#return ({block} ({call} answer ())))\n");
             assert_error(&source, "E4000", message, "answer");
         }
     }
@@ -108,7 +108,7 @@ fn call_spelling_must_match_the_declarations_safety_even_inside_unsafe() {
 fn unsafe_calls_in_an_unsafe_function_body_still_require_a_block() {
     let scratch = support::Scratch::new("unsafe-body-explicit");
     let source =
-        format!("{DECLARATION}#unsafe-fn caller () #u64 (#return (#unsafe-call answer ()))\n");
+        format!("{DECLARATION}\n#unsafe-fn caller () #u64 (#return (#unsafe-call answer ()))\n");
     assert_error(
         &source,
         "E4300",
@@ -157,7 +157,7 @@ fn unsafe_calls_normalize_named_arguments_and_preserve_error_spans() {
         ),
     ] {
         let source = format!(
-            "{declaration}#fn main () #u64 (#return (#unsafe (#unsafe-call combine ({arguments}))))\n"
+            "{declaration}\n#fn main () #u64 (#return (#unsafe (#unsafe-call combine ({arguments}))))\n"
         );
         let error = assert_error(&source, code, message, highlighted);
         if message == "more than once" {
@@ -177,9 +177,11 @@ fn nested_unsafe_named_argument_errors_highlight_the_inner_value() {
 #unsafe-fn guarded-ready ((value #bool)) #bool (#return value)\n";
     for call in ["#call ready", "#unsafe-call guarded-ready"] {
         let source = format!(
-            "{declarations}#fn main () #u64
+            "{declarations}
+#fn main () #u64
                 (#return (#unsafe (#unsafe-call combine
-                  ((right ({call} ((value 1u64)))) (left 2u64)))))\n"
+                  ((right ({call} ((value 1u64)))) (left 2u64)))))
+"
         );
         assert_error(&source, "E4000", "expected Bool", "1u64");
     }
@@ -257,7 +259,7 @@ fn external_imports_and_generated_declarations_preserve_safety() {
                 ("#unsafe-call", "#block", Some("E4300"), "requires an enclosing"),
                 ("#unsafe-call", "#unsafe", None, ""),
             ] {
-                let source = format!("{declarations}#fn main () #u64 (#return ({block} ({call} {name} ())))\n");
+                let source = format!("{declarations}\n#fn main () #u64 (#return ({block} ({call} {name} ())))\n");
                 let result = compile(&source, &scratch.path().join("main.lim"), &scratch.path().join("cache"));
                 if let Some(code) = code {
                     let error = result.unwrap_err();
@@ -271,7 +273,7 @@ fn external_imports_and_generated_declarations_preserve_safety() {
             }
         }
         for (call, expected_code) in [("#call", None), ("#unsafe-call", Some("E4000"))] {
-            let source = format!("{declarations}#fn main () #u64 (#return (#unsafe ({call} {safe_name} ())))\n");
+            let source = format!("{declarations}\n#fn main () #u64 (#return (#unsafe ({call} {safe_name} ())))\n");
             let result = compile(&source, &scratch.path().join("main.lim"), &scratch.path().join("cache"));
             if let Some(code) = expected_code {
                 let error = result.unwrap_err();
@@ -459,7 +461,7 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
                 name,
                 "{os}: diagnostic location"
             );
-            explicit.push_str(&format!("{signature} (#return (#unsafe {call})))"));
+            explicit.push_str(&format!("{signature} (#return (#unsafe {call}))\n"));
         }
         // Compile but do not execute: these forwarders intentionally have no
         // resources or valid buffers of their own. Runtime behavior is tested

@@ -115,7 +115,19 @@ fn seeded_projected_borrows_match_a_small_independent_alias_oracle() {
 #[test]
 fn seeded_aggregate_calls_and_enum_branches_match_rust_integer_results() {
     let scratch = support::Scratch::new("seeded-aggregate-native");
-    let mut source = String::from("#struct Wide (#linear) ((left #u8) (marker #u128) (right #u64) (count #u16))\n#enum Choice (#linear) ((Choice.Held Wide) (Choice.Other #u64))\n#fn make ((left #u8) (marker #u128) (right #u64) (count #u16)) Wide\n            (#return (#struct-literal Wide ((count count) (right right) (marker marker) (left left))))\n#fn compute ((choose #bool) (owner Wide)) #u64\n            (#let choice Choice (#if choose (#enum-literal Choice.Held owner) (#block (#forget owner) (#enum-literal Choice.Other 7u64))))\n            (#return (#match choice\n              (#case (Choice.Held record) (#block\n                (#let result #u64 (#u64::add-wrap (#u64::add-wrap (#as (#get record left) #u64) (#as (#get record marker) #u64)) (#u64::add-wrap (#get record right) (#as (#get record count) #u64))))\n                (#forget record) result))\n              (#case (Choice.Other value) value)))\n#fn main () #u64\n");
+    let mut source = String::from("#struct Wide (#linear) ((left #u8) (marker #u128) (right #u64) (count #u16))
+#enum Choice (#linear) ((Choice.Held Wide) (Choice.Other #u64))
+#fn make ((left #u8) (marker #u128) (right #u64) (count #u16)) Wide
+            (#return (#struct-literal Wide ((count count) (right right) (marker marker) (left left))))
+#fn compute ((choose #bool) (owner Wide)) #u64
+            (#let choice Choice (#if choose (#enum-literal Choice.Held owner) (#block (#forget owner) (#enum-literal Choice.Other 7u64))))
+            (#return (#match choice
+              (#case (Choice.Held record) (#block
+                (#let result #u64 (#u64::add-wrap (#u64::add-wrap (#as (#get record left) #u64) (#as (#get record marker) #u64)) (#u64::add-wrap (#get record right) (#as (#get record count) #u64))))
+                (#forget record) result))
+              (#case (Choice.Other value) value)))
+#fn main () #u64
+");
     let mut state = SEED;
     for case in 0..32 {
         let left = next(&mut state) as u8;

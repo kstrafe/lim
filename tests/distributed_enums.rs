@@ -74,11 +74,13 @@ fn aliases_and_cache_hits_keep_the_complete_enum() {
     ] {
         let source = format!(
             "#alias AppError = ./enum.lim::AppError
- {aliases}#enum-contribute AppError (AppError.First #u64)
+ {aliases}
+#enum-contribute AppError (AppError.First #u64)
 #fn main () #u64
               (#return (#match (AppError.First 42u64)
                 (#case (AppError.First value) value)
-                (#case (AppError.Last value) (#as value #u64))))\n"
+                (#case (AppError.Last value) (#as value #u64))))
+"
         );
         fs::write(root.join("main.lim"), &source).unwrap();
         for _ in 0..2 {

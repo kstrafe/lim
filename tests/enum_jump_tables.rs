@@ -43,7 +43,7 @@ fn fieldless_source(tags: &[u64]) -> String {
     let checks = (0..tags.len())
         .map(|index| {
             format!(
-                "(#assert (#u64::eq (#call dispatch ((value Tag.Variant{index}))) {}u64))",
+                "  (#assert (#u64::eq (#call dispatch ((value Tag.Variant{index}))) {}u64))",
                 index + 10
             )
         })
@@ -67,7 +67,12 @@ fn scalar_matches_materialize_constants_outside_signed_32_bit_immediates() {
         ("u128", "79228162514264337602133884927"),
     ] {
         let assembly = compile_and_run(&format!(
-            "#fn dispatch ((value #{ty})) #u64\n                 (#return (#match value (#case {value}{ty} 42u64) (#case _ 0u64)))\n#fn main () #u64\n                 (#assert (#u64::eq (#call dispatch ((value 0{ty}))) 0u64))\n                 (#return (#call dispatch ((value {value}{ty}))))\n"
+            "#fn dispatch ((value #{ty})) #u64
+                 (#return (#match value (#case {value}{ty} 42u64) (#case _ 0u64)))
+#fn main () #u64
+                 (#assert (#u64::eq (#call dispatch ((value 0{ty}))) 0u64))
+                 (#return (#call dispatch ((value {value}{ty}))))
+"
         ));
         assert!(assembly.contains("cmp QWORD PTR [rsp], r11"), "{assembly}");
         assert!(!assembly.contains("enum_jump_table"));

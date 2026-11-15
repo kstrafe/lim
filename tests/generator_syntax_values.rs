@@ -148,7 +148,7 @@ fn joined_names_are_inspectable_and_reused_from_the_generated_cache() {
         .collect::<Vec<_>>();
     assert_eq!(files.len(), 1);
     let generated = std::fs::read_to_string(&files[0]).unwrap();
-    assert!(generated.contains("(#fn Word::read"), "{generated}");
+    assert!(generated.contains("#fn Word::read"), "{generated}");
     let modified = std::fs::metadata(&files[0]).unwrap().modified().unwrap();
     assert_eq!(compile(), cold);
     assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), generated);

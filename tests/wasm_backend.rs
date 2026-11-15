@@ -173,7 +173,7 @@ fn host_output_requires_the_exact_foreign_signature_and_unsafe_call_rules() {
             "browser-print-u64"
         };
         let source = format!(
-            "{binding}#fn main () () (#unsafe (#unsafe-call {name} ((value 1)))) (#return ())\n"
+            "{binding}\n#fn main () () (#unsafe (#unsafe-call {name} ((value 1)))) (#return ())\n"
         );
         let error = wasm::compile(&source)
             .err()
@@ -186,10 +186,10 @@ fn host_output_requires_the_exact_foreign_signature_and_unsafe_call_rules() {
         assert!(error.span.is_some());
     }
     assert!(wasm::compile(&format!(
-        "{PRINT_BINDING}#fn main () () (#call browser-print-u64 ((value 1u64))) (#return ())\n"
+        "{PRINT_BINDING}\n#fn main () () (#call browser-print-u64 ((value 1u64))) (#return ())\n"
     ))
     .is_err());
-    assert!(wasm::compile(&format!("{PRINT_BINDING}#fn main () () (#unsafe-call browser-print-u64 ((value 1u64))) (#return ())\n")).is_err());
+    assert!(wasm::compile(&format!("{PRINT_BINDING}\n#fn main () () (#unsafe-call browser-print-u64 ((value 1u64))) (#return ())\n")).is_err());
     assert!(
         wasm::compile("#alias print = ./main.lim::browser-print-u64\n")
             .err()

@@ -327,7 +327,11 @@ fn generated_static_access_still_requires_unsafe() {
 #[test]
 fn imported_declaration_nodes_retain_source_spans_and_deterministic_ids() {
     let scratch = support::Scratch::new("declaration-import-spans");
-    let module = "#struct Record () ((value #u64))\n#static bASE #u64 1u64\n#fn imported () #u64\n  (#return (#u64::add-wrap (#get (#struct-literal Record ((value 40u64))) value) (#unsafe bASE)))\n";
+    let module = "#struct Record () ((value #u64))
+#static bASE #u64 1u64
+#fn imported () #u64
+  (#return (#u64::add-wrap (#get (#struct-literal Record ((value 40u64))) value) (#unsafe bASE)))
+";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
     let root = "#alias imported = ./module.lim::imported\n#fn main () #u64 (#return (#call imported ()))\n";
     let path = scratch.path().join("main.lim");

@@ -95,7 +95,7 @@ fn identical_expansions_in_different_libraries_do_not_merge_ownership() {
         "#alias nums@make = ./numbers/lib.lim::make\n#generate nums@make \"Hidden\"\n",
         "#generate nums@make \"Hidden\"\n#alias nums@make = ./numbers/lib.lim::make\n",
     ] {
-        let source = format!("{imports}#fn main () #u64 (#return 0u64)\n");
+        let source = format!("{imports}\n#fn main () #u64 (#return 0u64)\n");
         check_cache_modes_with_identities(
             scratch.path(),
             &source,
@@ -144,7 +144,7 @@ fn nested_builtin_expansions_do_not_merge_across_boundaries() {
     ] {
         check_cache_modes_with_identities(
             scratch.path(),
-            &format!("{imports}#fn main () #u64 (#return 0u64)\n"),
+            &format!("{imports}\n#fn main () #u64 (#return 0u64)\n"),
             None,
             &[("numbers/lib.lim", "Hidden"), ("main.lim", "Hidden")],
         );
@@ -199,7 +199,7 @@ fn exported_generators_can_use_private_nested_generators_transitively() {
     ] {
         check_cache_modes(
             scratch.path(),
-            &format!("{imports}#fn main () #u64 (#return 0u64)\n"),
+            &format!("{imports}\n#fn main () #u64 (#return 0u64)\n"),
             None,
         );
     }
@@ -219,7 +219,7 @@ fn hygienic_names_are_fresh_per_expansion_instance_on_cache_hits() {
     ] {
         check_cache_modes(
             scratch.path(),
-            &format!("{imports}#fn main () #u64 (#return 0u64)\n"),
+            &format!("{imports}\n#fn main () #u64 (#return 0u64)\n"),
             None,
         );
     }
@@ -424,7 +424,7 @@ fn aliases_and_global_initializers_cannot_expose_or_construct_private_storage() 
         "#const exposed #u64 (#get nums@number value)\n",
         "(#let exposed #u64 (#get nums@number value))",
     ] {
-        let source = format!("#alias nums@Number = ./numbers/lib.lim::Number\n#alias nums@number = ./numbers/lib.lim::number\n {body}#fn main () #u64 (#return 0u64)\n");
+        let source = format!("#alias nums@Number = ./numbers/lib.lim::Number\n#alias nums@number = ./numbers/lib.lim::number\n {body}\n#fn main () #u64 (#return 0u64)\n");
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}");
     }
@@ -561,7 +561,7 @@ fn generator_helpers_are_private_even_when_called_inside_unquotes() {
         "#gn forge () `((#generate ./numbers/lib.lim::private))\n#generate forge\n",
     ] {
         let source = format!(
-            "#alias nums@public = ./numbers/lib.lim::public\n {body}#fn main () #u64 (#return 0u64)\n"
+            "#alias nums@public = ./numbers/lib.lim::public\n {body}\n#fn main () #u64 (#return 0u64)\n"
         );
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}");

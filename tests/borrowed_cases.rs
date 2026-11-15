@@ -82,7 +82,7 @@ fn borrowed_payload_matches_and_updates_in_place() {
         .replace("(#call inspect (($ choice)))", "(#call inspect ((choice (#borrow (#deref choice)))))")
         .replace(
             "(#return (#u64::add-wrap observed changed))",
-            "(#forget choice)\n  (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))\n  (#return (#u64::add-wrap observed changed)))",
+            "(#forget choice)\n  (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))\n  (#return (#u64::add-wrap observed changed))",
         );
     run(&heap, 82);
 }

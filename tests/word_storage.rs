@@ -323,7 +323,7 @@ fn conditional_owned_word_returns_require_every_path_to_initialize_the_cell() {
         .split("#fn read")
         .next()
         .unwrap()
-        .replace("#fn make", "(#fn initialized");
+        .replace("#fn make", "#fn initialized");
     let remaining = source.split("#fn read").nth(1).unwrap();
     for result in [
         format!("(#if flag {initialized} {empty})"),
@@ -331,14 +331,18 @@ fn conditional_owned_word_returns_require_every_path_to_initialize_the_cell() {
         format!("(#loop (#if flag (#block (#break {initialized})) (#block (#break {empty}))))"),
     ] {
         let alternative = format!(
-            "{initialized_definition}\n          #fn make ((value (#ref #u64)) (flag #bool)) Storage (#return {result})\n          #fn read{remaining}"
+            "{initialized_definition}
+#fn make ((value (#ref #u64)) (flag #bool)) Storage (#return {result})
+#fn read{remaining}"
         );
         let error = compile(&alternative)
             .expect_err("every reachable value alternative must initialize the slot");
         assert_eq!(error.code, DiagnosticCode::Linear, "{result}: {error:?}");
         let initialized_result = result.replace(empty, initialized);
         run(&format!(
-            "{initialized_definition}\n          #fn make ((value (#ref #u64)) (flag #bool)) Storage (#return {initialized_result})\n          #fn read{remaining}"
+            "{initialized_definition}
+#fn make ((value (#ref #u64)) (flag #bool)) Storage (#return {initialized_result})
+#fn read{remaining}"
         ));
     }
 }
@@ -518,7 +522,7 @@ fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
     let owned_main = owned_main
         .replace("((frame (#borrow-mut frame)))", "((frame frame))")
         .replace("(#forget frame)", "");
-    let owned_entry = format!("{owned_prefix}#fn main{owned_main}");
+    let owned_entry = format!("{owned_prefix}\n#fn main{owned_main}");
     run(&owned_entry);
     assert_eq!(
         compile(&owned_entry.replace("(pc 0u64)", "(pc 1u64)"))
@@ -563,7 +567,7 @@ fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
         (#return (#struct-literal Frame
           ((pc 0u64) (source source) (words (#array-repeat 0u64)))))\n";
     let constructed = initial_entry.replace(
-        "(#struct-literal Frame\n          ((pc 0u64) (source (#borrow value)) (words (#array-repeat 0u64))))",
+        "(#struct-literal Frame\n            ((pc 0u64) (source (#borrow value)) (words (#array-repeat 0u64))))",
         "(#call make-frame ((source (#borrow value))))",
     );
     assert_ne!(constructed, initial_entry);
@@ -848,11 +852,11 @@ fn metadata_only_helpers_preserve_tags_but_never_restore_retired_loans() {
     let source = OPTIONAL_WORD_READER
         .replace(
             "#fn main",
-            "(#fn retire ((words (#slice-mut #u64))) ()
-           (#unsafe (#word-forget Cell words)) (#return ()))
-         (#fn forward-retire ((words (#slice-mut #u64))) ()
-           (#call retire ((words words))) (#return ()))
-         (#fn main",
+            "#fn retire ((words (#slice-mut #u64))) ()
+           (#unsafe (#word-forget Cell words)) (#return ())
+#fn forward-retire ((words (#slice-mut #u64))) ()
+           (#call retire ((words words))) (#return ())
+#fn main",
         )
         .replace(
             "(#let answer",
@@ -860,7 +864,7 @@ fn metadata_only_helpers_preserve_tags_but_never_restore_retired_loans() {
         );
     run(&source);
     for invalid in [
-        source.replace("(Cell.Vacant)))\n  (#call", "(Cell.Occupied (#borrow amount))))\n  (#call"),
+        source.replace("(Cell.Vacant)))\n    (#call", "(Cell.Occupied (#borrow amount))))\n    (#call"),
         source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))", ""),
         source.replace("(#call forward-retire", "(#unsafe (#word-write #u64 (#borrow-slice-mut words 0usize 1usize) 0u64)) (#call forward-retire"),
     ] {
@@ -894,12 +898,12 @@ fn word_owner_restoration_preserves_borrowed_pointee_fields() {
     run(source);
     let owned = source.replace(
         "#fn restore ((storage (#ref-mut Words))) (#pin-own Holder)\n          (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words)))))",
-        "(#fn restore ((storage Words)) (#pin-own Holder)
-          (#let-mut working Words storage)
-          (#let restored (#pin-own Holder) (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get working words)))))
-          (#forget working) (#return restored))",
-    ).replace("#struct Words () ((words (#array #u64 1)))", "(#struct Words (#linear) ((words (#array #u64 1)))) ")
-        .replace("#fn forward ((storage (#ref-mut Words)))", "(#fn forward ((storage Words))")
+        "#fn restore ((storage Words)) (#pin-own Holder)
+            (#let-mut working Words storage)
+            (#let restored (#pin-own Holder) (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get working words)))))
+            (#forget working) (#return restored)",
+    ).replace("#struct Words () ((words (#array #u64 1)))", "#struct Words (#linear) ((words (#array #u64 1)))\n ")
+        .replace("#fn forward ((storage (#ref-mut Words)))", "#fn forward ((storage Words))")
         .replace("(#call forward ((storage (#borrow-mut storage))))", "(#call forward ((storage storage)))")
         .replace("(#forget storage)", "");
     assert!(owned.contains("(#let-mut working Words storage)"));
@@ -1137,10 +1141,10 @@ fn helper_retirement_does_not_hide_later_byte_mutations() {
     let source = OPTIONAL_WORD_READER
         .replace(
             "#fn main",
-            "(#fn prepare ((words (#slice-mut #u64))) ()
+            "#fn prepare ((words (#slice-mut #u64))) ()
            (#unsafe (#word-write Cell (#slice-mut-range words 0usize 2usize) (Cell.Vacant)))
-           (#unsafe (#word-forget Cell words)) (#return ()))
-         (#fn main",
+           (#unsafe (#word-forget Cell words)) (#return ())
+#fn main",
         )
         .replace(
             "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))",
@@ -1209,7 +1213,7 @@ fn word_writer_may_aliases_preserve_disjoint_constructor_facts() {
 
 #[test]
 fn word_reader_forwards_payload_conditions_through_checked_helpers() {
-    let source = OPTIONAL_WORD_READER.replace("#fn main", "(#fn forward ((words (#slice #u64))) #u64 (#return (#call inspect ((words words))))) (#fn main")
+    let source = OPTIONAL_WORD_READER.replace("#fn main", "#fn forward ((words (#slice #u64))) #u64 (#return (#call inspect ((words words)))) \n#fn main")
         .replace("#call inspect ((words (#borrow-slice words)))", "#call forward ((words (#borrow-slice words)))");
     run(&source);
     let invalid = source.replace(
@@ -1246,7 +1250,7 @@ fn guarded_word_readers_check_each_address_and_exact_enum_identity() {
     let wrong_type = OPTIONAL_WORD_READER
         .replace(
             "#fn main",
-            "(#enum Other () ((Other.Vacant) (Other.Occupied (#ref #u64)))) (#fn main",
+            "#enum Other () ((Other.Vacant) (Other.Occupied (#ref #u64))) \n#fn main",
         )
         .replace(
             "#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)",
@@ -1391,7 +1395,7 @@ fn nested_constructor_facts_use_nonzero_backing_offsets_and_enum_identity() {
     let wrong_type = EMPTY_REFERENCE_CELL
         .replace(
             "#fn main",
-            "(#enum Other () ((Other.Vacant) (Other.Occupied (#ref #u64)))) (#fn main",
+            "#enum Other () ((Other.Vacant) (Other.Occupied (#ref #u64))) \n#fn main",
         )
         .replace(
             "#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)",
@@ -2487,7 +2491,7 @@ fn exclusive_word_reader_helpers_cannot_upgrade_shared_permissions() {
     let invalid = source
         .replace("value (#borrow-mut seed)", "value (#borrow seed)")
         .replace("(#word-write Holder", "(#word-write SharedHolder");
-    let invalid = format!("#struct SharedHolder () ((value (#ref #u64)))\n {invalid}").replace(
+    let invalid = format!("#struct SharedHolder () ((value (#ref #u64)))\n{invalid}").replace(
         "(#struct-literal Holder ((value (#borrow seed))))",
         "(#struct-literal SharedHolder ((value (#borrow seed))))",
     );

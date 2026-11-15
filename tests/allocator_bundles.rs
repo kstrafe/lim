@@ -76,8 +76,10 @@ fn generated_provider_needs_no_special_producer() {
                 if name.starts_with("Arena::Allocator::")));
         if is_provider {
             body.push_str(&source[cursor..node.span.start]);
+            // Quoted generator output is syntax-tree data, so wrap each bare declaration.
+            provider.push('(');
             provider.push_str(&source[node.span.start..node.span.end]);
-            provider.push('\n');
+            provider.push_str(")\n");
             cursor = node.span.end;
         }
     }
@@ -91,7 +93,7 @@ fn generated_provider_needs_no_special_producer() {
 #[test]
 fn missing_deallocation_and_wrong_allocate_signature_are_rejected() {
     for (source, operation) in [
-        (fixture().replace("#unsafe-fn Arena::Allocator::deallocate", "(#unsafe-fn unused-deallocate"), "deallocate"),
+        (fixture().replace("#unsafe-fn Arena::Allocator::deallocate", "#unsafe-fn unused-deallocate"), "deallocate"),
         (fixture().replace(
             "((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation",
             "((allocator (#ref Arena)) (layout #usize) (alignment #u64)) Arena::Allocator::Allocation",
@@ -131,7 +133,7 @@ fn vector_bundle_requires_grow() {
         )
         .replace(
             "#unsafe-fn CountingAllocator::Allocator::grow",
-            "(#unsafe-fn unused-grow",
+            "#unsafe-fn unused-grow",
         );
     let error = check(&source).expect_err("vector growth requires its bundle operation");
     assert!(
@@ -144,7 +146,7 @@ fn vector_bundle_requires_grow() {
 fn allocation_must_be_safe_and_unsafe_operations_require_unsafe_calls() {
     let error = check(&fixture().replace(
         "#fn Arena::Allocator::allocate",
-        "(#unsafe-fn Arena::Allocator::allocate",
+        "#unsafe-fn Arena::Allocator::allocate",
     ))
     .expect_err("consumer calls allocate safely");
     assert!(error.message.contains("unsafe"), "{error:?}");
@@ -183,12 +185,7 @@ fn allocation_must_be_safe_and_unsafe_operations_require_unsafe_calls() {
 fn bundle_state_alias_does_not_extend_allocator_lifetime() {
     let source = fixture().replace(
         "#fn main () #u64",
-        "(#fn escape () PinU64Box
-          (#let arena Arena (#struct-literal Arena ((identity 1u64) (fail false))))
-          (#return (#match (#call PinU64Box::create ((allocator (#borrow arena)) (value 42u64)))
-            (#case (PinU64Box::CreateResult.Created owner) owner)
-            (#case (PinU64Box::CreateResult.Allocation-failed failure) (#block (#forget failure) (#unreachable))))))
-        (#fn main () #u64",
+        "#fn escape () PinU64Box\n          (#let arena Arena (#struct-literal Arena ((identity 1u64) (fail false))))\n          (#return (#match (#call PinU64Box::create ((allocator (#borrow arena)) (value 42u64)))\n            (#case (PinU64Box::CreateResult.Created owner) owner)\n            (#case (PinU64Box::CreateResult.Allocation-failed failure) (#block (#forget failure) (#unreachable)))))\n#fn main () #u64",
     );
     let error = check(&source).expect_err("owner must not escape local state");
     assert!(

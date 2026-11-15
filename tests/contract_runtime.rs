@@ -291,7 +291,7 @@ fn contracts_compose_with_existing_async_programs() {
         error.message
     );
     let mut audited_source = source
-        .replace("#fn main () #u64", "(#fn async-original-main () #u64")
+        .replace("#fn main () #u64", "#fn async-original-main () #u64")
         .replace(
             "(#requires (#usize::lt index 4usize))",
             "(#assume (#usize::lt index 4usize))",

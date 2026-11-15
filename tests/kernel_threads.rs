@@ -137,7 +137,7 @@ fn thread_argument_result_layouts_and_nested_workers_run() {
     ];
     for (name, body) in cases {
         eprintln!("testing ABI case {name}");
-        let source = format!("{declarations}#fn main () #u64 {body}\n");
+        let source = format!("{declarations}\n#fn main () #u64 {body}\n");
         let (binary, _) = build(
             &source,
             &scratch.path().join(format!("{name}.lim")),

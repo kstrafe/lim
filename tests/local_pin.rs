@@ -155,9 +155,11 @@ fn shared_pin_and_projection_reborrows_work_natively() {
 fn owned_parameter_cannot_move_after_local_pin_ends() {
     reject(
         &format!(
-            "{JOB}#fn bad ((#mut job Job)) Job
+            "{JOB}
+#fn bad ((#mut job Job)) Job
                 (#let view (#pin-ref-mut Job) (#pin job))
-                (#forget view) (#return job)\n"
+                (#forget view) (#return job)
+"
         ),
         "stationary",
     );
@@ -167,7 +169,8 @@ fn owned_parameter_cannot_move_after_local_pin_ends() {
 fn each_loop_iteration_initializes_fresh_pinned_storage() {
     run(
         &format!(
-            "{JOB} {POLL}#fn main () #u64
+            "{JOB} {POLL}
+#fn main () #u64
                 (#let-mut total #u64 0u64)
                 (#for (#let-mut index #u64 0u64)
                   (#u64::lt index 2u64)
@@ -177,7 +180,8 @@ fn each_loop_iteration_initializes_fresh_pinned_storage() {
                   (#let value #u64 (#call poll ((target view))))
                   (#set total (#u64::add-wrap total value))
                   (#forget job))
-                (#return total)\n"
+                (#return total)
+"
         ),
         42,
     );
@@ -207,10 +211,12 @@ fn forgetting_pin_does_not_allow_linear_move() {
     for (operator, ty) in [("#pin", "#pin-ref-mut"), ("#pin-shared", "#pin-ref")] {
         reject(
             &format!(
-                "{JOB}#fn main () #u64
+                "{JOB}
+#fn main () #u64
             (#let-mut job Job (#struct-literal Job ((state 42u64))))
             (#let view ({ty} Job) ({operator} job)) (#forget view)
-            (#let moved Job job) (#forget moved) (#return 0u64)\n"
+            (#let moved Job job) (#forget moved) (#return 0u64)
+"
             ),
             "pin",
         );
@@ -236,11 +242,13 @@ fn forgetting_pin_does_not_allow_copy_assignment() {
 fn may_pin_branch_join_prevents_move() {
     reject(
         &format!(
-            "{JOB}#fn test ((choice #bool)) #u64
+            "{JOB}
+#fn test ((choice #bool)) #u64
         (#let-mut job Job (#struct-literal Job ((state 42u64))))
         (#if choice (#block
           (#let view (#pin-ref-mut Job) (#pin job)) (#forget view) ()) ())
-        (#let moved Job job) (#forget moved) (#return 0u64)\n"
+        (#let moved Job job) (#forget moved) (#return 0u64)
+"
         ),
         "pin",
     );
@@ -266,10 +274,12 @@ fn pinned_local_reference_cannot_escape() {
 fn ordinary_reference_cannot_satisfy_pinned_parameter() {
     reject(
         &format!(
-            "{JOB} {POLL}#fn main () #u64
+            "{JOB} {POLL}
+#fn main () #u64
         (#let-mut job Job (#struct-literal Job ((state 42u64))))
         (#let answer #u64 (#call poll ((target (#borrow-mut job)))))
-        (#forget job) (#return answer)\n"
+        (#forget job) (#return answer)
+"
         ),
         "expected PinnedReference",
     );
@@ -286,10 +296,12 @@ fn pin_requires_mutable_initialized_local_not_temporary_projection_or_reference(
         for expression in ["42u64", "(#get job state)"] {
             reject(
                 &format!(
-                    "{JOB}#fn main () #u64
+                    "{JOB}
+#fn main () #u64
                 (#let-mut job Job (#struct-literal Job ((state 42u64))))
                 (#let view ({ty} #u64) ({operator} {expression}))
-                (#forget view) (#forget job) (#return 0u64)\n"
+                (#forget view) (#forget job) (#return 0u64)
+"
                 ),
                 "initialized local",
             );
@@ -327,11 +339,13 @@ fn local_pin_operations_reject_globals_and_statics() {
 fn exclusive_pins_cannot_overlap_or_shadow() {
     reject(
         &format!(
-            "{JOB}#fn main () #u64
+            "{JOB}
+#fn main () #u64
         (#let-mut job Job (#struct-literal Job ((state 42u64))))
         (#let first (#pin-ref-mut Job) (#pin job))
         (#let second (#pin-ref-mut Job) (#pin job))
-        (#forget first) (#forget second) (#forget job) (#return 0u64)\n"
+        (#forget first) (#forget second) (#forget job) (#return 0u64)
+"
         ),
         "borrow",
     );
@@ -347,10 +361,12 @@ fn exclusive_pins_cannot_overlap_or_shadow() {
 fn forgetting_reference_does_not_implicitly_consume_linear_owner() {
     reject(
         &format!(
-            "{JOB}#fn main () #u64
+            "{JOB}
+#fn main () #u64
         (#let-mut job Job (#struct-literal Job ((state 42u64))))
         (#let view (#pin-ref-mut Job) (#pin job))
-        (#forget view) (#return 0u64)\n"
+        (#forget view) (#return 0u64)
+"
         ),
         "must be consumed",
     );
@@ -360,10 +376,12 @@ fn forgetting_reference_does_not_implicitly_consume_linear_owner() {
 fn owner_cannot_end_while_pin_is_retained() {
     reject(
         &format!(
-            "{JOB}#fn main () #u64
+            "{JOB}
+#fn main () #u64
         (#let-mut job Job (#struct-literal Job ((state 42u64))))
         (#let view (#pin-ref-mut Job) (#pin job))
-        (#forget job) (#forget view) (#return 0u64)\n"
+        (#forget job) (#forget view) (#return 0u64)
+"
         ),
         "borrow",
     );

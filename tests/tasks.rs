@@ -475,7 +475,7 @@ fn wake_executor_generated_code_is_inspectable() {
         .map(|entry| fs::read_to_string(entry.path()).unwrap())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(generated.contains("(#fn run-jobs"), "{generated}");
+    assert!(generated.contains("#fn run-jobs"), "{generated}");
     assert!(generated.contains("(#call job-poll"), "{generated}");
     assert!(generated.contains("(#call wait-ready"), "{generated}");
 }

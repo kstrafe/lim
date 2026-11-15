@@ -246,7 +246,7 @@ fn owned_projection_borrow_cannot_escape_its_local_root() {
             };
             let borrow = format!("({operator} {place})");
             let returned = format!("(#return {borrow})");
-            let source = format!("{declarations}#fn leak () ({ty} #u64) {binding} {returned}\n");
+            let source = format!("{declarations}\n#fn leak () ({ty} #u64) {binding} {returned}\n");
             let error = diagnostic(&source);
             assert_eq!(error.code, DiagnosticCode::Borrow, "{error:?}");
             let span = error.span.unwrap();

@@ -43,7 +43,7 @@ fn allocator_owned_pin_box_runs_and_generated_code_is_inspectable() {
         "PinU64Box::destroy",
     ] {
         assert!(
-            generated.contains(&format!("(#fn {function}")),
+            generated.contains(&format!("#fn {function}")),
             "{function}"
         );
     }

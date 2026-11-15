@@ -18,10 +18,11 @@ fn forward_requirements_validate_fresh_and_cached_outputs() {
     let scratch = support::Scratch::new("provenance-cache");
     let source = format!(
         "{PRODUCER}
-      (#require-generated Value make (Value.Ready))
-      (#generate make Value Value.Ready)
-      (#fn main () #u64 (#return (#match (Value.Ready 42u64)
-        (#case (Value.Ready answer) answer))))"
+#require-generated Value make (Value.Ready)
+#generate make Value Value.Ready
+#fn main () #u64 (#return (#match (Value.Ready 42u64)
+          (#case (Value.Ready answer) answer)))
+"
     );
     let first = compile(&source, &scratch).unwrap();
     assert_eq!(first, compile(&source, &scratch).unwrap());
@@ -35,7 +36,9 @@ fn matching_names_do_not_forge_generator_origin() {
     ] {
         let source = format!(
             "{PRODUCER} {declaration}
-          (#require-generated Fake make) (#fn main () #u64 (#return 0u64))"
+#require-generated Fake make
+#fn main () #u64 (#return 0u64)
+"
         );
         let error = compile(&source, &support::Scratch::new("provenance-forgery")).unwrap_err();
         assert_eq!(error.code, lim::DiagnosticCode::Generator);
@@ -132,11 +135,11 @@ fn async_companions_can_be_registered_in_a_distributed_enum() {
 #[test]
 fn malformed_requirements_are_source_spanned() {
     for form in [
-        "(#require-generated)",
-        "(#require-generated Value)",
-        "(#require-generated 1 producer)",
-        "(#require-generated Value producer 42)",
-        "(#require-generated Value producer (#u64))",
+        "#require-generated\n",
+        "#require-generated Value\n",
+        "#require-generated 1 producer\n",
+        "#require-generated Value producer 42\n",
+        "#require-generated Value producer (#u64)\n",
     ] {
         let error = compile(form, &support::Scratch::new("provenance-invalid")).unwrap_err();
         assert_eq!(error.code, lim::DiagnosticCode::Generator);

@@ -76,7 +76,7 @@ fn void_callee_referent_postcondition_excludes_inactive_word_reader() {
     let definite = PROGRAM
         .replace(
             "#fn update ((selector (#ref-mut #u64)) (flag #bool)) ()\n      (#deref-set selector 1u64)\n      (#if flag (#block (#return ())) ())\n      (#deref-set selector 0u64)\n      (#return ())",
-            "(#fn update ((selector (#ref-mut #u64))) ()\n    (#deref-set selector 1u64)\n    (#return ()))",
+            "#fn update ((selector (#ref-mut #u64))) ()\n      (#deref-set selector 1u64)\n      (#return ())",
         )
         .replace("((selector (#borrow-mut selector)) (flag false))", "((selector (#borrow-mut selector)))");
     assert_ne!(definite, PROGRAM);
@@ -95,7 +95,7 @@ fn later_alias_mutation_invalidates_a_callee_selector_postcondition() {
     let source = PROGRAM
         .replace(
             "#fn main () #u64",
-            "  (#fn mutate-alias ((alias (#ref-mut #u64))) ()\n    (#deref-set alias 0u64)\n    (#return ()))\n  (#fn main () #u64",
+            "#fn mutate-alias ((alias (#ref-mut #u64))) ()\n    (#deref-set alias 0u64)\n    (#return ())\n#fn main () #u64",
         )
         .replace(
             "(#call update ((selector (#borrow-mut selector)) (flag false)))",

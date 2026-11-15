@@ -47,7 +47,7 @@ fn proven_index_keeps_linear_element_and_exclusive_borrow_rules() {
 
 #[test]
 fn direct_comparison_validation_can_supply_exact_index_bound() {
-    let source = format!("{PROVEN_READ}#fn use ((values (#ref (#array #u64 4))) (index #usize)) #u64 (#return (#if-valid (#usize::lt index 4usize) (#call read ((values values) (index index))) 0u64))\n");
+    let source = format!("{PROVEN_READ}\n#fn use ((values (#ref (#array #u64 4))) (index #usize)) #u64 (#return (#if-valid (#usize::lt index 4usize) (#call read ((values values) (index index))) 0u64))\n");
     check(&source).unwrap();
     for weaker in [
         "(#usize::lt index 2usize)",
@@ -70,13 +70,13 @@ fn direct_comparison_validation_can_supply_exact_index_bound() {
 
 #[test]
 fn proven_index_does_not_translate_a_named_predicate_body() {
-    let source = format!("{PROVEN_READ}#fn within ((index #usize)) #bool (#return (#usize::lt index 4usize))\n#fn use ((values (#ref (#array #u64 4))) (index #usize)) #u64 (#return (#if-valid (#call within ((index index))) (#call read ((values values) (index index))) 0u64))\n");
+    let source = format!("{PROVEN_READ}\n#fn within ((index #usize)) #bool (#return (#usize::lt index 4usize))\n#fn use ((values (#ref (#array #u64 4))) (index #usize)) #u64 (#return (#if-valid (#call within ((index index))) (#call read ((values values) (index index))) 0u64))\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 
 #[test]
 fn comparison_evidence_is_bound_to_the_checked_index() {
-    let source = format!("{PROVEN_READ}#fn use ((values (#ref (#array #u64 4))) (index #usize) (other #usize)) #u64 (#return (#if-valid (#usize::lt index 4usize) (#call read ((values values) (index other))) 0u64))\n");
+    let source = format!("{PROVEN_READ}\n#fn use ((values (#ref (#array #u64 4))) (index #usize) (other #usize)) #u64 (#return (#if-valid (#usize::lt index 4usize) (#call read ((values values) (index other))) 0u64))\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 
@@ -111,9 +111,9 @@ fn primitive_contracts_can_relate_two_runtime_inputs() {
 
 #[test]
 fn changing_an_index_revokes_its_bounds_evidence() {
-    let source = format!("{PROVEN_READ}#fn use ((values (#ref (#array #u64 4))) (input #usize)) #u64 (#let-mut index #usize input) (#return (#if-valid (#usize::lt index 4usize) (#block (#set index 99usize) (#call read ((values values) (index index)))) 0u64))\n");
+    let source = format!("{PROVEN_READ}\n#fn use ((values (#ref (#array #u64 4))) (input #usize)) #u64 (#let-mut index #usize input) (#return (#if-valid (#usize::lt index 4usize) (#block (#set index 99usize) (#call read ((values values) (index index)))) 0u64))\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
-    let saved = format!("{PROVEN_READ}#fn use ((values (#ref (#array #u64 4))) (input #usize)) #u64 (#let-mut index #usize input) (#let valid #bool (#usize::lt index 4usize)) (#set index 99usize) (#return (#if-valid valid (#call read ((values values) (index index))) 0u64))\n");
+    let saved = format!("{PROVEN_READ}\n#fn use ((values (#ref (#array #u64 4))) (input #usize)) #u64 (#let-mut index #usize input) (#let valid #bool (#usize::lt index 4usize)) (#set index 99usize) (#return (#if-valid valid (#call read ((values values) (index index))) 0u64))\n");
     assert!(check(&saved).unwrap_err().contains("missing evidence"));
 }
 
@@ -145,38 +145,38 @@ fn adding_proven_index_to_an_unannotated_ast_cannot_bypass_checking() {
 #[test]
 fn required_evidence_is_mandatory() {
     let error = check(&format!(
-        "{SCALAR}#fn use ((input #u64)) () (#call consume ((value input))) (#return ())\n"
+        "{SCALAR}\n#fn use ((input #u64)) () (#call consume ((value input))) (#return ())\n"
     ))
     .unwrap_err();
     assert!(error.contains("missing evidence"), "{error}");
 }
 #[test]
 fn validation_branch_supplies_evidence() {
-    check(&format!("{SCALAR}#fn use ((input #u64)) () (#if-valid (#call below-100 ((value input))) (#call consume ((value input)))) (#return ())\n")).unwrap();
+    check(&format!("{SCALAR}\n#fn use ((input #u64)) () (#if-valid (#call below-100 ((value input))) (#call consume ((value input)))) (#return ())\n")).unwrap();
 }
 #[test]
 fn ordinary_branch_does_not_implicitly_validate() {
-    assert!(check(&format!("{SCALAR}#fn use ((input #u64)) () (#if (#call below-100 ((value input))) (#call consume ((value input)))) (#return ())\n")).is_err());
+    assert!(check(&format!("{SCALAR}\n#fn use ((input #u64)) () (#if (#call below-100 ((value input))) (#call consume ((value input)))) (#return ())\n")).is_err());
 }
 #[test]
 fn assumed_evidence_satisfies_requirement() {
-    check(&format!("{SCALAR}#fn use ((input #u64)) () (#assume (#call below-100 ((value input)))) (#call consume ((value input))) (#return ())\n")).unwrap();
+    check(&format!("{SCALAR}\n#fn use ((input #u64)) () (#assume (#call below-100 ((value input)))) (#call consume ((value input))) (#return ())\n")).unwrap();
 }
 #[test]
 fn evidence_does_not_cross_subjects() {
-    assert!(check(&format!("{SCALAR}#fn use ((input #u64) (other #u64)) () (#if-valid (#call below-100 ((value input))) (#call consume ((value other)))) (#return ())\n")).is_err());
+    assert!(check(&format!("{SCALAR}\n#fn use ((input #u64) (other #u64)) () (#if-valid (#call below-100 ((value input))) (#call consume ((value other)))) (#return ())\n")).is_err());
 }
 #[test]
 fn intermediary_explicitly_forwards_requirement() {
-    check(&format!("{SCALAR}#fn use ((input #u64)) () (#requires (#call below-100 ((value input)))) (#call consume ((value input))) (#return ())\n")).unwrap();
+    check(&format!("{SCALAR}\n#fn use ((input #u64)) () (#requires (#call below-100 ((value input)))) (#call consume ((value input))) (#return ())\n")).unwrap();
 }
 #[test]
 fn unconditional_postcondition_establishes_result() {
-    check(&format!("{SCALAR}#fn produce () #u64 (#ensures (#call below-100 ((value (#result))))) (#return 42u64)\n#fn use () () (#let value #u64 (#call produce ())) (#call consume ((value value))) (#return ())\n")).unwrap();
+    check(&format!("{SCALAR}\n#fn produce () #u64 (#ensures (#call below-100 ((value (#result))))) (#return 42u64)\n#fn use () () (#let value #u64 (#call produce ())) (#call consume ((value value))) (#return ())\n")).unwrap();
 }
 #[test]
 fn forgotten_branch_evidence_is_not_available_after_join() {
-    assert!(check(&format!("{SCALAR}#fn use ((input #u64)) () (#if-valid (#call below-100 ((value input))) ()) (#call consume ((value input))) (#return ())\n")).is_err());
+    assert!(check(&format!("{SCALAR}\n#fn use ((input #u64)) () (#if-valid (#call below-100 ((value input))) ()) (#call consume ((value input))) (#return ())\n")).is_err());
 }
 #[test]
 fn malformed_predicate_rejected_even_in_assume() {
@@ -194,13 +194,13 @@ fn assumptions_reject_transitively_mutating_predicates_and_observations() {
         "(#call hidden-write ((value value)))",
         "(#call positive ((value (#call write ((value value))))))",
     ] {
-        let error = check(&format!("{declarations}#fn use ((value (#ref-mut #u64))) () (#assume {predicate}) (#return ())\n")).unwrap_err();
+        let error = check(&format!("{declarations}\n#fn use ((value (#ref-mut #u64))) () (#assume {predicate}) (#return ())\n")).unwrap_err();
         assert!(error.contains("pure"), "{error}");
     }
 }
 #[test]
 fn retired_theorem_syntax_is_rejected() {
-    let error = lim::parse_program("(#theorem retired true)").unwrap_err();
+    let error = lim::parse_program("#theorem retired true").unwrap_err();
     assert!(error.contains("removed"), "{error}");
 }
 const REFERENT: &str = r#"
@@ -213,23 +213,23 @@ const REFERENT: &str = r#"
 "#;
 #[test]
 fn unrelated_field_write_preserves_evidence() {
-    check(&format!("{REFERENT}#fn use () () (#let-mut packet Packet (#struct-literal Packet ((body 2u64) (tag 0u64)))) (#if-valid (#call acceptable ((packet (#borrow packet)))) (#block (#call relabel ((packet (#borrow-mut packet)))) (#call send ((packet (#borrow packet)))))) (#forget packet) (#return ())\n")).unwrap();
+    check(&format!("{REFERENT}\n#fn use () () (#let-mut packet Packet (#struct-literal Packet ((body 2u64) (tag 0u64)))) (#if-valid (#call acceptable ((packet (#borrow packet)))) (#block (#call relabel ((packet (#borrow-mut packet)))) (#call send ((packet (#borrow packet)))))) (#forget packet) (#return ())\n")).unwrap();
 }
 #[test]
 fn dependency_write_revokes_evidence() {
-    assert!(check(&format!("{REFERENT}#fn use () () (#let-mut packet Packet (#struct-literal Packet ((body 2u64) (tag 0u64)))) (#if-valid (#call acceptable ((packet (#borrow packet)))) (#block (#call replace ((packet (#borrow-mut packet)))) (#call send ((packet (#borrow packet)))))) (#forget packet) (#return ())\n")).is_err());
+    assert!(check(&format!("{REFERENT}\n#fn use () () (#let-mut packet Packet (#struct-literal Packet ((body 2u64) (tag 0u64)))) (#if-valid (#call acceptable ((packet (#borrow packet)))) (#block (#call replace ((packet (#borrow-mut packet)))) (#call send ((packet (#borrow packet)))))) (#forget packet) (#return ())\n")).is_err());
 }
 #[test]
 fn declared_preservation_renews_evidence() {
-    check(&format!("{REFERENT}#fn use () () (#let-mut packet Packet (#struct-literal Packet ((body 2u64) (tag 0u64)))) (#if-valid (#call acceptable ((packet (#borrow packet)))) (#block (#call shrink ((packet (#borrow-mut packet)))) (#call send ((packet (#borrow packet)))))) (#forget packet) (#return ())\n")).unwrap();
+    check(&format!("{REFERENT}\n#fn use () () (#let-mut packet Packet (#struct-literal Packet ((body 2u64) (tag 0u64)))) (#if-valid (#call acceptable ((packet (#borrow packet)))) (#block (#call shrink ((packet (#borrow-mut packet)))) (#call send ((packet (#borrow packet)))))) (#forget packet) (#return ())\n")).unwrap();
 }
 #[test]
 fn preservation_does_not_impose_a_requirement() {
-    check(&format!("{REFERENT}#fn use ((packet (#ref-mut Packet))) () (#call shrink ((packet packet))) (#return ())\n")).unwrap();
+    check(&format!("{REFERENT}\n#fn use ((packet (#ref-mut Packet))) () (#call shrink ((packet packet))) (#return ())\n")).unwrap();
 }
 #[test]
 fn intermediary_does_not_implicitly_export_preservation() {
-    assert!(check(&format!("{REFERENT}#fn middle ((packet (#ref-mut Packet))) () (#call shrink ((packet packet))) (#return ())\n#fn use ((packet (#ref-mut Packet))) () (#requires (#call acceptable ((packet packet)))) (#call middle ((packet packet))) (#call send ((packet packet))) (#return ())\n")).is_err());
+    assert!(check(&format!("{REFERENT}\n#fn middle ((packet (#ref-mut Packet))) () (#call shrink ((packet packet))) (#return ())\n#fn use ((packet (#ref-mut Packet))) () (#requires (#call acceptable ((packet packet)))) (#call middle ((packet packet))) (#call send ((packet packet))) (#return ())\n")).is_err());
 }
 #[test]
 fn constrained_scalar_binding_needs_evidence() {
@@ -250,36 +250,36 @@ const CONSTRAINED: &str = r#"
 "#;
 #[test]
 fn fixed_field_must_be_valid_on_construction() {
-    let source=format!("{CONSTRAINED}#fn use ((input #u64)) () (#let holder Holder (#struct-literal Holder ((number input) (tag 0u64)))) (#forget holder) (#return ())\n");
+    let source=format!("{CONSTRAINED}\n#fn use ((input #u64)) () (#let holder Holder (#struct-literal Holder ((number input) (tag 0u64)))) (#forget holder) (#return ())\n");
     let error = check(&source).unwrap_err();
     assert!(error.contains("missing evidence"), "{error}");
 }
 #[test]
 fn fixed_field_restoration_after_mutable_element_borrow() {
-    let source=format!("{CONSTRAINED}#fn edit ((holder (#ref-mut Holder))) () (#let slot (#ref-mut #u64) (#borrow-mut (#get holder number))) (#deref-set slot 42u64) (#assume (#call small ((value slot)))) (#return ())\n");
+    let source=format!("{CONSTRAINED}\n#fn edit ((holder (#ref-mut Holder))) () (#let slot (#ref-mut #u64) (#borrow-mut (#get holder number))) (#deref-set slot 42u64) (#assume (#call small ((value slot)))) (#return ())\n");
     check(&source).unwrap();
 }
 #[test]
 fn fixed_field_borrow_cannot_end_with_missing_evidence() {
-    let source=format!("{CONSTRAINED}#fn edit ((holder (#ref-mut Holder))) () (#let slot (#ref-mut #u64) (#borrow-mut (#get holder number))) (#deref-set slot 200u64) (#return ())\n");
+    let source=format!("{CONSTRAINED}\n#fn edit ((holder (#ref-mut Holder))) () (#let slot (#ref-mut #u64) (#borrow-mut (#get holder number))) (#deref-set slot 200u64) (#return ())\n");
     let error = check(&source).unwrap_err();
     assert!(error.contains("restored"), "{error}");
 }
 #[test]
 fn saved_boolean_does_not_validate_mutated_storage() {
-    let source=format!("{REFERENT}#fn use () () (#let-mut packet Packet (#struct-literal Packet ((body 2u64) (tag 0u64)))) (#let ok #bool (#call acceptable ((packet (#borrow packet))))) (#call replace ((packet (#borrow-mut packet)))) (#if-valid ok (#call send ((packet (#borrow packet))))) (#forget packet) (#return ())\n");
+    let source=format!("{REFERENT}\n#fn use () () (#let-mut packet Packet (#struct-literal Packet ((body 2u64) (tag 0u64)))) (#let ok #bool (#call acceptable ((packet (#borrow packet))))) (#call replace ((packet (#borrow-mut packet)))) (#if-valid ok (#call send ((packet (#borrow packet))))) (#forget packet) (#return ())\n");
     let error = check(&source).unwrap_err();
     assert!(error.contains("missing evidence"), "{error}");
 }
 #[test]
 fn requirements_nested_in_builtin_arguments_are_checked() {
-    let source=format!("{SCALAR}#fn computed ((value #u64)) #u64 (#requires (#call below-100 ((value value)))) (#return value)\n#fn use ((input #u64)) #u64 (#return (#u64::add-wrap (#call computed ((value input))) 1u64))\n");
+    let source=format!("{SCALAR}\n#fn computed ((value #u64)) #u64 (#requires (#call below-100 ((value value)))) (#return value)\n#fn use ((input #u64)) #u64 (#return (#u64::add-wrap (#call computed ((value input))) 1u64))\n");
     assert!(check(&source).is_err());
 }
 
 #[test]
 fn every_requirement_in_a_conjunction_is_needed() {
-    let source=format!("{SCALAR}#fn nonzero ((value #u64)) #bool (#return (#u64::ne value 0u64))\n#fn target ((value #u64)) () (#requires (#bool::and (#call below-100 ((value value))) (#call nonzero ((value value))))) (#return ())\n#fn use ((input #u64)) () (#if-valid (#bool::and (#call below-100 ((value input))) (#call nonzero ((value input)))) (#call target ((value input)))) (#return ())\n");
+    let source=format!("{SCALAR}\n#fn nonzero ((value #u64)) #bool (#return (#u64::ne value 0u64))\n#fn target ((value #u64)) () (#requires (#bool::and (#call below-100 ((value value))) (#call nonzero ((value value))))) (#return ())\n#fn use ((input #u64)) () (#if-valid (#bool::and (#call below-100 ((value input))) (#call nonzero ((value input)))) (#call target ((value input)))) (#return ())\n");
     check(&source).unwrap();
     let bad = source.replace(
         "(#bool::and (#call below-100 ((value input))) (#call nonzero ((value input))))",
@@ -289,17 +289,17 @@ fn every_requirement_in_a_conjunction_is_needed() {
 }
 #[test]
 fn disjunction_does_not_supply_either_operand() {
-    let source=format!("{SCALAR}#fn use ((input #u64)) () (#if-valid (#bool::or (#call below-100 ((value input))) true) (#call consume ((value input)))) (#return ())\n");
+    let source=format!("{SCALAR}\n#fn use ((input #u64)) () (#if-valid (#bool::or (#call below-100 ((value input))) true) (#call consume ((value input)))) (#return ())\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 #[test]
 fn saved_pure_scalar_observation_matches_specification() {
-    let source=format!("{SCALAR}#fn observed ((value (#ref #u64))) #u64 (#return (#deref value))\n#fn use ((input (#ref #u64))) () (#let value #u64 (#call observed ((value input)))) (#assume (#call below-100 ((value (#call observed ((value input))))))) (#call consume ((value value))) (#return ())\n");
+    let source=format!("{SCALAR}\n#fn observed ((value (#ref #u64))) #u64 (#return (#deref value))\n#fn use ((input (#ref #u64))) () (#let value #u64 (#call observed ((value input)))) (#assume (#call below-100 ((value (#call observed ((value input))))))) (#call consume ((value value))) (#return ())\n");
     check(&source).unwrap();
 }
 #[test]
 fn scalar_snapshot_does_not_equal_a_new_observation_after_write() {
-    let source=format!("{SCALAR}#fn observed ((value (#ref #u64))) #u64 (#return (#deref value))\n#fn use ((input (#ref-mut #u64))) () (#let value #u64 (#call observed ((value (#borrow (#deref input)))))) (#deref-set input 200u64) (#assume (#call below-100 ((value (#call observed ((value input))))))) (#call consume ((value value))) (#return ())\n");
+    let source=format!("{SCALAR}\n#fn observed ((value (#ref #u64))) #u64 (#return (#deref value))\n#fn use ((input (#ref-mut #u64))) () (#let value #u64 (#call observed ((value (#borrow (#deref input)))))) (#deref-set input 200u64) (#assume (#call below-100 ((value (#call observed ((value input))))))) (#call consume ((value value))) (#return ())\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 #[test]
@@ -309,11 +309,11 @@ fn unused_refinement_predicate_is_still_checked() {
 }
 #[test]
 fn old_is_restricted_to_postconditions() {
-    assert!(lim::parse_program(&format!("{SCALAR}#fn bad ((value #u64)) () (#requires (#call below-100 ((value (#old value))))) (#return ())\n")).unwrap_err().contains("#ensures"));
+    assert!(lim::parse_program(&format!("{SCALAR}\n#fn bad ((value #u64)) () (#requires (#call below-100 ((value (#old value))))) (#return ())\n")).unwrap_err().contains("#ensures"));
 }
 #[test]
 fn stale_contract_metadata_cannot_certify_a_modified_ast() {
-    let mut program=lim::parse_program(&format!("{SCALAR}#fn use ((input #u64)) () (#assume (#call below-100 ((value input)))) (#call consume ((value input))) (#return ())\n")).unwrap();
+    let mut program=lim::parse_program(&format!("{SCALAR}\n#fn use ((input #u64)) () (#assume (#call below-100 ((value input)))) (#call consume ((value input))) (#return ())\n")).unwrap();
     let function = program
         .items
         .iter_mut()
@@ -345,7 +345,7 @@ fn indirect_reference_field_write_invalidates_referent_evidence() {
 }
 #[test]
 fn mutable_reference_return_keeps_fixed_owner_obligation() {
-    let source=format!("{CONSTRAINED}#fn slot ((holder (#ref-mut Holder))) (#ref-mut #u64) (#return (#borrow-mut (#get holder number)))\n#fn edit ((holder (#ref-mut Holder))) () (#let item (#ref-mut #u64) (#call slot ((holder holder)))) (#deref-set item 200u64) (#return ())\n");
+    let source=format!("{CONSTRAINED}\n#fn slot ((holder (#ref-mut Holder))) (#ref-mut #u64) (#return (#borrow-mut (#get holder number)))\n#fn edit ((holder (#ref-mut Holder))) () (#let item (#ref-mut #u64) (#call slot ((holder holder)))) (#deref-set item 200u64) (#return ())\n");
     let error = check(&source).unwrap_err();
     assert!(error.contains("restored"), "{error}");
 }
@@ -361,7 +361,7 @@ fn constrained_result_requires_evidence_even_without_an_ensures() {
 }
 #[test]
 fn constrained_field_can_be_constructed_from_validated_value() {
-    let source=format!("{CONSTRAINED}#fn use ((input #u64)) () (#if-valid (#call small ((value (#borrow input)))) (#block (#let holder Holder (#struct-literal Holder ((number input) (tag 0u64)))) (#forget holder))) (#return ())\n");
+    let source=format!("{CONSTRAINED}\n#fn use ((input #u64)) () (#if-valid (#call small ((value (#borrow input)))) (#block (#let holder Holder (#struct-literal Holder ((number input) (tag 0u64)))) (#forget holder))) (#return ())\n");
     check(&source).unwrap();
 }
 #[test]
@@ -402,12 +402,12 @@ fn old_snapshot_and_current_observation_have_distinct_versions() {
 }
 #[test]
 fn conjunction_cannot_regrant_evidence_revoked_by_its_second_operand() {
-    let source=format!("{REFERENT}#fn overwrite-and-true ((packet (#ref-mut Packet))) #bool (#call replace ((packet packet))) (#return true)\n#fn use ((packet (#ref-mut Packet))) () (#if-valid (#bool::and (#call acceptable ((packet (#borrow (#deref packet))))) (#call overwrite-and-true ((packet packet)))) (#call send ((packet (#borrow (#deref packet)))))) (#return ())\n");
+    let source=format!("{REFERENT}\n#fn overwrite-and-true ((packet (#ref-mut Packet))) #bool (#call replace ((packet packet))) (#return true)\n#fn use ((packet (#ref-mut Packet))) () (#if-valid (#bool::and (#call acceptable ((packet (#borrow (#deref packet))))) (#call overwrite-and-true ((packet packet)))) (#call send ((packet (#borrow (#deref packet)))))) (#return ())\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 #[test]
 fn loop_conditions_cannot_reuse_pre_loop_evidence_after_mutation() {
-    let source=format!("{REFERENT}#fn repeat ((packet (#ref Packet))) #bool (#requires (#call acceptable ((packet packet)))) (#return false)\n#fn use ((packet (#ref-mut Packet))) () (#requires (#call acceptable ((packet packet)))) (#while (#call repeat ((packet (#borrow (#deref packet))))) (#call replace ((packet packet)))) (#return ())\n");
+    let source=format!("{REFERENT}\n#fn repeat ((packet (#ref Packet))) #bool (#requires (#call acceptable ((packet packet)))) (#return false)\n#fn use ((packet (#ref-mut Packet))) () (#requires (#call acceptable ((packet packet)))) (#while (#call repeat ((packet (#borrow (#deref packet))))) (#call replace ((packet packet)))) (#return ())\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 
@@ -450,12 +450,12 @@ fn a_generated_vector_can_have_sorted_and_element_bound_requirements() {
 
 #[test]
 fn casts_cannot_conflate_different_runtime_values() {
-    let source=format!("{SCALAR}#fn use () () (#if-valid (#call below-100 ((value (#as (#as 256u64 #u8) #u64)))) (#call consume ((value 256u64)))) (#return ())\n");
+    let source=format!("{SCALAR}\n#fn use () () (#if-valid (#call below-100 ((value (#as (#as 256u64 #u8) #u64)))) (#call consume ((value 256u64)))) (#return ())\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 #[test]
 fn unsuffixed_literals_use_the_declared_context() {
-    let source=format!("{SCALAR}#fn use () () (#let input #u64 42) (#if-valid (#call below-100 ((value input))) (#call consume ((value input)))) (#if-valid (#call below-100 ((value 42))) (#call consume ((value 42)))) (#return ())\n");
+    let source=format!("{SCALAR}\n#fn use () () (#let input #u64 42) (#if-valid (#call below-100 ((value input))) (#call consume ((value input)))) (#if-valid (#call below-100 ((value 42))) (#call consume ((value 42)))) (#return ())\n");
     check(&source).unwrap();
 }
 #[test]
@@ -471,7 +471,7 @@ fn constrained_array_elements_require_individual_evidence() {
 }
 #[test]
 fn raw_memory_writes_inside_loops_cannot_preserve_old_evidence() {
-    let source=format!("{REFERENT}#fn use ((packet (#ref-mut Packet)) (pointer (#ptr-mut #u64)) (again #bool)) () (#requires (#call acceptable ((packet packet)))) (#while again (#unsafe (#ptr-write (#clone pointer) 200u64))) (#call send ((packet (#borrow (#deref packet))))) (#forget pointer) (#return ())\n");
+    let source=format!("{REFERENT}\n#fn use ((packet (#ref-mut Packet)) (pointer (#ptr-mut #u64)) (again #bool)) () (#requires (#call acceptable ((packet packet)))) (#while again (#unsafe (#ptr-write (#clone pointer) 200u64))) (#call send ((packet (#borrow (#deref packet))))) (#forget pointer) (#return ())\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 #[test]
@@ -493,31 +493,31 @@ fn nested_reference_writes_revoke_evidence_about_the_final_referent() {
 }
 #[test]
 fn moving_an_owner_transfers_its_constrained_field_evidence() {
-    let source=format!("{CONSTRAINED}#fn use ((holder Holder)) () (#let moved Holder holder) (#forget moved) (#return ())\n");
+    let source=format!("{CONSTRAINED}\n#fn use ((holder Holder)) () (#let moved Holder holder) (#forget moved) (#return ())\n");
     check(&source).unwrap();
 }
 #[test]
 fn constrained_structs_can_be_constructed_inline_and_returned() {
-    let source=format!("{CONSTRAINED}#fn identity ((holder Holder)) Holder (#return holder)\n#fn create ((input #u64)) Holder (#requires (#call small ((value (#borrow input))))) (#return (#call identity ((holder (#struct-literal Holder ((number input) (tag 0u64)))))))\n#fn use ((input #u64)) () (#requires (#call small ((value (#borrow input))))) (#let holder Holder (#call create ((input input)))) (#forget holder) (#return ())\n");
+    let source=format!("{CONSTRAINED}\n#fn identity ((holder Holder)) Holder (#return holder)\n#fn create ((input #u64)) Holder (#requires (#call small ((value (#borrow input))))) (#return (#call identity ((holder (#struct-literal Holder ((number input) (tag 0u64)))))))\n#fn use ((input #u64)) () (#requires (#call small ((value (#borrow input))))) (#let holder Holder (#call create ((input input)))) (#forget holder) (#return ())\n");
     check(&source).unwrap();
 }
 #[test]
 fn malformed_ghost_observations_are_errors_not_compiler_panics() {
     for observation in ["(#borrow)", "(#deref)", "(#get value)", "(#as value)"] {
-        let source=format!("{SCALAR}#fn use ((value #u64)) () (#assume (#call below-100 ((value {observation})))) (#return ())\n");
+        let source=format!("{SCALAR}\n#fn use ((value #u64)) () (#assume (#call below-100 ((value {observation})))) (#return ())\n");
         assert!(check(&source).unwrap_err().contains("argument count"));
     }
 }
 #[test]
 fn guarantees_cannot_confuse_a_mutable_value_parameter_with_the_callers_copy() {
-    let source=format!("{SCALAR}#fn update ((#mut value #u64)) () (#ensures (#call below-100 ((value value)))) (#set value 0u64) (#return ())\n");
+    let source=format!("{SCALAR}\n#fn update ((#mut value #u64)) () (#ensures (#call below-100 ((value value)))) (#set value 0u64) (#return ())\n");
     assert!(lim::parse_program(&source)
         .unwrap_err()
         .contains("mutable parameter"));
 }
 #[test]
 fn assumed_argument_observations_do_not_grant_callee_postconditions() {
-    let source=format!("{SCALAR}#fn observation ((value #u64)) #u64 (#ensures (#call below-100 ((value value)))) (#return 0u64)\n#fn ignored ((value #u64)) #bool (#return true)\n#fn use ((input #u64)) () (#assume (#call ignored ((value (#as (#call observation ((value input))) #u64))))) (#call consume ((value input))) (#return ())\n");
+    let source=format!("{SCALAR}\n#fn observation ((value #u64)) #u64 (#ensures (#call below-100 ((value value)))) (#return 0u64)\n#fn ignored ((value #u64)) #bool (#return true)\n#fn use ((input #u64)) () (#assume (#call ignored ((value (#as (#call observation ((value input))) #u64))))) (#call consume ((value input))) (#return ())\n");
     assert!(check(&source).unwrap_err().contains("missing evidence"));
 }
 #[test]
@@ -532,7 +532,7 @@ fn consuming_a_linear_owner_ends_its_storage_obligations() {
 }
 #[test]
 fn lending_an_invalid_element_does_not_claim_the_owner_is_already_restored() {
-    let source=format!("{CONSTRAINED}#fn open ((holder (#ref-mut Holder))) (#ref-mut #u64) (#let item (#ref-mut #u64) (#borrow-mut (#get holder number))) (#deref-set item 200u64) (#return item)\n#fn use ((holder (#ref-mut Holder))) () (#let item (#ref-mut #u64) (#call open ((holder holder)))) (#drop item) (#return ())\n");
+    let source=format!("{CONSTRAINED}\n#fn open ((holder (#ref-mut Holder))) (#ref-mut #u64) (#let item (#ref-mut #u64) (#borrow-mut (#get holder number))) (#deref-set item 200u64) (#return item)\n#fn use ((holder (#ref-mut Holder))) () (#let item (#ref-mut #u64) (#call open ((holder holder)))) (#drop item) (#return ())\n");
     let error = check(&source).unwrap_err();
     assert!(error.contains("missing evidence"), "{error}");
 }
@@ -543,7 +543,7 @@ fn growing_expression_identities_fail_with_a_bounded_diagnostic() {
     for _ in 0..50 {
         body.push_str(" (#set value (#u64::add-wrap value value))");
     }
-    let source = format!("{SCALAR}#fn use ((input #u64)) #u64 {body} (#return value)\n");
+    let source = format!("{SCALAR}\n#fn use ((input #u64)) #u64 {body} (#return value)\n");
     assert!(check(&source).unwrap_err().contains("identity"));
 }
 #[test]
@@ -560,7 +560,7 @@ fn repeated_large_branch_snapshots_have_a_work_limit() {
     for _ in 0..3 {
         nested = format!("(#if true (#block {nested}) ())");
     }
-    let source=format!("{SCALAR}#fn grow ((value #u64)) #u64 (#return value)\n#fn use ((input #u64)) () {body} {nested} (#return ())\n");
+    let source=format!("{SCALAR}\n#fn grow ((value #u64)) #u64 (#return value)\n#fn use ((input #u64)) () {body} {nested} (#return ())\n");
     let error = check(&source).unwrap_err();
     assert!(error.contains("snapshot work budget"), "{error}");
 }

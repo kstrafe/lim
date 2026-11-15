@@ -132,12 +132,14 @@ fn nested_large_arguments_do_not_overwrite_previously_staged_values() {
 #[test]
 fn reversed_float_and_wide_intrinsics_keep_operand_roles_and_effects() {
     for ty in ["#f32", "#f64", "#u128", "#i128"] {
-        run(&format!("{NEXT}#fn main () #u64
+        run(&format!("{NEXT}
+#fn main () #u64
             (#let-mut counter #u64 0u64)
             (#let answer {ty} (#call {ty}::sub{}
               ((right (#block (#call next ((counter (#borrow-mut counter)) (expected 0u64))) (#as 2u64 {ty})))
                (left (#block (#call next ((counter (#borrow-mut counter)) (expected 1u64))) (#as 44u64 {ty}))))))
             (#assert (#call {ty}::eq ((right (#as 42u64 {ty})) (left answer))))
-            (#assert (#u64::eq counter 2u64)) (#return 42u64)\n", if ty.starts_with("#f") { "" } else { "-wrap" }));
+            (#assert (#u64::eq counter 2u64)) (#return 42u64)
+", if ty.starts_with("#f") { "" } else { "-wrap" }));
     }
 }

@@ -90,7 +90,7 @@ fn seeded_integer_oracle_checks_constants_and_native_operations() {
                 let mut checks = String::new();
                 for (index, (expression, expected)) in batch.iter().enumerate() {
                     source.push_str(&format!("#const c{index} #{name} {expression}\n"));
-                    checks.push_str(&format!("(#assert (#{name}::eq c{index} {expected}{name}))\n(#assert (#{name}::eq {expression} {expected}{name}))\n"));
+                    checks.push_str(&format!("  (#assert (#{name}::eq c{index} {expected}{name}))\n  (#assert (#{name}::eq {expression} {expected}{name}))\n"));
                 }
                 source.push_str(&format!("#fn main () #u64 {checks} (#return 42u64)\n"));
                 execute(&source, None);
@@ -119,7 +119,15 @@ fn exceptional_values_casts_and_shift_failures_match_the_contract() {
     for ty in ["f32", "f64"] {
         execute(
             &format!(
-                "#fn main () #u64\n            (#let nan #{ty} (#{ty}::div 0.0{ty} 0.0{ty}))\n            (#let infinity #{ty} (#{ty}::div 1.0{ty} 0.0{ty}))\n            (#assert (#{ty}::ne nan nan))\n            (#assert (#bool::eq (#{ty}::lt nan infinity) false))\n            (#assert (#bool::eq (#{ty}::ge nan infinity) false))\n            (#assert (#{ty}::eq -0.0{ty} 0.0{ty}))\n            (#assert (#{ty}::gt infinity 1.0{ty})) (#return 42u64)\n"
+                "#fn main () #u64
+            (#let nan #{ty} (#{ty}::div 0.0{ty} 0.0{ty}))
+            (#let infinity #{ty} (#{ty}::div 1.0{ty} 0.0{ty}))
+            (#assert (#{ty}::ne nan nan))
+            (#assert (#bool::eq (#{ty}::lt nan infinity) false))
+            (#assert (#bool::eq (#{ty}::ge nan infinity) false))
+            (#assert (#{ty}::eq -0.0{ty} 0.0{ty}))
+            (#assert (#{ty}::gt infinity 1.0{ty})) (#return 42u64)
+"
             ),
             None,
         );

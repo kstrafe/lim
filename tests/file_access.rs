@@ -48,8 +48,8 @@ fn facade_aliases_export_declarations_without_exporting_struct_fields() {
     write(scratch.path(), "value/lib.lim", "#export Number create destroy\n#alias Number = ./impl.lim::Number\n#alias create = ./impl.lim::create\n#alias destroy = ./impl.lim::destroy\n");
     write(scratch.path(), "value/impl.lim", "#struct Number (#linear) ((value #u64))\n#fn create () Number (#return (#struct-literal Number ((value 42u64))))\n#fn destroy ((number Number)) () (#forget number) (#return ())\n");
     let imports = "#alias Number = ./value/lib.lim::Number\n#alias create = ./value/lib.lim::create\n#alias destroy = ./value/lib.lim::destroy\n";
-    check(scratch.path(), &format!("{imports}#fn main () #u64 (#let number Number (#call create ())) (#call destroy ((number number))) (#return 42u64)\n")).unwrap();
-    let error = check(scratch.path(), &format!("{imports}#fn main () #u64 (#let number Number (#call create ())) (#let answer #u64 (#get number value)) (#call destroy ((number number))) (#return answer)\n")).unwrap_err();
+    check(scratch.path(), &format!("{imports}\n#fn main () #u64 (#let number Number (#call create ())) (#call destroy ((number number))) (#return 42u64)\n")).unwrap();
+    let error = check(scratch.path(), &format!("{imports}\n#fn main () #u64 (#let number Number (#call create ())) (#let answer #u64 (#get number value)) (#call destroy ((number number))) (#return answer)\n")).unwrap_err();
     assert!(error.contains("private"), "{error}");
 }
 
@@ -366,7 +366,7 @@ fn file_looking_strings_remain_literal_data() {
     );
     let text = "./does-not-exist.lim::not-a-reference";
     for imports in ["", "#alias read = ./value.lim::read\n"] {
-        check(scratch.path(), &format!("{imports}#fn main () #u64 (#let text (#array #char {}) {text:?}) (#return 42u64)\n", text.chars().count())).unwrap();
+        check(scratch.path(), &format!("{imports}\n#fn main () #u64 (#let text (#array #char {}) {text:?}) (#return 42u64)\n", text.chars().count())).unwrap();
     }
     check(scratch.path(), "#gn ignore (value) `()\n#generate ignore ./does-not-exist.lim::literal\n#fn main () #u64 (#return 42u64)\n").unwrap();
 }
@@ -466,12 +466,12 @@ fn generation_requirements_use_the_actual_files_declaration() {
     check(
         scratch.path(),
         &format!(
-            "{aliases} (#require-generated First make-first) (#fn main () #u64 (#return 0u64))"
+            "{aliases}#require-generated First make-first\n#fn main () #u64 (#return 0u64)\n"
         ),
     )
     .unwrap();
     for name in ["Second", "Thing"] {
-        let error = check(scratch.path(), &format!("{aliases} (#require-generated {name} make-first) (#fn main () #u64 (#return 0u64))")).unwrap_err();
+        let error = check(scratch.path(), &format!("{aliases}#require-generated {name} make-first\n#fn main () #u64 (#return 0u64)\n")).unwrap_err();
         assert!(error.contains("was not generated"), "{error}");
     }
 }

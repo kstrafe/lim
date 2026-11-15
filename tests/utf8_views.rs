@@ -185,7 +185,7 @@ fn every_subview_range_matches_rust_boundaries_for_both_storage_layouts() {
                 source.push_str(&format!("  (#assert (#match (#call {prefix}::subview ((view (#borrow {variable})) (start {start}usize) (end {end}usize))) {branch} (#case _ false)))\n"));
             }
             source.push_str(&format!("  (#assert (#match (#call {prefix}::subview ((view (#borrow {variable})) (start 0usize) (end 18446744073709551615usize))) (#case {prefix}::Result.InvalidRange true) (#case _ false)))\n"));
-            source.push_str("  (#forget slice-view) (#forget string-view) (#call String::free ((string text))) (#return 42u64))");
+            source.push_str("  (#forget slice-view) (#forget string-view) (#call String::free ((string text))) (#return 42u64)");
             execute(&source, "utf8-all-boundaries");
         }
     }
@@ -318,7 +318,7 @@ fn generated_views_are_cached_inspectable_and_compile_as_ordinary_lim() {
     let artifact = fs::read_to_string(&generated).unwrap();
     let text = generated_source::ordinary_source(&artifact);
     let modified = fs::metadata(&generated).unwrap().modified().unwrap();
-    assert!(text.contains(&format!("{}:1", path.display())));
+    assert!(text.contains(&format!("{}:2", path.display())));
     assert!(!text.contains("#generate "));
     assert_eq!(first, compile(source, &path).unwrap());
     assert_eq!(
@@ -341,6 +341,6 @@ fn assume_valid_requires_unsafe_and_unstable_owner_types_fail_at_the_invocation(
     assert!(error.message.contains("utf8-view owner must"));
     assert_eq!(
         &source[error.span.unwrap().start..error.span.unwrap().end],
-        "#generate #utf8-view ((name Unsupported) (owner (#ref #u8)))\n"
+        "#generate #utf8-view ((name Unsupported) (owner (#ref #u8)))"
     );
 }

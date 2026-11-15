@@ -306,7 +306,7 @@ fn projected_reborrow_conflicts_follow_multiple_reference_bindings() {
     let disjoint = source
         .replace(
             "#struct Inner () ((value #u64))",
-            "(#struct Inner () ((value #u64) (other #u64)))",
+            "#struct Inner () ((value #u64) (other #u64))",
         )
         .replace(
             "((inner (#struct-literal Inner ((value 1u64)))))",

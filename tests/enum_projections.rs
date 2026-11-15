@@ -15,7 +15,10 @@ fn check(source: &str) -> Result<(), String> {
 }
 
 fn declaration(mode: &str) -> String {
-    format!("#std\n#enum Choice () ((Choice.Full #u64) Choice.Empty)\n#generate #enum-project ((enum Choice) (variant Choice.Full) (payload #u64) (mode #{mode}) (name Projection))\n")
+    format!("#std
+#enum Choice () ((Choice.Full #u64) Choice.Empty)
+#generate #enum-project ((enum Choice) (variant Choice.Full) (payload #u64) (mode #{mode}) (name Projection))
+")
 }
 
 fn run(source: &str, answer: i32) {
@@ -44,7 +47,14 @@ fn every_mode_generates_only_the_selected_signature_and_handles_both_variants() 
     for (mode, borrow) in MODES {
         for (value, answer) in [("(Choice.Full 42u64)", 42), ("Choice.Empty", 7)] {
             let source = format!(
-                "{}\n#fn main () #u64\n                  (#let-mut owner Choice {value})\n                  (#let-else (Projection.Some payload)\n                    (#call Projection::project ((source (#{borrow} owner))))\n                    (#else (#return 7u64)))\n                  (#return (#deref payload))\n",
+                "{}
+#fn main () #u64
+                  (#let-mut owner Choice {value})
+                  (#let-else (Projection.Some payload)
+                    (#call Projection::project ((source (#{borrow} owner))))
+                    (#else (#return 7u64)))
+                  (#return (#deref payload))
+",
                 declaration(mode)
             );
             let program = parse_program(&source).unwrap();
@@ -76,7 +86,13 @@ fn every_mode_generates_only_the_selected_signature_and_handles_both_variants() 
 fn optional_payloads_retain_the_owner_loan_and_selected_mutability() {
     for (mode, borrow) in MODES {
         let source = format!(
-            "{}\n#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))\n              (#let-else (Projection.Some payload)\n                (#call Projection::project ((source (#{borrow} owner))))\n                (#else (#return 0u64)))\n              (#set owner Choice.Empty) (#return (#deref payload))\n",
+            "{}
+#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))
+              (#let-else (Projection.Some payload)
+                (#call Projection::project ((source (#{borrow} owner))))
+                (#else (#return 0u64)))
+              (#set owner Choice.Empty) (#return (#deref payload))
+",
             declaration(mode)
         );
         for invalid in [
@@ -98,7 +114,13 @@ fn optional_payloads_retain_the_owner_loan_and_selected_mutability() {
 fn an_undestructured_optional_keeps_the_loan_and_unreferenceable_payloads_are_rejected() {
     for (mode, borrow) in MODES {
         let source = format!(
-            "{}\n#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))\n              (#let projected Projection (#call Projection::project ((source (#{borrow} owner)))))\n              (#forget owner)\n              (#let-else (Projection.Some payload) projected (#else (#return 0u64)))\n              (#return (#deref payload))\n",
+            "{}
+#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))
+              (#let projected Projection (#call Projection::project ((source (#{borrow} owner)))))
+              (#forget owner)
+              (#let-else (Projection.Some payload) projected (#else (#return 0u64)))
+              (#return (#deref payload))
+",
             declaration(mode)
         );
         let error = check(&source).unwrap_err();
@@ -118,7 +140,13 @@ fn an_undestructured_optional_keeps_the_loan_and_unreferenceable_payloads_are_re
 fn returning_projected_references_preserves_origins_and_rejects_local_escape() {
     for (mode, borrow) in MODES {
         let source = format!(
-            "{}\n#fn project ((source (#{mode} Choice)) (fallback (#{mode} #u64))) (#{mode} #u64)\n              (#let-else (Projection.Some payload)\n                (#call Projection::project ((source source)))\n                (#else (#return fallback)))\n              (#return payload)\n",
+            "{}
+#fn project ((source (#{mode} Choice)) (fallback (#{mode} #u64))) (#{mode} #u64)
+              (#let-else (Projection.Some payload)
+                (#call Projection::project ((source source)))
+                (#else (#return fallback)))
+              (#return payload)
+",
             declaration(mode)
         );
         check(&source).unwrap();

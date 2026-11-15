@@ -139,7 +139,7 @@ fn identical_user_generator_calls_keep_per_file_artifacts_and_origins() {
     let generated = materialize(root, "main.lim", "generated", "cache");
     assert!(generated
         .iter()
-        .all(|source| source.contains("(#type Shared #u64)")));
+        .all(|source| source.contains("#type Shared #u64")));
     assert_origin_groups(
         &generated.iter().map(String::as_str).collect::<Vec<_>>(),
         &[
@@ -198,10 +198,10 @@ fn user_generator_artifacts_are_per_invocation_cache_payloads() {
             .map(String::as_str)
             .collect::<Vec<_>>();
         let expected = if marker == "#type Second #u64\n" {
-            vec![vec![absolute_origin(root, "a.lim", 3)]]
+            vec![vec![absolute_origin(root, "a.lim", 4)]]
         } else {
             vec![
-                vec![absolute_origin(root, "a.lim", 2)],
+                vec![absolute_origin(root, "a.lim", 3)],
                 vec![absolute_origin(root, "b.lim", 2)],
             ]
         };

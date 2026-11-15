@@ -111,7 +111,15 @@ fn variant_test_rejects_invalid_operands_and_reports_the_expression_line() {
     let scratch = support::Scratch::new("variant-is-diagnostics");
     for (expression, offending) in cases {
         let source = format!(
-            "#enum Choice () (Choice.Yes Choice.No)\n#enum Other () (Other.Right)\n#struct Record () ()\n#fn main () #bool\n    (#let value Choice Choice.Yes)\n    (#let record Record (#struct-literal Record ()))\n    {expression}\n    (#return true)\n"
+            "#enum Choice () (Choice.Yes Choice.No)
+#enum Other () (Other.Right)
+#struct Record () ()
+#fn main () #bool
+    (#let value Choice Choice.Yes)
+    (#let record Record (#struct-literal Record ()))
+    {expression}
+    (#return true)
+"
         );
         let input = scratch.path().join("bad.lim");
         fs::write(&input, &source).unwrap();

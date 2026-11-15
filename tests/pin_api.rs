@@ -26,7 +26,11 @@ fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
     let scratch = support::Scratch::new("pin-api-scope");
     let source = source().replace(
         "#fn destroy-frame ((pin PinnedFrame)) ()",
-        "#fn destroy-frame ((pin PinnedFrame)) ()\n      (#let byte #u64 67u64)\n      (#let pointer (#ptr #u64) (#unsafe (#addr-of byte)))\n      (#let written #i64 (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))))\n      (#assert (#i64::eq written 1i64))",
+        "#fn destroy-frame ((pin PinnedFrame)) ()
+      (#let byte #u64 67u64)
+      (#let pointer (#ptr #u64) (#unsafe (#addr-of byte)))
+      (#let written #i64 (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))))
+      (#assert (#i64::eq written 1i64))",
     );
     let assembly = compile(&source, &scratch).unwrap();
     let binary = scratch.path().join("program");
@@ -203,7 +207,7 @@ fn projected_handles_cannot_escape_or_overlap_exclusively() {
         .replace("(result #u64)", "(result PinnedInner)")
         .replace("#fn drive-outer ((pin PinnedOuter)) #u64", "#fn drive-outer ((pin PinnedOuter)) PinnedInner")
         .replace("(#forget child) (#return result)", "(#return child)")
-        .replace("#fn main () #u64 (#return (#call with-outer\n          ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64))))))))))", "#fn main () #u64 (#let escaped PinnedInner (#call with-outer ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64)))))))))) (#forget escaped) (#return 0u64))");
+        .replace("#fn main () #u64 (#return (#call with-outer\n          ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64))))))))))", "#fn main () #u64 (#let escaped PinnedInner (#call with-outer ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64)))))))))) (#forget escaped) (#return 0u64)");
     for source in [overlapping, escaping] {
         let scratch = support::Scratch::new("pin-api-projection-invalid");
         let error = compile(&source, &scratch).unwrap_err();

@@ -109,10 +109,12 @@ fn struct_layout_and_projection_keep_written_initialization_effects() {
 fn strict_intrinsic_roles_survive_reversed_evaluation() {
     trace(
         &format!(
-            "{TRACE}#fn main () #u64
+            "{TRACE}
+#fn main () #u64
         (#return (#call #u64::sub-wrap
           ((right (#call mark ((byte 65u8) (value 2u64))))
-           (left (#call mark ((byte 66u8) (value 44u64)))))))\n"
+           (left (#call mark ((byte 66u8) (value 44u64)))))))
+"
         ),
         b"AB",
         true,
@@ -144,8 +146,10 @@ fn later_writes_respect_earlier_argument_loans_and_report_authored_spans() {
     let write = "(ignored (#call change ((target (#borrow-mut owner)))))";
     let borrow = "(view (#borrow owner))";
     let valid = format!(
-        "{prefix}#fn main () #u64 (#let-mut owner #u64 0u64)
-        (#return (#call read ({write} {borrow})))\n"
+        "{prefix}
+#fn main () #u64 (#let-mut owner #u64 0u64)
+        (#return (#call read ({write} {borrow})))
+"
     );
     lim::check_types(&lim::parse_program(&valid).unwrap()).unwrap();
     let invalid = valid.replace(&format!("{write} {borrow}"), &format!("{borrow} {write}"));

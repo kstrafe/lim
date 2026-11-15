@@ -365,7 +365,7 @@ fn builtin_helper_policy_matches_materialization_and_cache_context() {
                 .collect::<Vec<_>>();
             let materialized_program = lim::parse_program(&format!(
                 "{}\n{}",
-                source.split("(#generate").next().unwrap(),
+                source.split("#generate").next().unwrap(),
                 generated_source::ordinary_source(materialized)
             ))
             .unwrap();

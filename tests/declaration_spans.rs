@@ -24,7 +24,7 @@ fn declaration_failures_select_occurrences_deterministically() {
             "Value",
         ),
         (
-            "(#let cOUNT #u64 1u64)\n(#let cOUNT #u64 2u64)\n(#let cOUNT #u64 3u64)",
+            "#let cOUNT #u64 1u64\n#let cOUNT #u64 2u64\n#let cOUNT #u64 3u64\n",
             "cOUNT",
         ),
     ] {

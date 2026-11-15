@@ -103,7 +103,7 @@ fn literal_selectors_are_data_but_private_function_references_are_checked_early(
         "#generate splice read-generated value (#get value capacity)\n",
         "#generate field read-generated capacity\n",
     ] {
-        check_modes(scratch.path(), &format!("#alias splice = ./library/lib.lim::splice\n#alias field = ./library/lib.lim::field\n {invocation}#fn main () #u64 (#return 0u64)\n"), None);
+        check_modes(scratch.path(), &format!("#alias splice = ./library/lib.lim::splice\n#alias field = ./library/lib.lim::field\n{invocation}\n#fn main () #u64 (#return 0u64)\n"), None);
     }
     check_modes(scratch.path(), "#alias forwarded = ./library/lib.lim::forwarded\n#generate forwarded read-generated (() (#call @./library/lib.lim::secret ()))\n#fn main () #u64 (#return 0u64)\n", Some("private"));
 }
@@ -182,7 +182,7 @@ fn generated_code_can_use_deliberately_derived_names_and_literal_statement_lists
         format!("#generate append generated-read {base:?}\n"),
         "#generate splice generated-read value ((#return (#get value capacity)))\n".to_owned(),
     ] {
-        check_modes(scratch.path(), &format!("#alias append = ./library/lib.lim::append\n#alias splice = ./library/lib.lim::splice\n {invocation}#fn main () #u64 (#return 0u64)\n"), None);
+        check_modes(scratch.path(), &format!("#alias append = ./library/lib.lim::append\n#alias splice = ./library/lib.lim::splice\n{invocation}\n#fn main () #u64 (#return 0u64)\n"), None);
     }
 }
 
@@ -335,7 +335,7 @@ fn private_invocation_references_fail_before_the_generator_executes() {
     for argument in [
         "@./library/lib.lim::secret".to_owned(),
         target,
-        "#fn local () #u64 (#return (#call @./library/lib.lim::secret ()))\n".to_owned(),
+        "(#fn local () #u64 (#return (#call @./library/lib.lim::secret ())))".to_owned(),
     ] {
         let source = format!("#alias reject = ./library/lib.lim::reject\n#generate reject {argument}\n#fn main () #u64 (#return 0u64)\n");
         for cache in [false, true] {

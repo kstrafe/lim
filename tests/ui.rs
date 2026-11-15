@@ -1667,7 +1667,7 @@ fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
         assert!(stderr.contains("error[E4000]"), "{stderr}");
         assert!(stderr.contains("input.lim:2:"), "{stderr}");
         assert!(
-            stderr.contains("(#fn generated () #u64 (#return false))"),
+            stderr.contains("#fn generated () #u64 (#return false)"),
             "{stderr}"
         );
         assert!(

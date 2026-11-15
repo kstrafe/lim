@@ -106,7 +106,7 @@ fn implicit_clone_hooks_cannot_form_direct_or_mutual_recursion() {
     ];
     let scratch = support::Scratch::new("recursive-clone-hooks");
     for source in sources {
-        let source = format!("{source}#fn main () #u64 (#return 42u64)\n");
+        let source = format!("{source}\n#fn main () #u64 (#return 42u64)\n");
         for pruned in [false, true] {
             let error = assembly(&source, &scratch.path().join("main.lim"), pruned).unwrap_err();
             assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");

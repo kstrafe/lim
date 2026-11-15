@@ -110,7 +110,7 @@ fn clone_refuses_mutation_until_unique_and_destroys_and_deallocates_once() {
     let generated = run(&source, "pin-rc-native");
     for function in ["create", "clone", "borrow", "borrow-mut", "destroy"] {
         assert!(
-            generated.contains(&format!("(#fn PinnedNumberRc::{function}")),
+            generated.contains(&format!("#fn PinnedNumberRc::{function}")),
             "{function}"
         );
     }

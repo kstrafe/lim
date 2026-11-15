@@ -53,11 +53,13 @@ fn break_consumes_body_owner_without_running_step() {
 fn body_scope_still_requires_explicit_linear_consumption() {
     for tail in ["(#break)", "(#continue)", ""] {
         let source = format!(
-            "{CONTEXT}#fn main () #u64
+            "{CONTEXT}
+#fn main () #u64
             (#let-mut index #u64 0u64)
             (#for () (#u64::lt index 1u64) (#set index 1u64)
               (#let token Resource (#struct-literal Resource ((value 42u64)))) {tail})
-            (#return 42u64)\n"
+            (#return 42u64)
+"
         );
         let program = lim::parse_program(&source).unwrap();
         assert!(lim::check_types(&program).is_err(), "{tail}");
@@ -87,10 +89,12 @@ fn a_step_can_return_an_external_reference_without_losing_its_origin() {
 #[test]
 fn continue_before_initialization_cannot_supply_the_step_owner() {
     let source = format!(
-        "{CONTEXT}#fn main () #u64
+        "{CONTEXT}
+#fn main () #u64
         (#for () true (#forget token)
           (#continue) (#let token Resource (#struct-literal Resource ((value 42u64)))))
-        (#return 42u64)\n"
+        (#return 42u64)
+"
     );
     let program = lim::parse_program(&source).unwrap();
     assert!(lim::check_types(&program).is_err());
