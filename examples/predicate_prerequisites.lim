@@ -3,16 +3,14 @@
 #fn positive {
   #params = { value = #u64; };
   #returns = #bool;
-  #body:
-    #return [#u64; value > 0u64];
+  #body: #return [#u64; value > 0u64];
 }
 
 #fn small-positive {
   #params = { value = #u64; };
   #returns = #bool;
   #requires: (positive { value; });
-  #body:
-    #return [#u64; value < 100u64];
+  #body: #return [#u64; value < 100u64];
 }
 
 #fn consume {
@@ -20,12 +18,11 @@
   #returns = #u64;
   // This also requires positive(value), without repeating it here.
   #requires: (small-positive { value; });
-  #body:
-    #return value;
+  #body: #return value;
 }
 
 #fn main {
-  #params = {};
+  #params = { };
   #returns = #u64;
   #body:
     #let value : #u64 = 42u64;

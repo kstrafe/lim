@@ -49,11 +49,20 @@ impl Requirements {
             seen[edge.node] = true;
             let len = route.len();
             if let Some(span) = edge.span {
-                let kind = if root { "root requirement" } else { "prerequisite" };
-                route.push((span, format!("{kind} {:?}", graph.nodes[edge.node].expression)));
+                let kind = if root {
+                    "root requirement"
+                } else {
+                    "prerequisite"
+                };
+                route.push((
+                    span,
+                    format!("{kind} {:?}", graph.nodes[edge.node].expression),
+                ));
             }
             if edge.node == target
-                || graph.nodes[edge.node].prerequisites.iter()
+                || graph.nodes[edge.node]
+                    .prerequisites
+                    .iter()
                     .any(|next| find(graph, next, target, seen, route, false))
             {
                 return true;
@@ -114,9 +123,14 @@ fn instantiate(
             return Err(budget(span));
         }
         match expr {
-            Expr::Symbol(name) if bindings.contains_key(name) => {
-                copy(&bindings[name], &HashMap::new(), work, size, depth + 1, span)
-            }
+            Expr::Symbol(name) if bindings.contains_key(name) => copy(
+                &bindings[name],
+                &HashMap::new(),
+                work,
+                size,
+                depth + 1,
+                span,
+            ),
             Expr::List(xs) => {
                 let empty = HashMap::new();
                 let mut out = Vec::new();
@@ -126,14 +140,23 @@ fn instantiate(
                         || (matches!(head(expr), "as" | "literal" | "array" | "tuple")
                             && index == if head(expr) == "as" { 2 } else { 1 });
                     out.push(copy(
-                        x, if literal { &empty } else { bindings },
-                        work, size, depth + 1, span,
+                        x,
+                        if literal { &empty } else { bindings },
+                        work,
+                        size,
+                        depth + 1,
+                        span,
                     )?);
                 }
                 Ok(Expr::List(out.into()))
             }
-            Expr::Block(_) | Expr::Loop(_) | Expr::Labeled { .. } | Expr::Quote(_)
-            | Expr::QuasiQuote(_) | Expr::Unquote(_) | Expr::UnquoteSplicing(_) => {
+            Expr::Block(_)
+            | Expr::Loop(_)
+            | Expr::Labeled { .. }
+            | Expr::Quote(_)
+            | Expr::QuasiQuote(_)
+            | Expr::Unquote(_)
+            | Expr::UnquoteSplicing(_) => {
                 Err(fail("unsupported predicate prerequisite expression", span))
             }
             Expr::Symbol(s) | Expr::Function(s) | Expr::String(s) if s.len() > 16 * 1024 => {
@@ -187,7 +210,10 @@ impl Builder<'_> {
             Some(Expr::Function(name)) => Some(name.clone()),
             _ => None,
         };
-        if predicate.as_ref().is_some_and(|name| self.active.contains(name)) {
+        if predicate
+            .as_ref()
+            .is_some_and(|name| self.active.contains(name))
+        {
             let mut cycle = self.active.clone();
             cycle.push(predicate.unwrap());
             return Err(fail(
@@ -208,13 +234,24 @@ impl Builder<'_> {
             prerequisites: Vec::new(),
         });
         if let Some(name) = predicate {
-            let f = self.program.contracts.originals.get(&name)
+            let f = self
+                .program
+                .contracts
+                .originals
+                .get(&name)
                 .ok_or_else(|| fail(format!("unknown predicate '{name}'"), span))?;
             if parts(&expression).len() != f.parameters.len() + 1 {
-                return Err(fail(format!("predicate '{name}' has incorrect arity"), span));
+                return Err(fail(
+                    format!("predicate '{name}' has incorrect arity"),
+                    span,
+                ));
             }
-            let bindings = f.parameters.iter().zip(&parts(&expression)[1..])
-                .map(|(p, arg)| (p.name.clone(), arg.clone())).collect();
+            let bindings = f
+                .parameters
+                .iter()
+                .zip(&parts(&expression)[1..])
+                .map(|(p, arg)| (p.name.clone(), arg.clone()))
+                .collect();
             self.active.push(name.clone());
             for index in 0..self.program.contracts.clauses[&name].requires.len() {
                 self.edges += 1;
@@ -224,7 +261,9 @@ impl Builder<'_> {
                 let origin = self.spans[&name][index];
                 let prerequisite = instantiate(
                     &self.program.contracts.clauses[&name].requires[index],
-                    &bindings, self.work, origin,
+                    &bindings,
+                    self.work,
+                    origin,
                 )?;
                 let child = self.node(prerequisite, origin)?;
                 self.graph.nodes[node].prerequisites.push(Dependency {
@@ -241,8 +280,16 @@ impl Builder<'_> {
 }
 
 pub(super) fn expand(program: &mut Program) -> Result<(), SourceError> {
-    let spans: BTreeMap<String, Vec<Option<Span>>> = program.contracts.clauses.iter()
-        .map(|(name, clauses)| (name.clone(), root_spans(program, name, clauses.requires.len())))
+    let spans: BTreeMap<String, Vec<Option<Span>>> = program
+        .contracts
+        .clauses
+        .iter()
+        .map(|(name, clauses)| {
+            (
+                name.clone(),
+                root_spans(program, name, clauses.requires.len()),
+            )
+        })
         .collect();
     let mut effective = BTreeMap::new();
     let mut work = 0;
@@ -284,7 +331,10 @@ pub(super) fn call_span(
         match (left, right) {
             (Expr::List(left), Expr::List(right)) => {
                 left.len() == right.len()
-                    && left.iter().zip(right.iter()).all(|(a, b)| same_expression(a, b))
+                    && left
+                        .iter()
+                        .zip(right.iter())
+                        .all(|(a, b)| same_expression(a, b))
             }
             _ => left == right,
         }
@@ -293,20 +343,28 @@ pub(super) fn call_span(
         let h = head(&source.expr);
         if matches!(h, "#call" | "call") || program.contracts.originals.contains_key(h) {
             let expression = crate::normalize_keywords(source.expr.clone());
-            if normalized(&expression, program).ok()
+            if normalized(&expression, program)
+                .ok()
                 .is_some_and(|expression| same_expression(&expression, call))
             {
                 return Some(source.span);
             }
         }
-        source.children.iter().find_map(|child| find(program, child, call))
+        source
+            .children
+            .iter()
+            .find_map(|child| find(program, child, call))
     }
-    program.statement_expressions.iter()
+    program
+        .statement_expressions
+        .iter()
         .filter(|((name, _), source)| {
-            name == function && current.is_none_or(|span| {
-                source.span.source_id == span.source_id
-                    && source.span.start <= span.start && source.span.end >= span.end
-            })
+            name == function
+                && current.is_none_or(|span| {
+                    source.span.source_id == span.source_id
+                        && source.span.start <= span.start
+                        && source.span.end >= span.end
+                })
         })
         .find_map(|(_, source)| find(program, source, call))
 }
