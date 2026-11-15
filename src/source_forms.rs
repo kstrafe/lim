@@ -173,7 +173,6 @@ impl<'a> SourceForms<'a> {
         let end = tokens.last().unwrap().span;
         let mut parser = Parser::new(&tokens).with_source(self.source);
         let mut node = parser.implicit_root()?;
-        validate_function_declarations(&node, self.source)?;
         // Parsing knows where a colon operand actually ends. A declaration
         // head left as an immediate symbol is an ungrouped sibling, even if
         // the lexical scan previously entered a colon operand. Nested and
@@ -195,6 +194,7 @@ impl<'a> SourceForms<'a> {
                 });
             }
         }
+        validate_function_declarations(&node, &tokens)?;
         node.span = crate::Span {
             end: end.end,
             ..header
@@ -207,7 +207,7 @@ impl<'a> SourceForms<'a> {
 // template, function-shaped data and ordinary grouping retain the raw grammar.
 fn validate_function_declarations(
     node: &SpannedExpr,
-    source: &str,
+    tokens: &[Token],
 ) -> Result<(), crate::ParseError> {
     let Some(head) = node.children.first() else {
         return Ok(());
@@ -216,9 +216,15 @@ fn validate_function_declarations(
         return Ok(());
     };
     if matches!(keyword.as_str(), "#fn" | "#unsafe-fn" | "#extern-fn") {
-        let mut lexer = Lexer::new(&source[head.span.end..node.span.end]);
-        let mut next = || lexer.next_token().ok().flatten().map(|token| token.kind);
-        if !matches!(next(), Some(TokenKind::Symbol(_))) || next() != Some(TokenKind::LBrace) {
+        let start = tokens.partition_point(|token| token.span.start < head.span.end);
+        let end = tokens.partition_point(|token| token.span.start < node.span.end);
+        let operands = &tokens[start..end];
+        if !matches!(
+            operands.first().map(|token| &token.kind),
+            Some(TokenKind::Symbol(_))
+        )
+            || operands.get(1).map(|token| &token.kind) != Some(&TokenKind::LBrace)
+        {
             return Err(crate::ParseError {
                 message: format!(
                     "{keyword} source declarations require a named record; use {keyword} name {{ #params = {{}}; #returns = (); {} }}",
@@ -227,13 +233,42 @@ fn validate_function_declarations(
                 span: head.span,
             });
         }
+        // Normalization has already replaced valid records with their
+        // canonical positional tree. Check the original token boundary so a
+        // record followed by positional operands cannot bypass that lowering.
+        let mut depth = 0;
+        for (index, token) in operands.iter().enumerate().skip(1) {
+            match token.kind {
+                TokenKind::LBrace => depth += 1,
+                TokenKind::RBrace => depth -= 1,
+                _ => continue,
+            }
+            if depth == 0 {
+                let remaining = &operands[index + 1..];
+                // A cfg branch may have one explicit pair of parentheses
+                // around the declaration; that closing delimiter is its own.
+                let closes_declaration = remaining.len() == 1
+                    && remaining[0].kind == TokenKind::RParen
+                    && node.span.start < head.span.start
+                    && remaining[0].span.end == node.span.end;
+                if !remaining.is_empty() && !closes_declaration {
+                    return Err(crate::ParseError {
+                        message: format!(
+                            "{keyword} source declaration must end after its record; put all fields inside '{{ ... }}'"
+                        ),
+                        span: remaining[0].span,
+                    });
+                }
+                break;
+            }
+        }
     } else if keyword == "#cfg-if" {
         for branch in node.children.iter().skip(2) {
-            validate_function_declarations(branch, source)?;
+            validate_function_declarations(branch, tokens)?;
         }
     } else if keyword == "#cfg-else" {
         for branch in node.children.iter().skip(1) {
-            validate_function_declarations(branch, source)?;
+            validate_function_declarations(branch, tokens)?;
         }
     }
     Ok(())

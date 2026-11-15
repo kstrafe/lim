@@ -54,6 +54,96 @@ fn source_rejects_positional_and_section_signatures_without_banning_raw_trees() 
 }
 
 #[test]
+fn function_records_cannot_hide_trailing_positional_operands() {
+    for declaration in [
+        "#fn main {} #u64 (#return 42u64)",
+        "#unsafe-fn main {} #u64 (#return 42u64)",
+        "#extern-fn foreign {} #u64",
+        "#fn main { #params = {}; #returns = #u64; #body: #return 42u64; } ()",
+        "#unsafe-fn main { #params = {}; #returns = #u64; #body: #return 42u64; } #u64 (#return 0u64)",
+        "#extern-fn foreign { #abi = #abi-c; #params = {}; #returns = (); } ()",
+        "#fn main {}\n  #u64 (#return 42u64)",
+        "#fn main {} : #u64 (#return 42u64)",
+    ] {
+        let error = lim::parse_source_unit(declaration).unwrap_err();
+        assert!(
+            error.contains("must end after its record"),
+            "{declaration}: {error}"
+        );
+        assert!(lim::format_source(declaration).is_err(), "{declaration}");
+        assert!(lim::parse_program(declaration).is_err(), "{declaration}");
+    }
+    let source = "#fn main {} #u64 (#return 42u64)";
+    let error = lim::parse_source_unit(source).unwrap_err();
+    assert!(error.starts_with("1:13:"), "{error}");
+
+    // Raw function-shaped data is still the canonical generator interface.
+    assert!(lim::parse(&format!("({source})")).is_ok());
+    let generated = "#gn emit () `((#fn answer {} #u64 (#return 42u64)))\n#generate emit\n#fn main { #params = {}; #returns = #u64; #body: #return (answer {}); }";
+    lim::check_types(&lim::parse_program(generated).unwrap()).unwrap();
+}
+
+#[test]
+fn cfg_function_records_reject_trailing_operands_before_branch_selection() {
+    for declaration in [
+        "#fn answer {} #u64 (#return 42u64)",
+        "#unsafe-fn answer {} #u64 (#return 42u64)",
+        "#extern-fn foreign {} #u64",
+    ] {
+        for source in [
+            format!("#cfg-if (#cfg-is #feature disabled) ({declaration})"),
+            format!("#cfg-if (#cfg-is #feature disabled): {declaration}"),
+            format!("#cfg-if (#cfg-is #feature disabled):\n  {declaration}"),
+            format!("#cfg-if (#cfg-is #feature enabled) (#type Word #u64) (#cfg-else ({declaration}))"),
+            format!("#cfg-if (#cfg-is #feature disabled) (#cfg-if (#cfg-is #mode fast) ({declaration}))"),
+        ] {
+            let error = lim::parse_source_unit(&source).unwrap_err();
+            assert!(
+                error.contains("must end after its record"),
+                "{source}: {error}"
+            );
+            assert!(lim::format_source(&source).is_err(), "{source}");
+            for feature in ["disabled", "enabled"] {
+                let mut config = CompileConfig::default();
+                config.set("feature", feature);
+                let error = lim::parse_program_with_config(&source, &config).unwrap_err();
+                assert!(
+                    error.contains("must end after its record"),
+                    "{source}: {error}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn complete_function_records_keep_comments_nested_records_and_root_boundaries() {
+    let record = "#fn main { #params = {}; #returns = #u64; #body = ((#let text (#str) \"} {\") (#return 42u64)); }";
+    for source in [
+        format!("{record} // }} ignored\n#type Word #u64"),
+        format!("{record}; #type Word #u64"),
+        format!("#cfg-if (#cfg-is #feature selected) (\n {record} // comment\n)"),
+        format!("#cfg-if (#cfg-is #feature selected): {record}"),
+        format!("#cfg-if (#cfg-is #feature selected):\n  {record}"),
+    ] {
+        let nodes = trees(&source);
+        let formatted = lim::format_source(&source).unwrap();
+        assert_eq!(nodes, trees(&formatted));
+    }
+    for source in [
+        format!("{record} #type Word #u64"),
+        format!("#cfg-if (#cfg-is #feature disabled): #fn hidden {{}} #u64 (#return 0u64)\n #fn other {{ #params = {{}}; #returns = (); #body: #return (); }}"),
+    ] {
+        let error = lim::parse_source_unit(&source).unwrap_err();
+        assert!(
+            error.contains("newline or semicolon separator"),
+            "{source}: {error}"
+        );
+        assert!(lim::format_source(&source).is_err());
+    }
+}
+
+#[test]
 fn cfg_declaration_branches_are_checked_even_when_inactive_but_templates_are_data() {
     let modern = "#fn answer { #params = {}; #returns = #u64; #body: #return 42; }";
     for source in [
