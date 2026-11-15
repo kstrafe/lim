@@ -3,11 +3,16 @@
 #fn consume {
   #params = ((value ()));
   #returns = #u64;
-  #body = ((#return 41));
+  #body = (
+    (#return 41)
+  );
 }
 
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ((#return (#call consume ((value uNIT)))));
+  #effects = ((#read-global uNIT));
+  #body = (
+    (#return (#call consume ((value uNIT))))
+  );
 }

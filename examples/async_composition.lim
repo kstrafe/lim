@@ -27,6 +27,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of Parent::poll));
   #body = (
     (#let waker #u64 0u64)
     (#let first Parent::Poll (#call Parent::poll ((task (#call parent ((amount 40u64)))) (waker

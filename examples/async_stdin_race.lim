@@ -16,6 +16,7 @@
 #fn main {
   #params = ();
   #returns = #i32;
+  #effects = ((#effects-of async-byte-read1-create) (#effects-of async-byte-read1-destroy) (#effects-of async-byte-read1-enable-nonblocking) (#effects-of async-byte-read1-poll) (#effects-of async-byte-read1-wait) (#effects-of linux-read-byte-from));
   #body = (
     (#let-mut byte #u8 0u8)
     (#let-mut stolen #u8 0u8)

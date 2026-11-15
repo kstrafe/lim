@@ -18,6 +18,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of async-poll4-wait));
   #body = (
     (#let-mut queue WakeReady4 (#call wake-ready4-create ()))
     (#let registration WakeRegister4 (#call wake-ready4-register ((queue (#borrow-mut queue))

@@ -31,6 +31,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of Work::poll));
   #body = (
     (#let waker #u64 0u64)
     (#let-mut task Work::Task (#call work ((bounds (#struct-literal Bounds ((a 20u64) (z (#tuple

@@ -3,6 +3,8 @@
 #fn main {
   #params = { };
   #returns = ();
+  #effects = ((#effects-of String::from-chars) (#effects-of std-println)
+    (#effects-of String::free));
   #body:
     #let greeting (#array #char 13) "Hello, world!";
     #let message String:

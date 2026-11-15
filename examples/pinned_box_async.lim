@@ -6,73 +6,71 @@
 #enum ArenaError () (ArenaError.OutOfMemory)
 #type Arena::Allocator::State Arena
 #type Arena::Allocator::Error ArenaError
-#enum Arena::Allocator::Allocation () ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8))
-  (Arena::Allocator::Allocation.AllocationFailed ArenaError))
+#enum Arena::Allocator::Allocation ()
+    ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8))
+     (Arena::Allocator::Allocation.AllocationFailed ArenaError))
 
 #struct StepWaiting () ((value #u64) (remaining #u64))
 #enum Step (#linear) ((Step.Step-waiting StepWaiting))
 
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-
 #fn step-poll {
   #params = ((task Step) (waker (#ref #u64)));
   #returns = StepPoll;
-  #body = ((#return (#match task
-        (#case (Step.Step-waiting state)
-          (#if (#u64::eq (#get state remaining) 0u64)
-            (StepPoll.StepReady (#get state value))
-            (StepPoll.StepPending (Step.Step-waiting (#struct-literal StepWaiting ((value (#get
-                        state value)) (remaining (#u64::sub-wrap (#get state remaining) 1u64))))))
-          )
-        )
-      )));
+  #body = (
+    (#return (#match task
+      (#case (Step.Step-waiting state)
+        (#if (#u64::eq (#get state remaining) 0u64) (StepPoll.StepReady (#get state value))
+          (StepPoll.StepPending (Step.Step-waiting (#struct-literal StepWaiting
+            ((value (#get state value)) (remaining (#u64::sub-wrap (#get state remaining) 1u64))))))))))
+  );
 }
-
 #syntax StepAwait (#u64 Step StepPoll.StepPending StepPoll.StepReady step-poll)
-
 #fn cancel-step {
   #params = ((task Step));
   #returns = ();
-  #body = ((#forget task) (#return ()));
+  #body = ( (#forget task) (#return ())
+  );
 }
 
-#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (cancel (cancel-work ((await-0
-          cancel-step)))) (function (#fn work () #u64 (#let value #u64 (#await (#syntax-splice
-            StepAwait) (Step.Step-waiting (#struct-literal StepWaiting ((value 42u64) (remaining
-                  2u64)))))) (#return value))))
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+    (cancel (cancel-work ((await-0 cancel-step))))
+    (function
+    (#fn work () #u64
+      (#let value #u64 (#await (#syntax-splice StepAwait)
+        (Step.Step-waiting (#struct-literal StepWaiting ((value 42u64) (remaining 2u64))))))
+      (#return value))))
 
 #fn Arena::Allocator::allocate {
   #params = ((allocator (#ref Arena)) (layout #usize) (alignment #usize));
   #returns = Arena::Allocator::Allocation;
+  #effects = (#global-access #io);
   #body = (
-    (#let pointer (#ptr-mut #u8) (#unsafe
-        (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP (0usize layout 3usize 34usize -1i64 0usize))
-      ))
+    (#let pointer (#ptr-mut #u8)
+      (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
+        (0usize layout 3usize 34usize -1i64 0usize))))
     (#return (#if (#usize::ge (#ptr-address pointer) 18446744073709547520usize)
-        (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory)
-        (Arena::Allocator::Allocation.Allocated pointer)
-      ))
+      (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory)
+      (Arena::Allocator::Allocation.Allocated pointer)))
   );
 }
-
 #unsafe-fn Arena::Allocator::deallocate {
-  #params = ((allocator (#ref Arena)) (pointer (#ptr-mut #u8)) (layout #usize) (alignment #usize));
+  #params = ((allocator (#ref Arena)) (pointer (#ptr-mut #u8))
+    (layout #usize) (alignment #usize));
   #returns = ();
+  #effects = (#global-access #io);
   #body = (
-    (#let status #i64 (#unsafe
-        (#linux-syscall #i64 lINUX-SYS-MUNMAP (pointer layout))
-      ))
-    (#assert (#i64::eq status 0i64))
-    (#return ())
+    (#let status #i64 (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (pointer layout))))
+    (#assert (#i64::eq status 0i64)) (#return ())
   );
 }
 
-#generate lim-gen-pin-box ((type Work::Frame) (allocator Arena::Allocator) (name PinnedFrameBox)
-  (destroy destroy-frame))
+#generate lim-gen-pin-box ((type Work::Frame) (allocator Arena::Allocator) (name PinnedFrameBox) (destroy destroy-frame))
 
 #fn destroy-frame {
   #params = ((allocator (#ref Arena)) (pin (#pin-ref-mut Work::Frame)));
   #returns = ();
+  #effects = ((#effects-of Work::Poll::cleanup));
   #body = (
     (#call cancel-work ((task (#call Work::Poll::cleanup ((task pin))))))
     (#forget pin)
@@ -83,48 +81,38 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of PinnedFrameBox::create) (#effects-of PinnedFrameBox::destroy) (#effects-of Work::poll));
   #body = (
     (#let arena Arena (#struct-literal Arena ()))
     (#let frame Work::Frame (#call work ()))
-    (#let created PinnedFrameBox::CreateResult (#call PinnedFrameBox::create ((allocator (#borrow
-              arena)) (value frame))))
-    (#let-mut owner PinnedFrameBox (#match created
-        (#case (PinnedFrameBox::CreateResult.Created box)
-          box
-        )
+    (#let created PinnedFrameBox::CreateResult
+      (#call PinnedFrameBox::create ((allocator (#borrow arena)) (value frame))))
+    (#let-mut owner PinnedFrameBox
+      (#match created
+        (#case (PinnedFrameBox::CreateResult.Created box) box)
         (#case (PinnedFrameBox::CreateResult.Allocation-failed failure)
-          (#block
-            (#let (#tuple error failed-frame) (#tuple ArenaError Work::Frame) failure)
-            (#forget error)
-            (#forget failed-frame)
-            (#return 0u64)
-          )
-        )
-      ))
+          (#block (#let (#tuple error failed-frame) (#tuple ArenaError Work::Frame) failure)
+            (#forget error) (#forget failed-frame) (#return 0u64)))))
     (#let waker #u64 0u64)
-    (#let first Work::Poll (#call Work::poll ((task (#call PinnedFrameBox::borrow-mut ((owner
-                  (#borrow-mut owner))))) (waker (#borrow waker)))))
+    (#let first Work::Poll
+      (#call Work::poll ((task (#call PinnedFrameBox::borrow-mut ((owner (#borrow-mut owner)))))
+        (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending pending-frame) Work::Poll first (#unreachable))
     (#forget pending-frame)
     (#let-mut moved-once PinnedFrameBox owner)
-    (#let second Work::Poll (#call Work::poll ((task (#call PinnedFrameBox::borrow-mut ((owner
-                  (#borrow-mut moved-once))))) (waker (#borrow waker)))))
+    (#let second Work::Poll
+      (#call Work::poll ((task (#call PinnedFrameBox::borrow-mut ((owner (#borrow-mut moved-once)))))
+        (waker (#borrow waker)))))
     (#let-else (Work::Poll.Pending pending-frame-second) Work::Poll second (#unreachable))
     (#forget pending-frame-second)
     (#let-mut moved-twice PinnedFrameBox moved-once)
-    (#let third Work::Poll (#call Work::poll ((task (#call PinnedFrameBox::borrow-mut ((owner
-                  (#borrow-mut moved-twice))))) (waker (#borrow waker)))))
-    (#let answer #u64 (#match third
-        (#case (Work::Poll.Ready value)
-          value
-        )
-        (#case (Work::Poll.Pending unexpected-frame)
-          (#block
-            (#forget unexpected-frame)
-            0u64
-          )
-        )
-      ))
+    (#let third Work::Poll
+      (#call Work::poll ((task (#call PinnedFrameBox::borrow-mut ((owner (#borrow-mut moved-twice)))))
+        (waker (#borrow waker)))))
+    (#let answer #u64
+      (#match third
+        (#case (Work::Poll.Ready value) value)
+        (#case (Work::Poll.Pending unexpected-frame) (#block (#forget unexpected-frame) 0u64))))
     (#call PinnedFrameBox::destroy ((owner moved-twice)))
     (#return answer)
   );

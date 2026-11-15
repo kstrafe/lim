@@ -26,6 +26,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of Work::poll));
   #body = (
     (#let waker #u64 0u64)
     (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))

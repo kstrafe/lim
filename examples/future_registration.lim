@@ -25,6 +25,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of Work::poll));
   #body = (
     (#let waker #u64 0u64)
     (#let-mut task ExecutorTask (#enum-literal ExecutorTask.Work (#call work ())))

@@ -42,6 +42,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of Work::poll));
   #body = (
     (#let waker #u64 0u64)
     (#let-mut task Work::Task (#call work ((values (#struct-literal Values ((a 22u64) (z (#tuple

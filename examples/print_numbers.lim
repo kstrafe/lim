@@ -4,6 +4,7 @@
 #fn print-number {
   #params = { value = #u64; };
   #returns = ();
+  #effects = ((#effects-of write-byte));
   #body:
     #let-mut divisor #u64 1;
     #while [#u64 #wrap; [value / divisor] >= 10]:
@@ -21,6 +22,7 @@
 #fn main {
   #params = { };
   #returns = #u64;
+  #effects = ((#effects-of print-number));
   #body:
     // The end bound is exclusive: 1 through 10.
     #for-range (number #u64) 1 11:

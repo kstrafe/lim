@@ -7,6 +7,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of linux-sched-getaffinity) (#effects-of linux-sched-setaffinity) (#effects-of linux-sched-yield));
   #body = (
     (#let before (#ptr-mut #u64) (#unsafe
         (#linux-syscall (#ptr-mut #u64) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64

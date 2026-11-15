@@ -9,6 +9,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = (#global-access #io (#effects-of linux-getpriority) (#effects-of linux-sched-get-priority-max) (#effects-of linux-sched-get-priority-min) (#effects-of linux-sched-getparam) (#effects-of linux-sched-getscheduler));
   #body = (
     (#let scheduler-memory (#ptr-mut #i32) (#unsafe
         (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP (0usize 4096usize 3usize 34usize -1i64

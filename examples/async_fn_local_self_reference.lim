@@ -31,6 +31,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of Local-self-ref::poll));
   #body = (
     (#let-mut frame Local-self-ref::Frame (#call local-self-ref ((seed 40u64))))
     (#let waker #u64 0u64)

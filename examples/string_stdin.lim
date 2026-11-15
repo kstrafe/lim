@@ -10,6 +10,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of String::free) (#effects-of std-println) (#effects-of std-read-line));
   #body = (
     (#let-mut line String (#call String::new ()))
     (#let-mut finished #bool false)

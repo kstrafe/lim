@@ -11,6 +11,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of timer-reactor-many-wait) (#effects-of timer-reactor1-cancel) (#effects-of timer-reactor1-create) (#effects-of timer-reactor1-poll));
   #body = (
     (#let created-a TimerCreate1 (#call timer-reactor1-create ((nanoseconds 10000000u64))))
     (#let-else (TimerCreate1.TimerCreated1 a) TimerCreate1 created-a (#unreachable))

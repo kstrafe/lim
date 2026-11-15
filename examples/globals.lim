@@ -4,12 +4,26 @@
 
 #let letter #char #\a
 
-#fn main {
+#fn
+    main {
   #params = ();
   #returns = #u64;
-  #body = ((#return
-      (#if (#bool::and (#f32::gt scale 1.0) (#bool::and (#f64::gt pi 3.0) (#char::eq letter #\a)))
+  #effects = ((#read-global letter) (#read-global pi) (#read-global scale));
+  #body = (
+    (
+      #return
+      (
+        #if
+        (#bool::and
+          (#f32::gt  scale 1.0)
+          (#bool::and
+            (#f64::gt  pi 3.0)
+            (#char::eq  letter #\a)
+          )
+        )
         42
         0
-      )));
+      )
+    )
+  );
 }

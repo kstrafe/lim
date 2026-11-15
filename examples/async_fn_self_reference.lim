@@ -37,6 +37,7 @@
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of Read-after-await::Poll::cleanup) (#effects-of Read-after-await::poll));
   #body = (
     (#let-mut frame Read-after-await::Frame (#call read-after-await ((owner (#struct-literal Owner
               ((payload (#struct-literal Payload ((left 40u64) (right 5u64))))))))))
