@@ -513,7 +513,7 @@ fn selected_array_elements_source(mutable: bool) -> String {
   #returns = #u64;
   #body = (
               (#assert (#u64::eq (#call run ((choose true) (cancel false))) {left_result}u64))
-              (#assert (#u64::eq (#call run ((choose false) (cancel false))) {CANCEL}0u64))
+              (#assert (#u64::eq (#call run ((choose false) (cancel false))) {right_result}u64))
               (#assert (#u64::eq (#call run ((choose true) (cancel true))) 42u64))
               (#return (#call run ((choose false) (cancel true))))
   );
@@ -736,7 +736,7 @@ fn mixed_internal_external_reference_retains_caller_storage() {
   #returns = #u64;
   #body = (
               (#assert (#u64::eq (#call run ((choose true))) {inside}u64))
-              (#assert (#u64::eq (#call run ((choose false))) {CANCEL}0u64)) (#return 42u64)
+              (#assert (#u64::eq (#call run ((choose false))) {outside}u64)) (#return 42u64)
   );\n}}\n");
         run_native(&source, "async-mixed-reference", 42);
     }

@@ -120,17 +120,26 @@ fn seeded_aggregate_calls_and_enum_branches_match_rust_integer_results() {
     let scratch = support::Scratch::new("seeded-aggregate-native");
     let mut source = String::from("#struct Wide (#linear) ((left #u8) (marker #u128) (right #u64) (count #u16))
 #enum Choice (#linear) ((Choice.Held Wide) (Choice.Other #u64))
-#fn make ((left #u8) (marker #u128) (right #u64) (count #u16)) Wide
+#fn make {
+  #params = ((left #u8) (marker #u128) (right #u64) (count #u16));
+  #returns = Wide;
+  #body = (
             (#return (#struct-literal Wide ((count count) (right right) (marker marker) (left left))))
-#fn compute ((choose #bool) (owner Wide)) #u64
+  );
+}
+#fn compute {
+  #params = ((choose #bool) (owner Wide));
+  #returns = #u64;
+  #body = (
             (#let choice Choice (#if choose (#enum-literal Choice.Held owner) (#block (#forget owner) (#enum-literal Choice.Other 7u64))))
             (#return (#match choice
               (#case (Choice.Held record) (#block
                 (#let result #u64 (#u64::add-wrap (#u64::add-wrap (#as (#get record left) #u64) (#as (#get record marker) #u64)) (#u64::add-wrap (#get record right) (#as (#get record count) #u64))))
                 (#forget record) result))
               (#case (Choice.Other value) value)))
-#fn main () #u64
-");
+  );
+}
+#fn main {\n  #params = ();\n  #returns = #u64;\n\n  #body = (\n");
     let mut state = SEED;
     for case in 0..32 {
         let left = next(&mut state) as u8;
@@ -148,7 +157,7 @@ fn seeded_aggregate_calls_and_enum_branches_match_rust_integer_results() {
         };
         source.push_str(&format!("  (#assert (#u64::eq (#call compute ((owner (#call make ((count {count}u16) (right {right}u64) (marker {marker}u128) (left {left}u8)))) (choose {choose}))) {expected}u64))\n"));
     }
-    source.push_str("  (#return 42u64)");
+    source.push_str("  (#return 42u64)\n  );\n}\n");
     let assembly = lim::compile_source_to_assembly(
         &source,
         &scratch.path().join("case.lim"),

@@ -141,12 +141,12 @@ fn async_heap_reference_prevents_source_mutation_across_pending() {
 fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
     let prefix = PREFIX
         .replace(
-            "#fn make ((pointer (#ptr-mut Holder)) (source (#ref #u64))) (#pin-own Holder)\n      (#return",
-            "#fn make ((pointer (#ptr-mut Holder)) (source (#ref #u64)) (counts (#ptr-mut #u64))) (#pin-own Holder)\n    (#unsafe (#ptr-write counts (#u64::add-wrap (#ptr-read counts) 1u64)))\n    (#return",
+            "#fn make {\n  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)));\n  #returns = (#pin-own Holder);\n  #body = (\n      (#return",
+            "#fn make {\n  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)) (counts (#ptr-mut #u64)));\n  #returns = (#pin-own Holder);\n  #body = (\n    (#unsafe (#ptr-write counts (#u64::add-wrap (#ptr-read counts) 1u64)))\n    (#return",
         )
         .replace(
-            "#fn destroy ((owner (#pin-own Holder))) ()",
-            "#fn destroy ((owner (#pin-own Holder)) (counts (#ptr-mut #u64))) ()",
+            "#fn destroy {\n  #params = ((owner (#pin-own Holder)));\n  #returns = ();",
+            "#fn destroy {\n  #params = ((owner (#pin-own Holder)) (counts (#ptr-mut #u64)));\n  #returns = ();",
         )
         .replace(
             "(#fn work ((pointer (#ptr-mut Holder)) (source (#ref #u64))) #u64",

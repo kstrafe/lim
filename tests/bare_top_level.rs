@@ -90,7 +90,7 @@ fn source_errors_keep_delimiters_and_unicode_positions() {
     for source in [
         "#fn main {",
         "#type X (#tuple #u64]",
-        "#fn main () #u64 (#return 42u64))",
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64))",
     ] {
         assert!(lim::parse_source_unit(source).is_err(), "{source}");
     }
@@ -336,7 +336,7 @@ fn colon_exemptions_do_not_accept_unseparated_source_roots() {
     for source in [
         "#fn main { #params = {}; #returns = #u64; #body: #return 42u64; } #type Extra #u64",
         "#type First #u64 #type Second #u64",
-        "#cfg-if (#cfg-is #feature selected):\n  #fn selected () #u64 (#return 42u64)\n#fn main { #params = {}; #returns = #u64; #body: #return 42u64; } #type Extra #u64",
+        "#cfg-if (#cfg-is #feature selected):\n  #fn selected { #params = (); #returns = #u64; #body = ((#return 42u64)); }\n#fn main { #params = {}; #returns = #u64; #body: #return 42u64; } #type Extra #u64",
     ] {
         let error = lim::parse_source_unit(source).unwrap_err();
         assert!(error.contains("newline or semicolon separator"), "{error}");
@@ -351,7 +351,7 @@ fn quoted_trailing_colon_symbols_do_not_hide_adjacent_roots_in_inactive_cfg() {
     config.set("feature", "selected");
     for prefix in ["'", "`", ",@", "',", "`,", ",'", ",@,"] {
         let source = format!(
-            "#cfg-if (#cfg-is #feature inactive) {prefix}symbol: #fn ignored {{ #params = {{}}; #returns = #u64; #body: #return 0u64; }}\n#fn main () #u64 (#return 42u64)\n"
+            "#cfg-if (#cfg-is #feature inactive) {prefix}symbol: #fn ignored {{ #params = {{}}; #returns = #u64; #body: #return 0u64; }}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n"
         );
         let error = lim::parse_source_unit(&source).unwrap_err();
         assert!(error.contains("newline or semicolon separator"), "{error}");
@@ -415,8 +415,8 @@ fn explicit_colon_tokens_still_group_nested_syntax_under_quote_wrappers() {
 fn closed_colon_operands_cannot_hide_outdented_or_continued_declaration_heads() {
     let mut config = CompileConfig::default();
     config.set("feature", "selected");
-    let indented = "#cfg-if (#cfg-is #feature inactive):\n  #fn first { #params = {}; #returns = #u64; #body: #return 0u64; }\n #fn second { #params = {}; #returns = #u64; #body: #return 1u64; }\n#fn main () #u64 (#return 42u64)\n";
-    let inline = "#cfg-if (#cfg-is #feature inactive): #fn first { #params = {}; #returns = #u64; #body: #return 0u64; }\n #fn second { #params = {}; #returns = #u64; #body: #return 1u64; }\n#fn main () #u64 (#return 42u64)\n";
+    let indented = "#cfg-if (#cfg-is #feature inactive):\n  #fn first { #params = {}; #returns = #u64; #body: #return 0u64; }\n #fn second { #params = {}; #returns = #u64; #body: #return 1u64; }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
+    let inline = "#cfg-if (#cfg-is #feature inactive): #fn first { #params = {}; #returns = #u64; #body: #return 0u64; }\n #fn second { #params = {}; #returns = #u64; #body: #return 1u64; }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
     for source in [indented, inline] {
         assert!(lim::parse_source_unit(source).is_err());
         assert!(lim::format_source(source).is_err());
@@ -425,7 +425,7 @@ fn closed_colon_operands_cannot_hide_outdented_or_continued_declaration_heads() 
     let error = lim::parse_source_unit(inline).unwrap_err();
     assert!(error.contains("2:2:"), "{error}");
     assert!(error.contains("newline or semicolon separator"), "{error}");
-    let properly_separated = "#cfg-if (#cfg-is #feature inactive): #fn first { #params = {}; #returns = #u64; #body: #return 0u64; }\n#fn second () #u64 (#return 1u64)\n#fn main () #u64 (#return 42u64)\n";
+    let properly_separated = "#cfg-if (#cfg-is #feature inactive): #fn first { #params = {}; #returns = #u64; #body: #return 0u64; }\n#fn second {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 1u64)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
     assert_eq!(trees(properly_separated).len(), 3);
     let formatted = lim::format_source(properly_separated).unwrap();
     assert_eq!(trees(properly_separated), trees(&formatted));

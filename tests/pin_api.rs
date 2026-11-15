@@ -25,7 +25,7 @@ fn compile(source: &str, scratch: &support::Scratch) -> Result<String, lim::Diag
 fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
     let scratch = support::Scratch::new("pin-api-scope");
     let source = source().replace(
-        "#fn destroy-frame ((pin PinnedFrame)) ()",
+        "#fn destroy-frame {\n  #params = ((pin PinnedFrame));\n  #returns = ();",
         "#fn destroy-frame {
   #params = ((pin PinnedFrame));
   #returns = ();
@@ -106,7 +106,7 @@ fn scoped_pin_handles_cannot_escape_the_private_storage() {
     let scratch = support::Scratch::new("pin-api-escape");
     let source = source()
         .replace("(result #u64)", "(result PinnedFrame)")
-        .replace("#fn drive-frame ((pin PinnedFrame)) #u64", "#fn drive-frame ((pin PinnedFrame)) PinnedFrame")
+        .replace("#fn drive-frame {\n  #params = ((pin PinnedFrame));\n  #returns = #u64;", "#fn drive-frame {\n  #params = ((pin PinnedFrame));\n  #returns = PinnedFrame;")
         .replace("    (#forget handle)\n    (#return result)", "  (#return handle)")
         .replace("(#return (#call with-pinned-frame\n      ((value (#struct-literal Frame ((value 0u64)))))))", "(#let escaped PinnedFrame (#call with-pinned-frame ((value (#struct-literal Frame ((value 0u64)))))))\n  (#forget escaped) (#return 0u64)");
     let error = compile(&source, &scratch).unwrap_err();
@@ -208,7 +208,7 @@ fn projected_handles_cannot_escape_or_overlap_exclusively() {
         "(#let duplicate PinnedInner (#call PinnedOuter::ProjectMut::child ((pin handle)))) (#forget duplicate)\n        (#call PinnedInner::Write::value");
     let escaping = source
         .replace("(result #u64)", "(result PinnedInner)")
-        .replace("#fn drive-outer ((pin PinnedOuter)) #u64", "#fn drive-outer ((pin PinnedOuter)) PinnedInner")
+        .replace("#fn drive-outer {\n  #params = ((pin PinnedOuter));\n  #returns = #u64;", "#fn drive-outer {\n  #params = ((pin PinnedOuter));\n  #returns = PinnedInner;")
         .replace("(#forget child) (#return result)", "(#return child)")
         .replace("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call with-outer\n          ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64))))))))))\n  );\n}", "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let escaped PinnedInner (#call with-outer ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64)))))))))) (#forget escaped) (#return 0u64)\n  );\n}");
     for source in [overlapping, escaping] {

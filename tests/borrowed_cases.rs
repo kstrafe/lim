@@ -245,7 +245,7 @@ fn async_generator_matches_reference_returned_by_call() {
 #[test]
 fn borrowed_case_rejections_cover_mode_and_aliasing_rules() {
     reject("#enum E () ((E.A #u64) E.B)\n#fn f {\n  #params = ((e (#ref E)));\n  #returns = #u64;\n  #body = ( (#return (#match e (#case-ref-mut (E.A x) (#deref x)) (#case-ref E.B 0u64)))\n  );\n}\n", "mutable");
-    let prefix = "#struct Pair () ((left #u64) (right #u64))\n#enum E () ((E.A Pair) E.B)\n#fn f ((e (#ref E))) #u64";
+    let prefix = "#struct Pair () ((left #u64) (right #u64))\n#enum E () ((E.A Pair) E.B)\n#fn f {\n  #params = ((e (#ref E)));\n  #returns = #u64;";
     reject_any(&format!(
         "{prefix}(#return (#match e (#case-ref (E.A (Pair x y)) x) (#case-ref E.B 0u64)))"
     ));

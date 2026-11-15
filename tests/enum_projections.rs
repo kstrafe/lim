@@ -239,11 +239,14 @@ fn projected_async_protocol_payloads_do_not_require_generator_dependency_order()
 #[test]
 fn invalid_modes_payloads_receivers_and_removed_keywords_are_rejected() {
     let valid = format!(
-        "{}#fn main () #u64
+        "{}#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
         (#let-mut owner Choice (Choice.Full 42u64))
         (#let-else (Projection.Some value)
           (#call Projection::project ((source (#pin-borrow-mut owner)))) (#else (#return 0u64)))
-        (#return (#deref value))\n",
+        (#return (#deref value))\n  );\n}}\n",
         declaration("pin-ref-mut")
     );
     check(&valid).unwrap();

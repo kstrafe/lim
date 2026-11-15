@@ -65,8 +65,8 @@ fn movable_heap_owners_initialize_native_scalars_and_large_aggregates() {
             (#let view (#pin-ref {ty}) (#pin-own-borrow owner))
             (#let moved (#pin-own {ty}) (#call forward ((owner owner))))
             (#let result #u64 {read}) (#forget view)
-            (#let raw (#ptr-mut {ty}0) (#unsafe (#pin-release moved)))
-            (#let status #i64 (#unsafe (#linux-syscall #i64 11usize (raw (#size-of {ty}1)))))
+            (#let raw (#ptr-mut {ty}) (#unsafe (#pin-release moved)))
+            (#let status #i64 (#unsafe (#linux-syscall #i64 11usize (raw (#size-of {ty})))))
             (#assert (#i64::eq status 0i64)) (#return result)\n  );\n}}\n"
         );
         run(&source, 42);

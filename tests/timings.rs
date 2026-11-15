@@ -124,7 +124,7 @@ fn assembly_and_binary_commands_report_emission_and_native_stages() {
 fn failed_compile_reports_reached_stages_in_json_mode() {
     let scratch = support::Scratch::new("timings-failure");
     let source = scratch.path().join("bad.lim");
-    fs::write(&source, "#fn main (").unwrap();
+    fs::write(&source, "#fn main {\n  #params = (").unwrap();
     let output = lim()
         .arg("--check")
         .arg(&source)

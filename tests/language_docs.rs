@@ -299,7 +299,7 @@ fn documented_programs_compile_and_run() {
                     _ => panic!("unknown fragment prelude: {fragment}"),
                 };
                 source = format!(
-                    "#fn main () ()\n{}\n  {epilogue}",
+                    "#fn main {{\n  #params = ();\n  #returns = ();\n  #body = (\n{}\n  {epilogue}\n  );\n}}",
                     source
                         .lines()
                         .map(|line| format!("  {line}"))

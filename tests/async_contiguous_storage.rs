@@ -208,7 +208,7 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
       (#let second-ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
       (#forget second-ready)",
     );
-    let prefix = source.split_once("#fn main () #u64").unwrap().0;
+    let prefix = source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap().0;
     run(&format!(
         "{prefix}
 #fn main {{
@@ -301,9 +301,14 @@ fn partial_exclusive_holder_lends_its_handle_before_a_later_await() {
           ((view (#get owner kept))
            (amount (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start)))))
         (#forget owner) (#return answer))))
-#fn read ((view (#ref-mut #u64)) (amount ())) #u64
+#fn read {{
+  #params = ((view (#ref-mut #u64)) (amount ()));
+  #returns = #u64;
+  #body = (
           (#deref-set view (#u64::add-wrap (#deref view) 2u64))
           (#return (#deref view))
+  );
+}}
 {}",
         &source[..begin],
         &source[end..],

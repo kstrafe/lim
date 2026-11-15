@@ -767,8 +767,8 @@ fn async_while_let_returned_references_keep_their_source_loan() {
         .replace("(#return second)", "(#return counter)")
         .replace("(#return 5u64)", "(#return counter)")
         .replace(
-            "#fn run ((choice Choice) (waker (#ref #u64))) #u64",
-            "#fn run ((choice Choice) (counter (#ref #u64)) (waker (#ref #u64))) (#ref #u64)",
+            "#fn run {\n  #params = ((choice Choice) (waker (#ref #u64)));\n  #returns = #u64;",
+            "#fn run {\n  #params = ((choice Choice) (counter (#ref #u64)) (waker (#ref #u64)));\n  #returns = (#ref #u64);",
         )
         .replace(
             "(#call work ((choice choice)))",
@@ -1156,8 +1156,8 @@ fn async_returning_branch_skips_a_suspending_common_tail() {
             "(#fn work ((early #bool) (counter (#ref-mut #u64)))",
         )
         .replace(
-            "#fn run ((early #bool)",
-            "#fn run ((early #bool) (counter (#ref-mut #u64))",
+            "#fn run {\n  #params = ((early #bool)",
+            "#fn run {\n  #params = ((early #bool) (counter (#ref-mut #u64))",
         )
         .replace(
             "(#call work ((early early)))",
@@ -1233,8 +1233,8 @@ fn async_returning_branch_skips_a_suspending_common_tail() {
                 "(#fn work ((early #bool) (resource Resource))"
             )
             .replace(
-                "#fn run ((early #bool)",
-                "#fn run ((early #bool) (resource Resource)"
+                "#fn run {\n  #params = ((early #bool)",
+                "#fn run {\n  #params = ((early #bool) (resource Resource)"
             )
             .replace(
                 "(#call work ((early early)))",
@@ -1571,12 +1571,19 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
     assert!(moved[span.start..span.end].contains("frame"));
 
     let escaping = source.replace(
-        "#fn main () #u64",
-        "#fn escape-frame () Work::Poll
+        "#fn main {\n  #params = ();\n  #returns = #u64;",
+        "#fn escape-frame {
+  #params = ();
+  #returns = Work::Poll;
+  #body = (
           (#let-mut frame Work::Frame (#call work ((offset 40u64))))
           (#let waker #u64 0u64)
           (#return (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
-#fn main () #u64",
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;",
     );
     let error = lim::compile_source_to_assembly(
         &escaping,
@@ -1840,9 +1847,12 @@ fn pinned_async_result_cannot_export_a_local_self_reference() {
 #[test]
 fn async_function_can_complete_without_suspension() {
     let original = example_source();
-    let (prefix, _) = original.split_once("#fn main () #u64").unwrap();
+    let (prefix, _) = original.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap();
     let source = format!(
-        "{}#fn main () #u64
+        "{}#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
              (#let executor Executor
                (#struct-literal Executor ((notifications
                  (#call CellU64::create ((value 0u64)))))))
@@ -1857,7 +1867,7 @@ fn async_function_can_complete_without_suspension() {
                    (#block (#forget task) (#unreachable)))))
              (#call local-waker-destroy ((waker waker)))
              (#forget executor)
-             (#return value)\n",
+             (#return value)\n  );\n}}\n",
         prefix.replace(
             "(#let step Step (Step.Waiting 1u64))",
             "(#let step Step (Step.Waiting 0u64))"
@@ -5447,8 +5457,8 @@ fn async_conditional_continuations_can_change_result_type() {
         .replace("(#u64::eq awaited 41u64)", "view")
         .replacen("false", "view", 1)
         .replace(
-            "#fn run ((choose #bool) (waker (#ref #u64)))",
-            "#fn run ((choose #bool) (view (#ref #u64)) (waker (#ref #u64)))",
+            "#fn run {\n  #params = ((choose #bool) (waker (#ref #u64)));",
+            "#fn run {\n  #params = ((choose #bool) (view (#ref #u64)) (waker (#ref #u64)));",
         )
         .replace(
             "(#call work ((choose choose)))",
@@ -5788,8 +5798,8 @@ fn async_function_retains_external_borrows_across_pending() {
     );
 
     let escaping = accepted.replace(
-        "#fn main () #u64",
-        "#fn escape () Read-after-await::Task\n          (#let owner #u64 3u64)\n          (#return (#call read-after-await ((view (#borrow owner)))))\n#fn main () #u64",
+        "#fn main {\n  #params = ();\n  #returns = #u64;",
+        "#fn escape {\n  #params = ();\n  #returns = Read-after-await::Task;\n  #body = (\n          (#let owner #u64 3u64)\n          (#return (#call read-after-await ((view (#borrow owner)))))\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;",
     );
     let error = graph_compile_error(&escaping, "async-shared-external-escape");
     assert_eq!(error.code, lim::DiagnosticCode::Borrow);
@@ -7183,7 +7193,7 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
   #returns = #u64;
   #body = (
               (#let waker #u64 0u64)
-              (#let state-0 Work::Task (#call work ((decision true))))\n  );\n}}"
+              (#let state-0 Work::Task (#call work ((decision true))))\n"
         );
         for index in 0..polls {
             canceled.push_str(&format!(
@@ -7197,7 +7207,7 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
         canceled.push_str(&format!(
             "
             (#call cancel-frame ((task (#call Work::Poll::cleanup ((task state-{polls}))))))
-            (#forget waker) (#return 42u64)"
+            (#forget waker) (#return 42u64)\n  );\n}}"
         ));
         build_and_run_graph(&canceled, 42);
     }
@@ -7745,7 +7755,7 @@ fn async_while_let_can_suspend_only_in_its_body() {
     "#;
     build_and_run(source, 42);
     build_and_run(include_str!("../examples/async_while_let_body.lim"), 42);
-    let prefix = source.split_once("#fn main () #u64").unwrap().0;
+    let prefix = source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap().0;
     let never_matches = format!(
         r#"{}
 #fn main {{
@@ -7849,7 +7859,7 @@ fn async_while_let_synchronous_reference_payload_survives_body_suspension() {
   );
 }}
     "#,
-        source.split_once("#fn main () #u64").unwrap().0
+        source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap().0
     );
     build_and_run(&cancelled, 43);
 }
@@ -7999,7 +8009,7 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
     assert!(!parameter.contains("(#let-mut pair Pair"));
     build_and_run_partial_storage(&parameter, 44);
 
-    let prefix = source.split_once("#fn main () #u64").unwrap().0;
+    let prefix = source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap().0;
     let cancelled = format!(
         r#"{prefix}
 #fn main {{
@@ -8153,7 +8163,7 @@ fn async_rebuilds_nested_partially_moved_structs() {
     );
     build_and_run_partial_storage(&explicit, 44);
 
-    let prefix = source.split_once("#fn main () #u64").unwrap().0;
+    let prefix = source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap().0;
     let pinned = prefix
         .replace("#generate #async-fn ", "#generate #async-fn-pinned ")
         .replace("(#let moved Resource", "(#let view (#ref Resource) (#borrow (#get (#get owner inner) right))) (#let moved Resource")
@@ -8208,11 +8218,11 @@ fn async_rebuilds_nested_partially_moved_structs() {
         "#struct Pair () ((left Resource) (right Resource))",
         "#struct Pair (#linear) ((left Resource) (right Resource))\n ",
     );
-    let nominal_main = cancelled.split_once("#fn main () #u64").unwrap().1
+    let nominal_main = cancelled.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap().1
         .replace("Work::Task::Cleanup moved right spare waiting", "Work::Task::Cleanup moved right spare shell waiting")
         .replace("(#forget spare)", "(#assert (#variant-is (#borrow shell) Work::Task::Cleanup::Owner-inner-shell.Full)) (#forget shell) (#forget spare)");
     let nominal_cancel =
-        format!("{nominal_prefix}(#return (#unreachable)))))\n#fn main () #u64{nominal_main}");
+        format!("{nominal_prefix}(#return (#unreachable)))))\n#fn main {{\n  #params = ();\n  #returns = #u64;{nominal_main}");
     build_and_run_partial_storage(&nominal_cancel, 42);
 
     let parameter = source
@@ -8307,7 +8317,10 @@ fn async_clones_indexed_computed_reference_owners() {
     "#;
     build_and_run_partial_storage(source, 43);
     let pinned = format!(
-        "{}#fn main () #u64
+        "{}#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let owner #u64 42u64) (#let-mut calls #usize 0usize)
             (#let waker #u64 0u64)
             (#let-mut frame Work::Frame (#call work
@@ -8323,7 +8336,7 @@ fn async_clones_indexed_computed_reference_owners() {
             (#let result #u64 (#match second
               (#case (Work::Poll.Ready ready) ready)
               (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
-            (#forget frame) (#return result)\n",
+            (#forget frame) (#return result)\n  );\n}}\n",
         source
             .split_once("#fn main")
             .unwrap()
@@ -8543,7 +8556,10 @@ fn async_deep_field_borrows_preserve_permissions_and_addresses() {
                         .replace("(#get pair right)", "retained")
                         .replace(" selection)", " 1usize)");
                     let cancelled = format!(
-                        "{}#fn main () #u64
+                        "{}#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
                             (#let waker #u64 0u64)
                             (#let-mut frame Work::Frame (#call work ()))
                             (#let first Work::Poll (#call Work::poll
@@ -8555,7 +8571,7 @@ fn async_deep_field_borrows_preserve_permissions_and_addresses() {
                             (#let-else (Work::Frame::Cleanup::Pair-right.Full retained) Work::Frame::Cleanup::Pair-right right (#unreachable))
                             (#let result #u64 {retained})
                             (#forget moved) (#forget retained) (#forget shell) (#forget waiting)
-                            (#return result)\n",
+                            (#return result)\n  );\n}}\n",
                         source.split_once("#fn main").unwrap().0
                     );
                     build_and_run_partial_storage(&cancelled, 22);
@@ -8574,7 +8590,10 @@ fn async_deep_field_borrows_preserve_permissions_and_addresses() {
                             &format!("(#set-field pair left (#struct-literal Resource ((value 23u64)))) {view}"),
                         );
                     let movable = format!(
-                        "{}#fn main () #u64
+                        "{}#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
                             (#let waker #u64 0u64)
                             (#let first Work::Poll (#call Work::poll
                               ((task (#call work ())) (waker (#borrow waker)))))
@@ -8582,7 +8601,7 @@ fn async_deep_field_borrows_preserve_permissions_and_addresses() {
                             (#return (#match (#call Work::poll
                               ((task pending) (waker (#borrow waker))))
                               (#case (Work::Poll.Ready value) value)
-                              (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))\n",
+                              (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))\n  );\n}}\n",
                         continuation.split_once("#fn main").unwrap().0
                     );
                     let expected = if mutable {
@@ -8735,7 +8754,10 @@ fn async_clones_rebuilt_whole_aggregates_without_relocating_borrowed_fields() {
     assert!(reference_leaf.contains("(right Holder)"));
     let generated = build_and_run_partial_storage(&reference_leaf, 46);
     let movable = format!(
-        "{}#fn main () #u64
+        "{}#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let-mut owner #u64 42u64) (#let waker #u64 0u64)
             (#let first Work::Poll (#call Work::poll
               ((task (#call work ((owner (#borrow owner))))) (waker (#borrow waker)))))
@@ -8748,7 +8770,7 @@ fn async_clones_rebuilt_whole_aggregates_without_relocating_borrowed_fields() {
                   (#deref (#get (#get duplicate right) reference))
                   (#u64::add-wrap (#get (#get duplicate left) value) (#get (#get duplicate right) value))))
                 (#forget duplicate) result))
-              (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))\n",
+              (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))\n  );\n}}\n",
         reference_leaf.split_once("#fn main").unwrap().0
             .replace("#generate #async-fn-pinned", "#generate #async-fn")
     );
@@ -9062,7 +9084,7 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
             (#forget task)
             (#return (#unreachable))\n  );\n}}\n",
         hooked
-            .split_once("#fn main () #u64")
+            .split_once("#fn main {\n  #params = ();\n  #returns = #u64;")
             .unwrap()
             .0
             .replace(
@@ -9636,7 +9658,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
             "(#return (#if (#u64::eq iteration 1u64) 42u64 0u64))",
             "(#return (#if (#u64::eq iteration 1u64)\n            (#if (#u64::eq total 1u64) 42u64 0u64)\n            0u64))",
         );
-    let (prefix, _) = three_phase_source.split_once("#fn main () #u64").unwrap();
+    let (prefix, _) = three_phase_source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap();
     let three_phase_source = format!(
         "{prefix}
 #fn main {{
@@ -9678,7 +9700,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
             "(#return (#if (#u64::eq (#deref view) 41u64)\n            (#if (#u64::eq iteration 1u64)\n              (#if (#u64::eq total 1u64) 42u64 0u64)\n              0u64)\n            0u64))",
         );
     let (prefix, _) = shared_reference_source
-        .split_once("#fn main () #u64")
+        .split_once("#fn main {\n  #params = ();\n  #returns = #u64;")
         .unwrap();
     let shared_reference_source = format!(
         "{prefix}
@@ -9762,7 +9784,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         "(#let body-ran #bool\n              (#await #bool BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll\n                (BodyTask.BodyWaiting iteration)))\n            (#deref-set view 42u64)\n            (#set total (#u64::add-wrap total 1u64))",
         "(#let body-ran #bool\n              (#await #bool BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll\n                (BodyTask.BodyWaiting iteration)))\n            (#let second-body-ran #bool\n              (#await #bool BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll\n                (BodyTask.BodyWaiting iteration)))\n            (#let third-body-ran #bool\n              (#await #bool BodyTask BodyPoll.BodyPending BodyPoll.BodyReady body-poll\n                (BodyTask.BodyWaiting iteration)))\n            (#deref-set view 42u64)\n            (#set total (#u64::add-wrap total 1u64))",
     );
-    let (prefix, _) = multi_await_source.split_once("#fn main () #u64").unwrap();
+    let (prefix, _) = multi_await_source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap();
     let mut poll_chain = "(#block (#forget pending-7) 0u64)".to_owned();
     for index in (0..7).rev() {
         let task = if index == 0 {
@@ -9793,7 +9815,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     );
     let generated = build_and_run_graph(&multi_await_source, 42);
     assert_single_poll(&generated, "Work::poll");
-    let (prefix, _) = multi_await_source.split_once("#fn main () #u64").unwrap();
+    let (prefix, _) = multi_await_source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap();
     let cancel_source = format!(
         "{prefix}
 #fn main {{
@@ -9831,7 +9853,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     );
 
     let (prefix, _) = mutable_reference_source
-        .split_once("#fn main () #u64")
+        .split_once("#fn main {\n  #params = ();\n  #returns = #u64;")
         .unwrap();
     let cancelled_mutable_reference = format!(
         "{prefix}
@@ -9860,7 +9882,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     let generated = build_and_run_graph(&pinned_reference_source, 42);
     assert_single_poll(&generated, "Work::poll");
     let (prefix, _) = pinned_reference_source
-        .split_once("#fn main () #u64")
+        .split_once("#fn main {\n  #params = ();\n  #returns = #u64;")
         .unwrap();
     let cancelled_pinned_reference = format!(
         "{prefix}
@@ -9999,7 +10021,7 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
             "(#return iteration))))",
             "(#assert false) (#return iteration))))",
         );
-    let (prefix, _) = return_source.split_once("#fn main () #u64").unwrap();
+    let (prefix, _) = return_source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap();
     let mut poll_chain = "(#block (#forget pending-8) 0u64)".to_owned();
     for index in (0..8).rev() {
         let task = if index == 0 {
@@ -10232,7 +10254,7 @@ fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
     let generated = build_and_run_graph(&conditional_source, 42);
     assert_single_poll(&generated, "Work::poll");
 
-    let (prefix, _) = source.split_once("#fn main () #u64").unwrap();
+    let (prefix, _) = source.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap();
     let unmatched_source = format!(
         "{}{}",
         prefix
@@ -11127,7 +11149,7 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
   #returns = #u64;
   #body = (
               (#let waker #u64 0u64)
-              (#let state-0 Work::Task (#call work ()))\n  );\n}}"
+              (#let state-0 Work::Task (#call work ()))\n"
         );
         for index in 0..polls {
             canceled.push_str(&format!(
@@ -11141,7 +11163,7 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         canceled.push_str(&format!(
             "
             (#call cancel-frame ((task (#call Work::Poll::cleanup ((task state-{polls}))))))
-            (#forget waker) (#return 42u64)"
+            (#forget waker) (#return 42u64)\n  );\n}}"
         ));
         build_and_run_graph(&canceled, 42);
     }
@@ -11170,7 +11192,7 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
   #returns = #u64;
   #body = (
               (#let waker (#atomic #u64) (#atomic-init #u64 0u64))
-              (#let state-0 Work::Task (#call work ()))\n  );\n}}"
+              (#let state-0 Work::Task (#call work ()))\n"
         );
         for index in 0..polls {
             canceled.push_str(&format!(
@@ -11186,7 +11208,7 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
             "
             (#call cancel-frame ((task (#call Work::Poll::cleanup ((task state-{polls}))))))
             (#assert (#u64::eq (#atomic-load (#borrow waker) #memory-relaxed) {expected}u64))
-            (#forget waker) (#return 42u64)"
+            (#forget waker) (#return 42u64)\n  );\n}}"
         ));
         build_and_run_graph(&canceled, 42);
         if polls == 3 {
@@ -11461,7 +11483,7 @@ fn async_for_condition_and_step_await_preserve_body_continue_and_break() {
     assert_single_poll(&generated, "Work::poll");
 
     let (prefix, _) = source
-        .split_once("#fn main () #u64")
+        .split_once("#fn main {\n  #params = ();\n  #returns = #u64;")
         .expect("async main function");
     let return_prefix = prefix.replace(
         "(#if (#u64::eq iteration 0u64) (#continue) (#break))",
@@ -13173,7 +13195,7 @@ fn async_for_effect_step_awaits_with_a_synchronous_condition() {
     assert_ne!(matched, source);
     build_and_run(&matched, 42);
     let effects = source
-        .replace("#fn advance", "#fn touch ((counter (#ref-mut #u64))) #u64\n  (#deref-set counter (#u64::add-wrap (#deref counter) 1u64))\n  (#return 1u64)\n\n#fn advance")
+        .replace("#fn advance", "#fn touch {\n  #params = ((counter (#ref-mut #u64)));\n  #returns = #u64;\n  #body = (\n  (#deref-set counter (#u64::add-wrap (#deref counter) 1u64))\n  (#return 1u64)\n  );\n}\n\n#fn advance")
         .replace("(#let-mut index #u64 0u64)", "(#let-mut index #u64 0u64) (#let-mut touches #u64 0u64)")
         .replace("((next (#await", "((next (#u64::add-wrap (#call touch ((counter (#borrow-mut touches)))) (#await")
         .replace("(StepTask.Start (#u64::add-wrap index 1u64)))", "(StepTask.Start index)))")
@@ -13209,7 +13231,7 @@ fn async_for_effect_step_consumes_linear_operands_and_results() {
     // Cancel after the child owns a Resource; explicitly consume that state.
     let continuation = source.find("(#let second Work::Poll").unwrap();
     let cancelled = format!(
-        "{} (#forget first-task) (#return 42u64)",
+        "{} (#forget first-task) (#return 42u64)\n  );\n}}",
         &source[..continuation]
     );
     build_and_run(&cancelled, 42);
@@ -13279,7 +13301,7 @@ fn async_for_effect_step_keeps_external_loans_until_ready_or_cancel() {
     build_and_run(&source, 42);
     let continuation = source.find("(#let second Work::Poll").unwrap();
     let cancelled = format!(
-        "{} (#forget pending) (#set owner 42u64) (#return owner)",
+        "{} (#forget pending) (#set owner 42u64) (#return owner)\n  );\n}}",
         &source[..continuation]
     );
     build_and_run(&cancelled, 42);
@@ -15003,7 +15025,7 @@ fn async_function_preserves_loop_locals_used_after_suspension() {
 #[test]
 fn async_function_can_suspend_at_each_await() {
     let original = example_without_cancel_work();
-    let (prefix, _) = original.split_once("#fn main () #u64").unwrap();
+    let (prefix, _) = original.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap();
     let prefix = prefix.replace(
         "(#return (#u64::add-wrap total offset))",
         "(#let second #u64
@@ -15048,7 +15070,7 @@ fn async_function_can_suspend_at_each_await() {
 #[test]
 fn async_function_pending_state_can_be_cancelled_explicitly() {
     let original = example_source();
-    let (prefix, _) = original.split_once("#fn main () #u64").unwrap();
+    let (prefix, _) = original.split_once("#fn main {\n  #params = ();\n  #returns = #u64;").unwrap();
     let source = format!(
         "{prefix}
 #fn main {{

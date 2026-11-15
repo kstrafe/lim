@@ -98,7 +98,7 @@ fn slice_validation_and_scalar_iteration_match_the_rust_utf8_oracle() {
     }
     // Keep each checked program small while retaining every oracle case.
     for batch in cases.chunks(8) {
-        let mut source = "#std\n#fn main () #u64\n".to_owned();
+        let mut source = "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n\n  #body = (\n".to_owned();
         for (i, bytes) in batch.iter().enumerate() {
             let size = bytes.len().max(1);
             let values = if bytes.is_empty() {
@@ -145,7 +145,7 @@ fn slice_validation_and_scalar_iteration_match_the_rust_utf8_oracle() {
             )),
         }
         }
-        source.push_str("  (#return 42u64)\n");
+        source.push_str("  (#return 42u64)\n\n  );\n}\n");
         execute(&source, "utf8-slice-oracle");
     }
 }
@@ -154,7 +154,7 @@ fn slice_validation_and_scalar_iteration_match_the_rust_utf8_oracle() {
 fn every_subview_range_matches_rust_boundaries_for_both_storage_layouts() {
     let bytes = "A\0é€😀!".as_bytes();
     let mut base = format!(
-        "#std\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n  (#let bytes (#array #u8 {}) (#array-of (#array #u8 {}) {}))\n  );\n}}\n",
+        "#std\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n  (#let bytes (#array #u8 {}) (#array-of (#array #u8 {}) {}))\n",
         bytes.len(),
         bytes.len(),
         bytes
@@ -185,7 +185,7 @@ fn every_subview_range_matches_rust_boundaries_for_both_storage_layouts() {
                 source.push_str(&format!("  (#assert (#match (#call {prefix}::subview ((view (#borrow {variable})) (start {start}usize) (end {end}usize))) {branch} (#case _ false)))\n"));
             }
             source.push_str(&format!("  (#assert (#match (#call {prefix}::subview ((view (#borrow {variable})) (start 0usize) (end 18446744073709551615usize))) (#case {prefix}::Result.InvalidRange true) (#case _ false)))\n"));
-            source.push_str("  (#forget slice-view) (#forget string-view) (#call String::free ((string text))) (#return 42u64)");
+            source.push_str("  (#forget slice-view) (#forget string-view) (#call String::free ((string text))) (#return 42u64)\n  );\n}\n");
             execute(&source, "utf8-all-boundaries");
         }
     }
@@ -298,7 +298,7 @@ fn string_and_slice_views_reject_mutation_destruction_and_source_escape() {
         ("iterator", "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut text String (#call String::new ())) (#let whole StringView (#call String::view ((string (#borrow text))))) (#let-mut iterator StringView::Chars (#call StringView::chars ((view whole)))) (#call String::free ((string text))) (#call StringView::Chars::next ((iterator (#borrow-mut iterator)))) (#forget iterator) (#return 42u64)\n  );\n}\n"),
         ("returned", "#std\n#fn bad {\n  #params = ();\n  #returns = StringView;\n  #body = ( (#let text String (#call String::new ())) (#let view StringView (#call String::view ((string (#borrow text))))) (#forget text) (#return view)\n  );\n}\n"),
         ("slice", "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view Utf8Slice (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic)))) (#let change (#ref-mut (#array #u8 1)) (#borrow-mut bytes)) (#call Utf8Slice::len ((view (#borrow view)))) (#forget view) (#return 42u64)\n  );\n}\n"),
-        ("slice-returned", "#std\n#fn bad {\n  #params = ();\n  #returns = Utf8Slice;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#return (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic))))\n  );\n}\n"),
+        ("slice-returned", "#std\n#fn bad {\n  #params = ();\n  #returns = Utf8Slice;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#return (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic))))\n"),
     ] {
         let scratch = support::Scratch::new(&format!("utf8-reject-{label}"));
         let error = compile(source, &scratch.path().join("main.lim")).unwrap_err();
@@ -340,7 +340,7 @@ fn generated_views_are_cached_inspectable_and_compile_as_ordinary_lim() {
         modified,
         fs::metadata(&generated).unwrap().modified().unwrap()
     );
-    execute(&format!("#std\n{text}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view BorrowedText (#match (#call BorrowedText::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (BorrowedText::Result.Valid accepted) accepted) (#case _ (#panic)))) (#assert (#usize::eq (#call BorrowedText::len ((view (#borrow view)))) 1usize)) (#forget view) (#return 42u64)\n  );\n}}\n"), "utf8-emitted-source");
+    execute(&format!("#std\n{text}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view BorrowedText (#match (#call BorrowedText::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (BorrowedText::Result.Valid accepted) accepted) (#case _ (#panic)))) (#assert (#usize::eq (#call BorrowedText::len ((view (#borrow view)))) 1usize)) (#forget view) (#return 42u64)\n"), "utf8-emitted-source");
 }
 
 #[test]

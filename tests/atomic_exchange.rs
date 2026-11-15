@@ -49,11 +49,11 @@ fn exchange_and_compare_exchange_cover_all_atomic_widths_and_orders() {
             (#let old {ty} (#atomic-exchange (#borrow state) 2{suffix} #memory-relaxed))
             (#assert ({ty}::eq old {initial}))
             (#let (#tuple won observed) (#tuple #bool {ty}) (#atomic-compare-exchange (#borrow state) 2{suffix} {initial} #memory-acq-rel #memory-acquire))
-            (#assert won) (#assert ({ty}0::eq observed 2{ty}1))
-            (#let (#tuple failed actual) (#tuple #bool {ty}2) (#atomic-compare-exchange-weak (#borrow state) 0{ty}3 3{ty}4 #memory-seq-cst #memory-seq-cst))
-            (#assert (#bool::eq failed false)) (#assert ({ty}5::eq actual {ty}6))
-            (#let (#tuple weak-won weak-old) (#tuple #bool {ty}7) (#atomic-compare-exchange-weak (#borrow state) {ty}8 42{ty}9 #memory-release #memory-relaxed))
-            (#assert weak-won) (#assert ({initial}0::eq weak-old {initial}1))
+            (#assert won) (#assert ({ty}::eq observed 2{suffix}))
+            (#let (#tuple failed actual) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) 0{suffix} 3{suffix} #memory-seq-cst #memory-seq-cst))
+            (#assert (#bool::eq failed false)) (#assert ({ty}::eq actual {initial}))
+            (#let (#tuple weak-won weak-old) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) {initial} 42{suffix} #memory-release #memory-relaxed))
+            (#assert weak-won) (#assert ({ty}::eq weak-old {initial}))
             (#forget state) (#return 42u64)\n  );\n}}\n");
         let path = root.join(format!("{ty}.lim"));
         let assembly = lim::compile_source_to_assembly(

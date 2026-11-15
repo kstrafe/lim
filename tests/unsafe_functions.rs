@@ -413,7 +413,7 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
                 };
                 arguments.push_str(&format!(" ({name} {name})"));
             }
-            let signature = format!("#fn probe-{name} {parameters} {result}");
+            let signature = format!("#fn probe-{name} {{\n  #params = {parameters};\n  #returns = {result};\n  #body = (");
             let call = format!("(#unsafe-call {name} ({arguments}))");
             // The structural coverage suite compares signatures. Here retain
             // one spelling: cfg branches may format the same types differently.
@@ -464,7 +464,7 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
         config.set("arch", "x86_64");
         let mut explicit = import.clone();
         for (name, (signature, call)) in &probes {
-            let source = format!("{import}{signature} (#return {call})");
+            let source = format!("{import}{signature} (#return {call})\n  );\n}}\n");
             let error = lim::compile_source_to_assembly(
                 &source,
                 &path,
@@ -490,7 +490,7 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
                 name,
                 "{os}: diagnostic location"
             );
-            explicit.push_str(&format!("{signature} (#return (#unsafe {call}))\n"));
+            explicit.push_str(&format!("{signature} (#return (#unsafe {call}))\n\n  );\n}}\n"));
         }
         // Compile but do not execute: these forwarders intentionally have no
         // resources or valid buffers of their own. Runtime behavior is tested

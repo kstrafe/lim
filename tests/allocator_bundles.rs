@@ -95,8 +95,8 @@ fn missing_deallocation_and_wrong_allocate_signature_are_rejected() {
     for (source, operation) in [
         (fixture().replace("#unsafe-fn Arena::Allocator::deallocate", "#unsafe-fn unused-deallocate"), "deallocate"),
         (fixture().replace(
-            "((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation",
-            "((allocator (#ref Arena)) (layout #usize) (alignment #u64)) Arena::Allocator::Allocation",
+            "((allocator (#ref Arena)) (layout #usize) (alignment #usize))",
+            "((allocator (#ref Arena)) (layout #usize) (alignment #u64))",
         ), "alignment"),
     ] {
         let error = check(&source).expect_err("invalid bundle must be rejected");
@@ -187,8 +187,8 @@ fn allocation_must_be_safe_and_unsafe_operations_require_unsafe_calls() {
 #[test]
 fn bundle_state_alias_does_not_extend_allocator_lifetime() {
     let source = fixture().replace(
-        "#fn main () #u64",
-        "#fn escape () PinU64Box\n          (#let arena Arena (#struct-literal Arena ((identity 1u64) (fail false))))\n          (#return (#match (#call PinU64Box::create ((allocator (#borrow arena)) (value 42u64)))\n            (#case (PinU64Box::CreateResult.Created owner) owner)\n            (#case (PinU64Box::CreateResult.Allocation-failed failure) (#block (#forget failure) (#unreachable)))))\n#fn main () #u64",
+        "#fn main {\n  #params = ();\n  #returns = #u64;",
+        "#fn escape {\n  #params = ();\n  #returns = PinU64Box;\n  #body = (\n          (#let arena Arena (#struct-literal Arena ((identity 1u64) (fail false))))\n          (#return (#match (#call PinU64Box::create ((allocator (#borrow arena)) (value 42u64)))\n            (#case (PinU64Box::CreateResult.Created owner) owner)\n            (#case (PinU64Box::CreateResult.Allocation-failed failure) (#block (#forget failure) (#unreachable)))))\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;",
     );
     let error = check(&source).expect_err("owner must not escape local state");
     assert!(

@@ -464,26 +464,26 @@ fn access_handles_unit_aliases_multiple_parameters_and_imports() {
 #alias UnitAccess::read = {path}::UnitAccess::read
 #alias AmountAccess::replace = {path}::AmountAccess::replace
 #alias AmountAccess::read = {path}::AmountAccess::read
-#alias OtherAccess::replace = {path}0::OtherAccess::replace
-#alias OtherAccess::read = {path}1::OtherAccess::read
+#alias OtherAccess::replace = {path}::OtherAccess::replace
+#alias OtherAccess::read = {path}::OtherAccess::read
 #fn main {{
   #params = ();
   #returns = #u64;
   #body = (
               (#let waker #u64 0u64)
-              (#let-mut frame {path}2 (#call {path}3work (({path}4empty ()) ({path}5amount 40u64) ({path}6other 5u64))))
+              (#let-mut frame {frame} (#call {prefix}work (({prefix}empty ()) ({prefix}amount 40u64) ({prefix}other 5u64))))
               (#let poll-result #u64 (#match
-                (#call {path}7Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
-                (#case ({path}8Work::Poll.Ready answer) answer)
-                (#case ({path}9Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+                (#call {prefix}Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
+                (#case ({prefix}Work::Poll.Ready answer) answer)
+                (#case ({prefix}Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
               (#assert (#u64::eq poll-result 40u64))
-              (#call {path}0UnitAccess::replace ((task (#pin-borrow-mut frame)) (value ())))
-              (#let empty {path}1Nothing (#call {path}2UnitAccess::read ((task (#pin-borrow frame)))))
-              (#call {path}3AmountAccess::replace ((task (#pin-borrow-mut frame)) (value 42u64)))
-              (#call {path}4OtherAccess::replace ((task (#pin-borrow-mut frame)) (value 7u64)))
-              (#let other #u64 (#call {path}5OtherAccess::read ((task (#pin-borrow frame)))))
+              (#call {prefix}UnitAccess::replace ((task (#pin-borrow-mut frame)) (value ())))
+              (#let empty {prefix}Nothing (#call {prefix}UnitAccess::read ((task (#pin-borrow frame)))))
+              (#call {prefix}AmountAccess::replace ((task (#pin-borrow-mut frame)) (value 42u64)))
+              (#call {prefix}OtherAccess::replace ((task (#pin-borrow-mut frame)) (value 7u64)))
+              (#let other #u64 (#call {prefix}OtherAccess::read ((task (#pin-borrow frame)))))
               (#assert (#u64::eq other 7u64))
-              (#let answer {path}6Amount (#call {path}7AmountAccess::read ((task (#pin-borrow frame)))))
+              (#let answer {prefix}Amount (#call {prefix}AmountAccess::read ((task (#pin-borrow frame)))))
               (#forget frame) (#return answer)\n  );\n}}\n");
         let mut config = lim::CompileConfig::default();
         config.set("async-lowering", "graph");

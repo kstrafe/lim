@@ -302,7 +302,7 @@ fn metadata_discard_does_not_allow_forgetting_a_live_childs_owner() {
 #[test]
 fn reference_free_pinned_child_cancels_in_word_storage_exactly_once() {
     let program = pinned_source()
-        .replace("#fn child ((view (#ref Owner)))", "#fn child ((amount #u64))")
+        .replace("#fn child {\n  #params = ((view (#ref Owner)));", "#fn child {\n  #params = ((amount #u64));")
         .replace("(#get view amount)", "amount")
         .replace("#call child ((view (#borrow owner)))", "#call child ((amount (#get owner amount)))")
         .replace("#fn cancel-step {\n  #params = ((value Step));\n  #returns = ();\n  #body = ( (#forget value) (#return ())\n  );\n}",
@@ -316,8 +316,8 @@ fn reference_free_pinned_child_cancels_in_word_storage_exactly_once() {
 fn reference_free_pinned_child_rejects_moving_cancellation_handlers() {
     let program = pinned_source()
         .replace(
-            "#fn child ((view (#ref Owner)))",
-            "#fn child ((amount #u64))",
+            "#fn child {\n  #params = ((view (#ref Owner)));",
+            "#fn child {\n  #params = ((amount #u64));",
         )
         .replace("(#get view amount)", "amount")
         .replace(

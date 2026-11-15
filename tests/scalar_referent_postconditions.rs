@@ -115,8 +115,8 @@ fn alternate_normal_return_cannot_leave_a_stale_selector_postcondition() {
 fn later_alias_mutation_invalidates_a_callee_selector_postcondition() {
     let source = PROGRAM
         .replace(
-            "#fn main () #u64",
-            "#fn mutate-alias ((alias (#ref-mut #u64))) ()\n    (#deref-set alias 0u64)\n    (#return ())\n#fn main () #u64",
+            "#fn main {\n  #params = ();\n  #returns = #u64;",
+            "#fn mutate-alias {\n  #params = ((alias (#ref-mut #u64)));\n  #returns = ();\n  #body = (\n    (#deref-set alias 0u64)\n    (#return ())\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;",
         )
         .replace(
             "(#call update ((selector (#borrow-mut selector)) (flag false)))",

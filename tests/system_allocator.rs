@@ -199,7 +199,7 @@ fn foreign_malloc_and_free_can_coexist_without_allocator_interposition() {
 
 #[test]
 fn size_classes_alignment_and_in_place_or_moving_resize_preserve_bytes() {
-    let mut body = String::from("#fn main () #u64");
+    let mut body = String::from("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = (\n");
     for (index, size) in [
         1, 15, 16, 17, 31, 32, 48, 49, 112, 113, 240, 241, 496, 497, 1008, 1009, 2032, 2033, 4080,
         4081, 4096, 65536,
@@ -240,7 +240,10 @@ fn size_classes_alignment_and_in_place_or_moving_resize_preserve_bytes() {
         ((pointer (#ptr-null (#ptr-mut #u8))) (size 64usize)))))
       (#unsafe (#unsafe-call system-deallocate ((pointer null-growth))))
       (#unsafe (#unsafe-call system-deallocate ((pointer (#ptr-null (#ptr-mut #u8))))))
-      (#return 42u64)"#);
+      (#return 42u64)
+  );
+}
+"#);
     run(HEAP, &body);
 }
 

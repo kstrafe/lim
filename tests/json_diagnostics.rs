@@ -83,8 +83,8 @@ fn errors_are_json_from_frontend_through_linker() {
     fs::create_dir(&directory).unwrap();
     let path = directory.join("quoted \"é: input.lim");
     for (source, category) in [
-        ("#fn main () #u64 (#return \"bad)", "lex"),
-        ("#fn main () #u64 (#return 0u64", "parse"),
+        ("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return \"bad)", "lex"),
+        ("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64", "parse"),
         (
             "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let café #u64 false) (#return café)\n  );\n}\n",
             "type",

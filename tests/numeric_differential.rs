@@ -127,9 +127,9 @@ fn exceptional_values_casts_and_shift_failures_match_the_contract() {
             (#let infinity #{ty} (#{ty}::div 1.0{ty} 0.0{ty}))
             (#assert (#{ty}::ne nan nan))
             (#assert (#bool::eq (#{ty}::lt nan infinity) false))
-            (#assert (#bool::eq (#{ty}0::ge nan infinity) false))
-            (#assert (#{ty}1::eq -0.0{ty}2 0.0{ty}3))
-            (#assert (#{ty}4::gt infinity 1.0{ty}5)) (#return 42u64)
+            (#assert (#bool::eq (#{ty}::ge nan infinity) false))
+            (#assert (#{ty}::eq -0.0{ty} 0.0{ty}))
+            (#assert (#{ty}::gt infinity 1.0{ty})) (#return 42u64)
   );\n}}\n"
             ),
             None,

@@ -740,8 +740,8 @@ fn stored_exclusive_field_blocks_a_later_borrow_of_its_external_referent() {
 
     let moved = source
         .replace(
-            "((holder (#ref-mut Holder)) (source (#ref #u64))) () (#return ())",
-            "((holder Holder) (source (#ref #u64))) Holder (#return holder)",
+            "#params = ((holder (#ref-mut Holder)) (source (#ref #u64)));\n  #returns = ();\n  #body = ( (#return ())",
+            "#params = ((holder Holder) (source (#ref #u64)));\n  #returns = Holder;\n  #body = ( (#return holder)",
         )
         .replace(
             "((holder (#borrow-mut holder)) (source (#borrow value)))",

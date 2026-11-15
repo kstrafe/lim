@@ -64,14 +64,14 @@ fn scalar_and_aggregate_roundtrips_lend_all_four_reference_kinds() {
   #returns = #u64;
   #body = (
                           (#let-mut owner {ty} {init})
-                          (#let view (#{pin}ref{suffix} {ty}) (#{suffix}0borrow{suffix}1 owner))
-                          (#let pointer (#ptr{suffix}2 {suffix}3) (#ref-ptr view))
+                          (#let view (#{pin}ref{suffix} {ty}) (#{pin}borrow{suffix} owner))
+                          (#let pointer (#ptr{suffix} {ty}) (#ref-ptr view))
                           (#assert (#usize::eq (#ptr-address pointer) (#ptr-address (#ref-ptr view))))
                           (#assert (#usize::eq (#ptr-address pointer) (#ptr-address (#call extract ((view view))))))
-                          (#let restored (#{suffix}4ref{suffix}5 {suffix}6)
-                            (#unsafe (#{suffix}7ptr-borrow{suffix}8 view pointer)))
+                          (#let restored (#{pin}ref{suffix} {ty})
+                            (#unsafe (#{pin}ptr-borrow{suffix} view pointer)))
                           (#drop view)
-                          (#let answer #u64 {suffix}9)
+                          (#let answer #u64 {read})
                           (#drop restored)
                           (#forget owner) (#return answer)
   );

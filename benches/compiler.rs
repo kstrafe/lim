@@ -439,7 +439,7 @@ fn generator_program(aliases: usize) -> String {
     for index in 0..aliases {
         source.push_str(&format!("(Generated{index} #u64) "));
     }
-    source.push_str(")\n#fn main () #u64 (#return 42u64)\n");
+    source.push_str(")\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n");
     source
 }
 

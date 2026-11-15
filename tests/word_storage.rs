@@ -404,7 +404,12 @@ fn conditional_owned_word_returns_require_every_path_to_initialize_the_cell() {
     ] {
         let alternative = format!(
             "{initialized_definition}
-#fn make ((value (#ref #u64)) (flag #bool)) Storage (#return {result})
+#fn make {{
+  #params = ((value (#ref #u64)) (flag #bool));
+  #returns = Storage;
+  #body = ( (#return {result})
+  );
+}}
 #fn read{remaining}"
         );
         let error = compile(&alternative)
@@ -413,7 +418,12 @@ fn conditional_owned_word_returns_require_every_path_to_initialize_the_cell() {
         let initialized_result = result.replace(empty, initialized);
         run(&format!(
             "{initialized_definition}
-#fn make ((value (#ref #u64)) (flag #bool)) Storage (#return {initialized_result})
+#fn make {{
+  #params = ((value (#ref #u64)) (flag #bool));
+  #returns = Storage;
+  #body = ( (#return {initialized_result})
+  );
+}}
 #fn read{remaining}"
         ));
     }
@@ -632,8 +642,8 @@ fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
     let (owned_prefix, owned_main) = initial_entry.split_once("#fn main").unwrap();
     let owned_prefix = owned_prefix
         .replace(
-            "((frame (#ref-mut Frame))) #u64",
-            "((frame Frame)) #u64 (#let-mut state Frame frame)",
+            "#params = ((frame (#ref-mut Frame)));\n  #returns = #u64;\n  #body = (",
+            "#params = ((frame Frame));\n  #returns = #u64;\n  #body = ((#let-mut state Frame frame)",
         )
         .replace("(#get frame", "(#get state")
         .replace("(#return answer)", "(#forget state) (#return answer)")
@@ -1050,11 +1060,19 @@ fn metadata_only_helpers_preserve_tags_but_never_restore_retired_loans() {
     let source = OPTIONAL_WORD_READER
         .replace(
             "#fn main",
-            "#fn retire ((words (#slice-mut #u64))) ()
+            "#fn retire {
+  #params = ((words (#slice-mut #u64)));
+  #returns = ();
+  #body = (
            (#unsafe (#word-forget Cell words)) (#return ())
-#fn forward-retire ((words (#slice-mut #u64))) ()
+  );
+}
+#fn forward-retire {
+  #params = ((words (#slice-mut #u64)));
+  #returns = ();
+  #body = (
            (#call retire ((words words))) (#return ())
-#fn main",
+  );\n}\n#fn main",
         )
         .replace(
             "(#let answer",
@@ -1117,7 +1135,7 @@ fn word_owner_restoration_preserves_borrowed_pointee_fields() {
             (#let restored (#pin-own Holder) (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get working words)))))
             (#forget working) (#return restored)\n  );\n}",
     ).replace("#struct Words () ((words (#array #u64 1)))", "#struct Words (#linear) ((words (#array #u64 1)))\n ")
-        .replace("#fn forward ((storage (#ref-mut Words)))", "#fn forward ((storage Words))")
+        .replace("#fn forward {\n  #params = ((storage (#ref-mut Words)));", "#fn forward {\n  #params = ((storage Words));")
         .replace("(#call forward ((storage (#borrow-mut storage))))", "(#call forward ((storage storage)))")
         .replace("(#forget storage)", "");
     assert!(owned.contains("(#let-mut working Words storage)"));
@@ -1415,10 +1433,13 @@ fn helper_retirement_does_not_hide_later_byte_mutations() {
     let source = OPTIONAL_WORD_READER
         .replace(
             "#fn main",
-            "#fn prepare ((words (#slice-mut #u64))) ()
+            "#fn prepare {
+  #params = ((words (#slice-mut #u64)));
+  #returns = ();
+  #body = (
            (#unsafe (#word-write Cell (#slice-mut-range words 0usize 2usize) (Cell.Vacant)))
            (#unsafe (#word-forget Cell words)) (#return ())
-#fn main",
+  );\n}\n#fn main",
         )
         .replace(
             "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Cell.Vacant)))",
@@ -1500,7 +1521,7 @@ fn word_writer_may_aliases_preserve_disjoint_constructor_facts() {
 
 #[test]
 fn word_reader_forwards_payload_conditions_through_checked_helpers() {
-    let source = OPTIONAL_WORD_READER.replace("#fn main", "#fn forward ((words (#slice #u64))) #u64 (#return (#call inspect ((words words)))) \n#fn main")
+    let source = OPTIONAL_WORD_READER.replace("#fn main", "#fn forward {\n  #params = ((words (#slice #u64)));\n  #returns = #u64;\n  #body = ( (#return (#call inspect ((words words))))\n  );\n} \n#fn main")
         .replace("#call inspect ((words (#borrow-slice words)))", "#call forward ((words (#borrow-slice words)))");
     run(&source);
     let invalid = source.replace(

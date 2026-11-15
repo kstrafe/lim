@@ -55,8 +55,8 @@ fn pinned_box_frame_survives_pending_polls_and_owner_moves() {
 #[test]
 fn mutable_box_borrow_cannot_be_extracted_as_an_ordinary_reference() {
     let source = example_source().replace(
-        "#fn main () #u64",
-        "#fn invalid-extract ((owner (#ref-mut PinnedFrameBox))) (#ref-mut Work::Frame)\n  (#return (#deref (#call PinnedFrameBox::borrow-mut ((owner owner)))))\n#fn main () #u64",
+        "#fn main {\n  #params = ();\n  #returns = #u64;",
+        "#fn invalid-extract {\n  #params = ((owner (#ref-mut PinnedFrameBox)));\n  #returns = (#ref-mut Work::Frame);\n  #body = (\n  (#return (#deref (#call PinnedFrameBox::borrow-mut ((owner owner)))))\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;",
     );
     let diagnostic = compile_error(&source, "pinned-box-async-extract");
     assert!(
@@ -70,8 +70,8 @@ fn mutable_box_borrow_cannot_be_extracted_as_an_ordinary_reference() {
 #[test]
 fn box_cannot_be_destroyed_while_its_pinned_borrow_is_live() {
     let source = example_source().replace(
-        "#fn main () #u64",
-        "#fn invalid-destroy ((owner PinnedFrameBox)) ()\n  (#let-mut local PinnedFrameBox owner)\n  (#let pin (#pin-ref-mut Work::Frame) (#call PinnedFrameBox::borrow-mut ((owner (#borrow-mut local)))))\n  (#call PinnedFrameBox::destroy ((owner local)))\n  (#forget pin) (#return ())\n#fn main () #u64",
+        "#fn main {\n  #params = ();\n  #returns = #u64;",
+        "#fn invalid-destroy {\n  #params = ((owner PinnedFrameBox));\n  #returns = ();\n  #body = (\n  (#let-mut local PinnedFrameBox owner)\n  (#let pin (#pin-ref-mut Work::Frame) (#call PinnedFrameBox::borrow-mut ((owner (#borrow-mut local)))))\n  (#call PinnedFrameBox::destroy ((owner local)))\n  (#forget pin) (#return ())\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;",
     );
     let diagnostic = compile_error(&source, "pinned-box-async-destroy");
     assert!(

@@ -29,9 +29,9 @@ fn seeded_malformed_and_truncated_sources_fail_deterministically_in_bounded_proc
     let mut seed = 0x5eed_u64;
 
     let mut cases = vec![
-        "#fn main (".to_owned(),
-        "#fn main () #u64 (#return \"unfinished)\n".to_owned(),
-        "#fn main () #u64 (#return (#u64::add-wrap 1u64 2u64)".to_owned(),
+        "#fn main {\n  #params = (".to_owned(),
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return \"unfinished)\n".to_owned(),
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-wrap 1u64 2u64)".to_owned(),
         "#generate unknown-generator #u64\n".to_owned(),
         "#gn abort (message) (#gn-error message)\n#generate abort \"deterministic expansion failure\"\n"
             .to_owned(),

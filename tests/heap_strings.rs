@@ -205,7 +205,10 @@ fn utf8_boundaries_roundtrip_bytes_and_reject_malformed_sequences() {
     ];
     let mut source = format!("// String fixture: {:?}\n#std\n", string_import());
     source.push_str(r#"
-#fn check-valid ((input (#slice #u8))) #bool
+#fn check-valid {
+  #params = ((input (#slice #u8)));
+  #returns = #bool;
+  #body = (
           (#return (#match (#call String::from-utf8 ((bytes input)))
             (#case (StringCreateResult.StringCreated text)
               (#block
@@ -226,12 +229,23 @@ fn utf8_boundaries_roundtrip_bytes_and_reject_malformed_sequences() {
                 (#call String::free ((string text)))
                 true))
             (#case (StringCreateResult.StringCreateFailed error) false)))
-#fn check-invalid ((input (#slice #u8))) #bool
+  );
+}
+#fn check-invalid {
+  #params = ((input (#slice #u8)));
+  #returns = #bool;
+  #body = (
           (#return (#match (#call String::from-utf8 ((bytes input)))
             (#case (StringCreateResult.StringCreated text) (#block (#call String::free ((string text))) false))
             (#case (StringCreateResult.StringCreateFailed error) (#match error
               (#case StringError.StringInvalidUtf8 true) (#case _ false)))))
-#fn main () #u64"#);
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
+"#);
     for (index, (bytes, valid)) in cases.iter().enumerate() {
         let size = bytes.len().max(1);
         let values = if bytes.is_empty() {
@@ -255,7 +269,7 @@ fn utf8_boundaries_roundtrip_bytes_and_reject_malformed_sequences() {
         };
         source.push_str(&format!("  (#let input{index} (#array #u8 {size}) (#array-of (#array #u8 {size}) {values}))\n  (#assert (#call {check} ((input {input}))))\n"));
     }
-    source.push_str("  (#return 42u64)");
+    source.push_str("  (#return 42u64)\n  );\n}\n");
     execute(&source, "string-utf8-boundaries", 42);
 }
 

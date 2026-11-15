@@ -134,7 +134,7 @@ fn exhaustive_matches_dispatch_all_u8_values_and_full_width_boundaries() {
         "u8",
         "(#case (#range 0u8 127u8) 0u64) (#case (#range 128u8 255u8) 1u64)",
     );
-    program.push_str("#fn main () #u64");
+    program.push_str("#fn main {\n  #params = ();\n  #returns = #u64;");
     for value in 0..=255 {
         program.push_str(&format!(
             "(#assert (#u64::eq (#call classify ((value {value}u8))) {}u64))",
@@ -153,7 +153,7 @@ fn exhaustive_matches_dispatch_all_u8_values_and_full_width_boundaries() {
             "170141183460469231731687303715884105727",
         ),
     ] {
-        let program = format!("{}#fn main () #u64 (#assert (#u64::eq (#call classify ((value {minimum}{ty}))) 42u64)) (#return (#call classify ((value {maximum}{ty}))))\n", source(ty, &format!("(#case (#range {minimum}{ty} {maximum}{ty}) 42u64)")));
+        let program = format!("{}#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#assert (#u64::eq (#call classify ((value {minimum}{ty}))) 42u64)) (#return (#call classify ((value {maximum}{ty}))))\n  );\n}}\n", source(ty, &format!("(#case (#range {minimum}{ty} {maximum}{ty}) 42u64)")));
         run(&program);
     }
     run("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#match true (#case true (#when false) 0u64) (#case true 42u64) (#case false 1u64)))\n  );\n}\n");
