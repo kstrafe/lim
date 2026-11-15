@@ -898,9 +898,9 @@ fn bundled_standard_library_types_and_view_locals_have_real_targets() {
 #[test]
 fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
     let fixture = Fixture::new("type-roles");
-    let module_text = "#type Number #u64\n#extern-fn  foreign {\n  #abi = #abi-c;\n  #params = ((value Number));\n  #returns = Number;\n}\n#unsafe-fn guarded {\n  #params = ((value Number));\n  #returns = Number;\n  #body = ( (#return value)\n  );\n}\n#struct Holder () ((field (#ref Number)))\n#enum Choice () ((Choice.Data (#tuple Number Number)) Choice.Empty)\n#struct CRecord (#repr-c) ((c-field Number))\n#const lIMIT Number 99u64\n#static cOUNT Number 42u64\n#fn inspect {\n  #params = ((holder (#ref Holder)) (choice (#ref Choice)) (record (#ref CRecord)));\n  #returns = ();\n  #body = ( (#return ())\n  );\n}\n";
+    let module_text = "#type Number #u64\n#extern-fn  foreign {\n  #abi = #abi-c;\n  #params = ((value Number)); #effects = (#io #global-access);\n  #returns = Number;\n}\n#unsafe-fn guarded {\n  #params = ((value Number));\n  #returns = Number;\n  #body = ( (#return value)\n  );\n}\n#struct Holder () ((field (#ref Number)))\n#enum Choice () ((Choice.Data (#tuple Number Number)) Choice.Empty)\n#struct CRecord (#repr-c) ((c-field Number))\n#const lIMIT Number 99u64\n#static cOUNT Number 42u64\n#fn inspect {\n  #params = ((holder (#ref Holder)) (choice (#ref Choice)) (record (#ref CRecord)));\n  #returns = ();\n  #body = ( (#return ())\n  );\n}\n";
     let module = fixture.write("functions.lim", module_text);
-    let root_text = "#alias Number = ./functions.lim::Number\n#alias foreign = ./functions.lim::foreign\n#alias guarded = ./functions.lim::guarded\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = (\n   (#let-mut input Number 42u64)\n   (#return (#unsafe (#unsafe-call foreign ((value (#unsafe-call guarded ((value input))))))))\n  );\n}\n";
+    let root_text = "#alias Number = ./functions.lim::Number\n#alias foreign = ./functions.lim::foreign\n#alias guarded = ./functions.lim::guarded\n#fn main {\n  #params = ();\n  #returns = Number; #effects = ((#effects-of foreign));\n  #body = (\n   (#let-mut input Number 42u64)\n   (#return (#unsafe (#unsafe-call foreign ((value (#unsafe-call guarded ((value input))))))))\n  );\n}\n";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -1736,7 +1736,7 @@ fn signature_help_uses_named_parameter_order_for_all_call_spellings_over_stdio()
     client.change(&path, 20, &puns);
     let signature = client.signature(&path, &puns, puns.find("$ second").unwrap() + 3);
     assert_signature(&signature, "choose", &["first", "second"], Some(1));
-    let unsafe_source = "#extern-fn  foreign {\n  #abi = #abi-c;\n  #params = ((first #u64) (second #u64));\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call foreign ((second 2u64) (first 1u64)))))\n  );\n}\n";
+    let unsafe_source = "#extern-fn  foreign {\n  #abi = #abi-c;\n  #params = ((first #u64) (second #u64)); #effects = (#io #global-access);\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64; #effects = ((#effects-of foreign));\n  #body = ( (#return (#unsafe (#unsafe-call foreign ((second 2u64) (first 1u64)))))\n  );\n}\n";
     lim::check_types(&lim::parse_program(unsafe_source).unwrap()).unwrap();
     client.change(&path, 21, unsafe_source);
     let signature = client.signature(
