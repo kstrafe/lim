@@ -566,7 +566,7 @@ Lim compilation pipeline
 <li>In a parenthesized semicolon list, <code>#let x #u64 expression; #return x;</code> groups into two forms. Existing parenthesized forms are retained. A nested call and its argument record constitute one expression. Every group needs a terminating semicolon; newlines alone do not terminate forms.</li>
 <li><code>[#u64 #wrap; a + b * c]</code> scopes the scalar operator type and integer overflow mode. Integer arithmetic requires <code>#wrap</code> or <code>#saturate</code>; comparisons and floating arithmetic omit the mode. Operators have fixed precedence: unary, multiplication/division/remainder, addition/subtraction, shifts, bitwise AND/XOR/OR, comparisons, Boolean AND, then Boolean OR. Arithmetic associates left. Chained comparisons are rejected. Operators require token separation; <code>start-offset</code> remains one identifier.</li>
 <li>Nested square brackets group math and inherit its header. Parentheses retain ordinary Lim syntax. Calls and argument records end header inheritance: infix expressions inside them need explicit headers of their own.</li>
-<li>A function record requires <code>#params</code>, <code>#returns</code> and <code>#body</code>. Contract fields <code>#requires</code>, <code>#ensures</code> and <code>#preserves</code> contain lists of independent clauses and default to empty. Unit results explicitly use <code>#returns = ();</code> and <code>(#return ())</code>. Unknown and duplicate section keys are errors. Parenthesized sections such as <code>(#params {...})</code> also normalize to canonical functions.</li>
+<li>Authored <code>#fn</code> and <code>#unsafe-fn</code> declarations require a record containing <code>#params</code>, <code>#returns</code> and <code>#body</code>. Contract fields <code>#requires</code>, <code>#ensures</code> and <code>#preserves</code> contain lists of independent clauses and default to empty. Unit results explicitly use <code>#returns = ();</code> and <code>(#return ())</code>. Unknown and duplicate section keys are errors. Grouped parameter lists and parenthesized statement lists remain valid values inside the record; an old positional declaration is not authored source syntax.</li>
 <li><code>:</code> groups the following syntax as parentheses. On the same line it consumes the remaining forms until the newline, the enclosing closing delimiter, or a semicolon. Repeated colons nest: <code>(a : b : c)</code> is <code>(a (b (c)))</code>. A colon can appear anywhere a form is expected; it has no special meaning at the head of a list.</li>
 <li>A colon at the end of a line groups the following indented syntax. Dedent closes the group. Semicolons inside it group statements, just as they do in an explicit parenthesized sequence. An indented header form ends on dedent without another semicolon. Loops accept a body collection written either with explicit parentheses or with colon grouping.</li>
 <li>In records, <code>key: syntax;</code>, <code>key : syntax;</code>, and <code>key = : syntax;</code> assign that grouped value. Inline entries retain their terminating semicolon; multiline groups close the entry on dedent. Blank/comment lines do not affect scope. Use spaces for indentation. <code>::</code>, embedded <code>left:right</code>, and prefixed <code>:label</code> remain ordinary identifier text; a standalone colon or a single trailing colon starts a group.</li>
@@ -823,9 +823,19 @@ nix develop --command cargo run -- fmt examples/modules/main.lim</code></pre>
 <h2>Compile-time configuration</h2>
 <p><code>#cfg-if</code> includes only the selected top-level forms. Its condition is built from <code>#cfg-is</code>, <code>#cfg-not</code>, <code>#cfg-and</code>, and <code>#cfg-or</code>; branches contain forms directly, with an optional final <code>#cfg-else</code> branch:</p>
 <pre class="lisp"><code><span class="lim-keyword">#cfg-if</span> (<span class="lim-keyword">#cfg-and</span> (<span class="lim-keyword">#cfg-is</span> <span class="lim-keyword">#platform</span> linux) (<span class="lim-keyword">#cfg-is</span> <span class="lim-keyword">#feature</span> fast))
-    (<span class="lim-keyword">#fn</span> selected () <span class="lim-type">#u64</span> (<span class="lim-keyword">#return</span> <span class="lim-literal">1u64</span>))
+    (<span class="lim-keyword">#fn</span> selected {
+      <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ();
+      <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+      <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> ( (<span class="lim-keyword">#return</span> <span class="lim-literal">1u64</span>)
+      );
+    })
     (<span class="lim-keyword">#cfg-else</span>
-      (<span class="lim-keyword">#fn</span> selected () <span class="lim-type">#u64</span> (<span class="lim-keyword">#return</span> <span class="lim-literal">0u64</span>)))</code></pre>
+      (<span class="lim-keyword">#fn</span> selected {
+        <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ();
+        <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+        <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> ( (<span class="lim-keyword">#return</span> <span class="lim-literal">0u64</span>)
+        );
+      }))</code></pre>
 <p><code>#platform</code> and <code>#os</code> are populated automatically from the compiler host OS (<code>linux</code>, <code>macos</code>, or <code>windows</code>, where applicable); <code>#arch</code> is the target architecture (such as <code>x86_64</code>), and <code>#target</code> is its canonical target triple (currently <code>x86_64-unknown-linux-gnu</code> for the supported backend). Other keys must be passed with <code>--cfg KEY=VALUE</code>; for example, <code>--cfg feature=fast</code>. Command-line settings override automatic values. Configured values are literal symbols or strings in <code>#cfg-is</code>. Excluded forms are removed before imports, generators, name checks, and type checking are processed.</p>
 <p>Pass <code>--cfg</code> repeatedly to set several keys. It works in both binary and assembly-output modes; a key supplied more than once uses its last value.</p>
 <p>Use <code>--collect-cfgs INPUT</code> to print the sorted, unique cfg keys referenced by the source and its imports. Collection scans every cfg branch, including inactive branches, and follows imports found inside those branches:</p>
@@ -855,8 +865,13 @@ nix develop --command cargo run -- fmt examples/modules/main.lim</code></pre>
 <p>Generators are compile-time syntax functions. Their parameters receive the invocation arguments literally; generator values are immutable syntax nodes: symbols, literals, or lists. A generator returns a list of top-level forms, which are expanded before ordinary Lim parsing and type checking.</p>
 <p>Language and standard-library generator names are reserved and start with <code>#</code>: for example, <code>#generate #optional ((type #u64) (name MaybeU64))</code>, <code>#generate #cell</code>, and <code>#generate #utf8-view</code>. User generators use ordinary names, such as <code>#generate make-record</code>. The <code>#generate</code> keyword invokes generation/import; a generator name&#39;s <code>#</code> identifies a reserved name, not a different execution or caching mechanism. Standard-library generators remain ordinary immutable Lim declarations and must be imported before use. Their shipped declarations cannot be redefined. All <code>#</code>-prefixed names are unavailable for user declarations, including declarations emitted by generators. There are no compatibility aliases for the old unprefixed builtin spellings; unprefixed names belong to users, including names such as <code>optional</code> or <code>cell</code>.</p>
 <p>Capabilities are explicit declarations for generator requirements. A concrete type opts in with <code>#capability</code>, and a generator parameter can require one:</p>
-<pre class="lisp"><code><span class="lim-keyword">#fn</span> u64-less ((left (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)) (right (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>))) <span class="lim-type">#bool</span>
+<pre class="lisp"><code><span class="lim-keyword">#fn</span> u64-less {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ((left (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)) (right (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)));
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#bool</span>;
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
     (<span class="lim-keyword">#return</span> (<span class="lim-operator">#u64::lt</span> (<span class="lim-keyword">#deref</span> left) (<span class="lim-keyword">#deref</span> right)))
+  );
+}
 <span class="lim-keyword">#capability</span> sortable <span class="lim-type">#u64</span>
     ((u64-less ((<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>) (<span class="lim-keyword">#ref</span> <span class="lim-type">#u64</span>)) <span class="lim-type">#bool</span>))
 <span class="lim-keyword">#gn</span> make-sortable ((element sortable))
@@ -1305,11 +1320,16 @@ Choice.Ready</code></pre>
 </section>
 <section id="functions" class="level3">
 <h3>Functions</h3>
-<p>Functions are always free-standing; Lim has no methods or <code>impl</code> blocks. A function may retain an explicit positional signature and body payload:</p>
-<pre class="lisp"><code><span class="lim-keyword">#fn</span> add ((left <span class="lim-type">#u32</span>) (right <span class="lim-type">#u32</span>)) <span class="lim-type">#u32</span>
+<p>Functions are free-standing declarations. Write each authored <code>#fn</code> or <code>#unsafe-fn</code> with a named record containing <code>#params</code>, <code>#returns</code> and <code>#body</code>. This applies at source roots and in <code>#cfg-if</code>/<code>#cfg-else</code> declaration branches. The record can hold grouped parameter and statement lists:</p>
+<pre class="lisp"><code><span class="lim-keyword">#fn</span> add {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ((left <span class="lim-type">#u32</span>) (right <span class="lim-type">#u32</span>));
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u32</span>;
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
     (<span class="lim-keyword">#let</span> total <span class="lim-type">#u32</span> (<span class="lim-operator">#u32::add-wrap</span> left right))
-    (<span class="lim-keyword">#return</span> total)</code></pre>
-<p>The parameter list is a list of <code>(name Type)</code> pairs. Function records also accept a parameter record such as <code>{ left = #u32; right = #u32; }</code>:</p>
+    (<span class="lim-keyword">#return</span> total)
+  );
+}</code></pre>
+<p><code>#params</code> accepts a list of <code>(name Type)</code> pairs or a named record such as <code>{ left = #u32; right = #u32; }</code>:</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> add {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> { left <span class="lim-operator">=</span> <span class="lim-type">#u32</span>; right <span class="lim-operator">=</span> <span class="lim-type">#u32</span>; };
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u32</span>;
@@ -1337,6 +1357,7 @@ Choice.Ready</code></pre>
     <span class="lim-keyword">#set</span> value [<span class="lim-type">#u64</span> <span class="lim-keyword">#wrap</span>; value <span class="lim-operator">+</span> <span class="lim-literal">1u64</span>];
     <span class="lim-keyword">#return</span> value;
 }</code></pre>
+<p>Positional lists such as <code>(#fn name parameters ReturnType body...)</code> remain syntax-tree data for generators. Quoted <code>#gn</code> templates and literal <code>#generate</code> arguments can contain those lists. They are not alternative authored function declarations, and the source rule does not change parentheses in types, parameter binders or expressions.</p>
 <p>Function calls name every argument explicitly. Safe calls use a function name followed by a record or a list of <code>(name value)</code> pairs. Unsafe and external functions use <code>#unsafe-call</code> within <code>#unsafe</code>. Each argument label must match a parameter in the declaration:</p>
 <pre class="lisp"><code>(add ((left <span class="lim-literal">20u32</span>) (right <span class="lim-literal">22u32</span>)))
 add { left <span class="lim-operator">=</span> <span class="lim-literal">20u32</span>; right <span class="lim-operator">=</span> <span class="lim-literal">22u32</span>; }</code></pre>
@@ -1364,8 +1385,12 @@ add { left <span class="lim-operator">=</span> <span class="lim-literal">20u32</
 <p><strong>Compatibility:</strong> earlier experimental compilers evaluated named arguments and struct initializers in declaration order. Effectful reordered values can now behave differently. Name/arity validation remains static, before execution.</p>
 <p>Generic function declarations and angle-bracket calls are rejected. Use a generator to emit a concrete function for each required type combination.</p>
 <p>There are no implicit returns. Every reachable function path must use <code>#return</code>; a unit return must use <code>(#return ())</code>.</p>
-<p>Native functions declare their calling convention explicitly. <code>#abi-c</code> selects the target&#39;s C ABI; external signatures currently accept scalar values and raw pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsafe FFI boundaries and must use <code>#unsafe-call</code> inside <code>#unsafe</code>:</p>
-<pre class="lisp"><code><span class="lim-keyword">#extern-fn</span> <span class="lim-keyword">#abi-c</span> abs ((value <span class="lim-type">#i32</span>)) <span class="lim-type">#i32</span>
+<p>External source declarations use a named record with <code>#abi</code>, <code>#params</code> and <code>#returns</code>, and no body or contract sections. Set <code>#abi = #abi-c;</code> to select the target&#39;s C ABI. External signatures currently accept scalar values and raw pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsafe FFI boundaries and must use <code>#unsafe-call</code> inside <code>#unsafe</code>:</p>
+<pre class="lisp"><code><span class="lim-keyword">#extern-fn</span>  abs {
+  <span class="lim-keyword">#abi</span> <span class="lim-operator">=</span> <span class="lim-keyword">#abi-c</span>;
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ((value <span class="lim-type">#i32</span>));
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#i32</span>;
+}
 
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
@@ -1537,10 +1562,15 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 (<span class="lim-keyword">#set</span> count [<span class="lim-type">#u64</span> <span class="lim-keyword">#wrap</span>; count <span class="lim-operator">+</span> <span class="lim-literal">1u64</span>])</code></pre>
 <p>Loop conditions run repeatedly; any outer value they inspect must be explicitly cloned so it remains available on the next iteration. Both sides of a branch are checked, and a value moved on either path is unavailable after the join. <code>#clone</code> cannot duplicate mutable references or thread-task handles. If a function named <code>&lt;Type&gt;-clone</code> exists with signature <code>(&lt;Type&gt;) -&gt; &lt;Type&gt;</code>, <code>#clone</code> dispatches to it; use that function to define deep-copy behavior for resource-owning types. Otherwise the backend clones the value representation. Every function return checks that all still-live linear bindings have been consumed. Pass an owned value to another function, or explicitly consume it with <code>#forget</code>. <code>#forget</code> does not run cleanup; it is intended for use after a user-written destruction function has released a value&#39;s resources. For example:</p>
 <pre class="lisp"><code><span class="lim-keyword">#struct</span> Buffer () ((allocation Allocation))
-<span class="lim-keyword">#fn</span> Buffer::destroy ((buffer Buffer)) ()
+<span class="lim-keyword">#fn</span> Buffer::destroy {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ((buffer Buffer));
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
     (Allocation::release (<span class="lim-keyword">#get</span> buffer allocation))
     (<span class="lim-keyword">#forget</span> buffer)
-    (<span class="lim-keyword">#return</span> ())</code></pre>
+    (<span class="lim-keyword">#return</span> ())
+  );
+}</code></pre>
 <p>Destruction is an ordinary explicit call, not a type hook. A destructor takes the owned value by value, destructures resource-bearing fields, and calls the appropriate field destructors before forgetting any remaining representation. Moving or returning a value transfers the caller&#39;s cleanup responsibility; every explicit <code>#return</code> is checked for still-live linear locals. Early-return paths must likewise consume the values they own before returning. The compiler never inserts a destructor, so discarding resources with <code>#forget</code> remains an intentional leak rather than hidden cleanup. Generated collections follow the same rule: their generated <code>-free</code> function explicitly destroys each remaining element and releases storage once, and consuming the vector prevents a second free.</p>
 <p><code>#drop</code> also consumes a value and remains useful for explicitly ending a reference&#39;s borrow. A value cannot be silently overwritten, abandoned at a scope exit, or consumed on only some control-flow paths. The compiler does not insert destruction calls or silently discard linear values. For a struct, tuple, array, or enum containing references, the borrow checker tracks the provenance of every contained reference. Dropping the aggregate releases each recorded field loan, so all owners become available again only after the aggregate itself is dropped. Code generation does not emit runtime work for references because they are non-owning values.</p>
 </section>
@@ -1705,8 +1735,13 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 
 <span class="lim-keyword">#generate</span> make-alias Answer
 
-<span class="lim-keyword">#fn</span> main () Answer
-    (<span class="lim-keyword">#return</span> <span class="lim-literal">42u64</span>)</code></pre>
+<span class="lim-keyword">#fn</span> main {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> Answer;
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
+    (<span class="lim-keyword">#return</span> <span class="lim-literal">42u64</span>)
+  );
+}</code></pre>
 <table>
 <colgroup>
 <col style="width: 25%" />
@@ -1724,9 +1759,15 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </thead>
 <tbody>
 <tr>
+<td><code>#abi</code></td>
+<td><code>#abi = #abi-c;</code></td>
+<td><code>#extern-fn c_abs { #abi = #abi-c; #params = { value = #i32; }; #returns = #i32; }</code> (top level)</td>
+<td>Required external-function record field selecting the C calling convention.</td>
+</tr>
+<tr>
 <td><code>#abi-c</code></td>
 <td><code>#abi-c</code> in <code>#extern-fn</code></td>
-<td><code>#extern-fn #abi-c abs ((value #i32)) #i32</code> (declaration)</td>
+<td><code>#extern-fn abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; }</code> (declaration)</td>
 <td>Selects the C calling convention; foreign calls use <code>#unsafe-call</code> inside <code>#unsafe</code>.</td>
 </tr>
 <tr>
@@ -1864,13 +1905,13 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#body</code></td>
 <td><code>#body = (forms...);</code></td>
-<td><code>(#body (#return ()))</code> (function section)</td>
+<td><code>#fn main { #params = {}; #returns = (); #body: #return (); }</code> (top level)</td>
 <td>Required function body as a form list or indentation list.</td>
 </tr>
 <tr>
 <td><code>#bool</code></td>
 <td><code>#bool</code></td>
-<td><code>#fn identity ((value #bool)) #bool (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #bool)); #returns = #bool; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Boolean scalar type; values are <code>true</code> and <code>false</code>.</td>
 </tr>
 <tr>
@@ -1972,7 +2013,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#cfg-if</code></td>
 <td><code>#cfg-if condition form... [(#cfg-else form...)]</code></td>
-<td><code>#cfg-if (#cfg-is #os linux) (#fn os-call () () (#return ()))</code> (top level)</td>
+<td><code>#cfg-if (#cfg-is #os linux) (#fn os-call { #params = {}; #returns = (); #body: #return (); })</code> (top level)</td>
 <td>Includes only the selected top-level forms before imports and semantic checks.</td>
 </tr>
 <tr>
@@ -1996,7 +2037,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#char</code></td>
 <td><code>#char</code></td>
-<td><code>#fn identity ((value #char)) #char (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #char)); #returns = #char; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Unicode scalar value type, distinct from UTF-8 byte type <code>#u8</code>.</td>
 </tr>
 <tr>
@@ -2055,8 +2096,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#ensures</code></td>
-<td><code>(#ensures predicate)</code></td>
-<td><code>(#ensures (#call valid ((value (#result)))))</code> (function header)</td>
+<td><code>#ensures = (predicates...);</code></td>
+<td><code>#fn accept { #params = { value = #u64; }; #returns = #u64; #ensures = ((#call valid ((value (#result))))); #body: #return value; }</code> (top level)</td>
 <td>Promise evidence on normal return; instrumented builds assert it.</td>
 </tr>
 <tr>
@@ -2085,26 +2126,26 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#extern-fn</code></td>
-<td><code>#extern-fn #abi-c name ((arg Type) (...)) ReturnType</code>; the parameter list may also use nested pairs</td>
-<td><code>#extern-fn #abi-c c_abs ((value #i32)) #i32</code> (top level)</td>
+<td><code>#extern-fn name { #abi = #abi-c; #params = ((arg Type) (...)); #returns = ReturnType; }</code>; the parameter list may also use nested pairs</td>
+<td><code>#extern-fn c_abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; }</code> (top level)</td>
 <td>Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library.</td>
 </tr>
 <tr>
 <td><code>#f32</code></td>
 <td><code>#f32</code></td>
-<td><code>#fn identity ((value #f32)) #f32 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #f32)); #returns = #f32; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>32-bit IEEE 754 floating-point scalar type.</td>
 </tr>
 <tr>
 <td><code>#f64</code></td>
 <td><code>#f64</code></td>
-<td><code>#fn identity ((value #f64)) #f64 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #f64)); #returns = #f64; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>64-bit IEEE 754 floating-point scalar type.</td>
 </tr>
 <tr>
 <td><code>#fn</code></td>
-<td><code>#fn name ((arg Type) (...)) ReturnType body...</code>; the parameter list may also use nested pairs</td>
-<td><code>#fn add ((a #u64) (b #u64)) #u64 (#return (#u64::add-wrap a b))</code> (top level)</td>
+<td><code>#fn name { #params = ((arg Type) (...)); #returns = ReturnType; #body = ( body... ); }</code>; the parameter list may also use nested pairs</td>
+<td><code>#fn add { #params = ((a #u64) (b #u64)); #returns = #u64; #body = ( (#return (#u64::add-wrap a b)) ); }</code> (top level)</td>
 <td>Declares a monomorphic function with explicit parameter/return types and body.</td>
 </tr>
 <tr>
@@ -2260,31 +2301,31 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#i128</code></td>
 <td><code>#i128</code></td>
-<td><code>#fn identity ((value #i128)) #i128 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #i128)); #returns = #i128; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Signed 128-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#i16</code></td>
 <td><code>#i16</code></td>
-<td><code>#fn identity ((value #i16)) #i16 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #i16)); #returns = #i16; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Signed 16-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#i32</code></td>
 <td><code>#i32</code></td>
-<td><code>#fn identity ((value #i32)) #i32 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #i32)); #returns = #i32; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Signed 32-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#i64</code></td>
 <td><code>#i64</code></td>
-<td><code>#fn identity ((value #i64)) #i64 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #i64)); #returns = #i64; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Signed 64-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#i8</code></td>
 <td><code>#i8</code></td>
-<td><code>#fn identity ((value #i8)) #i8 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #i8)); #returns = #i8; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Signed 8-bit integer scalar type.</td>
 </tr>
 <tr>
@@ -2320,7 +2361,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#isize</code></td>
 <td><code>#isize</code></td>
-<td><code>#fn identity ((value #isize)) #isize (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #isize)); #returns = #isize; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Signed integer scalar type with the target&#39;s native pointer width.</td>
 </tr>
 <tr>
@@ -2410,7 +2451,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#mut</code></td>
 <td><code>(#mut parameter Type)</code></td>
-<td><code>#fn advance ((#mut count #u64)) #u64 (#set count 1u64) (#return count)</code> (parameter list)</td>
+<td><code>#fn advance { #params = ((#mut count #u64)); #returns = #u64; #body = ( (#set count 1u64) (#return count) ); }</code> (parameter list)</td>
 <td>Marks a function parameter mutable; local mutable bindings use <code>#let-mut</code>.</td>
 </tr>
 <tr>
@@ -2452,8 +2493,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#params</code></td>
 <td><code>#params = { name = Type; };</code></td>
-<td><code>(#params { value = #u64; })</code> (function section)</td>
-<td>Required parameter list with function-local binders.</td>
+<td><code>#fn identity { #params = { value = #u64; }; #returns = #u64; #body: #return value; }</code> (top level)</td>
+<td>Required parameter list with function-local binders; grouped pairs also work.</td>
 </tr>
 <tr>
 <td><code>#pin</code></td>
@@ -2607,8 +2648,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#preserves</code></td>
-<td><code>(#preserves predicate)</code></td>
-<td><code>(#preserves (#call sorted ((values values))))</code> (function header)</td>
+<td><code>#preserves = (predicates...);</code></td>
+<td><code>#fn accept { #params = { values = (#slice #u64); }; #returns = (); #preserves = ((#call sorted ((values values)))); #body: #return (); }</code> (top level)</td>
 <td>Keep supplied evidence without imposing an entry requirement.</td>
 </tr>
 <tr>
@@ -2715,8 +2756,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#requires</code></td>
-<td><code>(#requires predicate)</code></td>
-<td><code>(#requires (#call valid ((value value))))</code> (function header)</td>
+<td><code>#requires = (predicates...);</code></td>
+<td><code>#fn accept { #params = { value = #u64; }; #returns = #u64; #requires = ((#call valid ((value value)))); #body: #return value; }</code> (top level)</td>
 <td>Require caller evidence and grant it inside the function.</td>
 </tr>
 <tr>
@@ -2734,7 +2775,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#returns</code></td>
 <td><code>#returns = Type;</code></td>
-<td><code>(#returns ())</code> (function section)</td>
+<td><code>#fn main { #params = {}; #returns = (); #body: #return (); }</code> (top level)</td>
 <td>Required explicit return type; unit is <code>()</code>.</td>
 </tr>
 <tr>
@@ -2926,31 +2967,31 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#u128</code></td>
 <td><code>#u128</code></td>
-<td><code>#fn identity ((value #u128)) #u128 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #u128)); #returns = #u128; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Unsigned 128-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#u16</code></td>
 <td><code>#u16</code></td>
-<td><code>#fn identity ((value #u16)) #u16 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #u16)); #returns = #u16; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Unsigned 16-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#u32</code></td>
 <td><code>#u32</code></td>
-<td><code>#fn identity ((value #u32)) #u32 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #u32)); #returns = #u32; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Unsigned 32-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#u64</code></td>
 <td><code>#u64</code></td>
-<td><code>#fn identity ((value #u64)) #u64 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Unsigned 64-bit integer scalar type.</td>
 </tr>
 <tr>
 <td><code>#u8</code></td>
 <td><code>#u8</code></td>
-<td><code>#fn identity ((value #u8)) #u8 (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #u8)); #returns = #u8; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Unsigned 8-bit integer scalar type.</td>
 </tr>
 <tr>
@@ -2973,8 +3014,8 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 </tr>
 <tr>
 <td><code>#unsafe-fn</code></td>
-<td><code>#unsafe-fn name ((arg Type)...) ReturnType body...</code></td>
-<td><code>#unsafe-fn read-byte ((p (#ptr #u8))) #u8 (#return (#unsafe (#ptr-read p)))</code> (top level)</td>
+<td><code>#unsafe-fn name { #params = ((arg Type)...); #returns = ReturnType; #body = ( body... ); }</code></td>
+<td><code>#unsafe-fn read-byte { #params = ((p (#ptr #u8))); #returns = #u8; #body = ( (#return (#unsafe (#ptr-read p))) ); }</code> (top level)</td>
 <td>Declares caller safety obligations: calls use <code>#unsafe-call</code> inside <code>#unsafe</code>, and raw operations in the body still need explicit unsafe blocks.</td>
 </tr>
 <tr>
@@ -2992,7 +3033,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <tr>
 <td><code>#usize</code></td>
 <td><code>#usize</code></td>
-<td><code>#fn identity ((value #usize)) #usize (#return value)</code> (function signature)</td>
+<td><code>#fn identity { #params = ((value #usize)); #returns = #usize; #body = ( (#return value) ); }</code> (function signature)</td>
 <td>Unsigned integer scalar type with the target&#39;s native pointer width.</td>
 </tr>
 <tr>
@@ -3371,13 +3412,23 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
   (<span class="lim-keyword">#case</span> (Some _) <span class="lim-literal">0u64</span>)
   (<span class="lim-keyword">#case</span> None <span class="lim-literal">0u64</span>))</code></pre>
 <p>No wildcard is needed when integer patterns cover the entire domain. This example tests the inclusive boundary between two ranges:</p>
-<pre class="lisp"><code><span class="lim-keyword">#fn</span> classify ((value <span class="lim-type">#u8</span>)) <span class="lim-type">#u64</span>
+<pre class="lisp"><code><span class="lim-keyword">#fn</span> classify {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ((value <span class="lim-type">#u8</span>));
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
     (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#match</span> value
       (<span class="lim-keyword">#case</span> (<span class="lim-keyword">#range</span> <span class="lim-literal">0u8</span> <span class="lim-literal">127u8</span>) <span class="lim-literal">0u64</span>)
       (<span class="lim-keyword">#case</span> (<span class="lim-keyword">#range</span> <span class="lim-literal">128u8</span> <span class="lim-literal">255u8</span>) <span class="lim-literal">42u64</span>)))
-<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
+  );
+}
+<span class="lim-keyword">#fn</span> main {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
     (<span class="lim-keyword">#assert</span> (<span class="lim-operator">#u64::eq</span> (<span class="lim-keyword">#call</span> classify ((value <span class="lim-literal">127u8</span>))) <span class="lim-literal">0u64</span>))
-    (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#call</span> classify ((value <span class="lim-literal">128u8</span>))))</code></pre>
+    (<span class="lim-keyword">#return</span> (<span class="lim-keyword">#call</span> classify ((value <span class="lim-literal">128u8</span>))))
+  );
+}</code></pre>
 <p>Destructuring uses the same aggregate pattern shapes:</p>
 <pre class="lisp"><code>(<span class="lim-keyword">#let</span> (<span class="lim-keyword">#tuple</span> left right) (<span class="lim-keyword">#tuple</span> <span class="lim-type">#u64</span> <span class="lim-type">#u64</span>) pair)</code></pre>
 <p>The pattern syntax is checked against the explicitly declared type; bindings are not inferred. When the matched value is a pinned enum reference, ordinary <code>#case</code> is reserved for the wildcard fallback <code>(#case _ body)</code>. Every named variant uses <code>#case-pin</code> or <code>#case-pin-mut</code>, including fieldless variants such as <code>(#case-pin Empty body)</code>. The shared form binds a <code>#pin-ref</code> payload, including when the input itself is mutable; the mutable form binds a <code>#pin-ref-mut</code> and therefore requires exclusive input. Payload arms accept only one binder or <code>_</code>. Guards, wildcard defaults, exhaustiveness, and duplicate checks follow the usual match rules. The payload stays in its original stack or heap slot, and returned payload references retain the matched owner’s lifetime. Existing unsafe <code>#pin-write</code> and checked <code>#pin-set-field</code> rules still apply inside an exclusive arm.</p>
@@ -3389,7 +3440,10 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <p>This is equivalent to <code>(#case (Work::Pending pending) (#block (#forget pending) 0u64))</code>. A body is required even after a guard.</p>
 <p>Async lowering can still conservatively reject an exclusive match receiver returned by another function: its frame retains a conflicting parent reference handle. This is a generator limitation, not a restriction on ordinary functions; <code>async_generator_matches_reference_returned_by_call</code> records the pending case.</p>
 <pre class="lisp"><code><span class="lim-keyword">#enum</span> Choice () ((Choice.Full <span class="lim-type">#u64</span>) Choice.Empty Choice.Other)
-<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
+<span class="lim-keyword">#fn</span> main {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
     (<span class="lim-keyword">#let-mut</span> choice Choice (Choice.Full <span class="lim-literal">41u64</span>))
     (<span class="lim-keyword">#let</span> observed <span class="lim-type">#u64</span> (<span class="lim-keyword">#match</span> (<span class="lim-keyword">#borrow</span> choice)
       (<span class="lim-keyword">#case-ref</span> (Choice.Full payload) (<span class="lim-keyword">#deref</span> payload))
@@ -3400,10 +3454,15 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
       (<span class="lim-keyword">#case-ref-mut</span> Choice.Empty <span class="lim-literal">0u64</span>)
       (<span class="lim-keyword">#case</span> _ <span class="lim-literal">0u64</span>)))
     (<span class="lim-keyword">#assert</span> (<span class="lim-operator">#u64::eq</span> observed <span class="lim-literal">41u64</span>))
-    (<span class="lim-keyword">#return</span> updated)</code></pre>
+    (<span class="lim-keyword">#return</span> updated)
+  );
+}</code></pre>
 <pre class="lisp"><code><span class="lim-keyword">#struct</span> Payload () ((value <span class="lim-type">#u64</span>))
 <span class="lim-keyword">#enum</span> Choice () ((Choice.Full Payload) Choice.Empty)
-<span class="lim-keyword">#fn</span> main () <span class="lim-type">#u64</span>
+<span class="lim-keyword">#fn</span> main {
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ();
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
+  <span class="lim-keyword">#body</span> <span class="lim-operator">=</span> (
     (<span class="lim-keyword">#let-mut</span> choice Choice (Choice.Full (<span class="lim-keyword">#struct-literal</span> Payload ((value <span class="lim-literal">41u64</span>)))))
     (<span class="lim-keyword">#let</span> pin (<span class="lim-keyword">#pin-ref-mut</span> Choice) (<span class="lim-keyword">#pin</span> choice))
     (<span class="lim-keyword">#let</span> answer <span class="lim-type">#u64</span> (<span class="lim-keyword">#match</span> pin
@@ -3414,7 +3473,9 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
       (<span class="lim-keyword">#case-pin-mut</span> Choice.Empty <span class="lim-literal">0u64</span>)))
     (<span class="lim-keyword">#forget</span> pin)
     (<span class="lim-keyword">#forget</span> choice)
-    (<span class="lim-keyword">#return</span> answer)</code></pre>
+    (<span class="lim-keyword">#return</span> answer)
+  );
+}</code></pre>
 </section>
 <section id="generated-declarations" class="level2">
 <h2>Generated declarations</h2>
@@ -3985,7 +4046,11 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/build-reference.py --
 <section id="browser-output" class="level2">
 <h2>Print numbers in the browser</h2>
 <p>Choose <strong>Print 1 through 10</strong> in the playground. This example executes compiled loop and call instructions; the host receives each number from the running WebAssembly module. <strong>Standard output</strong> displays its text separately from the <strong>Result</strong> panel&#39;s <code>main</code> return value.</p>
-<pre class="lisp"><code><span class="lim-keyword">#extern-fn</span> <span class="lim-keyword">#abi-c</span> browser-print-u64 ((value <span class="lim-type">#u64</span>)) ()
+<pre class="lisp"><code><span class="lim-keyword">#extern-fn</span>  browser-print-u64 {
+  <span class="lim-keyword">#abi</span> <span class="lim-operator">=</span> <span class="lim-keyword">#abi-c</span>;
+  <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> ((value <span class="lim-type">#u64</span>));
+  <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> ();
+}
 <span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> ();
