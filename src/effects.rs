@@ -524,6 +524,10 @@ fn local_primitive(head: &str) -> bool {
     matches!(
         head,
         "literal"
+            // #for-range introduces these checked scalar operations after
+            // source validation. They have no effects beyond their operands.
+            | "+"
+            | "<"
             | "if"
             | "match"
             | "unsafe"

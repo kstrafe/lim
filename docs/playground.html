@@ -22,6 +22,7 @@
   #abi = #abi-c;
   #params = { value = #u64; };
   #returns = ();
+  #effects = (#io #global-access);
 }
 #fn subtract {
   #params = { left = #u64; right = #u64; };
@@ -32,6 +33,7 @@
 #fn main {
   #params = {};
   #returns = ();
+  #effects = ((#effects-of browser-print-u64));
   #body:
     #let difference #u64 (subtract { right = 2; left = 44; });
     #unsafe : #unsafe-call browser-print-u64 { value = difference; };
@@ -40,13 +42,14 @@
 <section class="result-panel" aria-labelledby="result-heading"><h2 id="result-heading">Result <span id="status" role="status" aria-live="polite">Ready</span></h2><pre id="output" aria-live="polite">Choose Compile &amp; run or Check only.</pre><a id="download" class="text-action" download="program.wasm" hidden>Download program.wasm ↓</a><section class="stdout-panel" aria-labelledby="stdout-heading"><h2 id="stdout-heading">Standard output <span>stdout · 64 KiB limit</span></h2><pre id="stdout" role="log" aria-live="polite"></pre></section></section>
 </div>
 <noscript><p>This separate playground needs JavaScript to load WebAssembly. The <a href="index.html">complete tutorial and reference</a> works without it.</p></noscript>
-<section class="scope-note"><h2>What runs here</h2><p>Scalar <code>#u64</code>, <code>#i64</code>, <code>#usize</code>, <code>#isize</code>, <code>#bool</code> and <code>()</code>; safe functions and named calls; wrapping arithmetic, comparisons and bit operations; local mutation; branches, blocks and loops; predicate contracts. The normal checker runs before code generation.</p><p>Each example prints through the explicitly declared <code>browser-print-u64</code> binding, which writes unsigned decimal lines through <code>lim.print_u64</code>; unsafe-call rules still apply. <strong>Check only</strong> can validate arrays, references, structs and other features that lack runnable WebAssembly support. Running currently excludes memory access, globals, aggregates, matching, saturating arithmetic, floats, narrow integers, labeled/value loops and general host I/O. The index-evidence example checks and passes a bounded scalar index; it does not read array memory. File imports are unavailable. <code>#usize</code> values retain Lim’s 64-bit scalar semantics here.</p><p>This is an experimental teaching backend. The <a href="index.html">full language reference</a> also describes the broader native compiler.</p></section>
+<section class="scope-note"><h2>What runs here</h2><p>Scalar <code>#u64</code>, <code>#i64</code>, <code>#usize</code>, <code>#isize</code>, <code>#bool</code> and <code>()</code>; safe functions and named calls; wrapping arithmetic, comparisons and bit operations; local mutation; branches, blocks and loops; predicate contracts. The normal checker runs before code generation.</p><p>Each example prints through the explicitly declared <code>browser-print-u64</code> binding, which writes unsigned decimal lines through <code>lim.print_u64</code>; unsafe-call rules still apply. Each caller explicitly includes that binding’s declared effects; permissions remain separate from predicate evidence. <strong>Check only</strong> can validate arrays, references, structs and other features that lack runnable WebAssembly support. Running currently excludes memory access, globals, aggregates, matching, saturating arithmetic, floats, narrow integers, labeled/value loops and general host I/O. The index-evidence example checks and passes a bounded scalar index; it does not read array memory. File imports are unavailable. <code>#usize</code> values retain Lim’s 64-bit scalar semantics here.</p><p>This is an experimental teaching backend. The <a href="index.html">full language reference</a> also describes the broader native compiler.</p></section>
 </main><footer class="page-footer">Lim · explicit types, visible contracts, ordinary trees. <a href="index.html">Read the handbook →</a></footer>
 <template id="example-answer">// Change either argument, then run again.
 #extern-fn browser-print-u64 {
   #abi = #abi-c;
   #params = { value = #u64; };
   #returns = ();
+  #effects = (#io #global-access);
 }
 #fn subtract {
   #params = { left = #u64; right = #u64; };
@@ -56,6 +59,7 @@
 #fn main {
   #params = {};
   #returns = ();
+  #effects = ((#effects-of browser-print-u64));
   #body:
     #let difference #u64 (subtract { right = 2; left = 44; });
     #unsafe : #unsafe-call browser-print-u64 { value = difference; };
@@ -65,10 +69,12 @@
   #abi = #abi-c;
   #params = { value = #u64; };
   #returns = ();
+  #effects = (#io #global-access);
 }
 #fn main {
   #params = {};
   #returns = ();
+  #effects = ((#effects-of browser-print-u64));
   #body:
     #let-mut total #u64 0;
     #for-range (number #u64) 1 11:
@@ -82,10 +88,12 @@
   #abi = #abi-c;
   #params = { value = #u64; };
   #returns = ();
+  #effects = (#io #global-access);
 }
 #fn main {
   #params = {};
   #returns = ();
+  #effects = ((#effects-of browser-print-u64));
   #body:
     #for-range (number #u64) 1 11:
       #unsafe : #unsafe-call browser-print-u64 { value = number; };
@@ -96,6 +104,7 @@
   #abi = #abi-c;
   #params = { value = #u64; };
   #returns = ();
+  #effects = (#io #global-access);
 }
 #fn positive {
   #params = { n = #u64; };
@@ -111,6 +120,7 @@
 #fn main {
   #params = {};
   #returns = ();
+  #effects = ((#effects-of browser-print-u64));
   #body:
     #let n #u64 42;
     #let accepted #u64 (#if-valid positive { n = n; }
@@ -125,10 +135,12 @@
   #abi = #abi-c;
   #params = { value = #u64; };
   #returns = ();
+  #effects = (#io #global-access);
 }
 #fn main {
   #params = {};
   #returns = ();
+  #effects = ((#effects-of browser-print-u64));
   #body:
     #unsafe : #unsafe-call browser-print-u64 { value = 7; };
     #return : #panic;
@@ -138,6 +150,7 @@
   #abi = #abi-c;
   #params = { value = #u64; };
   #returns = ();
+  #effects = (#io #global-access);
 }
 #fn below-two {
   #params = { index = #u64; };
@@ -153,6 +166,7 @@
 #fn main {
   #params = {};
   #returns = ();
+  #effects = ((#effects-of browser-print-u64));
   #body:
     #let index #u64 1;
     #let checked #u64 (#if-valid below-two { index = index; }

@@ -120,6 +120,7 @@ const outOfRangeShift = `#fn shift {
 await assert.rejects(() => run(outOfRangeShift), WebAssembly.RuntimeError, 'shift counts must trap rather than get masked');
 const binding = example('print').split('#fn main {')[0];
 const beforeTrap = await print(`${binding}#fn main {
+  #effects = ((#effects-of browser-print-u64));
   #params = {}; #returns = #u64;
   #body:
     #unsafe : #unsafe-call browser-print-u64 { value = 18446744073709551615u64; };
@@ -129,6 +130,7 @@ const beforeTrap = await print(`${binding}#fn main {
 assert.equal(beforeTrap.stdout, '18446744073709551615\n');
 assert(beforeTrap.error instanceof WebAssembly.RuntimeError);
 const flooded = await print(`${binding}#fn main {
+  #effects = ((#effects-of browser-print-u64));
   #params = {}; #returns = ();
   #body:
     #for-range (number #u64) 0 100000:
@@ -141,8 +143,10 @@ assert(flooded.stdout.length <= MAX_STDOUT_CHARS && flooded.stdout.length > MAX_
 assert(flooded.messages < 200, 'large output must be batched rather than flooding the UI');
 const unknownHost = `#extern-fn unknown-output {
   #abi = #abi-c; #params = { value = #u64; }; #returns = ();
+  #effects = (#io #global-access);
 }
 #fn main {
+  #effects = ((#effects-of unknown-output));
   #params = {}; #returns = ();
   #body:
     #unsafe : #unsafe-call unknown-output { value = 1; };
@@ -154,6 +158,7 @@ const unknownOutput = compiler.compile(unknownHost);
 assert.equal(unknownOutput.ok, false);
 assert.match(unknownOutput.message, /cannot call external function 'unknown-output'/);
 const missingUnsafe = compiler.compile(`${binding}#fn main {
+  #effects = ((#effects-of browser-print-u64));
   #params = {}; #returns = ();
   #body:
     browser-print-u64 { value = 1; };

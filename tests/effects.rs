@@ -21,6 +21,20 @@ fn unannotated_pure_functions_and_compile_time_constants_remain_valid() {
 }
 
 #[test]
+fn range_loop_bookkeeping_is_pure_but_bound_calls_keep_their_effects() {
+    let source = "#type Index #usize\n#fn main { #params = (); #returns = (); #body = (\n\
+      (#let-mut total #usize 0usize)\n\
+      (#for-range (turn Index) 0usize 3usize (#set total (#usize::add-wrap total turn)))\n\
+      (#return ()) ); }\n";
+    check(source).unwrap();
+    let boundary = "#fn end { #params = (); #returns = #usize; #effects = (#io-output); #body = ((#return 3usize)); }\n";
+    let effectful = format!("{boundary}{}", source.replace("0usize 3usize", "0usize (#call end ())"));
+    let error = check(&effectful).unwrap_err();
+    assert!(error.contains("#io-output") && error.contains("call to 'end'"), "{error}");
+    check(&effectful.replace("#fn main {", "#fn main { #effects = ((#effects-of end));")).unwrap();
+}
+
+#[test]
 fn unannotated_io_is_rejected_without_any_predicate_contracts() {
     let error = check(&function("main", "", SYSCALL)).unwrap_err();
     assert!(

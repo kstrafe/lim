@@ -245,7 +245,7 @@ fn fences(document: &str) -> Vec<(String, String)> {
     let mut result = Vec::new();
     let mut current = None;
     for line in document.lines() {
-        if let Some(metadata) = line.strip_prefix("```lisp") {
+        if let Some(metadata) = line.strip_prefix("```lisp").or_else(|| line.strip_prefix("```lim")) {
             assert!(current.is_none());
             assert!(
                 !metadata.trim().is_empty(),
