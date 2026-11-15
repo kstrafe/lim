@@ -785,7 +785,7 @@ fn unused_type_warnings_have_warning_severity_and_clear_when_used() {
             .unwrap()
             .get("character")
             .and_then(Json::integer),
-        Some(7)
+        Some(6)
     );
     assert!(reports[1]
         .get("diagnostics")
@@ -983,7 +983,7 @@ fn generator_name_resolves_original_span_through_direct_file_identity() {
             .unwrap()
             .get("character")
             .and_then(Json::integer),
-        Some(5)
+        Some(4)
     );
     let paths = artifact_paths(&replies, 3);
     let contents = paths
@@ -1054,7 +1054,7 @@ fn imported_generator_name_navigation_needs_no_valid_expansion_or_artifacts() {
             .unwrap()
             .get("character")
             .and_then(Json::integer),
-        Some(5)
+        Some(4)
     );
     assert!(!base.exists(), "declaration navigation created artifacts");
 }
@@ -1112,7 +1112,7 @@ fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors(
         messages.push(definition(id, &uri, text, needle));
     }
     messages.push(definition(6, &uri, text, "value value"));
-    messages.push(definition(7, &uri, text, "Number)))"));
+    messages.push(definition(7, &uri, text, "Number))"));
     messages.push(definition(8, &uri, text, "Number) (Choice.Absent"));
     finish(&mut messages);
     let (_, replies) = session(messages);
@@ -1143,7 +1143,7 @@ fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors(
             .unwrap()
             .get("character")
             .and_then(Json::integer),
-        Some(5)
+        Some(4)
     );
 
     assert!(!base.join(".lim").exists());
@@ -1385,7 +1385,7 @@ fn utf16_emoji_diagnostics_and_formatting() {
     assert_eq!(lsp::byte_position("a😀z\r\nβ", 8), (1, 0));
     let uri = "file:///tmp/lim-lsp-emoji.lim";
     let mut messages = start();
-    messages.push(open(uri, 1, "\"😀\" )"));
+    messages.push(open(uri, 1, "#fn main () () \"😀\" )"));
     messages.push(change(uri, 2, "#fn main () #u64 (#return 0u64)\n"));
     messages.push(request(2,"textDocument/formatting", &format!("{{\"textDocument\":{{\"uri\":{}}},\"options\":{{\"tabSize\":2,\"insertSpaces\":true}}}}",diagnostic_json::quoted(uri))));
     finish(&mut messages);
@@ -1403,7 +1403,7 @@ fn utf16_emoji_diagnostics_and_formatting() {
             .get("character")
             .unwrap()
             .integer(),
-        Some(5)
+        Some(20)
     );
     let edit = &reply(&replies, 2).get("result").unwrap().array().unwrap()[0];
     assert_eq!(
@@ -1442,12 +1442,14 @@ fn symbols_and_definition_only_on_declaration_names() {
 #[test]
 fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
     let uri = "file:///tmp/lim-lsp-calls.lim";
-    let source = "#fn target () #u64 (#return 0u64)\n#fn main () #u64 (#return (#call target ()))\n#struct Holder () ((target #u64))\n'(#call target ())";
+    let source = "#fn target () #u64 (#return 0u64)\n#fn main () #u64 (#return (#call target ()))\n#struct Holder () ((target #u64))\n#gn data () '(#call target ())";
     let mut messages = start();
     messages.push(open(uri, 1, source));
-    for (id, line, character) in [(2, 1, 34), (3, 2, 18), (4, 3, 8)] {
-        messages.push(request(id,"textDocument/definition", &format!("{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":{line},\"character\":{character}}}}}",diagnostic_json::quoted(uri))));
-    }
+    messages.push(definition_offset(2, uri, source, "#call target", "#call ".len()));
+    messages.push(definition(3, uri, source, "target #u64"));
+    messages.push(definition_offset(
+        4, uri, source, "#gn data () '(#call target", "#gn data () '(#call ".len(),
+    ));
     messages.push(change(
         uri,
         2,
@@ -1512,11 +1514,11 @@ fn generated_array_type_and_accessor_navigate_to_exact_declarations() {
         let target = lsp::uri_to_path(target_uri).unwrap();
         assert!(target.starts_with(base.join(".lim/generated")));
         let generated = std::fs::read_to_string(&target).unwrap();
-        let declaration = generated.find("(#fn Array4::get").unwrap();
+        let declaration = generated.find("#fn Array4::get").unwrap();
         for (id, start, token) in [
             (
                 2,
-                generated.find("(#type Array4").unwrap() + "#type ".len(),
+                generated.find("#type Array4").unwrap() + "#type ".len(),
                 "Array4",
             ),
             (3, declaration + "#fn ".len(), "Array4::get"),

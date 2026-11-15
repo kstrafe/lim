@@ -291,7 +291,7 @@ impl Client {
             "textDocument/definition",
             object([
                 ("textDocument", object([("uri", string(uri(path)))])),
-                ("position", position(text, text.find(needle).unwrap())),
+                ("position", position(text, text.find(needle).unwrap_or_else(|| panic!("missing source needle {needle:?} in {text}")))),
             ]),
         )
     }
@@ -305,7 +305,7 @@ impl Client {
         )
     }
     fn hover(&mut self, path: &Path, text: &str, needle: &str, name: &str) -> String {
-        self.hover_at(path, text, text.find(needle).unwrap(), name)
+        self.hover_at(path, text, text.find(needle).unwrap_or_else(|| panic!("missing source needle {needle:?} in {text}")), name)
     }
     fn hover_at(&mut self, path: &Path, text: &str, byte: usize, name: &str) -> String {
         let result = self.at("textDocument/hover", path, text, byte);
@@ -465,7 +465,7 @@ fn file_aliases_and_direct_calls_navigate_to_the_original_declaration() {
     client.open(&main, main_text);
     for needle in [
         "load =",
-        "./library/lib.lim::read)",
+        "./library/lib.lim::read",
         "load ((",
         "./library/lib.lim::read ((",
     ] {
@@ -680,7 +680,7 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
         (
             &leaf,
             leaf_text,
-            "Number)))",
+            "Number))",
             &leaf,
             leaf_text,
             "#type Number",
@@ -837,7 +837,7 @@ fn generated_syntax_bundles_keep_their_definition_after_expansion() {
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
     client.open(&root, source);
-    let target = client.definition(&root, source, "Number)))");
+    let target = client.definition(&root, source, "Number))");
     assert!(
         target.get("uri").is_some(),
         "{target:?}: {:?}",
@@ -930,7 +930,7 @@ fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
             "#type Number",
             "Number",
         ),
-        (&module, module_text, "Number))))", "#type Number", "Number"),
+        (&module, module_text, "Number)))", "#type Number", "Number"),
         (&module, module_text, "Number)))", "#type Number", "Number"),
         (
             &module,
@@ -1304,7 +1304,7 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
             "frame",
         );
         assert_location(
-            &client.definition(&root, &text, "value))"),
+            &client.definition(&root, &text, "value)"),
             &root,
             &text,
             "((value #u64))",
@@ -1585,7 +1585,7 @@ fn hover_reports_explicit_lexical_member_and_contract_information_over_stdio() {
         ("input))))", "input", "#u64"),
         ("row value", "row", "(#ref Right)"),
         ("value))", "value", "#u64"),
-        ("answer))", "answer", "#u64"),
+        ("answer)", "answer", "#u64"),
     ] {
         let hover = client.hover(&path, source, needle, name);
         assert!(hover.contains(name), "{hover}");
@@ -1638,7 +1638,7 @@ fn hover_reports_explicit_lexical_member_and_contract_information_over_stdio() {
     let broken = format!("{source}\n#fn broken () #u64 (#return false)\n");
     client.change(&path, 2, &broken);
     assert!(client
-        .hover(&path, &broken, "answer))", "answer")
+        .hover(&path, &broken, "answer)", "answer")
         .contains("#u64"));
     assert_eq!(fs::read_to_string(&path).unwrap(), source);
     assert!(!fixture.0.join(".lim").exists());
@@ -1863,7 +1863,7 @@ fn information_requests_preserve_utf16_ranges_and_reject_invalid_positions_over_
     let mut client = Client::start(&fixture.0);
     client.open(&path, source);
     assert!(client
-        .hover(&path, source, "left😀))", "left😀")
+        .hover(&path, source, "left😀)", "left😀")
         .contains("#u64"));
     assert!(client
         .hover(&path, source, "left😀 1u64", "left😀")
@@ -2127,7 +2127,7 @@ fn hover_uses_tuple_and_match_payload_binding_types_over_stdio() {
         ("small large", "small", "#u8"),
         ("large) (#tuple", "large", "#u64"),
         ("small)", "small", "#u8"),
-        ("large))", "large", "#u64"),
+        ("large)", "large", "#u64"),
         ("value) value", "value", "#u16"),
         ("value)\n", "value", "#u16"),
     ] {
@@ -2195,30 +2195,7 @@ fn information_requests_reject_ambiguous_globals_and_out_of_scope_locals_over_st
 #[test]
 fn record_function_contracts_and_refinement_named_calls_have_information_over_stdio() {
     let fixture = Fixture::new("information-record-contracts");
-    let source = "#fn acceptable {
-  #params = { value = #u64; };
-  #returns = #bool;
-  #body: #return true;
-}
-#fn identity {
-  #params = { value = #u64; };
-  #returns = #u64;
-  #requires:
-    acceptable { value = value; };
-  #ensures:
-    acceptable { value = (#result); };
-  #body:
-    #return value;
-}
-(#type Small (#where (subject #u64) (acceptable { value = subject; })))
-#fn main {
-  #params = {}; #returns = #u64;
-  #body:
-    #let input #u64 42;
-    #assume acceptable { value = input; };
-    #return identity { value = input; };
-}
-";
+    let source = "#fn acceptable {\n  #params = { value = #u64; };\n  #returns = #bool;\n  #body: #return true;\n}\n#fn identity {\n  #params = { value = #u64; };\n  #returns = #u64;\n  #requires:\n    acceptable { value = value; };\n  #ensures:\n    acceptable { value = (#result); };\n  #body:\n    #return value;\n}\n#type Small (#where (subject #u64) (acceptable { value = subject; }))\n#fn main {\n  #params = {}; #returns = #u64;\n  #body:\n    #let input #u64 42;\n    #assume acceptable { value = input; };\n    #return identity { value = input; };\n}\n";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
     let path = fixture.write("main.lim", source);
     let mut client = Client::start(&fixture.0);
