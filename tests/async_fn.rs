@@ -5267,10 +5267,10 @@ fn check_graph_conditional_capture(source: &str) {
     assert_ne!(suspended, source);
     build_and_run_graph(&suspended, 42);
     let unselected = suspended.replace("(#if true", "(#if false");
-    assert_eq!(unselected.matches("ChildPoll\n          (#return").count(), 1);
+    assert_eq!(unselected.matches("ChildPoll;\n  #body = (\n          (#return").count(), 1);
     let unselected = unselected.replace(
-        "ChildPoll\n          (#return",
-        "ChildPoll\n        (#assert false)\n        (#return",
+        "ChildPoll;\n  #body = (\n          (#return",
+        "ChildPoll;\n  #body = (\n        (#assert false)\n        (#return",
     );
     build_and_run_graph(&unselected, 0);
 
@@ -5555,7 +5555,7 @@ fn async_conditional_block_continuation_captures_typed_locals() {
           (#forget waker)
           (#return value)\n  );\n}\n";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("offset #u64"), "{generated}");
+    assert!(generated_contains_form(&generated, "(#fn work ((offset #u64)) Work::Task)"), "{generated}");
 }
 
 #[test]
@@ -8401,10 +8401,12 @@ fn async_clones_indexed_computed_reference_owners() {
             "(#let-mut index #usize 2usize)",
         )
         .replace(
-            "(#return result)\n#enum Step (#linear)",
+            "(#return result)\n  );\n}\n#enum Step (#linear)",
             "(#if (#unsafe (#usize::eq (#ptr-read calls) 2usize))
                (#block (#unsafe (#linux-syscall () 60u64 (87u64))) (#unreachable)) ())
              (#return result)
+  );
+}
 #enum Step (#linear)",
         );
     assert!(invalid_outer.contains("(#linux-syscall () 60u64 (87u64))"));
