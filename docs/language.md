@@ -2982,7 +2982,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#generated-context` | `#generated-context ((producer "name") (definition-module "path") (definition-file "path") (invocation-module "path") (invocation-file "path"))` | `#generated-context ((producer "/lib/lib.lim::make") (definition-module "/lib/lib.lim") (definition-file "/lib/lib.lim") (invocation-module "<global>") (invocation-file "/app/main.lim"))` (compiler-generated file header) | Records definition and invocation file identities and permission boundaries for generated-file private access. Validated against the expansion/cache key; forbidden in handwritten source and generator-produced forms. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
-| `#gn` | `#gn name (name-or-(name capability...)...) body` | ``(#gn make-alias (name) `((#type ,name #u64)))`` (top level) | Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values. |
+| `#gn` | `#gn name (name-or-(name capability...)...) body` | ``#gn make-alias (name) `((#type ,name #u64))`` (top level) | Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values. |
 | `#gn-call` | `(#gn-call function syntax-arg...)` | `(#gn-call make-alias name target)` (generator body) | Calls a `#gn-fn` helper during generator interpretation. |
 | `#gn-equal` | `(#gn-equal syntax-a syntax-b)` | `(#gn-equal item expected)` (generator expression) | Tests structural equality of immutable generator syntax values. |
 | `#gn-error` | `(#gn-error message)` where `message` evaluates to string syntax | `(#gn-error "unsupported element type")` (generator expression) | Stops generation with a source-associated explanatory diagnostic; non-string syntax is rejected. |
@@ -3028,7 +3028,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#mut` | `(#mut parameter Type)` | `#fn advance ((#mut count #u64)) #u64 (#set count 1u64) (#return count)` (parameter list) | Marks a function parameter mutable; local mutable bindings use `#let-mut`. |
 | `#offset-of` | `(#offset-of ReprCType field)` | `(#offset-of Header payload)` (expression) | Computes a field's offset in the declared C layout; requires a `#repr-c` struct. |
 | `#old` | `(#old observation)` | `(#old (#deref value))` (postcondition operand) | Snapshot an entry observation for a postcondition. |
-| `#opaque` | `#opaque StructName` | `(#struct Token () ((slot #u64))) (#opaque Token)` (top level) | Restricts construction, field access, and cloning of a linear struct to its defining source module; external code can use its public functions. The annotation must appear in the same source module as the concrete struct. |
+| `#opaque` | `#opaque StructName` | `#struct Token () ((slot #u64)); #opaque Token` (top level) | Restricts construction, field access, and cloning of a linear struct to its defining source module; external code can use its public functions. The annotation must appear in the same source module as the concrete struct. |
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `#cfg-if (#cfg-is #os linux) (#type Fd #i32)` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
@@ -3081,7 +3081,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
 | `#returns` | `#returns = Type;` | `(#returns ())` (function section) | Required explicit return type; unit is `()`. |
 | `#saturate` | `[#I #saturate; expression]` | `[#u8 #saturate; 255 + 1]` (infix expression) | Saturating arithmetic in this expression and directly nested math groups. |
-| `#send` | `#unsafe-impl #send Type` | `(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #send Handle)` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
+| `#send` | `#unsafe-impl #send Type` | `#struct Handle () ((raw (#ptr #u8))); #unsafe-impl #send Handle` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
 | `#set` | `(#set name value)` | `(#set count (#u32::add-wrap count 1u32))` (statement) | Reassigns a mutable local. |
 | `#set-field` | `(#set-field aggregate field-or-index value)` | `(#set-field point x 4u64)` (statement) | Mutates a struct field or tuple slot; a linear member must first be consumed. |
 | `#set-index` | `(#set-index array index value)` | `(#set-index values 0usize 9u8)` (statement) | Mutates an array element after a bounds check; a linear element needs proven prior consumption at a constant index. |
@@ -3102,7 +3102,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#std` | `#std` | `#std` (top level) | Loads the embedded standard String and stdout modules into the program. This is explicit opt-in and works without a source checkout. |
 | `#struct` | `#struct Name (properties...) ((field Type)...)` | `#struct Point () ((x #u64) (y #u64))` (top level) | Declares a concrete struct; properties may include `#linear` and `#repr-c`. |
 | `#struct-literal` | `(#struct-literal Type ((field value)...))` | `(#struct-literal Point ((x 1u64) (y 2u64)))` (expression) | Constructs a struct by explicitly naming every field; no defaults are applied. |
-| `#sync` | `#unsafe-impl #sync Type` | `(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #sync Handle)` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |
+| `#sync` | `#unsafe-impl #sync Type` | `#struct Handle () ((raw (#ptr #u8))); #unsafe-impl #sync Handle` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |
 | `#syntax` | `#syntax Name (syntax ...)` | `#syntax StepAwait (#u64 Step StepPending StepReady step-poll)` (top level) | Declares an immutable literal syntax bundle with a unique identifier; no values are evaluated and no types are inferred. |
 | `#syntax-splice` | `(#syntax-splice Name)` | `(#await (#syntax-splice StepAwait) step)` (inside an async function) | Inserts a named bundle's elements into the surrounding list before ordinary checking and async lowering; unknown names and cycles are errors. |
 | `#target` | `(#cfg-is #target literal)` | `#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word #u64)` (top level) | Automatically populated canonical target triple cfg key; overridable with `--cfg target=VALUE`. |
@@ -3710,10 +3710,11 @@ separate by the repository’s native sweep.
 The library exposes these stages:
 
 1. `lex` converts source into tokens with byte and line/column spans.
-2. `parse` builds untyped S-expressions and preserves `#generate` as `Expr::Generate`.
-3. `parse_program` or `parse_program` lowers declarations and builtin
-   forms into the typed program representation, including generated forms and
-   concrete generator expansions.
+2. `parse_source_unit` groups bare source declarations into untyped syntax
+   trees and preserves `#generate` as `Expr::Generate`. The separate `parse`
+   API reads standalone syntax-tree data, including parenthesized roots.
+3. `parse_program` expands generators and lowers declarations and builtin
+   forms into the program representation.
 4. `check_types` validates declarations, expressions, layouts, patterns,
    calls, constants, mutability, and the acyclic call graph.
 5. `generate_assembly` emits native x86-64 assembly.
@@ -3723,7 +3724,10 @@ The library exposes these stages:
 The crate is dependency-free.  Its primary public types and functions are:
 
 - `lex(&str) -> Result<Vec<Token>, LexError>`;
-- `parse(&str) -> Result<Vec<SpannedExpr>, String>`;
+- `parse(&str) -> Result<Vec<SpannedExpr>, String>` for standalone syntax-tree
+  data, including parenthesized roots;
+- `parse_source_unit(&str) -> Result<Vec<SpannedExpr>, String>` for compilation
+  units with mandatory bare declaration roots;
 - `parse_program(&str) -> Result<Program, String>` for Lim programs and surface notation;
 - `check_types(&Program) -> Result<(), String>`;
 - `generate_assembly(&Program) -> Result<String, String>`;
@@ -3733,7 +3737,10 @@ The crate is dependency-free.  Its primary public types and functions are:
 - `render_diagnostic(&Diagnostic, source, filename) -> String` and
   `render_error(source, filename, error) -> String` for Rust-style terminal
   source excerpts;
-- `format_source(&str) -> Result<String, String>`;
+- `format_source(&str) -> Result<String, String>` for compilation units with
+  bare declaration roots;
+- `format_syntax(&str) -> Result<String, String>` for standalone syntax-tree
+  data, preserving explicit root lists;
 - `compile_source_to_assembly` and `link_native_binary`, which return
   `Result<_, Diagnostic>` with stable phase codes for lexer, parser, generator,
   analysis, code generation, assembler, and linker failures;
