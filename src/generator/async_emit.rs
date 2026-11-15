@@ -8747,7 +8747,7 @@ mod tests {
             42,
         );
         let cancelled = format!(
-            "{} (#forget first) (#set owner 42u64) (#return owner))",
+            "{} (#forget first) (#set owner 42u64) (#return owner)\n",
             source
                 .split_once("(#let-else (Work::Poll.Pending second)")
                 .unwrap()
@@ -9921,6 +9921,10 @@ mod tests {
             (first.to_owned(), "next", 40),
             (format!("{first}\n{second}"), "last", 41),
         ] {
+            let polls = polls.lines()
+                .map(|line| format!("  {line}"))
+                .collect::<Vec<_>>()
+                .join("\n");
             let main = format!(
                 "#struct Holder (#linear) ((view (#ref-mut #u64)))
 #fn capture ((view (#ref-mut #u64)) (amount #u64)) Holder
@@ -10691,6 +10695,10 @@ mod tests {
                 1,
             ),
         ] {
+            let polls = polls.lines()
+                .map(|line| format!("  {line}"))
+                .collect::<Vec<_>>()
+                .join("\n");
             let main = format!("{declarations}\n{cleanup}
 #fn main () #u64 (#let waker #u64 0u64)
                   (#let created Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))

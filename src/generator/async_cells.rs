@@ -592,7 +592,7 @@ mod tests {
                 false,
             ),
         ] {
-            let source = crate::parse(&format!(
+            let source = crate::parse_source_unit(&format!(
                 "#fn work ((view View) (selected #bool)) #u64 {body}\n"
             ))
             .unwrap()
