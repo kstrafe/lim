@@ -346,11 +346,15 @@ pub(crate) fn modern_declaration_source(
     let name_index = if external { 2 } else { 1 };
     let params_index = name_index + 1;
     let returns_index = name_index + 2;
-    let body_index = name_index + 3;
+    let mut body_index = name_index + 3;
     if items.len() < body_index {
         return Err(format!(
             "{head} requires a name, parameters and return type"
         ));
+    }
+    let effects = items.get(body_index).filter(|e| crate::effects::is_clause(e));
+    if effects.is_some() {
+        body_index += 1;
     }
     if external && items.len() != body_index {
         return Err("extern-fn requires a non-generic signature without a body".into());
@@ -379,6 +383,12 @@ pub(crate) fn modern_declaration_source(
         "  #params = {parameters};\n  #returns = {};\n",
         expression_source(&items[returns_index])?
     ));
+    if let Some(Expr::List(clause)) = effects {
+        if clause.len() != 2 {
+            return Err("#effects requires exactly one qualification list".into());
+        }
+        output.push_str(&format!("  #effects = {};\n", expression_source(&clause[1])?));
+    }
     if !external {
         let mut body_start = body_index;
         let mut contracts = [Vec::new(), Vec::new(), Vec::new()];

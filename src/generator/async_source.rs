@@ -738,7 +738,10 @@ fn lower_source(
         }
     }
     rebuild(&mut function.children[2]);
-    for (index, child) in function.children.iter_mut().enumerate().skip(4) {
+    let body_start = 4 + usize::from(
+        function.children.get(4).is_some_and(|node| crate::effects::is_clause(&node.expr)),
+    );
+    for (index, child) in function.children.iter_mut().enumerate().skip(body_start) {
         *child = builder.expression(child, &mut vec![index], true)?;
     }
     if let Some((_, owners)) = &builder.frame {
@@ -754,7 +757,7 @@ fn lower_source(
                 }
             }
         }
-        function.children.splice(4..4, transfers);
+        function.children.splice(body_start..body_start, transfers);
     }
     rebuild(&mut function);
     Ok(Lowered {

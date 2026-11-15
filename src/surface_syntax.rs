@@ -730,7 +730,8 @@ impl<'a> Parser<'a> {
                 matches!(
                     section.children.first().map(name),
                     Some(
-                        "#params" | "#returns" | "#requires" | "#ensures" | "#preserves" | "#body"
+                        "#params" | "#returns" | "#effects" | "#requires" | "#ensures"
+                            | "#preserves" | "#body"
                     )
                 )
             })
@@ -744,10 +745,10 @@ impl<'a> Parser<'a> {
                     ));
                 };
                 let args = section.children.iter().skip(1).cloned().collect::<Vec<_>>();
-                let value = if matches!(name(key), "#params" | "#returns") {
+                let value = if matches!(name(key), "#params" | "#returns" | "#effects") {
                     if args.len() != 1 {
                         return Err(self.error(
-                            "#params and #returns sections require exactly one value",
+                            "#params, #returns and #effects sections require exactly one value",
                             section.span,
                         ));
                     }
@@ -779,11 +780,12 @@ impl<'a> Parser<'a> {
         let external = head == "#extern-fn";
         let function = matches!(head, "#fn" | "#unsafe-fn" | "#extern-fn");
         let allowed = if external {
-            &["#abi", "#params", "#returns"][..]
+            &["#abi", "#params", "#returns", "#effects"][..]
         } else if function {
             &[
                 "#params",
                 "#returns",
+                "#effects",
                 "#requires",
                 "#ensures",
                 "#preserves",
@@ -844,6 +846,12 @@ impl<'a> Parser<'a> {
                 },
             );
             output.push(require("#returns")?);
+            if let Some((key, effects)) = values.get("#effects") {
+                output.push(list(
+                    vec![(*key).clone(), (*effects).clone()],
+                    through(key.span, effects.span.end),
+                ));
+            }
             if external {
                 return Ok(list(output, node.span));
             }

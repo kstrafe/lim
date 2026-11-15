@@ -906,7 +906,7 @@ fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
     check_resolved_contracts(program, declarations)
 }
 
-/// Check predicate contracts only after ordinary semantic validation succeeds.
+/// Check static permissions and predicate contracts after semantic validation.
 /// Assembly emission borrows this checked state and never re-enters validation.
 pub(crate) fn check_resolved_contracts(
     program: &Program,
@@ -916,6 +916,7 @@ pub(crate) fn check_resolved_contracts(
         program,
         declarations,
     };
+    crate::effects::check(&checked)?;
     crate::contracts::check(&checked)?;
     Ok(checked.declarations)
 }

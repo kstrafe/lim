@@ -24,6 +24,7 @@ mod contracts;
 mod diagnostic_json;
 mod distributed_enum;
 mod editor;
+mod effects;
 mod elf_object;
 mod elf_writer;
 mod executable_syntax;
@@ -3016,7 +3017,8 @@ fn collect_function_statement_spans(
     let Some(Expr::Symbol(name)) = items.get(1) else {
         return;
     };
-    for (statement_index, statement) in expression.children.iter().skip(4).enumerate() {
+    let body_start = 4 + usize::from(items.get(4).is_some_and(effects::is_clause));
+    for (statement_index, statement) in expression.children.iter().skip(body_start).enumerate() {
         let key = (name.clone(), statement_index);
         spans.insert(key.clone(), statement.span);
         expressions.insert(key, statement.clone());
@@ -5179,6 +5181,14 @@ fn is_builtin_form(name: &str) -> bool {
     matches!(
         name,
         "requires"
+            | "effects"
+            | "io"
+            | "io-input"
+            | "io-output"
+            | "global-access"
+            | "read-global"
+            | "write-global"
+            | "effects-of"
             | "ensures"
             | "preserves"
             | "assume"
@@ -8280,6 +8290,14 @@ fn parse_function_parts(
 
     let return_type =
         replace_generic_types(&parse_type(items.get(return_index))?, &type_parameters);
+    let mut body_index = body_index;
+    if let Some(Expr::List(clause)) = items.get(body_index).filter(|e| effects::is_clause(e)) {
+        if clause.len() != 2 {
+            return Err("#effects requires exactly one qualification list".into());
+        }
+        effects::Declaration::parse(&clause[1])?;
+        body_index += 1;
+    }
     let mut body = Vec::with_capacity(items.len().saturating_sub(body_index));
     if external {
         if !type_parameters.is_empty() || items.len() != body_index {
