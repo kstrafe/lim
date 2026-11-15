@@ -16,7 +16,7 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 #[test]
 fn borrowed_arguments_and_generated_case_sequences_run_in_order() {
     let source = r#"
-#gn make-function (name)
+#gn make-function { name; }
           `((#fn ,name ((value (#ref-mut #u64))) #u64
               (#return (#match true
                 (#case true (#when true)
@@ -24,7 +24,7 @@ fn borrowed_arguments_and_generated_case_sequences_run_in_order() {
                   (#deref-set value (#u64::add-wrap (#deref value) 1u64))
                   (#deref value))
                 (#case _ 0u64)))))
-#generate make-function increment
+#generate make-function { name = increment; }
 #fn main {
   #params = ();
   #returns = #u64;

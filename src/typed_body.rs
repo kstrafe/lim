@@ -425,8 +425,8 @@ mod tests {
 
     #[test]
     fn generated_function_body_nodes_retain_generated_source_spans() {
-        let source = "#gn make (name) `((#fn ,name () #u64 (#return 5u64)))
-#generate make generated
+        let source = "#gn make { name; } `((#fn ,name () #u64 (#return 5u64)))
+#generate make { name = generated; }
 #fn main { #params = (); #returns = #u64; #body = ( (#return (#call generated ())) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();

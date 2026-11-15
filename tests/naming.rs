@@ -111,11 +111,11 @@ fn old_operator_spellings_and_implicit_overflow_are_rejected() {
 #[test]
 fn generators_construct_variants_without_overloading_symbol_append() {
     check(
-        "#gn make (name)
+        "#gn make { name; }
         `((#enum ,name () ((,(#gn-variant name \"Ready\") #u64)))
           (#fn ,(#gn-symbol-append name \"create\") ((value #u64)) ,name
             (#return (#enum-literal ,(#gn-variant name \"Ready\") value))))
-#generate make State
+#generate make { name = State; }
 #fn main {
   #params = ();
   #returns = #u64;
@@ -123,15 +123,15 @@ fn generators_construct_variants_without_overloading_symbol_append() {
           (#case (State.Ready value) value)))\n  );\n}\n",
     )
     .unwrap();
-    assert!(parse_program("#gn bad () `((#struct lowercase () ()))\n#generate bad\n").is_err());
+    assert!(parse_program("#gn bad {} `((#struct lowercase () ()))\n#generate bad {}\n").is_err());
 }
 
 #[test]
 fn compiler_issued_private_type_symbols_remain_hygienic() {
     check(
-        "#gn-fn private-type (name) `((#struct ,name () ((value #u64))))
-#gn make () (#gn-call private-type (#gn-gensym \"Private\"))
-#generate make
+        "#gn-fn private-type { name; } `((#struct ,name () ((value #u64))))
+#gn make {} (#gn-call private-type { name = (#gn-gensym \"Private\"); })
+#generate make {}
 #fn main {
   #params = ();
   #returns = #u64;

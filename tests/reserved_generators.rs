@@ -20,8 +20,8 @@ fn builtin_names_are_reserved_and_old_spellings_have_no_compatibility_route() {
     // Unprefixed names genuinely belong to users, even if a reserved builtin
     // has the same suffix. There is no ambiguity or special-case dispatch.
     compile(
-        "#gn optional () `((#type UserWord #u64))
-#generate optional
+        "#gn optional {} `((#type UserWord #u64))
+#generate optional {}
 #generate #optional ((type UserWord) (name Maybe))
 #fn main {
   #params = ();
@@ -30,8 +30,8 @@ fn builtin_names_are_reserved_and_old_spellings_have_no_compatibility_route() {
     )
     .unwrap();
     compile(
-        "#gn cell () `((#type UserCell #u64))
-#generate cell
+        "#gn cell {} `((#type UserCell #u64))
+#generate cell {}
 #fn main {
   #params = ();
   #returns = #u64;
@@ -43,10 +43,10 @@ fn builtin_names_are_reserved_and_old_spellings_have_no_compatibility_route() {
 #[test]
 fn users_and_generated_output_cannot_declare_reserved_names() {
     for source in [
-        "#gn #optional () ()\n",
-        "#gn #future-library-generator () ()\n",
-        "#gn-fn #helper () ()\n",
-        "#gn #cell (value-type name create get set) ()\n",
+        "#gn #optional {} ()\n",
+        "#gn #future-library-generator {} ()\n",
+        "#gn-fn #helper {} ()\n",
+        "#gn #cell { value-type; name; create; get; set; } ()\n",
         "#struct #Future () ()\n",
         "#struct Ordinary () ((#field #u64))\n",
         "#struct Ordinary () ((#mut Ordinary))\n",
@@ -57,8 +57,8 @@ fn users_and_generated_output_cannot_declare_reserved_names() {
         "#fn ordinary {\n  #params = ((#argument #u64));\n  #returns = ();\n  #body = ( (#return ())\n  );\n}\n",
         "#fn ordinary {\n  #params = ();\n  #returns = ();\n  #body = ( (#let #local #u64 1u64) (#return ())\n  );\n}\n",
         "#fn ordinary {\n  #params = ();\n  #returns = ();\n  #body = ( (#for-range (#local #usize) 0usize 1usize ()) (#return ())\n  );\n}\n",
-        "#gn emit () (#gn-for-each #local () ())\n#generate emit\n",
-        "#gn emit () `((#struct #Future () ()))\n#generate emit\n",
+        "#gn emit {} (#gn-for-each #local () ())\n#generate emit {}\n",
+        "#gn emit {} `((#struct #Future () ()))\n#generate emit {}\n",
         "#generate #optional ((type #u64) (name #Maybe))\n",
     ] {
         let error = compile(source).unwrap_err();
@@ -71,12 +71,12 @@ fn users_and_generated_output_cannot_declare_reserved_names() {
 fn standard_generators_can_be_explicitly_aliased() {
     let library = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("library/cell.lim");
     for import in [
-        format!("#alias cell-generator = \"{}::#cell\"\n", library.display()),
-        format!("#alias cell-generator = \"{}::#cell\"\n", library.display()),
+        "#alias cell-generator = #std/cell.lim::cell\n".to_owned(),
+        format!("#alias cell-generator = \"{}::cell\"\n", library.display()),
     ] {
         compile(&format!(
             "{import}
-#generate cell-generator #u64 Cell create-cell get-cell set-cell
+#generate cell-generator {{ value-type = #u64; name = Cell; create = create-cell; get = get-cell; set = set-cell; }}
 #fn main {{
   #params = ();
   #returns = #u64;
@@ -90,7 +90,7 @@ fn standard_generators_can_be_explicitly_aliased() {
 fn bundled_standard_generator_uses_the_same_reserved_spelling() {
     compile(
         "#std
-#generate #utf8-view ((name ByteView) (owner (#slice #u8)))
+#generate utf8-view { config = ((name ByteView) (owner (#slice #u8))); }
 #fn main {
   #params = ();
   #returns = #u64;

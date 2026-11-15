@@ -113,7 +113,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "reserved-generator-name",
             diagnostic_code: "E3000",
-            offending_line: "#gn #future-generator () ()",
+            offending_line: "#gn #future-generator {} ()",
             line_number: 1,
         },
         Case {
@@ -185,13 +185,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "gensym-invalid-hint",
             diagnostic_code: "E3000",
-            offending_line: "#generate emit",
+            offending_line: "#generate emit {}",
             line_number: 2,
         },
         Case {
             name: "gensym-forged-symbol",
             diagnostic_code: "E3000",
-            offending_line: "#generate emit",
+            offending_line: "#generate emit {}",
             line_number: 2,
         },
         Case {
@@ -777,19 +777,19 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "generator",
             diagnostic_code: "E3000",
-            offending_line: "#generate fail",
+            offending_line: "#generate fail {}",
             line_number: 2,
         },
         Case {
             name: "generator-imported",
             diagnostic_code: "E3000",
-            offending_line: "#generate fail",
+            offending_line: "#generate fail {}",
             line_number: 2,
         },
         Case {
             name: "generator-function-recursion",
             diagnostic_code: "E3000",
-            offending_line: "#gn-fn second (x) (#gn-call first x)",
+            offending_line: "#gn-fn second { x; } (#gn-call first { x = x; })",
             line_number: 2,
         },
         Case {
@@ -820,13 +820,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-generator",
             diagnostic_code: "E3000",
-            offending_line: "#gn make () (#gn-list)",
+            offending_line: "#gn make {} (#gn-list)",
             line_number: 2,
         },
         Case {
             name: "duplicate-generator-parameter",
             diagnostic_code: "E3000",
-            offending_line: "#gn make (x x) (#gn-list)",
+            offending_line: "#gn make { first = x; second = x; } (#gn-list)",
             line_number: 1,
         },
         Case {
@@ -1451,9 +1451,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "linear-partial-parent" => Some("pair"),
             "linear-copy-after-owner" => Some("(#get pair other)"),
             "opaque-token-constructor" => Some("WakeToken4"),
-            "generator" | "generator-imported" => Some("#generate fail"),
+            "generator" | "generator-imported" => Some("#generate fail {}"),
             "gensym-reserved-source" => Some("lim.gensym.fake"),
-            "gensym-invalid-hint" | "gensym-forged-symbol" => Some("#generate emit"),
+            "gensym-invalid-hint" | "gensym-forged-symbol" => Some("#generate emit {}"),
             "nonconstant-static" => Some("(#call get-value ())"),
             "call-arguments" => Some("other"),
             "call-argument-type-mismatch" => Some("false"),
@@ -1632,7 +1632,7 @@ fn compilation_errors_render_the_offending_source_line() {
                     .unwrap();
                 let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
                 assert_eq!(
-                    source_row.find("#generate fail"),
+                    source_row.find("#generate fail {}"),
                     underline_row.find('^'),
                     "file dependency generator underline is not aligned under its invocation:\n{stderr}"
                 );
@@ -1742,7 +1742,7 @@ fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
             stderr.contains("generated from this invocation"),
             "{stderr}"
         );
-        assert!(stderr.contains("#generate bad generated"), "{stderr}");
+        assert!(stderr.contains("#generate bad { name = generated; }"), "{stderr}");
         let generated_row = stderr
             .lines()
             .find(|line| line.contains("(#return false)"))
@@ -1761,7 +1761,7 @@ fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
         );
         let invocation_row = stderr
             .lines()
-            .find(|line| line.contains("#generate bad generated"))
+            .find(|line| line.contains("#generate bad { name = generated; }"))
             .unwrap();
         let invocation_underline = stderr
             .lines()
@@ -1772,7 +1772,7 @@ fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
                 .split_once("| ")
                 .unwrap()
                 .1
-                .find("#generate bad generated"),
+                .find("#generate bad { name = generated; }"),
             invocation_underline
                 .split_once("| ")
                 .unwrap()

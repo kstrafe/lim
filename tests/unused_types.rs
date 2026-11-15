@@ -67,7 +67,7 @@ fn imported_generated_and_cfg_selected_types_keep_warning_origins() {
     let entry = scratch.path().join("main.lim");
     let imported = scratch.path().join("types.lim");
     fs::write(&imported, "#struct Unused () ()\n").unwrap();
-    let source = "#alias Ext@Unused = ./types.lim::Unused\n#gn emit () `((#type Generated #u64))\n#generate emit\n#cfg-if (#cfg-is #platform not-enabled) (#enum Hidden () (Hidden.Absent))\n";
+    let source = "#alias Ext@Unused = ./types.lim::Unused\n#gn emit {} `((#type Generated #u64))\n#generate emit {}\n#cfg-if (#cfg-is #platform not-enabled) (#enum Hidden () (Hidden.Absent))\n";
     let mut previous = None;
     for _ in 0..2 {
         let (result, diagnostics) = lim::with_warnings(|| {

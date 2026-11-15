@@ -2,7 +2,7 @@ mod support;
 
 use std::{fs, path::PathBuf, process::Command, time::Duration};
 
-const SOURCE: &str = "#gn first () `((#type First #u64))\n#gn second () `((#type Second #u64))\n#generate first; #generate second\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n";
+const SOURCE: &str = "#gn first {} `((#type First #u64))\n#gn second {} `((#type Second #u64))\n#generate first {}; #generate second {}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n";
 
 fn run(arguments: &[&str]) -> (bool, String, String) {
     let (status, stdout, stderr) = support::run(
@@ -65,7 +65,7 @@ fn imported_selection_uses_cfg_target_module_paths_and_writes_lsp_context() {
     let selected = modules.join("selected.lim");
     fs::write(
         &selected,
-        "#cfg-if (#cfg-is #feature enabled) (#gn first () `((#type First #u64)))\n#generate first\n",
+        "#cfg-if (#cfg-is #feature enabled) (#gn first () `((#type First #u64)))\n#generate first {}\n",
     )
     .unwrap();
     let input = scratch.path().join("main.lim");
@@ -160,7 +160,7 @@ fn distinguishes_selected_output_from_nested_generators_on_cold_and_warm_runs() 
     let input = scratch.path().join("main.lim");
     fs::write(
         &input,
-        "#gn inner () `((#type Value #u64))\n#gn outer () `((#generate inner))\n#generate outer\n#generate inner\n",
+        "#gn inner {} `((#type Value #u64))\n#gn outer {} `((#generate inner ()))\n#generate outer {}\n#generate inner {}\n",
     )
     .unwrap();
     let selection = format!("{}:3", input.display());

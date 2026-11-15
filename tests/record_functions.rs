@@ -50,7 +50,7 @@ fn source_rejects_positional_and_section_signatures_without_banning_raw_trees() 
         assert!(lim::parse(&format!("({declaration})")).is_ok());
         assert!(lim::parse(&format!("'({declaration})")).is_ok());
     }
-    assert!(lim::parse_source_unit("#gn data () '(#fn literal () #u64 (#return 42u64))").is_ok());
+    assert!(lim::parse_source_unit("#gn data {} '(#fn literal () #u64 (#return 42u64))").is_ok());
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn function_records_cannot_hide_trailing_positional_operands() {
 
     // Raw function-shaped data is still the canonical generator interface.
     assert!(lim::parse(&format!("({source})")).is_ok());
-    let generated = "#gn emit () `((#fn answer {} #u64 (#return 42u64)))\n#generate emit\n#fn main { #params = {}; #returns = #u64; #body: #return (answer {}); }";
+    let generated = "#gn emit {} `((#fn answer {} #u64 (#return 42u64)))\n#generate emit {}\n#fn main { #params = {}; #returns = #u64; #body: #return (answer {}); }";
     lim::check_types(&lim::parse_program(generated).unwrap()).unwrap();
 }
 
@@ -192,7 +192,7 @@ fn generated_canonical_function_data_publishes_modern_source_with_contracts() {
     let path = scratch.path().join("main.lim");
     let cache = scratch.path().join("cache");
     let output = scratch.path().join("generated");
-    let source = "#gn emit () `((#fn answer ((n #u64)) #u64 (#requires (#u64::lt n 100u64)) (#requires (#u64::gt n 0u64)) (#return n)) (#unsafe-fn alter ((#mut value #u64)) #u64 (#set value 42u64) (#return value)) (#extern-fn #abi-c foreign ((value #u64)) () (#effects (#io #global-access))) (#cfg-if (#cfg-is #feature records) (#fn selected () #u64 (#return 42u64))))\n#generate emit\n#fn main { #params = {}; #returns = #u64; #body: #return 42; }";
+    let source = "#gn emit {} `((#fn answer ((n #u64)) #u64 (#requires (#u64::lt n 100u64)) (#requires (#u64::gt n 0u64)) (#return n)) (#unsafe-fn alter ((#mut value #u64)) #u64 (#set value 42u64) (#return value)) (#extern-fn #abi-c foreign ((value #u64)) () (#effects (#io #global-access))) (#cfg-if (#cfg-is #feature records) (#fn selected () #u64 (#return 42u64))))\n#generate emit {}\n#fn main { #params = {}; #returns = #u64; #body: #return 42; }";
     let mut config = CompileConfig::default();
     config.set("feature", "records");
     for _ in 0..2 {

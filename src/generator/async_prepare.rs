@@ -507,11 +507,11 @@ mod tests {
     fn generator_produced_async_invocation_gets_a_real_source_tree() {
         let text = format!(
             "{CONTEXT}
-#gn produce ()
+#gn produce {{}}
               `( (#generate #async-fn
                 ((protocol work-await) (waker #u64)
                  (function (#fn work ((seed #u64)) #u64
-                   (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting seed))))))) )\n#generate produce\n"
+                   (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady step-poll (Child.Waiting seed))))))) )\n#generate produce {{}}\n"
         );
         let planning = prepare(&syntax(&text)).unwrap();
         assert_eq!(planning.functions.len(), 1);

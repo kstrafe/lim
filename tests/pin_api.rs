@@ -89,7 +89,7 @@ fn opaque_pins_cannot_be_unwrapped_forged_or_cloned_in_safe_code() {
         ("clone", "#fn bad {\n  #params = ((pin PinnedFrame));\n  #returns = ();\n  #body = ( (#let duplicate PinnedFrame (#clone pin)) (#forget duplicate) (#forget pin) (#return ())\n  );\n}\n", "cloned"),
         ("nested-clone", "#fn bad {\n  #params = ((pin PinnedFrame));\n  #returns = ();\n  #body = ( (#let wrapped (#tuple PinnedFrame) (#tuple pin)) (#let duplicate (#tuple PinnedFrame) (#clone wrapped)) (#forget wrapped) (#forget duplicate) (#return ())\n  );\n}\n", "cloned"),
         ("private-storage", "#fn bad {\n  #params = ((pin PinnedFrame));\n  #returns = ();\n  #body = ( (#forget pin) (#forget storage) (#return ())\n  );\n}\n", "unknown"),
-        ("generated-field", "#gn steal () `((#fn bad ((pin PinnedFrame)) () (#let raw (#pin-ref-mut Frame) (#get pin view)) (#forget raw) (#return ())))\n#generate steal\n", "opaque"),
+        ("generated-field", "#gn steal {} `((#fn bad ((pin PinnedFrame)) () (#let raw (#pin-ref-mut Frame) (#get pin view)) (#forget raw) (#return ())))\n#generate steal {}\n", "opaque"),
     ] {
         let scratch = support::Scratch::new(&format!("pin-api-{name}"));
         let error = compile(&format!("{}\n{extra}", source()), &scratch).unwrap_err();
@@ -172,7 +172,7 @@ fn whole_value_copy_access_rejects_exclusive_reference_fields() {
     let source = format!(
         "{}
 #struct Held () ((reference (#ref-mut #u64)))
-#generate #pin ((type Held) (name PinnedHeld) (copy true))\n",
+#generate pin {{ options = ((type Held) (name PinnedHeld) (copy true)); }}\n",
         source()
     );
     assert!(
@@ -183,7 +183,7 @@ fn whole_value_copy_access_rejects_exclusive_reference_fields() {
 
 fn projection_source() -> String {
     format!(
-        "#alias lim-gen-pin = \"{0}/library/pin.lim::#pin\"\n#alias lim-gen-pin-scope = \"{0}/library/pin.lim::#pin-scope\"\n#struct Inner (#linear) ((value #u64))\n#struct Outer (#linear) ((child Inner))\n#generate lim-gen-pin ((type Inner) (name PinnedInner) (fields ((value #u64))))\n#generate lim-gen-pin ((type Outer) (name PinnedOuter) (projections ((child PinnedInner))))\n#generate lim-gen-pin-scope ((type Outer) (pin PinnedOuter) (name with-outer)\n          (run drive-outer) (destroy destroy-outer) (result #u64))\n#fn drive-outer {{\n  #params = ((pin PinnedOuter));\n  #returns = #u64;\n  #body = (\n          (#let-mut handle PinnedOuter pin)\n          (#let-mut child PinnedInner (#call PinnedOuter::ProjectMut::child ((pin handle))))\n          (#call PinnedInner::Write::value ((pin (#borrow-mut child)) (value 42u64)))\n          (#let result #u64 (#call PinnedInner::Read::value ((pin (#borrow child)))))\n          (#forget child) (#return result)\n  );\n}}\n#fn destroy-outer {{\n  #params = ((pin PinnedOuter));\n  #returns = ();\n  #body = ( (#forget pin) (#return ())\n  );\n}}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call with-outer\n          ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64))))))))))\n  );\n}}\n",
+        "#alias lim-gen-pin = \"{0}/library/pin.lim::pin\"\n#alias lim-gen-pin-scope = \"{0}/library/pin.lim::pin-scope\"\n#struct Inner (#linear) ((value #u64))\n#struct Outer (#linear) ((child Inner))\n#generate lim-gen-pin {{ options = ((type Inner) (name PinnedInner) (fields ((value #u64)))); }}\n#generate lim-gen-pin {{ options = ((type Outer) (name PinnedOuter) (projections ((child PinnedInner)))); }}\n#generate lim-gen-pin-scope {{ options = ((type Outer) (pin PinnedOuter) (name with-outer)\n          (run drive-outer) (destroy destroy-outer) (result #u64)); }}\n#fn drive-outer {{\n  #params = ((pin PinnedOuter));\n  #returns = #u64;\n  #body = (\n          (#let-mut handle PinnedOuter pin)\n          (#let-mut child PinnedInner (#call PinnedOuter::ProjectMut::child ((pin handle))))\n          (#call PinnedInner::Write::value ((pin (#borrow-mut child)) (value 42u64)))\n          (#let result #u64 (#call PinnedInner::Read::value ((pin (#borrow child)))))\n          (#forget child) (#return result)\n  );\n}}\n#fn destroy-outer {{\n  #params = ((pin PinnedOuter));\n  #returns = ();\n  #body = ( (#forget pin) (#return ())\n  );\n}}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call with-outer\n          ((value (#struct-literal Outer ((child (#struct-literal Inner ((value 0u64))))))))))\n  );\n}}\n",
         env!("CARGO_MANIFEST_DIR")
     )
 }

@@ -550,13 +550,13 @@ fn builtin_copy_policy_handles_aliases_exclusive_refs_and_explicit_linearity() {
 
 #[test]
 fn user_generator_emitted_builtins_keep_copy_dependent_helpers() {
-    let generator = "#gn emit (payload)
+    let generator = "#gn emit { payload; }
         `((#generate #optional ((type ,payload) (name Maybe)))
           (#generate #result ((ok #bool) (error ,payload) (name Result))))\n";
     run(
         &format!(
             "{generator}#type Payload #u64
-#generate emit Payload
+#generate emit {{ payload = Payload; }}
 #fn main {{
   #params = ();
   #returns = #u64;
@@ -574,7 +574,7 @@ fn user_generator_emitted_builtins_keep_copy_dependent_helpers() {
         "{generator}
 #enum Error (#linear) (Error.Broken)
 #type Payload Error
-#generate emit Payload
+#generate emit {{ payload = Payload; }}
 #fn main {{
   #params = ();
   #returns = #u64;

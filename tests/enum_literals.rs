@@ -197,8 +197,8 @@ fn imported_and_user_generated_enum_literals_keep_concrete_variant_identity() {
     lim::generate_assembly(&program).unwrap();
     run(
         "#enum Answer () ((Answer.Value #u64) Answer.Empty)
-#gn emit (name) `((#fn ,name () Answer (#return (#enum-literal Answer.Value 42u64))))
-#generate emit make
+#gn emit { name; } `((#fn ,name () Answer (#return (#enum-literal Answer.Value 42u64))))
+#generate emit { name = make; }
 #fn main {
   #params = ();
   #returns = #u64;

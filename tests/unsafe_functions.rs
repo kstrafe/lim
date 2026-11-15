@@ -276,7 +276,7 @@ fn external_imports_and_generated_declarations_preserve_safety() {
             "ext@safe-answer",
         ),
         (
-            "#gn make (name safe-name) `((#unsafe-fn ,name () #u64 (#return 42u64)) (#fn ,safe-name () #u64 (#return 42u64)))\n#generate make answer safe-answer\n",
+            "#gn make { name; safe-name; } `((#unsafe-fn ,name () #u64 (#return 42u64)) (#fn ,safe-name () #u64 (#return 42u64)))\n#generate make { name = answer; safe-name = safe-answer; }\n",
             &["answer"][..],
             "safe-answer",
         ),
@@ -326,9 +326,9 @@ fn generated_gensym_calls_preserve_safety_and_cached_diagnostic_spans() {
         ("#fn", "#unsafe-call", Some("safe function")),
     ] {
         let source = format!(
-            "#gn-fn emit (name) `(({declaration} ,name () #u64 (#return 42u64))
+            "#gn-fn emit {{ name; }} `(({declaration} ,name () #u64 (#return 42u64))
                 (#fn main () #u64 (#return (#unsafe ({call} ,name ())))))
-#gn generate () (#gn-call emit (#gn-gensym \"answer\"))\n#generate generate\n"
+#gn generate {{}} (#gn-call emit {{ name = (#gn-gensym \"answer\"); }})\n#generate generate {{}}\n"
         );
         let compile = || {
             compile(

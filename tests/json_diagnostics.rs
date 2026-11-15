@@ -95,7 +95,7 @@ fn errors_are_json_from_frontend_through_linker() {
         ),
         ("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n", "link"),
         (
-            "#gn fail () (#gn-error \"bad \\\"message\\\"\")\n#generate fail\n",
+            "#gn fail {} (#gn-error \"bad \\\"message\\\"\")\n#generate fail {}\n",
             "generator",
         ),
     ] {
@@ -138,7 +138,7 @@ fn errors_are_json_from_frontend_through_linker() {
     assert!(text.contains("module.lim"), "{text}");
     fs::write(
         &path,
-        "#gn bad () `((#fn broken () #u64 (#return false)))\n#generate bad\n",
+        "#gn bad {} `((#fn broken () #u64 (#return false)))\n#generate bad {}\n",
     )
     .unwrap();
     let mut previous = None;

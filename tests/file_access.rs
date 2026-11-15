@@ -83,8 +83,8 @@ fn aliases_do_not_create_new_types() {
 #[test]
 fn generators_keep_definition_and_invocation_references() {
     let scratch = support::Scratch::new("file-alias-generator");
-    write(scratch.path(), "generator/lib.lim", "#export make\n#fn helper {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 2u64)\n  );\n}\n#gn make (name callback) `((#fn ,name () #u64 (#effects ((#effects-of ,callback))) (#return (#u64::add-wrap (#call helper ()) (#call ,callback ())))))\n");
-    let source = "#alias make = ./generator/lib.lim::make\n#fn input {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 40u64)\n  );\n}\n#generate make output @input\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call output ()))\n  );\n}\n";
+    write(scratch.path(), "generator/lib.lim", "#export make\n#fn helper {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 2u64)\n  );\n}\n#gn make { name; callback; } `((#fn ,name () #u64 (#effects ((#effects-of ,callback))) (#return (#u64::add-wrap (#call helper ()) (#call ,callback ())))))\n");
+    let source = "#alias make = ./generator/lib.lim::make\n#fn input {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 40u64)\n  );\n}\n#generate make { name = output; callback = @input; }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call output ()))\n  );\n}\n";
     for _ in 0..2 {
         let program = lim::parse_program_from_path_with_config_and_cache(
             source,
@@ -128,14 +128,14 @@ fn generated_aliases_resolve_definition_paths_and_cold_warm_outputs() {
     write(
         scratch.path(),
         "generator/lib.lim",
-        "#export make\n#gn make (name) `((#alias ,name = ./helper.lim::read))\n",
+        "#export make\n#gn make { name; } `((#alias ,name = ./helper.lim::read))\n",
     );
     write(
         scratch.path(),
         "generator/helper.lim",
         "#fn read {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n",
     );
-    let source = "#alias make = ./generator/lib.lim::make\n#generate make read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call read ()))\n  );\n}\n";
+    let source = "#alias make = ./generator/lib.lim::make\n#generate make { name = read; }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call read ()))\n  );\n}\n";
     for _ in 0..2 {
         let program = lim::parse_program_from_path_with_config_and_cache(
             source,
@@ -327,10 +327,10 @@ fn identical_generator_inputs_do_not_merge_distinct_file_declarations() {
     write(
         scratch.path(),
         "generator.lim",
-        "#gn make () `((#type Number #u64))\n",
+        "#gn make {} `((#type Number #u64))\n",
     );
     for path in ["first.lim", "second.lim"] {
-        write(scratch.path(), path, "#alias make = ./generator.lim::make\n#generate make\n#fn read {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 21u64)\n  );\n}\n");
+        write(scratch.path(), path, "#alias make = ./generator.lim::make\n#generate make {}\n#fn read {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 21u64)\n  );\n}\n");
     }
     let source = "#alias first = ./first.lim::read\n#alias second = ./second.lim::read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-wrap (#call first ()) (#call second ())))\n  );\n}\n";
     for _ in 0..2 {
@@ -357,7 +357,7 @@ fn generated_aliases_cannot_publish_unrelated_private_targets_even_when_unused()
         "{}::secret",
         scratch.path().join("library/lib.lim").display()
     );
-    let source = format!("#alias public = ./library/lib.lim::public\n#gn forge () `((#alias stolen = ,(#gn-symbol {private:?})))\n#generate forge\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}}\n");
+    let source = format!("#alias public = ./library/lib.lim::public\n#gn forge {{}} `((#alias stolen = ,(#gn-symbol {private:?})))\n#generate forge {{}}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}}\n");
     let error = check(scratch.path(), &source).unwrap_err();
     assert!(error.contains("private"), "{error}");
 }
@@ -374,7 +374,7 @@ fn file_looking_strings_remain_literal_data() {
     for imports in ["", "#alias read = ./value.lim::read\n"] {
         check(scratch.path(), &format!("{imports}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let text (#array #char {}) {text:?}) (#return 42u64)\n  );\n}}\n", text.chars().count())).unwrap();
     }
-    check(scratch.path(), "#gn ignore (value) `()\n#generate ignore ./does-not-exist.lim::literal\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
+    check(scratch.path(), "#gn ignore { value; } `()\n#generate ignore { value = ./does-not-exist.lim::literal; }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
 }
 
 #[test]
@@ -454,8 +454,8 @@ fn removed_import_forms_have_no_compatibility_path() {
 #[test]
 fn definition_references_survive_nested_generator_signature_templates() {
     let scratch = support::Scratch::new("file-generator-signature-helper");
-    write(scratch.path(), "generator.lim", "#gn-fn parameter () `(value #u64)\n#gn declare (name) `((#fn ,name (,(#gn-call @parameter)) #u64 (#return value)))\n");
-    check(scratch.path(), "#alias declare = ./generator.lim::declare\n#generate declare answer\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call answer ((value 42u64))))\n  );\n}\n").unwrap();
+    write(scratch.path(), "generator.lim", "#gn-fn parameter {} `(value #u64)\n#gn declare { name; } `((#fn ,name (,(#gn-call @parameter ())) #u64 (#return value)))\n");
+    check(scratch.path(), "#alias declare = ./generator.lim::declare\n#generate declare { name = answer; }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call answer ((value 42u64))))\n  );\n}\n").unwrap();
 }
 
 #[test]
@@ -465,7 +465,7 @@ fn generation_requirements_use_the_actual_files_declaration() {
         write(
             scratch.path(),
             file,
-            "#gn make (name) `((#struct ,name () ()))\n#generate make Thing\n",
+            "#gn make { name; } `((#struct ,name () ()))\n#generate make { name = Thing; }\n",
         );
     }
     let aliases = "#alias First = ./first.lim::Thing\n#alias Second = ./second.lim::Thing\n#alias make-first = ./first.lim::make\n";

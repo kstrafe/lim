@@ -910,7 +910,7 @@ fn generated_dependency_changes_invalidate_semantic_summaries() {
     let scratch = support::Scratch::new("semantic-generated");
     let dir = scratch.path();
     let library =
-        "#gn functions () `((#fn generated () #u64 (#return 7u64)))\n#generate functions\n";
+        "#gn functions {} `((#fn generated () #u64 (#return 7u64)))\n#generate functions {}\n";
     fs::write(dir.join("lib.lim"), library).unwrap();
     let source = "#alias generated = ./lib.lim::generated\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call generated ()))\n  );\n}\n";
     let cold = compile(dir, source, &CompileConfig::default()).0.unwrap();

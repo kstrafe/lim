@@ -63,9 +63,9 @@ fn rejects_invalid_bundles_even_when_unused() {
 fn generated_templates_can_emit_bundles() {
     parse_program(
         r#"
-#gn emit () `((#syntax value (42u64))
+#gn emit {} `((#syntax value (42u64))
           (#fn generated () #u64 (#return (#syntax-splice value))))
-#generate emit
+#generate emit {}
 #fn main {
   #params = ();
   #returns = #u64;
@@ -82,8 +82,8 @@ fn bundles_expand_literal_generator_arguments() {
     parse_program(
         r#"
 #syntax Arguments (Answer #u64)
-#gn make (name ty) `((#type ,name ,ty))
-#generate make (#syntax-splice Arguments)
+#gn make { name; ty; } `((#type ,name ,ty))
+#generate make { name = (#syntax-splice Arguments); }
 #fn main {
   #params = ();
   #returns = #u64;
@@ -151,8 +151,8 @@ fn changing_a_bundle_invalidates_generated_code_cache() {
         let source = format!(
             r#"
 #syntax value ({value}u64)
-#gn emit (value) `((#fn answer () #u64 (#return ,value)))
-#generate emit (#syntax-splice value)
+#gn emit {{ value; }} `((#fn answer () #u64 (#return ,value)))
+#generate emit {{ value = (#syntax-splice value); }}
 #fn main {{
   #params = ();
   #returns = #u64;

@@ -15,16 +15,16 @@ fn direct_nested_and_repeated_builtin_calls_share_one_checked_artifact() {
         ),
     ] {
         for invocations in [
-            format!("#generate outer\n{builtin}\n{builtin}"),
-            format!("{builtin}\n#generate outer\n{builtin}"),
+            format!("#generate outer {{}}\n{builtin}\n{builtin}"),
+            format!("{builtin}\n#generate outer {{}}\n{builtin}"),
         ] {
             let scratch = support::Scratch::new("builtin-generator-dedup");
             let entry = scratch.path().join("main.lim");
             let source = format!(
-                "#gn outer () `(({builtin}))\n{invocations}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}}\n"
+                "#gn outer {{}} `(({builtin}))\n{invocations}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}}\n"
             );
             for _ in 0..2 {
-                let outer = source.rfind("#generate outer").unwrap();
+                let outer = source.rfind("#generate outer {}").unwrap();
                 let direct = source.rfind(builtin).unwrap();
                 let nested = lim::locate_generated_details(
                     &source,
@@ -56,7 +56,7 @@ fn direct_nested_and_repeated_builtin_calls_share_one_checked_artifact() {
                 assert_eq!(direct[0].path, artifact.path);
                 let text = fs::read_to_string(&artifact.path).unwrap();
                 for line in source.lines().enumerate().filter_map(|(index, line)| {
-                    (line == builtin || line == "#generate outer\n").then_some(index + 1)
+                    (line == builtin || line == "#generate outer {}\n").then_some(index + 1)
                 }) {
                     assert!(
                         text.contains(&format!("{}:{line}", entry.display())),
@@ -81,7 +81,7 @@ fn canonical_named_argument_order_deduplicates_but_different_inputs_do_not() {
     for source in [
         "#generate #optional ((type #u64) (name Shared))\n#generate #optional ((name Shared) (type #u64))\n",
         "#generate #array ((element #u64) (length 4) (name Shared))\n#generate #array ((name Shared) (length 4) (element #u64))\n#require-generated Shared #array (Shared::get Shared::borrow Shared::borrow-mut)\n",
-        "#gn outer () `((#generate #optional ((name Shared) (type #u64))))\n#generate outer\n#generate #optional ((type #u64) (name Shared))\n#require-generated Shared outer (Shared::construct)\n#require-generated Shared #optional (Shared::construct)\n",
+        "#gn outer {} `((#generate #optional ((name Shared) (type #u64))))\n#generate outer {}\n#generate #optional ((type #u64) (name Shared))\n#require-generated Shared outer (Shared::construct)\n#require-generated Shared #optional (Shared::construct)\n",
     ] {
         lim::check_source_with_generated_sources(source, &entry, &lim::CompileConfig::default(), &scratch.path().join("cache"), &scratch.path().join("generated")).unwrap();
     }

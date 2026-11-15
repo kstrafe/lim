@@ -88,7 +88,7 @@ fn imported_and_generated_unused_payload_errors_keep_exact_sources() {
     let span = error.span.unwrap();
     assert_eq!(&declaration[span.start..span.end], "MissingType");
 
-    let source = format!("#gn emit () `(({declaration}))\n#generate emit\n");
+    let source = format!("#gn emit {{}} `(({declaration}))\n#generate emit {{}}\n");
     for _ in 0..2 {
         let error = lim::check_source_with_generated_sources(
             &source,

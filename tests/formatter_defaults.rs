@@ -156,7 +156,7 @@ fn multiline_literals_keep_every_byte_including_trailing_spaces() {
 #[test]
 fn generator_quoted_data_keeps_authored_spelling_and_layout() {
     let template = "`((#type ,name #u64)\n          // template comment\n          (#fn helper () #u64 (#return 0x2au64)))";
-    let source = format!("#gn make (name) {template}\n");
+    let source = format!("#gn make {{ name; }} {template}\n");
     let output = formatted(&source);
     assert!(output.contains(template), "{output}");
     assert!(syntax(&format!("'{template}")).contains(template));

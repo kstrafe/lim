@@ -100,7 +100,7 @@ fn source_errors_keep_delimiters_and_unicode_positions() {
 #[test]
 fn generated_documents_use_bare_roots_with_stable_cold_warm_artifacts() {
     let dir = scratch();
-    let source = "#gn emit ()\n  `((#fn answer () #u64 (#return 42u64)))\n#generate emit\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call answer ()))\n  );\n}\n";
+    let source = "#gn emit {}\n  `((#fn answer () #u64 (#return 42u64)))\n#generate emit {}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call answer ()))\n  );\n}\n";
     let compile = || {
         lim::compile_source_with_generated_sources(
             source,
@@ -154,9 +154,9 @@ fn all_declaration_payloads_keep_their_existing_tree_shapes() {
         "#thread-task Task worker",
         "#distributed-enum Choice ()",
         "#enum-contribute Choice (Some #u64)",
-        "#gn make (name) `((#type ,name #u64))",
-        "#gn-fn make (name) `(#type ,name #u64)",
-        "#generate make Value",
+        "#gn make { name; } `((#type ,name #u64))",
+        "#gn-fn make { name; } `(#type ,name #u64)",
+        "#generate make { name = Value; }",
         "#require-generated Value make",
         "#capability readable #u64 ((read () #u64))",
         "#syntax Body ((#return 1u64))",
@@ -259,7 +259,7 @@ fn bare_library_exports_remain_literal_and_generated_exports_cannot_grant_author
     let program = lim::parse_program_from_path(caller, &dir.join("main.lim")).unwrap();
     lim::check_types(&program).unwrap();
     let forged =
-        "#fn value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#gn emit () `((#export value))\n#generate emit\n";
+        "#fn value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#gn emit {} `((#export value))\n#generate emit {}\n";
     let error = lim::parse_program_from_path(forged, &library).unwrap_err();
     assert!(error.contains("#export must be literal"), "{error}");
     fs::remove_dir_all(dir).unwrap();
@@ -318,11 +318,11 @@ fn root_colon_operands_can_contain_inline_and_indented_cfg_declarations() {
 #[test]
 fn root_colon_generator_arguments_keep_nested_function_data() {
     for invocation in [
-        "#generate emit: #fn answer { #params = {}; #returns = #u64; #body: #return 42u64; }",
-        "#generate emit:\n  #fn answer { #params = {}; #returns = #u64; #body: #return 42u64; }",
+        "#generate emit { declaration: #fn answer { #params = {}; #returns = #u64; #body: #return 42u64; }; }",
+        "#generate emit {\n  declaration:\n    #fn answer { #params = {}; #returns = #u64; #body: #return 42u64; }\n}",
     ] {
         let source = format!(
-            "#gn emit (declaration) (#gn-list declaration)\n{invocation}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call answer ()))\n  );\n}}\n"
+            "#gn emit {{ declaration; }} (#gn-list declaration)\n{invocation}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call answer ()))\n  );\n}}\n"
         );
         let formatted = lim::format_source(&source).unwrap();
         assert_eq!(trees(&source), trees(&formatted));
@@ -388,10 +388,10 @@ fn quoted_trailing_colon_data_is_preserved_with_proper_source_boundaries() {
 fn explicit_colon_tokens_still_group_nested_syntax_under_quote_wrappers() {
     for prefix in ["'", "`", ",@", "',"] {
         let invocation = format!(
-            "#generate emit {prefix}: #fn ignored {{ #params = {{}}; #returns = #u64; #body: #return 0u64; }}"
+            "#generate emit {{ ignored = {prefix}: #fn ignored {{ #params = {{}}; #returns = #u64; #body: #return 0u64; }}; }}"
         );
         let expected = lim::parse(&format!(
-            "(#generate emit {prefix}(#fn ignored () #u64 (#return 0u64)))"
+            "(#generate emit ((ignored {prefix}(#fn ignored () #u64 (#return 0u64)))))"
         ))
         .unwrap()
         .into_iter()
@@ -399,7 +399,7 @@ fn explicit_colon_tokens_still_group_nested_syntax_under_quote_wrappers() {
         .collect::<Vec<_>>();
         assert_eq!(trees(&invocation), expected);
         let source = format!(
-            "#gn emit (ignored) `((#fn answer () #u64 (#return 42u64)))\n{invocation}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call answer ()))\n  );\n}}\n"
+            "#gn emit {{ ignored; }} `((#fn answer () #u64 (#return 42u64)))\n{invocation}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call answer ()))\n  );\n}}\n"
         );
         let program = lim::parse_program(&source).unwrap();
         lim::check_types(&program).unwrap();

@@ -3,14 +3,14 @@ mod support;
 
 fn prefix() -> String {
     format!(
-        r#"#alias lim-gen-pin = "{0}/library/pin.lim::#pin"
-#alias lim-gen-pin-scope = "{0}/library/pin.lim::#pin-scope"
+        r#"#alias lim-gen-pin = "{0}/library/pin.lim::pin"
+#alias lim-gen-pin-scope = "{0}/library/pin.lim::pin-scope"
 #struct Inner (#linear) ((value #u64))
 #struct Outer (#linear) ((left Inner) (right Inner))
-#generate lim-gen-pin ((type Inner) (name PinnedInner) (fields ((value #u64))))
-#generate lim-gen-pin ((type Outer) (name PinnedOuter) (projections ((left PinnedInner) (right PinnedInner))))
-#generate lim-gen-pin-scope ((type Outer) (pin PinnedOuter) (name with-outer)
-          (run drive) (destroy destroy) (result #u64))
+#generate lim-gen-pin {{ options = ((type Inner) (name PinnedInner) (fields ((value #u64)))); }}
+#generate lim-gen-pin {{ options = ((type Outer) (name PinnedOuter) (projections ((left PinnedInner) (right PinnedInner)))); }}
+#generate lim-gen-pin-scope {{ options = ((type Outer) (pin PinnedOuter) (name with-outer)
+          (run drive) (destroy destroy) (result #u64)); }}
 #fn destroy {{
   #params = ((pin PinnedOuter));
   #returns = ();

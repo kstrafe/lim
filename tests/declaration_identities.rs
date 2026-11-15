@@ -347,8 +347,8 @@ fn imported_static_access_retains_its_imported_source_location() {
 fn generated_static_access_still_requires_unsafe() {
     let scratch = support::Scratch::new("generated-static-unsafe");
     let source =
-        "#gn make (name) `((#static tOTAL #u64 1u64) (#fn ,name () #u64 (#effects ((#read-global tOTAL))) (#return tOTAL)))\n\
-      #generate make read\n\
+        "#gn make { name; } `((#static tOTAL #u64 1u64) (#fn ,name () #u64 (#effects ((#read-global tOTAL))) (#return tOTAL)))\n\
+      #generate make { name = read; }\n\
       #fn main {
   #params = ();
   #returns = #u64;
@@ -375,7 +375,7 @@ fn generated_static_access_still_requires_unsafe() {
         .expect("generated diagnostic invocation provenance");
     assert_eq!(
         &invocation.source_text.as_deref().unwrap()[invocation.span.start..invocation.span.end],
-        "#generate make read"
+        "#generate make { name = read; }"
     );
 }
 

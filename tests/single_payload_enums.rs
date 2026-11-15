@@ -14,7 +14,7 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 #[test]
 fn generated_and_distributed_variants_cannot_bypass_the_single_payload_rule() {
     for source in [
-        "#gn emit () `((#enum Bad () ((Bad.Pair #u64 #u32))))\n#generate emit\n",
+        "#gn emit {} `((#enum Bad () ((Bad.Pair #u64 #u32))))\n#generate emit {}\n",
         "#distributed-enum Bad ()\n#enum-contribute Bad (Bad.Pair #u64 #u32)\n",
     ] {
         let error = compile(source).unwrap_err();

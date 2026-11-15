@@ -4,7 +4,7 @@ use std::{fs, process::Command, time::Duration};
 
 fn source(body: &str) -> String {
     format!(
-        "#alias lim-gen-local-waker = \"{0}/library/local_waker.lim::#local-waker\"\n#struct WakeExecutor () ((count #u64))\n#fn notify {{\n  #params = ((executor (#ref WakeExecutor)) (metadata (#ref #u64)));\n  #returns = ();\n  #body = (\n             (#return ())\n  );\n}}\n#fn clone-metadata {{\n  #params = ((metadata (#ref #u64)));\n  #returns = #u64;\n  #body = (\n             (#return (#deref metadata))\n  );\n}}\n#fn destroy-metadata {{\n  #params = ((executor (#ref WakeExecutor)) (metadata #u64));\n  #returns = ();\n  #body = (\n             (#return ())\n  );\n}}\n#generate lim-gen-local-waker\n             (LocalWake local-wake-create local-wake local-wake-by-ref\n               local-wake-clone local-wake-destroy)\n             (WakeExecutor #u64)\n             (notify clone-metadata destroy-metadata)\n{body}",
+        "#alias lim-gen-local-waker = \"{0}/library/local_waker.lim::local-waker\"\n#struct WakeExecutor () ((count #u64))\n#fn notify {{\n  #params = ((executor (#ref WakeExecutor)) (metadata (#ref #u64)));\n  #returns = ();\n  #body = (\n             (#return ())\n  );\n}}\n#fn clone-metadata {{\n  #params = ((metadata (#ref #u64)));\n  #returns = #u64;\n  #body = (\n             (#return (#deref metadata))\n  );\n}}\n#fn destroy-metadata {{\n  #params = ((executor (#ref WakeExecutor)) (metadata #u64));\n  #returns = ();\n  #body = (\n             (#return ())\n  );\n}}\n#generate lim-gen-local-waker\n             {{ names = (LocalWake local-wake-create local-wake local-wake-by-ref\n               local-wake-clone local-wake-destroy); types = (WakeExecutor #u64); callbacks = (notify clone-metadata destroy-metadata); }}\n{body}",
         env!("CARGO_MANIFEST_DIR")
     )
 }
@@ -111,6 +111,6 @@ fn generated_local_waker_is_inspectable_and_reports_shape_errors() {
     assert!(generated.contains("counter-waker-wake-by-ref"));
     assert!(generated.contains("(#ptr #u8)"));
 
-    let error = compile_error("#generate lim-gen-local-waker (Pipeline.Only) (WakeExecutor #u64) (notify clone-metadata destroy-metadata)\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n");
+    let error = compile_error("#generate lim-gen-local-waker { names = (Pipeline.Only); types = (WakeExecutor #u64); callbacks = (notify clone-metadata destroy-metadata); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n");
     assert!(error.contains("names must be"), "{error}");
 }

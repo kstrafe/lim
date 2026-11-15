@@ -33,7 +33,7 @@ fn seeded_malformed_and_truncated_sources_fail_deterministically_in_bounded_proc
         "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return \"unfinished)\n".to_owned(),
         "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-wrap 1u64 2u64)".to_owned(),
         "#generate unknown-generator #u64\n".to_owned(),
-        "#gn abort (message) (#gn-error message)\n#generate abort \"deterministic expansion failure\"\n"
+        "#gn abort { message; } (#gn-error message)\n#generate abort { message = \"deterministic expansion failure\"; }\n"
             .to_owned(),
     ];
     let alphabet = b"()#@;`,'\" abcdef0123456789_+-";

@@ -1,6 +1,6 @@
-#alias enum-project = /<lim-std>/enum_project.lim::#enum-project
+#alias enum-project = #std/enum_project.lim::enum-project
 #enum Choice () ((Choice.Number #u64) Choice.Empty)
-#generate enum-project ((enum Choice) (variant Choice.Number) (payload #u64) (mode #pin-ref-mut) (name NumberView))
+#generate enum-project { options = ((enum Choice) (variant Choice.Number) (payload #u64) (mode #pin-ref-mut) (name NumberView)); }
 #fn main {
   #params = ();
   #returns = #u64;

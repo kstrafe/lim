@@ -1,5 +1,5 @@
-#gn make () (#gn-list)
-#gn make () (#gn-list)
+#gn make {} (#gn-list)
+#gn make {} (#gn-list)
 #fn main {
   #params = ();
   #returns = #u64;

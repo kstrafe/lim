@@ -162,9 +162,9 @@ fn declaration_records_normalize_with_required_fields_and_empty_defaults() {
 
 #[test]
 fn generated_function_records_keep_unquoted_names_and_canonical_structure() {
-    let source = "#gn make (name) `((#fn ,name { #params = {}; #returns = #u64; #body = (#return 42u64;); }))\n#generate make read\n#fn main { #params = {}; #returns = #u64; #body = (#return read {};); }";
+    let source = "#gn make { name; } `((#fn ,name { #params = {}; #returns = #u64; #body = (#return 42u64;); }))\n#generate make { name = read; }\n#fn main { #params = {}; #returns = #u64; #body = (#return read {};); }";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
-    let aggregate = "#gn make (name) `((#struct ,name () ((value #u64))) (#fn create ((value #u64)) ,name (#return (#struct-literal ,name ((value value))))))\n#generate make Item\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#get (create ((value 42))) value))\n  );\n}\n";
+    let aggregate = "#gn make { name; } `((#struct ,name () ((value #u64))) (#fn create ((value #u64)) ,name (#return (#struct-literal ,name ((value value))))))\n#generate make { name = Item; }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#get (create ((value 42))) value))\n  );\n}\n";
     lim::check_types(&lim::parse_program(aggregate).unwrap()).unwrap();
     for keyword in ["#fn", "#static", "#const", "#unsafe-fn"] {
         assert_eq!(trees(keyword), vec![lim::Expr::Symbol(keyword.into())]);

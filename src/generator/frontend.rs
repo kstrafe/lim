@@ -2066,10 +2066,10 @@ mod async_migration_tests {
     fn graph_route_handles_generator_produced_async_forms_and_multiple_outputs() {
         let text = format!(
             "{CONTEXT}
-#gn produce () `((#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
+#gn produce {{}} `((#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
               (#fn work ((seed #u64)) #u64
                 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))))))
-#generate produce
+#generate produce {{}}
 #generate #async-fn ((protocol SecondAwait) (waker #u64) (function
               (#fn second ((seed #u64)) #u64
                 (#effects ((#effects-of work) (#effects-of Work::poll)))

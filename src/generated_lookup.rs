@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn identical_invocations_keep_every_full_span_and_warm_files() {
         let scratch = Scratch::new();
-        let source = "#gn make (name) `((#type ,name #u64))\n#generate make\n   Shared\n#generate make\n   Shared\n";
+        let source = "#gn make { name; } `((#type ,name #u64))\n#generate make\n   { name = Shared; }\n#generate make\n   { name = Shared; }\n";
         let first = source.find("#generate make").unwrap();
         let second = source.rfind("#generate make").unwrap();
         let paths = scratch.lookup(source, first, first);
@@ -235,16 +235,16 @@ mod tests {
     #[test]
     fn nested_reused_generators_include_all_child_artifacts() {
         let scratch = Scratch::new();
-        let source = "#gn inner () `((#generate #optional ((type #u64) (name Shared))))
-#gn outer () `((#generate inner) (#generate #optional ((type #u64) (name OuterOnly))))
-#gn other () `((#generate inner))\n#generate outer\n#generate other\n#generate other\n";
+        let source = "#gn inner {} `((#generate #optional ((type #u64) (name Shared))))
+#gn outer {} `((#generate inner ()) (#generate #optional ((type #u64) (name OuterOnly))))
+#gn other {} `((#generate inner ()))\n#generate outer {}\n#generate other {}\n#generate other {}\n";
         for _ in 0..2 {
-            let outer = source.find("#generate outer").unwrap();
+            let outer = source.find("#generate outer {}").unwrap();
             let paths = scratch.lookup(source, outer, outer);
             assert_eq!(paths.len(), 4, "{paths:?}");
             for position in [
-                source.find("#generate other").unwrap(),
-                source.rfind("#generate other").unwrap(),
+                source.find("#generate other {}").unwrap(),
+                source.rfind("#generate other {}").unwrap(),
             ] {
                 let other = scratch.lookup(source, position, position);
                 assert_eq!(other.len(), 3, "{other:?}");
@@ -257,17 +257,17 @@ mod tests {
     #[test]
     fn details_track_user_names_and_direct_origins_through_reuse_and_cache() {
         for calls in [
-            "#generate outer\n#generate inner\n",
-            "#generate inner\n#generate outer\n",
+            "#generate outer {}\n#generate inner {}\n",
+            "#generate inner {}\n#generate outer {}\n",
         ] {
             let scratch = Scratch::new();
             let source = format!(
-                "#gn inner () `((#type Shared #u64))\n\
-                 #gn outer () `((#generate inner))\n{calls}"
+                "#gn inner {{}} `((#type Shared #u64))\n\
+                 #gn outer {{}} `((#generate inner ()))\n{calls}"
             );
             for _ in 0..2 {
-                let outer = source.rfind("#generate outer").unwrap();
-                let inner = source.rfind("#generate inner").unwrap();
+                let outer = source.rfind("#generate outer {}").unwrap();
+                let inner = source.rfind("#generate inner {}").unwrap();
                 let details = scratch.details(&source, outer, outer);
                 assert_eq!(details.len(), 2);
                 assert_eq!(
@@ -305,18 +305,18 @@ mod tests {
         // Distinct inputs stay distinct even when both use the same builtin.
         let direct_builtin = "#generate #optional ((type #u64) (name Direct))\n";
         for calls in [
-            format!("#generate outer\n#generate other\n#generate other\n{direct_builtin}"),
-            format!("{direct_builtin}\n#generate outer\n#generate other\n#generate other\n"),
+            format!("#generate outer {{}}\n#generate other {{}}\n#generate other {{}}\n{direct_builtin}"),
+            format!("{direct_builtin}\n#generate outer {{}}\n#generate other {{}}\n#generate other {{}}\n"),
         ] {
             let scratch = Scratch::new();
             let source = format!(
-                "#gn inner () `({builtin})\n\
-                 #gn outer () `((#generate inner))\n\
-                 #gn other () `((#generate inner))\n{calls}"
+                "#gn inner {{}} `({builtin})\n\
+                 #gn outer {{}} `((#generate inner ()))\n\
+                 #gn other {{}} `((#generate inner ()))\n{calls}"
             );
             for _ in 0..2 {
                 for caller in ["outer", "other"] {
-                    let position = source.rfind(&format!("#generate {caller}\n")).unwrap();
+                    let position = source.rfind(&format!("#generate {caller} {{}}\n")).unwrap();
                     let details = scratch.details(&source, position, position);
                     assert_eq!(details.len(), 3, "{details:?}");
                     assert_eq!(details[0].generator, caller);

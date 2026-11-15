@@ -17,7 +17,7 @@ fn check(source: &str) -> Result<(), String> {
 fn declaration(mode: &str) -> String {
     format!("#std
 #enum Choice () ((Choice.Full #u64) Choice.Empty)
-#generate #enum-project ((enum Choice) (variant Choice.Full) (payload #u64) (mode #{mode}) (name Projection))
+#generate enum-project {{ options = ((enum Choice) (variant Choice.Full) (payload #u64) (mode #{mode}) (name Projection)); }}
 ")
 }
 
@@ -137,7 +137,7 @@ fn an_undestructured_optional_keeps_the_loan_and_unreferenceable_payloads_are_re
             error.contains("borrow") || error.contains("pinned"),
             "{mode}: {error}"
         );
-        let error = check(&format!("#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project\n#enum Choice () ((Choice.HasUnit ()) Choice.Empty)\n#generate lim-gen-enum-project ((enum Choice) (variant Choice.HasUnit) (payload ()) (mode #{mode}) (name Projection))\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut owner Choice (Choice.HasUnit ()))\n              (#let-else (Projection.Some payload)\n                (#call Projection::project ((source (#{borrow} owner)))) (#else (#return 0u64)))\n              (#let value () (#deref payload)) (#forget value)\n              (#return 42u64)\n  );\n}}\n")).unwrap_err();
+        let error = check(&format!("#alias lim-gen-enum-project = #std/enum_project.lim::enum-project\n#enum Choice () ((Choice.HasUnit ()) Choice.Empty)\n#generate lim-gen-enum-project {{ options = ((enum Choice) (variant Choice.HasUnit) (payload ()) (mode #{mode}) (name Projection)); }}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut owner Choice (Choice.HasUnit ()))\n              (#let-else (Projection.Some payload)\n                (#call Projection::project ((source (#{borrow} owner)))) (#else (#return 0u64)))\n              (#let value () (#deref payload)) (#forget value)\n              (#return 42u64)\n  );\n}}\n")).unwrap_err();
         assert!(
             error.contains("reference target other than () or #never"),
             "{error}"
@@ -181,8 +181,8 @@ fn a_mismatch_can_project_the_other_variant_and_destroy_the_linear_owner() {
     let source = "#std
 #struct Resource (#linear) ((value #u64))
 #enum Choice () ((Choice.Full Resource) (Choice.Other Resource))
-#generate #enum-project ((enum Choice) (variant Choice.Full) (payload Resource) (mode #pin-ref-mut) (name FullView))
-#generate #enum-project ((enum Choice) (variant Choice.Other) (payload Resource) (mode #pin-ref-mut) (name OtherView))
+#generate enum-project { options = ((enum Choice) (variant Choice.Full) (payload Resource) (mode #pin-ref-mut) (name FullView)); }
+#generate enum-project { options = ((enum Choice) (variant Choice.Other) (payload Resource) (mode #pin-ref-mut) (name OtherView)); }
 #fn main {
   #params = ();
   #returns = #u64;
@@ -203,7 +203,7 @@ fn a_mismatch_can_project_the_other_variant_and_destroy_the_linear_owner() {
 #[test]
 fn aliases_generated_declarations_and_external_prefixes_obey_normal_checking() {
     let scratch = support::Scratch::new("projection-import");
-    fs::write(scratch.path().join("library.lim"), "#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project\n#gn declare () `((#enum Choice () ((Choice.Full #u64) Choice.Empty)) (#type View (#pin-ref Choice)))\n#generate declare\n#generate lim-gen-enum-project ((enum Choice) (variant Choice.Full) (payload #u64) (mode #pin-ref) (name Projection))\n#fn read {\n  #params = ((input View));\n  #returns = #u64;\n  #body = (\n          (#let-else (Projection.Some value)\n            (#call Projection::project ((source input))) (#else (#return 0u64)))\n          (#return (#deref value))\n  );\n}\n").unwrap();
+    fs::write(scratch.path().join("library.lim"), "#alias lim-gen-enum-project = #std/enum_project.lim::enum-project\n#gn declare {} `((#enum Choice () ((Choice.Full #u64) Choice.Empty)) (#type View (#pin-ref Choice)))\n#generate declare {}\n#generate lim-gen-enum-project { options = ((enum Choice) (variant Choice.Full) (payload #u64) (mode #pin-ref) (name Projection)); }\n#fn read {\n  #params = ((input View));\n  #returns = #u64;\n  #body = (\n          (#let-else (Projection.Some value)\n            (#call Projection::project ((source input))) (#else (#return 0u64)))\n          (#return (#deref value))\n  );\n}\n").unwrap();
     let source =
         "#alias ExtChoice = ./library.lim::Choice
 #alias ext@read = ./library.lim::read
@@ -219,7 +219,7 @@ fn aliases_generated_declarations_and_external_prefixes_obey_normal_checking() {
 #[test]
 fn projected_async_protocol_payloads_do_not_require_generator_dependency_order() {
     check("#std
-#generate #enum-project ((enum Work::Poll) (variant Work::Poll.Ready) (payload #u64) (mode #ref) (name ReadyView))
+#generate enum-project { options = ((enum Work::Poll) (variant Work::Poll.Ready) (payload #u64) (mode #ref) (name ReadyView)); }
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#return 42u64))))
 #fn read {
   #params = ((input (#ref Work::Poll)));

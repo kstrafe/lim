@@ -1,4 +1,4 @@
-#gn make (x x) (#gn-list)
+#gn make { first = x; second = x; } (#gn-list)
 #fn main {
   #params = ();
   #returns = #u64;

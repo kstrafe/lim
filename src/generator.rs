@@ -2527,12 +2527,12 @@ mod tests {
 
     #[test]
     fn helper_digest_lookup_preserves_shared_dependency_material() {
-        let source = "(#gn-fn leaf (value) value)
-            (#gn-fn left (value) (#gn-call leaf value))
-            (#gn-fn right (value) (#gn-call leaf value))
-            (#gn-fn root (value)
-                (#gn-list (#gn-call right value) (#gn-call left value)
-                          (#gn-call left value)))";
+        let source = "(#gn-fn leaf ((value value)) value)
+            (#gn-fn left ((value value)) (#gn-call leaf { value = value; }))
+            (#gn-fn right ((value value)) (#gn-call leaf { value = value; }))
+            (#gn-fn root ((value value))
+                (#gn-list (#gn-call right { value = value; }) (#gn-call left { value = value; })
+                          (#gn-call left { value = value; })))";
         let functions = crate::parse(source)
             .unwrap()
             .into_iter()
@@ -2592,8 +2592,8 @@ mod tests {
         // The generator closure must include each shared helper once, in
         // lexical order, while retaining unknown helpers in its fingerprint.
         let source = crate::parse(
-            "(#gn build (value) (#gn-list (#gn-call root value)
-                (#gn-call left value) (#gn-call missing value)))",
+            "(#gn build ((value value)) (#gn-list (#gn-call root { value = value; })
+                (#gn-call left { value = value; }) (#gn-call missing { value = value; })))",
         )
         .unwrap()
         .remove(0);
@@ -2678,8 +2678,8 @@ mod tests {
     #[test]
     fn generator_iteration_bindings_cannot_shadow_parameters_or_outer_bindings() {
         for source in [
-            "#gn bad (items) (#gn-for-each items items (#gn-first items))\n#generate bad (one)\n",
-            "#gn bad (items) (#gn-for-each item items (#gn-for-each item items (#gn-first item)))\n#generate bad (one)\n",
+            "#gn bad { items; } (#gn-for-each items items (#gn-first items))\n#generate bad { items = (one); }\n",
+            "#gn bad { items; } (#gn-for-each item items (#gn-for-each item items (#gn-first item)))\n#generate bad { items = (one); }\n",
         ] {
             let error = expand_with_generated_cached_and_hits(crate::parse_source_unit(source).unwrap(), None, "")
                 .unwrap_err();
@@ -2693,7 +2693,7 @@ mod tests {
 
     #[test]
     fn generator_parameter_forms_bind_one_name_each() {
-        let source = "(#gn make (plain (element sortable) entries) `((#type ,plain ,element)))";
+        let source = "(#gn make ((plain plain) (element (element sortable)) (entries entries)) `((#type ,plain ,element)))";
         let forms = crate::parse(source).unwrap();
         let Expr::List(items) = &forms[0].expr else {
             panic!("generator form")
@@ -2708,7 +2708,7 @@ mod tests {
         assert!(generator.parameters[2].capabilities.is_empty());
         assert!(matches!(generator.body, Expr::QuasiQuote(_)));
 
-        let source = "(#gn one ((left right)) left)";
+        let source = "(#gn one ((left (left right))) left)";
         let forms = crate::parse(source).unwrap();
         let Expr::List(items) = &forms[0].expr else {
             panic!("generator form")
@@ -2722,8 +2722,8 @@ mod tests {
     #[test]
     fn generator_parameter_nested_patterns_report_the_offending_form() {
         for (source, expected) in [
-            ("(#gn bad (((left right) sortable)) left)", "(left right)"),
-            ("(#gn bad ((item (left right))) item)", "(left right)"),
+            ("(#gn bad ((item ((left right) sortable))) left)", "((left right) sortable)"),
+            ("(#gn bad ((item (item (left right)))) item)", "(left right)"),
         ] {
             let forms = crate::parse(source).unwrap();
             let Expr::List(items) = &forms[0].expr else {
@@ -2731,8 +2731,8 @@ mod tests {
             };
             let error = parse_generator(items, &forms[0]).err().unwrap();
             assert!(
-                error.message.contains("not destructuring patterns")
-                    || error.message.contains("not nested patterns"),
+                error.message.contains("record values must bind a name")
+                    || error.message.contains("capability annotations must be capability names"),
                 "{}",
                 error.message
             );
@@ -3047,9 +3047,9 @@ mod tests {
 
     #[test]
     fn nested_deduplicated_generators_keep_precise_builtin_origins() {
-        let source = "#gn inner () `((#generate #optional ((type #u64) (name Shared))))
-#gn outer () `((#generate inner) (#generate #optional ((type #u64) (name OuterOnly))))
-#gn other () `((#generate inner))\n#generate outer\n#generate other\n#generate other\n";
+        let source = "#gn inner {} `((#generate #optional ((type #u64) (name Shared))))
+#gn outer {} `((#generate inner ()) (#generate #optional ((type #u64) (name OuterOnly))))
+#gn other {} `((#generate inner ()))\n#generate outer {}\n#generate other {}\n#generate other {}\n";
         let mut origins = Origins::default();
         expand_with_origins(crate::parse_source_unit(source).unwrap(), None, "", &mut origins).unwrap();
         let sites = |name: &str| {
@@ -3142,11 +3142,11 @@ mod tests {
             CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).unwrap();
-        let source = "#gn-fn emit (name temporary) `((#fn ,name ((task #u64)) #u64
+        let source = "#gn-fn emit { name; temporary; } `((#fn ,name ((task #u64)) #u64
                 (#let ,temporary #u64 task) (#return ,temporary)))
-#gn child (name temporary) (#gn-call emit name temporary)
-#gn-fn forward (name temporary) `((#generate child ,name ,temporary))
-#gn parent (name) (#gn-call forward name (#gn-gensym \"task\"))\n#generate parent first\n#generate parent second\n#generate parent first\n";
+#gn child { name; temporary; } (#gn-call emit { name = name; temporary = temporary; })
+#gn-fn forward { name; temporary; } `((#generate child ((name ,name) (temporary ,temporary))))
+#gn parent { name; } (#gn-call forward { name = name; temporary = (#gn-gensym \"task\"); })\n#generate parent { name = first; }\n#generate parent { name = second; }\n#generate parent { name = first; }\n";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
                 crate::parse_source_unit(source).unwrap(),
@@ -3190,8 +3190,8 @@ mod tests {
         );
         assert_ne!(locals[0][0], locals[1][0]);
         let reordered = source.replace(
-            "#generate parent first\n#generate parent second\n",
-            "#generate parent second\n#generate parent first\n",
+            "#generate parent { name = first; }\n#generate parent { name = second; }\n",
+            "#generate parent { name = second; }\n#generate parent { name = first; }\n",
         );
         let ((reordered, _), hits) = expand(&reordered);
         assert_eq!(hits, 4);
@@ -3217,7 +3217,7 @@ mod tests {
             CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).unwrap();
-        let source = "#gn emit () `((#type ,(#gn-gensym \"task\") #u64))\n#generate emit\n";
+        let source = "#gn emit {} `((#type ,(#gn-gensym \"task\") #u64))\n#generate emit {}\n";
         let expand = || {
             expand_with_generated_cached_and_hits(
                 crate::parse_source_unit(source).unwrap(),
@@ -3263,9 +3263,9 @@ mod tests {
 
     #[test]
     fn gensym_evaluations_and_helper_calls_share_one_invocation_counter() {
-        let source = "#gn-fn fresh () (#gn-gensym \"task\")
-#gn emit () `((#type ,(#gn-call fresh) #u64) (#type ,(#gn-call fresh) #u64))
-#generate emit\n";
+        let source = "#gn-fn fresh {} (#gn-gensym \"task\")
+#gn emit {} `((#type ,(#gn-call fresh ()) #u64) (#type ,(#gn-call fresh ()) #u64))
+#generate emit {}\n";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse_source_unit(source).unwrap(), None, "").unwrap();
         assert_eq!(forms.len(), 2);
@@ -3327,7 +3327,7 @@ mod tests {
     fn generated_syntax_cache_hits_and_invalidates_for_generator_dependencies() {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-cache-{}", std::process::id()));
-        let source = "#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#gn-fn make-alias (name) `,(#gn-call make-type name)\n#gn-fn unused (name) (#gn-list name)\n#gn alias (name) (#gn-call make-alias name)\n#gn forward (call) (#gn-list call)\n#gn spare (name) (#gn-list name)\n#generate forward (#generate alias CachedType)\n#generate alias CachedType\n";
+        let source = "#gn-fn make-type { name; } (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#gn-fn make-alias { name; } `,(#gn-call make-type ((name name)))\n#gn-fn unused { name; } (#gn-list name)\n#gn alias { name; } (#gn-call make-alias { name = name; })\n#gn forward { call; } (#gn-list call)\n#gn spare { name; } (#gn-list name)\n#generate forward { call = (#generate alias ((name CachedType))); }\n#generate alias { name = CachedType; }\n";
         let parse_forms = |source: &str| crate::parse_source_unit(source).unwrap();
 
         let ((first, _), first_hits) =
@@ -3418,10 +3418,10 @@ mod tests {
                 Err(error) => panic!("create collection cache directory: {error}"),
             }
         };
-        let source = "#gn error-case (variant payload)
+        let source = "#gn error-case { variant; payload; }
               `((#enum-contribute Error (,variant ,payload)))
-#generate error-case First #u64
-#generate error-case Second #u32\n";
+#generate error-case { variant = First; payload = #u64; }
+#generate error-case { variant = Second; payload = #u32; }\n";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
                 crate::parse_source_unit(source).unwrap(),
@@ -3445,9 +3445,9 @@ mod tests {
 
     #[test]
     fn identical_literal_list_arguments_deduplicate() {
-        let source = "#gn alias (entries) `((#type Alias ,(#gn-first entries)))
-#generate alias (#u64)
-#generate alias (#u64)\n";
+        let source = "#gn alias { entries; } `((#type Alias ,(#gn-first entries)))
+#generate alias { entries = (#u64); }
+#generate alias { entries = (#u64); }\n";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse_source_unit(source).unwrap(), None, "").unwrap();
         assert_eq!(forms.len(), 1);
@@ -3456,8 +3456,8 @@ mod tests {
 
     #[test]
     fn bare_identifiers_remain_literal_syntax() {
-        let source = "#gn alias (entry) `((#type Alias ,entry))
-#generate alias Entries\n";
+        let source = "#gn alias { entry; } `((#type Alias ,entry))
+#generate alias { entry = Entries; }\n";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse_source_unit(source).unwrap(), None, "").unwrap();
         assert!(format!("{:?}", forms[0].expr).contains("Entries"));
@@ -3477,7 +3477,7 @@ mod tests {
         ));
         let source = |operation: &str| {
             format!(
-                "#fn less {{ #params = ((a (#ref #u64)) (b (#ref #u64))); #returns = #bool; #body = ( (#return true) ); }}\n#fn less-v2 {{ #params = ((a (#ref #u64)) (b (#ref #u64))); #returns = #bool; #body = ( (#return true) ); }}\n#capability sortable #u64 (({operation} ((#ref #u64) (#ref #u64)) #bool))\n#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))\n#generate emit #u64\n"
+                "#fn less {{ #params = ((a (#ref #u64)) (b (#ref #u64))); #returns = #bool; #body = ( (#return true) ); }}\n#fn less-v2 {{ #params = ((a (#ref #u64)) (b (#ref #u64))); #returns = #bool; #body = ( (#return true) ); }}\n#capability sortable #u64 (({operation} ((#ref #u64) (#ref #u64)) #bool))\n#gn emit {{ element = (element sortable); }} (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))\n#generate emit {{ element = #u64; }}\n"
             )
         };
         let expand = |text: &str| {
@@ -3505,7 +3505,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-context-{}", std::process::id()));
         let source =
-            "#gn make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#generate make ContextType\n";
+            "#gn make { name; } (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#generate make { name = ContextType; }\n";
         let parse_forms = |source: &str| crate::parse_source_unit(source).unwrap();
 
         let ((first, _), first_hits) = expand_with_generated_cached_and_hits(

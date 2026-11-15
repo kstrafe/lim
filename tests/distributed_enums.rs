@@ -12,12 +12,12 @@ fn check(source: &str) -> Result<lim::Program, lim::Diagnostic> {
 
 #[test]
 fn generated_headers_and_contributions_merge_after_expansion() {
-    let source = "#gn declare (name) `((#distributed-enum ,name (#linear)))
-#gn contribute (name variant payload)
+    let source = "#gn declare { name; } `((#distributed-enum ,name (#linear)))
+#gn contribute { name; variant; payload; }
             `((#enum-contribute ,name (,variant ,payload)))
-#generate contribute Error Error.Last #u32
-#generate declare Error
-#generate contribute Error Error.First #u64
+#generate contribute { name = Error; variant = Error.Last; payload = #u32; }
+#generate declare { name = Error; }
+#generate contribute { name = Error; variant = Error.First; payload = #u64; }
 #enum-contribute Error (Error.First #u64)
 #fn main {
   #params = ();
@@ -58,17 +58,17 @@ fn aliases_and_cache_hits_keep_the_complete_enum() {
     fs::write(
         root.join("enum.lim"),
         "#distributed-enum AppError ()
-#gn error-case (name payload) `((#enum-contribute AppError (,name ,payload)))\n",
+#gn error-case { name; payload; } `((#enum-contribute AppError (,name ,payload)))\n",
     )
     .unwrap();
     fs::write(
         root.join("first.lim"),
-        "#alias AppError = ./enum.lim::AppError\n#alias error-case = ./enum.lim::error-case\n#generate error-case @AppError.First #u64\n",
+        "#alias AppError = ./enum.lim::AppError\n#alias error-case = ./enum.lim::error-case\n#generate error-case { name = @AppError.First; payload = #u64; }\n",
     )
     .unwrap();
     fs::write(
         root.join("last.lim"),
-        "#alias AppError = ./enum.lim::AppError\n#alias error-case = ./enum.lim::error-case\n#generate error-case @AppError.Last #u32\n",
+        "#alias AppError = ./enum.lim::AppError\n#alias error-case = ./enum.lim::error-case\n#generate error-case { name = @AppError.Last; payload = #u32; }\n",
     )
     .unwrap();
     for aliases in [

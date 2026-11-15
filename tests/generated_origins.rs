@@ -118,17 +118,17 @@ fn identical_user_generator_calls_keep_per_file_artifacts_and_origins() {
     write_module(
         root,
         "defs.lim",
-        "#gn emit-shared () `((#type Shared #u64))\n",
+        "#gn emit-shared {} `((#type Shared #u64))\n",
     );
     write_module(
         root,
         "a.lim",
-        "#alias emit-shared = ./defs.lim::emit-shared\n#generate emit-shared\n#generate emit-shared\n",
+        "#alias emit-shared = ./defs.lim::emit-shared\n#generate emit-shared {}\n#generate emit-shared {}\n",
     );
     write_module(
         root,
         "b.lim",
-        "#alias emit-shared = ./defs.lim::emit-shared\n#generate emit-shared\n",
+        "#alias emit-shared = ./defs.lim::emit-shared\n#generate emit-shared {}\n",
     );
     write_module(
         root,
@@ -159,17 +159,17 @@ fn user_generator_artifacts_are_per_invocation_cache_payloads() {
     write_module(
         root,
         "defs.lim",
-        "#gn child (name) `((#type ,name #u64))\n#gn parent (name) `((#generate child ,name))\n",
+        "#gn child { name; } `((#type ,name #u64))\n#gn parent { name; } `((#generate child ((name ,name))))\n",
     );
     write_module(
         root,
         "a.lim",
-        "#alias parent = ./defs.lim::parent\n#alias child = ./defs.lim::child\n#generate parent First\n#generate child Second\n",
+        "#alias parent = ./defs.lim::parent\n#alias child = ./defs.lim::child\n#generate parent { name = First; }\n#generate child { name = Second; }\n",
     );
     write_module(
         root,
         "b.lim",
-        "#alias parent = ./defs.lim::parent\n#generate parent First\n",
+        "#alias parent = ./defs.lim::parent\n#generate parent { name = First; }\n",
     );
     write_module(
         root,
@@ -255,7 +255,7 @@ fn inspectable_user_generator_output_cannot_be_silently_discarded() {
     let cache = root.join("cache");
     fs::write(&cache, "this is a file, not a cache directory").unwrap();
     let result = lim::write_generated_sources_from_path_with_config_and_cache(
-        "#gn emit () `((#type Value #u64))\n#generate emit\n",
+        "#gn emit {} `((#type Value #u64))\n#generate emit {}\n",
         &root.join("main.lim"),
         &root.join("generated"),
         &lim::CompileConfig::default(),
@@ -274,8 +274,8 @@ fn duplicate_invocations_load_once_and_publish_all_origins_once() {
     let input = root.join("main.lim");
     let cache = root.join("cache");
     let source = format!(
-        "#gn child () `((#type Shared #u64))\n#gn parent () `((#generate child))\n{}",
-        "#generate parent\n".repeat(64)
+        "#gn child {{}} `((#type Shared #u64))\n#gn parent {{}} `((#generate child ()))\n{}",
+        "#generate parent {}\n".repeat(64)
     );
     let run = |source: &str| {
         lim::with_cache_report(|| {
@@ -362,17 +362,17 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
     write_module(
         root,
         "defs.lim",
-        "#gn wrap-shared () `((#generate #optional ((type #u64) (name ,(#gn-gensym \"Nested\")))))\n",
+        "#gn wrap-shared {} `((#generate #optional ((type #u64) (name ,(#gn-gensym \"Nested\")))))\n",
     );
     write_module(
         root,
         "a.lim",
-        "#alias wrap-shared = ./defs.lim::wrap-shared\n#generate wrap-shared\n#generate wrap-shared\n",
+        "#alias wrap-shared = ./defs.lim::wrap-shared\n#generate wrap-shared {}\n#generate wrap-shared {}\n",
     );
     write_module(
         root,
         "b.lim",
-        "#alias wrap-shared = ./defs.lim::wrap-shared\n#generate wrap-shared\n",
+        "#alias wrap-shared = ./defs.lim::wrap-shared\n#generate wrap-shared {}\n",
     );
     write_module(
         root,

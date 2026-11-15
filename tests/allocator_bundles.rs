@@ -85,7 +85,7 @@ fn generated_provider_needs_no_special_producer() {
     }
     body.push_str(&source[cursor..]);
     run(
-        &format!("#gn provide () `({provider})\n#generate provide\n{body}"),
+        &format!("#gn provide {{}} `({provider})\n#generate provide {{}}\n{body}"),
         42,
     );
 }
@@ -252,10 +252,8 @@ fn native_heap_counting_bundle_preserves_destruction_counts() {
 fn one_bundle_adapts_multiple_types_and_rejects_unknown_operations_or_options() {
     check(
         "#std
-#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u8)
-          (name ByteAllocator) (operations (allocate grow deallocate)))
-#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u128)
-          (name WideAllocator) (operations (allocate deallocate)))
+#generate allocator-for { options = ((allocator SystemAllocator::Allocator) (type #u8)\n          (name ByteAllocator) (operations (allocate grow deallocate))); }
+#generate allocator-for { options = ((allocator SystemAllocator::Allocator) (type #u128)\n          (name WideAllocator) (operations (allocate deallocate))); }
 #fn main {
   #params = ();
   #returns = #u64;
@@ -268,8 +266,7 @@ fn one_bundle_adapts_multiple_types_and_rejects_unknown_operations_or_options() 
     ] {
         let source = format!(
             "#std
-#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u64)
-              (name TypedAllocator) (operations {operations}) {extra})\n"
+#generate allocator-for {{ options = ((allocator SystemAllocator::Allocator) (type #u64)\n              (name TypedAllocator) (operations {operations}) {extra}); }}\n"
         );
         let error = check(&source).expect_err("invalid adapter options must fail expansion");
         assert_eq!(error.code_string(), "E3000");

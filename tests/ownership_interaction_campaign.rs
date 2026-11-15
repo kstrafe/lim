@@ -79,7 +79,7 @@ fn aliases_aggregate_returns_and_generated_helpers_preserve_loans() {
                 let library = format!(
                     "#struct Holder () ((view (#ref #u64)))\n{}",
                     if generated {
-                        format!("#gn emit () `(({helper}))\n#generate emit\n")
+                        format!("#gn emit {{}} `(({helper}))\n#generate emit {{}}\n")
                     } else {
                         helper
                     }
@@ -142,7 +142,7 @@ fn aggregate_owner_transfer_requires_exactly_one_consumption() {
             let library = format!(
                 "#struct Token (#linear) ((value #u64))\n{}",
                 if generated {
-                    format!("#gn emit () `(({helper}))\n#generate emit\n")
+                    format!("#gn emit {{}} `(({helper}))\n#generate emit {{}}\n")
                 } else {
                     helper.to_owned()
                 }

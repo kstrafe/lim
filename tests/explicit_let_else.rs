@@ -239,7 +239,7 @@ fn projection_source(value: &str) -> String {
     format!(
         "#std
 #enum Task () ((Task.Work #u64) Task.Idle)
-#generate #enum-project ((enum Task) (variant Task.Work) (payload #u64) (mode #pin-ref-mut) (name WorkProjection))
+#generate enum-project {{ options = ((enum Task) (variant Task.Work) (payload #u64) (mode #pin-ref-mut) (name WorkProjection)); }}
 #fn main {{
   #params = ();
   #returns = #u64;

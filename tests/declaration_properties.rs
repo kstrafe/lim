@@ -58,9 +58,9 @@ fn old_forms_and_invalid_properties_are_rejected() {
 #[test]
 fn generators_emit_complete_property_bearing_declarations() {
     let program = lim::parse_program(
-        "#gn make-resource (name)
+        "#gn make-resource { name; }
         `((#struct ,name (#linear) ((value #u64))))
-#generate make-resource Resource
+#generate make-resource { name = Resource; }
 #fn main {
   #params = ();
   #returns = ();
