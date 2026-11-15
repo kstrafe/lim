@@ -830,7 +830,9 @@ impl Lowered {
         }
         for (origin, text) in &self.drivers {
             let source_id = program.source_files.len() as u32;
-            let mut source = crate::parse(text)?.remove(0);
+            let syntax = crate::parse(text)?.remove(0);
+            let text = crate::declaration_source(&syntax.expr)?;
+            let mut source = crate::parse_source_unit(&text)?.remove(0);
             crate::set_source_id(&mut source, source_id);
             program.source_files.push(crate::SourceFile {
                 file_scope: None,
