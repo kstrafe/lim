@@ -64,7 +64,10 @@ fn source_range(text: &str, start: usize, end: usize) -> Json {
     ])
 }
 fn assert_location(result: &Json, path: &Path, text: &str, declaration: &str, name: &str) {
-    let start = text.find(declaration).unwrap() + declaration.find(name).unwrap();
+    let start = text
+        .find(declaration)
+        .unwrap_or_else(|| panic!("missing declaration {declaration:?} in {text}"))
+        + declaration.find(name).unwrap();
     assert_eq!(result.get("uri"), Some(&string(uri(path))), "{result:?}");
     assert_eq!(
         result.get("range"),
@@ -671,7 +674,7 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
         (
             &bridge,
             bridge_text,
-            "Number (#return (#call",
+            "Number;\n     #body = ( (#return (#call",
             &leaf,
             leaf_text,
             "#type Number",
@@ -707,14 +710,14 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
         &client.definition(&root, root_text, "value 42"),
         &bridge,
         bridge_text,
-        "#fn proxy ((value",
+        "#fn proxy {\n     #params = ((value",
         "value",
     );
     assert_location(
         &client.definition(&bridge, bridge_text, "value value"),
         &leaf,
         leaf_text,
-        "((value Number)) Number (#return value)",
+        "#params = ((value Number))",
         "value",
     );
     for path in [&root, &bridge, &leaf] {
@@ -760,7 +763,7 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
             "#struct Right () ((value",
             "value",
         ),
-        (&root, source, "item (#borrow", "#fn read ((item", "item"),
+        (&root, source, "item (#borrow", "#fn read {\n  #params = ((item", "item"),
         (
             &root,
             source,
@@ -817,7 +820,7 @@ fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
         &label,
         &function_path,
         &function_source,
-        "value #u64",
+        "value = #u64",
         "value",
     );
     client.open(&function_path, &function_source);
@@ -825,7 +828,7 @@ fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
         &client.definition(&function_path, &function_source, "value)"),
         &function_path,
         &function_source,
-        "value #u64",
+        "value = #u64",
         "value",
     );
     assert!(
@@ -903,7 +906,7 @@ fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
             &root,
             root_text,
             "foreign",
-            "#extern-fn #abi-c foreign",
+            "#extern-fn  foreign",
             "foreign",
         ),
         (&root, root_text, "guarded", "#unsafe-fn guarded", "guarded"),
@@ -911,28 +914,28 @@ fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
             &module,
             module_text,
             "foreign",
-            "#extern-fn #abi-c foreign",
+            "#extern-fn  foreign",
             "foreign",
         ),
         (&root, root_text, "Number 42u64", "#type Number", "Number"),
         (
             &module,
             module_text,
-            "Number)) Number",
+            "Number));",
             "#type Number",
             "Number",
         ),
         (
             &module,
             module_text,
-            "Number\n#unsafe-fn",
+            "Number;\n}\n#unsafe-fn",
             "#type Number",
             "Number",
         ),
         (
             &module,
             module_text,
-            "Number (#return",
+            "Number;\n  #body",
             "#type Number",
             "Number",
         ),
@@ -994,7 +997,7 @@ fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
         &client.definition(&module, module_text, "value Number"),
         &module,
         module_text,
-        "#extern-fn #abi-c foreign ((value",
+        "#extern-fn  foreign {\n  #abi = #abi-c;\n  #params = ((value",
         "value",
     );
     assert_location(
@@ -1099,7 +1102,7 @@ fn context_flag_entry_and_invalid_config_changes_retarget_navigation_and_recover
         &client.definition(&root, root_text, "selected ("),
         &module,
         module_text,
-        "#fn selected () #u64 (#return 1",
+        "#fn selected {\n     #params = ();\n     #returns = #u64;\n     #body = ( (#return 1",
         "selected",
     );
     fixture.context(&root, "second");
@@ -1108,7 +1111,7 @@ fn context_flag_entry_and_invalid_config_changes_retarget_navigation_and_recover
         &client.definition(&root, root_text, "selected ("),
         &module,
         module_text,
-        "#fn selected () #u64 (#return 2",
+        "#fn selected {\n     #params = ();\n     #returns = #u64;\n     #body = ( (#return 2",
         "selected",
     );
     client.clear(&root);
@@ -1135,7 +1138,7 @@ fn context_flag_entry_and_invalid_config_changes_retarget_navigation_and_recover
         &client.definition(&root, root_text, "selected ("),
         &module,
         module_text,
-        "#fn selected () #u64 (#return 1",
+        "#fn selected {\n     #params = ();\n     #returns = #u64;\n     #body = ( (#return 1",
         "selected",
     );
     client.clear(&root);
@@ -1192,7 +1195,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     let mut client = Client::start(&fixture.0);
     client.open(&root, root_text);
     client.open(&types, imported);
-    let alias = client.definition(&root, root_text, "Number (#return");
+    let alias = client.definition(&root, root_text, "Number;\n  #body");
     let constructor = client.definition(&root, root_text, "Maybe::construct");
     let mut snapshots = Vec::new();
     for (result, name, invocation_line) in
@@ -1219,7 +1222,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
         ));
     }
     assert_eq!(
-        client.definition(&root, root_text, "Number (#return"),
+        client.definition(&root, root_text, "Number;\n  #body"),
         alias
     );
     assert_eq!(
@@ -1232,7 +1235,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     client.close(&snapshots[0].0);
     client.change(&types, 2, &imported.replace("#u64", "#u32"));
     assert_eq!(
-        client.definition(&root, root_text, "Number (#return"),
+        client.definition(&root, root_text, "Number;\n  #body"),
         Json::Null
     );
     assert_eq!(
@@ -1245,7 +1248,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     }
     let repaired = root_text.replace("42u64", "42u32");
     client.change(&root, 2, &repaired);
-    let new_alias = client.definition(&root, &repaired, "Number (#return");
+    let new_alias = client.definition(&root, &repaired, "Number;\n  #body");
     assert_ne!(new_alias, alias);
     assert_ne!(new_alias, Json::Null);
     client.clear(&root);
@@ -1253,7 +1256,7 @@ fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     let path = lsp::uri_to_path(new_alias.get("uri").unwrap().string().unwrap()).unwrap();
     fs::write(&path, "// deliberate user edit\n").unwrap();
     assert_eq!(
-        client.definition(&root, &repaired, "Number (#return"),
+        client.definition(&root, &repaired, "Number;\n  #body"),
         Json::Null
     );
     assert_eq!(
@@ -1755,11 +1758,11 @@ fn signature_help_recovers_unclosed_calls_without_writing_buffers_over_stdio() {
     let mut client = Client::start(&fixture.0);
     client.open(&path, declarations);
     for (version, suffix) in [
-        "#fn main () #u64 (#return (#call choose ",
-        "#fn main () #u64 (#return (#call choose ((second ",
-        "#fn main () #u64 (#return (#call choose ((second 2u64) (first ",
-        "#fn main () #u64 (#return (choose { second = ",
-        "#fn main () #u64 (#return : choose : : second ",
+        "#fn main { #params = (); #returns = #u64; #body = ((#return (#call choose ",
+        "#fn main { #params = (); #returns = #u64; #body = ((#return (#call choose ((second ",
+        "#fn main { #params = (); #returns = #u64; #body = ((#return (#call choose ((second 2u64) (first ",
+        "#fn main { #params = (); #returns = #u64; #body = ((#return (choose { second = ",
+        "#fn main { #params = (); #returns = #u64; #body = ((#return : choose : : second ",
     ]
     .iter()
     .enumerate()
@@ -1846,8 +1849,8 @@ fn hover_and_signature_follow_aliases_unsaved_dependencies_and_generated_metadat
     client.clear(&path);
     let prefix = &generated[..generated.find("#fn main").unwrap()];
     for (version, suffix) in [
-        "#fn main () #u64 (#return (#call produced ",
-        "#fn main () #u64 (#return (produced { value = ",
+        "#fn main { #params = (); #returns = #u64; #body = ((#return (#call produced ",
+        "#fn main { #params = (); #returns = #u64; #body = ((#return (produced { value = ",
     ]
     .iter()
     .enumerate()
@@ -1863,7 +1866,7 @@ fn hover_and_signature_follow_aliases_unsaved_dependencies_and_generated_metadat
     }
     fixture.write("emitted.lim", prefix);
     let incomplete_alias =
-        "#alias renamed = ./emitted.lim::produced\n#fn main () #u64 (#return (#call renamed ";
+        "#alias renamed = ./emitted.lim::produced\n#fn main { #params = (); #returns = #u64; #body = ((#return (#call renamed ";
     client.change(&path, 5, incomplete_alias);
     assert_signature(
         &client.signature(&path, incomplete_alias, incomplete_alias.len()),
@@ -2025,7 +2028,7 @@ fn information_requests_keep_context_alternatives_and_cfg_exclusions_over_stdio(
             "textDocument/hover",
             &shared,
             source,
-            source.find("choose ((left #u8").unwrap()
+            source.find("choose {\n            #params = ((left #u8").unwrap()
         ),
         Json::Null
     );

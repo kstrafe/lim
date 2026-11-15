@@ -73,7 +73,10 @@ fn definition(id: i64, uri: &str, text: &str, needle: &str) -> String {
 }
 
 fn definition_offset(id: i64, uri: &str, text: &str, needle: &str, offset: usize) -> String {
-    let byte = text.find(needle).unwrap() + offset;
+    let byte = text
+        .find(needle)
+        .unwrap_or_else(|| panic!("missing source needle {needle:?} in {text}"))
+        + offset;
     let (line, character) = lsp::byte_position(text, byte);
     request(id, "textDocument/definition", &format!(
         "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":{line},\"character\":{character}}}}}",
@@ -1195,9 +1198,9 @@ fn external_import_internal_calls_and_types_use_the_compilation_names() {
     let uri = lsp::path_to_uri(&child).unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, text));
-    messages.push(definition(2, &uri, text, "Number (#return 42u64)"));
-    messages.push(definition(3, &uri, text, "read ())))"));
-    messages.push(definition(4, &uri, text, "Number (#return (#call"));
+    messages.push(definition(2, &uri, text, "Number;\n    #body = ( (#return 42u64)"));
+    messages.push(definition(3, &uri, text, "read ()"));
+    messages.push(definition(4, &uri, text, "Number;\n    #body = ( (#return (#call"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     for (id, line) in [(2, 1), (3, 2), (4, 1)] {
@@ -1405,7 +1408,7 @@ fn utf16_emoji_diagnostics_and_formatting() {
     assert_eq!(lsp::byte_position("a😀z\r\nβ", 8), (1, 0));
     let uri = "file:///tmp/lim-lsp-emoji.lim";
     let mut messages = start();
-    messages.push(open(uri, 1, "#fn main () () \"😀\" )"));
+    messages.push(open(uri, 1, "#fn main { #params = (); #returns = (); #body = \"😀\" )"));
     messages.push(change(uri, 2, "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n"));
     messages.push(request(2,"textDocument/formatting", &format!("{{\"textDocument\":{{\"uri\":{}}},\"options\":{{\"tabSize\":2,\"insertSpaces\":true}}}}",diagnostic_json::quoted(uri))));
     finish(&mut messages);
@@ -1423,7 +1426,7 @@ fn utf16_emoji_diagnostics_and_formatting() {
             .get("character")
             .unwrap()
             .integer(),
-        Some(20)
+        Some(53)
     );
     let edit = &reply(&replies, 2).get("result").unwrap().array().unwrap()[0];
     assert_eq!(
@@ -1439,9 +1442,8 @@ fn symbols_and_definition_only_on_declaration_names() {
     let mut messages = start();
     messages.push(open(uri, 1, text));
     messages.push(request(2, "textDocument/documentSymbol", &document(uri)));
-    for (id, character) in [(3, 5), (4, 26)] {
-        messages.push(request(id,"textDocument/definition",&format!("{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":0,\"character\":{character}}}}}",diagnostic_json::quoted(uri))));
-    }
+    messages.push(definition(3, uri, text, "main"));
+    messages.push(definition(4, uri, text, "0u64"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let symbols = reply(&replies, 2).get("result").unwrap().array().unwrap();
@@ -1475,14 +1477,7 @@ fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
         2,
         &format!("{source}\n#fn target {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 1u64)\n  );\n}}\n"),
     ));
-    messages.push(request(
-        5,
-        "textDocument/definition",
-        &format!(
-            "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":1,\"character\":34}}}}",
-            diagnostic_json::quoted(uri)
-        ),
-    ));
+    messages.push(definition_offset(5, uri, source, "#call target", "#call ".len()));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let target = reply(&replies, 2).get("result").unwrap();
@@ -1549,7 +1544,7 @@ fn generated_array_type_and_accessor_navigate_to_exact_declarations() {
             (3, declaration + "#fn ".len(), "Array4::get"),
             (
                 4,
-                declaration + generated[declaration..].find("((values ").unwrap() + 2,
+                declaration + generated[declaration..].find("values =").unwrap(),
                 "values",
             ),
         ] {
@@ -1571,16 +1566,9 @@ fn generated_function_definition_publishes_an_exact_source_snapshot() {
     let path = base.join("main.lim");
     let uri = format!("file://{}", path.display());
     let source = "#generate #optional ((type #u64) (name Maybe))\n#fn main {\n  #params = ();\n  #returns = ();\n  #body = ( (#let value Maybe (#call Maybe::construct ((value 42u64)))) (#forget value) (#return ())\n  );\n}\n";
-    let character = source
-        .lines()
-        .nth(1)
-        .unwrap()
-        .find("Maybe::construct")
-        .unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, source));
-    messages.push(request(2, "textDocument/definition", &format!(
-        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":1,\"character\":{character}}}}}", diagnostic_json::quoted(&uri))));
+    messages.push(definition(2, &uri, source, "Maybe::construct"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let result = reply(&replies, 2).get("result").unwrap();
@@ -1596,8 +1584,7 @@ fn generated_function_definition_publishes_an_exact_source_snapshot() {
     let modified = std::fs::metadata(&target).unwrap().modified().unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, source));
-    messages.push(request(2, "textDocument/definition", &format!(
-        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":1,\"character\":{character}}}}}", diagnostic_json::quoted(&uri))));
+    messages.push(definition(2, &uri, source, "Maybe::construct"));
     finish(&mut messages);
     let (_, repeated) = session(messages.clone());
     assert_eq!(reply(&repeated, 2).get("result"), Some(result));
@@ -1622,9 +1609,12 @@ fn generated_type_navigation_tracks_unsaved_generator_changes() {
     std::fs::create_dir_all(&base).unwrap();
     let uri = format!("file://{}", base.join("main.lim").display());
     let source = "#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#generate emit Number\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
-    let position = source.lines().nth(2).unwrap().find("Number").unwrap();
+    let (line, character) = lsp::byte_position(
+        source,
+        source.find("#returns = Number").unwrap() + "#returns = ".len(),
+    );
     let params = format!(
-        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":2,\"character\":{position}}}}}",
+        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":{line},\"character\":{character}}}}}",
         diagnostic_json::quoted(&uri)
     );
     let mut messages = start();
@@ -1665,9 +1655,12 @@ fn generated_definition_uses_an_unsaved_direct_generator_alias_and_rejects_inval
     let generator_uri = format!("file://{}", base.join("types.lim").display());
     let source = "#alias emit = ./types.lim::emit\n#generate emit Number\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
     let generator = "#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n";
-    let character = source.lines().nth(2).unwrap().find("Number").unwrap();
+    let (line, character) = lsp::byte_position(
+        source,
+        source.find("#returns = Number").unwrap() + "#returns = ".len(),
+    );
     let params = format!(
-        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":2,\"character\":{character}}}}}",
+        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":{line},\"character\":{character}}}}}",
         diagnostic_json::quoted(&uri)
     );
     let mut messages = start();
@@ -1726,7 +1719,7 @@ fn compilation_context_navigates_an_unsaved_external_file_alias() {
     ];
     messages.push("{\"jsonrpc\":\"2.0\",\"id\":\"lim-context-watch\",\"result\":null}".into());
     messages.push(open(&uri, 1, source));
-    for (id, needle) in [(2, "child"), (3, "Maybe (#return"), (4, "Maybe::construct")] {
+    for (id, needle) in [(2, "child"), (3, "Maybe;\n  #body"), (4, "Maybe::construct")] {
         messages.push(definition(id, &uri, source, needle));
     }
     let manifest_uri = lsp::path_to_uri(&base.join("lim.lsp")).unwrap();
