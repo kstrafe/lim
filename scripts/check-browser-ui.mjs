@@ -82,7 +82,7 @@ try {
   console.log('Checking contracts and worker cancellation');
   await choose('contract'); await click('run'); await until('document.querySelector("#status").textContent === "Compiled and ran"');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned 42/);
-  const binding = '#extern-fn #abi-c browser-print-u64 { value = #u64; } ()\n';
+  const binding = await evaluate('document.querySelector("#example-print").content.textContent.split("#fn main {")[0]');
   const printThenTrap = `${binding}#fn main {
     #params = {}; #returns = #u64;
     #body:

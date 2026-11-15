@@ -82,7 +82,7 @@ const printed = await print(example('print'));
 assert.equal(printed.error, undefined);
 assert.equal(printed.value, '()');
 assert.equal(printed.stdout, '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n', 'compiled loop must write real stdout');
-const binding = '#extern-fn #abi-c browser-print-u64 { value = #u64; } ()\n';
+const binding = example('print').split('#fn main {')[0];
 const beforeTrap = await print(`${binding}#fn main {
   #params = {}; #returns = #u64;
   #body:
@@ -103,15 +103,27 @@ const flooded = await print(`${binding}#fn main {
 assert.match(flooded.error?.message || '', /64 KiB output limit/);
 assert(flooded.stdout.length <= MAX_STDOUT_CHARS && flooded.stdout.length > MAX_STDOUT_CHARS - 21);
 assert(flooded.messages < 200, 'large output must be batched rather than flooding the UI');
-assert.equal(compiler.compile(`#extern-fn #abi-c unknown-output { value = #u64; } ()
+const unknownHost = `#extern-fn unknown-output {
+  #abi = #abi-c; #params = { value = #u64; }; #returns = ();
+}
 #fn main {
   #params = {}; #returns = ();
-  #body: #unsafe : #unsafe-call unknown-output { value = 1; }; #return ();
+  #body:
+    #unsafe : #unsafe-call unknown-output { value = 1; };
+    #return ();
 }
-`).ok, false);
-assert.equal(compiler.compile(`${binding}#fn main {
+`;
+assert.equal(compiler.compile(unknownHost, { checkOnly: true }).ok, true);
+const unknownOutput = compiler.compile(unknownHost);
+assert.equal(unknownOutput.ok, false);
+assert.match(unknownOutput.message, /cannot call external function 'unknown-output'/);
+const missingUnsafe = compiler.compile(`${binding}#fn main {
   #params = {}; #returns = ();
-  #body: browser-print-u64 { value = 1; }; #return ();
+  #body:
+    browser-print-u64 { value = 1; };
+    #return ();
 }
-`).ok, false);
+`);
+assert.equal(missingUnsafe.ok, false);
+assert.match(missingUnsafe.message, /unsafe/);
 console.log('Browser compiler: examples, ABI, diagnostics, audits, traps, real stdout, unsigned output and bounded batching passed.');

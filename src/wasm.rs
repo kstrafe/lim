@@ -236,7 +236,7 @@ fn emit(checked: &CheckedProgram<'_>) -> Result<Module> {
                 || resolve(&function.parameters[0].ty)? != Type::U64
                 || resolve(&function.return_type)? != Type::Unit
             {
-                return Err(("browser-print-u64 requires #extern-fn #abi-c, one #u64 argument, and () return".into(), span));
+                return Err(("browser-print-u64 requires an #extern-fn record with #abi = #abi-c, one #u64 argument, and () return".into(), span));
             }
             continue;
         }

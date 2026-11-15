@@ -55,7 +55,11 @@
 }
 // The half-open range includes 1 through 10. Result: 55.</template>
 <template id="example-print">// Browser-only output binding: one unsigned decimal number per line.
-#extern-fn #abi-c browser-print-u64 { value = #u64; } ()
+#extern-fn browser-print-u64 {
+  #abi = #abi-c;
+  #params = { value = #u64; };
+  #returns = ();
+}
 #fn main {
   #params = {};
   #returns = ();
