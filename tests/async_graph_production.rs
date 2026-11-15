@@ -168,9 +168,9 @@ fn self_reference_example_uses_source_named_access_and_cleanup_on_the_same_frame
         .replace("Read::after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait");
     let artifact = run_expected(&source, "async-graph-self-reference-example", 58);
-    assert!(artifact.contains("(#fn work-owner-replace "));
-    assert!(artifact.contains("(#fn work-owner-read "));
-    assert!(artifact.contains("(#struct Work::Frame::Cleanup (#linear)"));
+    assert!(artifact.contains("#fn work-owner-replace "));
+    assert!(artifact.contains("#fn work-owner-read "));
+    assert!(artifact.contains("#struct Work::Frame::Cleanup (#linear)"));
     assert!(!source.contains("Work::Poll::cancel"));
     assert!(!source.contains("work-frame-await-0"));
     assert!(!source.contains("(#set-field frame owner"));
@@ -276,7 +276,7 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
         .replace("(waker #u64)", "(waker #u64) (cancel (work-cancel ((await-0 cancel-child))))")
         .replace(
             "#enum Child (#linear) ((Child.Waiting #u64))",
-            "(#enum Child (#linear) ((Child.Waiting (#tuple (#ref Counter) #u64))))",
+            "#enum Child (#linear) ((Child.Waiting (#tuple (#ref Counter) #u64)))",
         )
         .replace("(Child.Waiting count)", "(Child.Waiting (#tuple counter count))")
         .replace("Child.Waiting 1u64", "Child.Waiting (#tuple counter 1u64)")
@@ -337,7 +337,7 @@ fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
         );
         let artifact = run(&source, "async-graph-cancel");
         assert!(artifact.contains(
-            "(#struct Work::Frame::Cleanup (#linear) ((await-0 Work::Frame::Cleanup::Await-0)))"
+            "#struct Work::Frame::Cleanup (#linear) ((await-0 Work::Frame::Cleanup::Await-0))"
         ));
     }
 }
@@ -441,7 +441,7 @@ fn aggregate_reference_guard_source() -> String {
     shared_reference_guard_source()
         .replace(
             "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
-            "(#struct View () ((value (#ref #u64))))\n(#enum Holder (#linear) ((Holder.Holding View)))",
+            "#struct View () ((value (#ref #u64)))\n#enum Holder (#linear) ((Holder.Holding View))",
         )
         .replace(
             "(Holder.Holding source)",
@@ -550,7 +550,7 @@ fn direct_exclusive_field_reads_keep_nested_struct_and_tuple_projections() {
     let tuple = source
         .replace(
             "#struct Point () ((amount #u64) (other #u64))",
-            "(#type Point (#tuple #u64 #u64))",
+            "#type Point (#tuple #u64 #u64)",
         )
         .replace(
             "(#struct-literal Point ((amount 42u64) (other 0u64)))",
@@ -732,7 +732,7 @@ fn alternative_reference_guards_do_not_preview_payloads() {
     let source = shared_reference_guard_source()
         .replace(
             "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
-            "(#enum Holder (#linear) ((Holder.Holding (#ref #u64)) (Holder.Other (#ref #u64))))",
+            "#enum Holder (#linear) ((Holder.Holding (#ref #u64)) (Holder.Other (#ref #u64)))",
         )
         .replace(
             "(#case (Holder.Holding view)",
@@ -752,7 +752,7 @@ fn alternative_reference_guards_reject_payload_bindings_before_publication() {
     let source = shared_reference_guard_source()
         .replace(
             "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
-            "(#enum Holder (#linear) ((Holder.Holding (#ref #u64)) (Holder.Other (#ref #u64))))",
+            "#enum Holder (#linear) ((Holder.Holding (#ref #u64)) (Holder.Other (#ref #u64)))",
         )
         .replace(
             "(#case (Holder.Holding view)",
@@ -808,8 +808,8 @@ fn guard_cancellation_declarations() -> String {
     let declarations = source[..source.find("#fn main").unwrap()]
         .replace(
             "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
-            "(#enum Holder (#linear) ((Holder.Holding (#ref #u64))))
-             (#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ()))",
+            "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))
+#fn cancel-holder ((holder Holder)) () (#forget holder) (#return ())",
         )
         .replace(
             "(function (#fn work",
@@ -880,7 +880,7 @@ fn reading_aggregate_guard_cleanup_preserves_and_releases_nested_loans() {
     let declarations = guard_cancellation_declarations()
         .replace(
             "#enum Holder (#linear) ((Holder.Holding (#ref #u64)))",
-            "(#struct View () ((value (#ref #u64))))\n(#enum Holder (#linear) ((Holder.Holding View)))",
+            "#struct View () ((value (#ref #u64)))\n#enum Holder (#linear) ((Holder.Holding View))",
         )
         .replace(
             "(Holder.Holding source)",
@@ -1097,9 +1097,11 @@ fn graph_route_rejects_missing_wrong_and_private_cleanup_contracts() {
             "unknown graph cleanup source slot 'unused'",
         ),
     ] {
-        let source = format!("{CONTEXT}#fn wrong ((value #u64)) () (#return ())
+        let source = format!("{CONTEXT}
+#fn wrong ((value #u64)) () (#return ())
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (cancel (work-cancel {handlers}))
-              (function (#fn work ((seed #u64)) #u64 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))))\n");
+              (function (#fn work ((seed #u64)) #u64 (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))))
+");
         let error = lim::parse_program_with_config(&source, &config()).unwrap_err();
         assert!(error.contains(expected), "{error}");
     }
@@ -1107,9 +1109,11 @@ fn graph_route_rejects_missing_wrong_and_private_cleanup_contracts() {
 
 #[test]
 fn scoped_local_borrows_use_inspectable_pointer_storage() {
-    let source = format!("{CONTEXT}#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+    let source = format!("{CONTEXT}
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
         (function (#fn work ((seed #u64)) #u64 (#let owner #u64 seed)
-          (#return (#borrow owner (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))))))\n");
+          (#return (#borrow owner (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))))))
+");
     let scratch = support::Scratch::new("async-graph-fail-closed");
     let cache = scratch.path().join("cache");
     lim::parse_program_from_path_with_config_and_cache(
@@ -1132,10 +1136,12 @@ fn scoped_local_borrows_use_inspectable_pointer_storage() {
 #[test]
 fn invalid_scoped_borrows_fail_before_cache_publication() {
     let source = format!(
-        "{CONTEXT}#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+        "{CONTEXT}
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
         (function (#fn work ((seed #u64)) #u64 (#let-mut owner #u64 seed)
           (#return (#borrow owner (#block (#set owner 1u64)
-            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64))))))))\n"
+            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64))))))))
+"
     );
     let scratch = support::Scratch::new("async-graph-invalid-scope");
     let error = lim::parse_program_from_path_with_config_and_cache(

@@ -714,7 +714,7 @@ fn async_while_let_returned_references_keep_their_source_loan() {
         .replace("(#return 5u64)", "(#return counter)")
         .replace(
             "#fn run ((choice Choice) (waker (#ref #u64))) #u64",
-            "(#fn run ((choice Choice) (counter (#ref #u64)) (waker (#ref #u64))) (#ref #u64)",
+            "#fn run ((choice Choice) (counter (#ref #u64)) (waker (#ref #u64))) (#ref #u64)",
         )
         .replace(
             "(#call work ((choice choice)))",
@@ -1079,7 +1079,7 @@ fn async_returning_branch_skips_a_suspending_common_tail() {
         )
         .replace(
             "#fn run ((early #bool)",
-            "(#fn run ((early #bool) (counter (#ref-mut #u64))",
+            "#fn run ((early #bool) (counter (#ref-mut #u64))",
         )
         .replace(
             "(#call work ((early early)))",
@@ -1153,7 +1153,7 @@ fn async_returning_branch_skips_a_suspending_common_tail() {
             )
             .replace(
                 "#fn run ((early #bool)",
-                "(#fn run ((early #bool) (resource Resource)"
+                "#fn run ((early #bool) (resource Resource)"
             )
             .replace(
                 "(#call work ((early early)))",
@@ -1436,11 +1436,11 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
 
     let escaping = source.replace(
         "#fn main () #u64",
-        "(#fn escape-frame () Work::Poll
+        "#fn escape-frame () Work::Poll
           (#let-mut frame Work::Frame (#call work ((offset 40u64))))
           (#let waker #u64 0u64)
-          (#return (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))))
-        (#fn main () #u64",
+          (#return (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
+#fn main () #u64",
     );
     let error = lim::compile_source_to_assembly(
         &escaping,
@@ -1637,7 +1637,7 @@ fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
 
     // Make the local owner explicitly linear so cleanup must return it after
     // clearing the internal exclusive reference; do not inspect private cells.
-    let linear = source.replace("#struct LocalOwner ()", "\n(#struct LocalOwner (#linear)")
+    let linear = source.replace("#struct LocalOwner ()", "\n#struct LocalOwner (#linear)")
         .replace("(#return (#u64::add-wrap (#deref view) result))",
             "(#let answer #u64 (#u64::add-wrap (#deref view) result))\n    (#drop view)\n    (#forget owner)\n    (#return answer)");
     let (prefix, after_second_poll) = linear
@@ -2630,7 +2630,7 @@ fn async_value_loop_results_use_declared_expression_types() {
     let comparison = source
         .replace(
             "#fn identity ((value #u64)) #u64 (#return value)",
-            "(#fn identity ((value #bool)) #u64 (#return (#if value 42u64 0u64)))",
+            "#fn identity ((value #bool)) #u64 (#return (#if value 42u64 0u64))",
         )
         .replace("(#break 42u64)", "(#break (#u64::eq awaited 41u64))")
         .replace("(#break awaited)", "(#break (#u64::lt awaited 42u64))")
@@ -4584,7 +4584,7 @@ fn async_conditional_continuations_can_change_result_type() {
         .replacen("false", "view", 1)
         .replace(
             "#fn run ((choose #bool) (waker (#ref #u64)))",
-            "(#fn run ((choose #bool) (view (#ref #u64)) (waker (#ref #u64)))",
+            "#fn run ((choose #bool) (view (#ref #u64)) (waker (#ref #u64)))",
         )
         .replace(
             "(#call work ((choose choose)))",
@@ -4870,7 +4870,7 @@ fn async_function_retains_external_borrows_across_pending() {
 
     let escaping = accepted.replace(
         "#fn main () #u64",
-        "(#fn escape () Read-after-await::Task\n          (#let owner #u64 3u64)\n          (#return (#call read-after-await ((view (#borrow owner))))))\n      (#fn main () #u64",
+        "#fn escape () Read-after-await::Task\n          (#let owner #u64 3u64)\n          (#return (#call read-after-await ((view (#borrow owner)))))\n#fn main () #u64",
     );
     let error = graph_compile_error(&escaping, "async-shared-external-escape");
     assert_eq!(error.code, lim::DiagnosticCode::Borrow);
@@ -5373,7 +5373,7 @@ fn async_while_condition_keeps_global_names_out_of_frame_captures() {
           (#forget waker)
           (#return result)\n";
     let generated = build_and_run_graph(source, 42);
-    let runtime = source.split_once("(#generate #async-fn").unwrap().0;
+    let runtime = source.split_once("#generate #async-fn").unwrap().0;
     let parsed =
         lim::parse_program(&ordinary_generated(&format!("{runtime}\n{generated}"))).unwrap();
     assert!(
@@ -5958,7 +5958,7 @@ fn async_while_body_can_return_after_body_await() {
     let linear_source = source
         .replace(
             "#enum ConditionTask (#linear)",
-            "(#struct Payload (#linear) ((value #u64)))\n      \n      (#enum ConditionTask (#linear)",
+            "#struct Payload (#linear) ((value #u64))\n      \n#enum ConditionTask (#linear)",
         )
         .replace(
             "(#fn work ((decision #bool)) #u64",
@@ -5996,7 +5996,8 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
         .split_once("#fn main")
         .expect("main follows the async declaration and cancellation helpers");
     let returning_source = format!(
-        "{prefix}#fn main () #u64
+        "{prefix}
+#fn main () #u64
             (#let waker #u64 0u64)
             (#let task Work::Task (#call work ((decision true))))
             (#let first Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
@@ -6010,7 +6011,8 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
             (#let result #u64 (#get payload value))
             (#forget payload)
             (#forget waker)
-            (#return (#if (#u64::eq result 2u64) 42u64 0u64))\n"
+            (#return (#if (#u64::eq result 2u64) 42u64 0u64))
+"
     );
     build_and_run_graph(&returning_source, 42);
 
@@ -6028,7 +6030,10 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
         );
         let prefix = prefix.replace("(#assert (#u64::eq (#get value value) 1u64))", &assertion);
         let mut canceled = format!(
-            "{prefix}\n#fn main () #u64\n              (#let waker #u64 0u64)\n              (#let state-0 Work::Task (#call work ((decision true))))"
+            "{prefix}
+#fn main () #u64
+              (#let waker #u64 0u64)
+              (#let state-0 Work::Task (#call work ((decision true))))"
         );
         for index in 0..polls {
             canceled.push_str(&format!(
@@ -6040,7 +6045,9 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
             ));
         }
         canceled.push_str(&format!(
-            "\n            (#call cancel-frame ((task (#call Work::Poll::cleanup ((task state-{polls}))))))\n            (#forget waker) (#return 42u64)"
+            "
+            (#call cancel-frame ((task (#call Work::Poll::cleanup ((task state-{polls}))))))
+            (#forget waker) (#return 42u64)"
         ));
         build_and_run_graph(&canceled, 42);
     }
@@ -6362,7 +6369,7 @@ fn async_awaited_while_return_branch_and_continue_branch_resume_correctly() {
     let linear_source = source
         .replace(
             "#enum ConditionTask ()",
-            "(#struct Payload (#linear) ((value #u64)))\n      \n      (#enum ConditionTask ()",
+            "#struct Payload (#linear) ((value #u64))\n      \n#enum ConditionTask ()",
         )
         .replace(
             "(#fn work ((should-return #bool)) #u64",
@@ -6676,7 +6683,7 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
     assert_single_poll(&generated, "Work::poll");
     let explicit = source.replace(
         "#struct Pair () ((left Resource) (right Resource))",
-        "(#struct Pair (#linear) ((left Resource) (right Resource))) ",
+        "#struct Pair (#linear) ((left Resource) (right Resource))\n ",
     );
     build_and_run_partial_storage(&explicit, 44);
 
@@ -6712,7 +6719,7 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
     );
 
     let explicit_cancel = cancelled
-        .replace("#struct Pair () ((left Resource) (right Resource))", "(#struct Pair (#linear) ((left Resource) (right Resource))) ")
+        .replace("#struct Pair () ((left Resource) (right Resource))", "#struct Pair (#linear) ((left Resource) (right Resource))\n ")
         .replace("Work::Task::Cleanup moved right waiting", "Work::Task::Cleanup moved right shell waiting")
         .replace("(#forget waiting)", "(#assert (#variant-is (#borrow shell) Work::Task::Cleanup::Pair-shell.Full)) (#forget shell) (#forget waiting)");
     build_and_run_partial_storage(&explicit_cancel, 42);
@@ -6817,7 +6824,7 @@ fn async_rebuilds_nested_partially_moved_structs() {
     assert_single_poll(&generated, "Work::poll");
     let explicit = source.replace(
         "#struct Outer () ((inner Pair) (spare Resource))",
-        "(#struct Outer (#linear) ((inner Pair) (spare Resource))) ",
+        "#struct Outer (#linear) ((inner Pair) (spare Resource))\n ",
     );
     build_and_run_partial_storage(&explicit, 44);
 
@@ -6864,7 +6871,7 @@ fn async_rebuilds_nested_partially_moved_structs() {
 
     let nominal_prefix = prefix.split_once("(#let old #u64").unwrap().0.replace(
         "#struct Pair () ((left Resource) (right Resource))",
-        "(#struct Pair (#linear) ((left Resource) (right Resource))) ",
+        "#struct Pair (#linear) ((left Resource) (right Resource))\n ",
     );
     let nominal_main = cancelled.split_once("#fn main () #u64").unwrap().1
         .replace("Work::Task::Cleanup moved right spare waiting", "Work::Task::Cleanup moved right spare shell waiting")
@@ -6881,7 +6888,7 @@ fn async_rebuilds_nested_partially_moved_structs() {
     build_and_run_partial_storage(&parameter, 44);
 
     let deep = source
-        .replace("#struct Pair () ((left Resource) (right Resource))", "(#struct Box () ((resource Resource))) (#struct Pair () ((left Box) (right Resource)))")
+        .replace("#struct Pair () ((left Resource) (right Resource))", "#struct Box () ((resource Resource))\n#struct Pair () ((left Box) (right Resource))")
         .replace("(left (#struct-literal Resource ((value 20u64))))", "(left (#struct-literal Box ((resource (#struct-literal Resource ((value 20u64)))))))")
         .replace("(#let moved Resource (#get (#get owner inner) left))", "(#let moved Resource (#get (#get (#get owner inner) left) resource))")
         .replace("(left (#struct-literal Resource ((value (#u64::add-wrap old delta)))))", "(left (#struct-literal Box ((resource (#struct-literal Resource ((value (#u64::add-wrap old delta))))))))")
@@ -6971,7 +6978,7 @@ fn async_clones_indexed_computed_reference_owners() {
     build_and_run_partial_storage(&pinned, 43);
     let index_await = source
         .replace(
-            "(#generate #async-fn",
+            "#generate #async-fn",
             "(#enum IndexTask (#linear) ((IndexTask.IndexStart #usize) (IndexTask.IndexResume #usize)))
 
              (#enum IndexPoll () ((IndexPoll.IndexPending IndexTask) (IndexPoll.IndexReady #usize)))
@@ -7316,14 +7323,14 @@ fn async_clones_rebuilt_whole_aggregates_without_relocating_borrowed_fields() {
 
     let reference_leaf = source
         .replace("#struct Pair (#linear) ((left Resource) (right Resource) (reference (#ref #u64)))",
-            "(#struct Holder (#linear) ((reference (#ref #u64)) (value #u64)))
+            "#struct Holder (#linear) ((reference (#ref #u64)) (value #u64))
 
-             (#fn Holder::clone ((original Holder)) Holder
-               (#let reference (#ref #u64) (#get original reference))
-               (#let value #u64 (#u64::add-wrap (#get original value) 200u64))
-               (#forget original)
-               (#return (#struct-literal Holder ((reference reference) (value value)))))
-             (#struct Pair (#linear) ((left Resource) (right Holder)))")
+#fn Holder::clone ((original Holder)) Holder
+                 (#let reference (#ref #u64) (#get original reference))
+                 (#let value #u64 (#u64::add-wrap (#get original value) 200u64))
+                 (#forget original)
+                 (#return (#struct-literal Holder ((reference reference) (value value))))
+#struct Pair (#linear) ((left Resource) (right Holder))")
         .replace("(Pair left right reference)", "(Pair left right)")
         .replace("(right right) (reference reference)", "(right right)")
         .replace("(right (#struct-literal Resource ((value 1u64)))) (reference owner)",
@@ -7437,11 +7444,11 @@ fn async_clones_computed_reference_bearing_owners() {
     let projected = source
         .replace(
             "#enum Step (#linear) (Step.Start Step.Resume)",
-            "(#struct Envelope () ((item Holder)))
-             (#fn make-envelope ((reference (#ref #u64))) Envelope
-               (#return (#struct-literal Envelope
-                 ((item (#call make-holder ((reference reference))))))))
-             (#enum Step (#linear) (Step.Start Step.Resume))",
+            "#struct Envelope () ((item Holder))
+#fn make-envelope ((reference (#ref #u64))) Envelope
+                 (#return (#struct-literal Envelope
+                   ((item (#call make-holder ((reference reference)))))))
+#enum Step (#linear) (Step.Start Step.Resume)",
         )
         .replace(
             "(#clone (#call make-holder ((reference owner))))",
@@ -7588,13 +7595,17 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
 
     let linear_source = source.replace(
         "#enum Maybe () ((Maybe.Some #u64) Maybe.None)",
-        "(#enum Maybe (#linear) ((Maybe.Some #u64) Maybe.None))\n      ",
+        "#enum Maybe (#linear) ((Maybe.Some #u64) Maybe.None)\n      ",
     );
     let generated = build_and_run_graph(&linear_source, 42);
     assert_single_poll(&generated, "Work::poll");
 
     let hooked = format!(
-        "#fn Maybe::clone ((value Maybe)) Maybe\n  (#return (#match value\n  (#case (Maybe.Some original) (Maybe.Some (#u64::add-wrap original 1u64)))\n  (#case Maybe.None Maybe.None)))\n{}",
+        "#fn Maybe::clone ((value Maybe)) Maybe
+  (#return (#match value
+  (#case (Maybe.Some original) (Maybe.Some (#u64::add-wrap original 1u64)))
+  (#case Maybe.None Maybe.None)))
+{}",
         linear_source.replace(
             "(#let first #u64\n                (#await",
             "(#assert (#u64::eq payload 43u64))\n            (#let first #u64\n              (#await",
@@ -8098,7 +8109,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         );
     let (prefix, _) = three_phase_source.split_once("#fn main () #u64").unwrap();
     let three_phase_source = format!(
-        "{prefix}#fn main () #u64
+        "{prefix}
+#fn main () #u64
             (#let waker #u64 0u64)
             (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
             (#let-else (Work::Poll.Pending condition-pending) Work::Poll first (#unreachable))
@@ -8114,7 +8126,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
                 (#case (Work::Poll.Ready value) value)
                 (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) 0u64))))
             (#forget waker)
-            (#return result)\n"
+            (#return result)
+"
     );
     let generated = build_and_run_graph(&three_phase_source, 42);
     assert_single_poll(&generated, "Work::poll");
@@ -8136,7 +8149,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         .split_once("#fn main () #u64")
         .unwrap();
     let shared_reference_source = format!(
-        "{prefix}#fn main () #u64
+        "{prefix}
+#fn main () #u64
             (#let-mut owner #u64 41u64)
             (#let waker #u64 0u64)
             (#let task Work::Task (#call work ((view (#borrow owner)))))
@@ -8156,7 +8170,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
             (#set owner 43u64)
             (#forget waker)
             (#return (#if (#u64::eq result 42u64)
-              (#if (#u64::eq owner 43u64) 42u64 0u64) 0u64))\n"
+              (#if (#u64::eq owner 43u64) 42u64 0u64) 0u64))
+"
     );
     let generated = build_and_run_graph(&shared_reference_source, 42);
     assert_single_poll(&generated, "Work::poll");
@@ -8228,13 +8243,22 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         );
     }
     let multi_await_source = format!(
-        "{prefix}#fn main () #u64\n  (#let-mut owner #u64 41u64)\n  (#let waker #u64 0u64)\n  (#let result #u64 {poll_chain})\n  (#set owner 43u64)\n  (#forget waker)\n  (#return (#if (#u64::eq owner 43u64) result 0u64))\n"
+        "{prefix}
+#fn main () #u64
+  (#let-mut owner #u64 41u64)
+  (#let waker #u64 0u64)
+  (#let result #u64 {poll_chain})
+  (#set owner 43u64)
+  (#forget waker)
+  (#return (#if (#u64::eq owner 43u64) result 0u64))
+"
     );
     let generated = build_and_run_graph(&multi_await_source, 42);
     assert_single_poll(&generated, "Work::poll");
     let (prefix, _) = multi_await_source.split_once("#fn main () #u64").unwrap();
     let cancel_source = format!(
-        "{prefix}#fn main () #u64
+        "{prefix}
+#fn main () #u64
             (#let-mut owner #u64 41u64)
             (#let waker #u64 0u64)
             (#let task Work::Task (#call work ((view (#borrow-mut owner)))))
@@ -8246,7 +8270,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
             (#forget pending)
             (#set owner 43u64)
             (#forget waker)
-            (#return owner)\n"
+            (#return owner)
+"
     );
     build_and_run_graph(&cancel_source, 43);
     let mutation_while_pending = cancel_source.replace(
@@ -8268,7 +8293,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         .split_once("#fn main () #u64")
         .unwrap();
     let cancelled_mutable_reference = format!(
-        "{prefix}#fn main () #u64
+        "{prefix}
+#fn main () #u64
             (#let-mut owner #u64 41u64)
             (#let waker #u64 0u64)
             (#let task Work::Task (#call work ((view (#borrow-mut owner)))))
@@ -8278,7 +8304,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
             (#forget pending)
             (#set owner 42u64)
             (#forget waker)
-            (#return (#if (#u64::eq owner 42u64) 42u64 0u64))\n"
+            (#return (#if (#u64::eq owner 42u64) 42u64 0u64))
+"
     );
     let generated = build_and_run_graph(&cancelled_mutable_reference, 42);
     assert_single_poll(&generated, "Work::poll");
@@ -8292,7 +8319,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         .split_once("#fn main () #u64")
         .unwrap();
     let cancelled_pinned_reference = format!(
-        "{prefix}#fn main () #u64
+        "{prefix}
+#fn main () #u64
             (#let-mut owner #u64 41u64)
             (#let view (#pin-ref-mut #u64) (#pin-borrow-mut owner))
             (#let waker #u64 0u64)
@@ -8303,7 +8331,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
             (#forget pending)
             (#set owner 42u64)
             (#forget waker)
-            (#return (#if (#u64::eq owner 42u64) 42u64 0u64))\n"
+            (#return (#if (#u64::eq owner 42u64) 42u64 0u64))
+"
     );
     let generated = build_and_run_graph(&cancelled_pinned_reference, 42);
     assert_single_poll(&generated, "Work::poll");
@@ -8421,11 +8450,13 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
         );
     }
     let return_source = format!(
-        "{prefix}#fn main () #u64
+        "{prefix}
+#fn main () #u64
             (#let waker #u64 0u64)
             (#let result #u64 {poll_chain})
             (#forget waker)
-            (#return result)\n"
+            (#return result)
+"
     );
     let generated = build_and_run_graph(&return_source, 42);
     assert_single_poll(&generated, "Work::poll");
@@ -8433,7 +8464,7 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
     let linear_prefix = prefix
         .replace(
             "#enum ConditionTask (#linear)",
-            "(#struct Payload (#linear) ((value #u64)))\n      \n      (#enum ConditionTask (#linear)",
+            "#struct Payload (#linear) ((value #u64))\n      \n#enum ConditionTask (#linear)",
         )
         .replace("(#fn work () #u64", "(#fn work () Payload")
         .replace(
@@ -8463,11 +8494,13 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
         );
     }
     let linear_return_source = format!(
-        "{linear_prefix}#fn main () #u64
+        "{linear_prefix}
+#fn main () #u64
             (#let waker #u64 0u64)
             (#let result #u64 {linear_poll_chain})
             (#forget waker)
-            (#return result)\n"
+            (#return result)
+"
     );
     let generated = build_and_run_graph(&linear_return_source, 42);
     assert_single_poll(&generated, "Work::poll");
@@ -8606,7 +8639,7 @@ fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
             .replace("(ConditionPoll.ConditionReady (Maybe.Some 42u64))", "(ConditionPoll.ConditionReady Maybe.None)")
             .replace(
                 "#fn body-poll ((task BodyTask) (waker (#ref #u64))) BodyPoll\n          (#return (#match task\n            (#case BodyTask.BodyWaiting (BodyPoll.BodyPending BodyTask.BodyResuming))\n            (#case BodyTask.BodyResuming (BodyPoll.BodyReady 7u64))))",
-                "(#fn body-poll ((task BodyTask) (waker (#ref #u64))) BodyPoll\n        (#forget task)\n        (#return (BodyPoll.BodyPending BodyTask.BodyWaiting)))",
+                "#fn body-poll ((task BodyTask) (waker (#ref #u64))) BodyPoll\n          (#forget task)\n          (#return (BodyPoll.BodyPending BodyTask.BodyWaiting))",
             ),
         "#fn main () #u64
           (#let waker #u64 0u64)
@@ -8676,7 +8709,7 @@ fn async_while_let_carries_named_copy_aggregate_to_body_task() {
 
     let linear_source = source.replace(
         "#struct Captures () ((left #u64) (right #u64))",
-        "(#struct Captures (#linear) ((left #u64) (right #u64))) ",
+        "#struct Captures (#linear) ((left #u64) (right #u64))\n ",
     );
     let error = graph_compile_error(&linear_source, "async-while-let-linear-captures");
     assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
@@ -8763,7 +8796,7 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
 
     let linear_capture_source = source.replace(
         "#struct Captures () ((left #u64) (right #u64))",
-        "(#struct Captures (#linear) ((left #u64) (right #u64))) ",
+        "#struct Captures (#linear) ((left #u64) (right #u64))\n ",
     );
     let error = graph_compile_error(&linear_capture_source, "async-loop-linear-captures");
     assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
@@ -9309,7 +9342,10 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
             prefix.to_owned()
         };
         let mut canceled = format!(
-            "{prefix}\n#fn main () #u64\n              (#let waker #u64 0u64)\n              (#let state-0 Work::Task (#call work ()))"
+            "{prefix}
+#fn main () #u64
+              (#let waker #u64 0u64)
+              (#let state-0 Work::Task (#call work ()))"
         );
         for index in 0..polls {
             canceled.push_str(&format!(
@@ -9321,14 +9357,16 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
             ));
         }
         canceled.push_str(&format!(
-            "\n            (#call cancel-frame ((task (#call Work::Poll::cleanup ((task state-{polls}))))))\n            (#forget waker) (#return 42u64)"
+            "
+            (#call cancel-frame ((task (#call Work::Poll::cleanup ((task state-{polls}))))))
+            (#forget waker) (#return 42u64)"
         ));
         build_and_run_graph(&canceled, 42);
     }
     let counted = prefix
         .replace(
             "#struct Resource (#linear) ((value #u64))",
-            "(#struct Resource (#linear) ((value #u64) (counter (#ref (#atomic #u64)))))",
+            "#struct Resource (#linear) ((value #u64) (counter (#ref (#atomic #u64))))",
         )
         .replace("(#ref #u64)", "(#ref (#atomic #u64))")
         .replace("(waker #u64)", "(waker (#atomic #u64))")
@@ -9344,7 +9382,10 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         );
     for polls in 0..=3 {
         let mut canceled = format!(
-            "{counted}\n#fn main () #u64\n              (#let waker (#atomic #u64) (#atomic-init #u64 0u64))\n              (#let state-0 Work::Task (#call work ()))"
+            "{counted}
+#fn main () #u64
+              (#let waker (#atomic #u64) (#atomic-init #u64 0u64))
+              (#let state-0 Work::Task (#call work ()))"
         );
         for index in 0..polls {
             canceled.push_str(&format!(
@@ -9357,7 +9398,10 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         }
         let expected = u64::from(polls == 3);
         canceled.push_str(&format!(
-            "\n            (#call cancel-frame ((task (#call Work::Poll::cleanup ((task state-{polls}))))))\n            (#assert (#u64::eq (#atomic-load (#borrow waker) #memory-relaxed) {expected}u64))\n            (#forget waker) (#return 42u64)"
+            "
+            (#call cancel-frame ((task (#call Work::Poll::cleanup ((task state-{polls}))))))
+            (#assert (#u64::eq (#atomic-load (#borrow waker) #memory-relaxed) {expected}u64))
+            (#forget waker) (#return 42u64)"
         ));
         build_and_run_graph(&canceled, 42);
         if polls == 3 {
@@ -10013,7 +10057,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
     let tuple = source
         .replace(
             "#struct Values () ((z (#tuple #u16 #u16)) (a #u64))",
-            "(#type Values (#tuple (#tuple #u16 #u16) #u64))",
+            "#type Values (#tuple (#tuple #u16 #u16) #u64)",
         )
         .replace(
             "(Values (#tuple left right) bias)",
@@ -10027,7 +10071,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
     let single_variant = source
         .replace(
             "#struct Values () ((z (#tuple #u16 #u16)) (a #u64))",
-            "(#enum Values () ((Values.Only (#tuple (#tuple #u16 #u16) #u64))))",
+            "#enum Values () ((Values.Only (#tuple (#tuple #u16 #u16) #u64)))",
         )
         .replace(
             "(Values (#tuple left right) bias)",
@@ -10393,7 +10437,7 @@ fn graph_nested_destructuring_preserves_projection_types_and_retained_loans() {
     let tuple = dynamic_struct
         .replace(
             "#struct Row () ((padding #u128) (cells (#array #u64 2)))",
-            "(#type Row (#tuple #u128 (#array #u64 2)))",
+            "#type Row (#tuple #u128 (#array #u64 2))",
         )
         .replace(
             row_literal,
@@ -10571,7 +10615,7 @@ fn async_while_let_aggregate_payloads_use_declared_capture_types() {
     let source = include_str!("../examples/async_while_let_dependencies.lim")
         .replace(
             "#enum Choice () ((Choice.Chosen #u64) Choice.Empty)",
-            "(#enum Choice () ((Choice.Chosen (#tuple #u64 #u64)) Choice.Empty))",
+            "#enum Choice () ((Choice.Chosen (#tuple #u64 #u64)) Choice.Empty)",
         )
         .replace(
             "(#while-let (Choice.Chosen value)",
@@ -11186,7 +11230,7 @@ fn async_for_effect_step_awaits_with_a_synchronous_condition() {
     assert_ne!(matched, source);
     build_and_run(&matched, 42);
     let effects = source
-        .replace("#fn advance", "(#fn touch ((counter (#ref-mut #u64))) #u64\n  (#deref-set counter (#u64::add-wrap (#deref counter) 1u64))\n  (#return 1u64))\n\n(#fn advance")
+        .replace("#fn advance", "#fn touch ((counter (#ref-mut #u64))) #u64\n  (#deref-set counter (#u64::add-wrap (#deref counter) 1u64))\n  (#return 1u64)\n\n#fn advance")
         .replace("(#let-mut index #u64 0u64)", "(#let-mut index #u64 0u64) (#let-mut touches #u64 0u64)")
         .replace("((next (#await", "((next (#u64::add-wrap (#call touch ((counter (#borrow-mut touches)))) (#await")
         .replace("(StepTask.Start (#u64::add-wrap index 1u64)))", "(StepTask.Start index)))")
@@ -11258,7 +11302,7 @@ fn async_for_effect_step_consumes_linear_operands_and_results() {
 #[test]
 fn async_for_effect_step_keeps_external_loans_until_ready_or_cancel() {
     let definitions = include_str!("../examples/async_for_effect_step.lim")
-        .split("(#generate #async-fn")
+        .split("#generate #async-fn")
         .next()
         .unwrap();
     let source = format!(
@@ -11492,7 +11536,7 @@ fn external_mutable_slice_source() -> &'static str {
 fn graph_external_mutable_slice_indices_preserve_lending_and_pending() {
     let source = external_mutable_slice_source();
     let generated = build_and_run_graph(source, 42);
-    let runtime = source.split_once("(#generate #async-fn").unwrap().0;
+    let runtime = source.split_once("#generate #async-fn").unwrap().0;
     let main = source.split_once("#fn main").unwrap().1;
     let standalone = format!("{runtime}\n{generated}\n#fn main{main}");
     build_and_run_graph(&ordinary_generated(&standalone), 42);
@@ -11529,7 +11573,7 @@ fn graph_external_mutable_slice_element_reference_survives_pending() {
         "(#let answer #u64 (#deref view)) (#forget view)",
     );
     let generated = build_and_run_graph(&retained, 42);
-    let runtime = retained.split_once("(#generate #async-fn").unwrap().0;
+    let runtime = retained.split_once("#generate #async-fn").unwrap().0;
     let main = retained.split_once("#fn main").unwrap().1;
     build_and_run_graph(
         &ordinary_generated(&format!("{runtime}\n{generated}\n#fn main{main}")),
@@ -11602,7 +11646,7 @@ fn graph_slice_element_anchors_preserve_wide_shared_and_zero_sized_layouts() {
     build_and_run_graph(&shared, 42);
 
     let runtime = external_mutable_slice_source()
-        .split_once("(#generate #async-fn")
+        .split_once("#generate #async-fn")
         .unwrap()
         .0;
     let source = format!(
@@ -11727,7 +11771,7 @@ fn graph_slice_nested_array_selection_does_not_probe_a_dormant_invalid_branch() 
 #[test]
 fn graph_slice_nested_runtime_coordinates_survive_index_mutation() {
     let runtime = external_mutable_slice_source()
-        .split_once("(#generate #async-fn")
+        .split_once("#generate #async-fn")
         .unwrap()
         .0;
     let source = format!(
@@ -11760,7 +11804,7 @@ fn graph_slice_nested_runtime_coordinates_survive_index_mutation() {
 "#
     );
     let generated = build_and_run_graph(&source, 42);
-    let declarations = source.split_once("(#generate #async-fn").unwrap().0;
+    let declarations = source.split_once("#generate #async-fn").unwrap().0;
     let main = source.split_once("#fn main").unwrap().1;
     build_and_run_graph(
         &ordinary_generated(&format!("{declarations}\n{generated}\n#fn main{main}")),
@@ -11955,7 +11999,7 @@ fn graph_selected_reference_mixes_slice_and_external_reference_targets() {
 #[test]
 fn graph_pinned_reference_selects_local_or_external_storage() {
     let runtime = external_mutable_slice_source()
-        .split_once("(#generate #async-fn")
+        .split_once("#generate #async-fn")
         .unwrap()
         .0;
     let source = format!(
@@ -12047,7 +12091,7 @@ fn graph_pinned_reference_selects_local_or_external_storage() {
 #[test]
 fn graph_whole_pinned_reborrows_preserve_kind_before_and_after_pending() {
     let runtime = external_mutable_slice_source()
-        .split_once("(#generate #async-fn")
+        .split_once("#generate #async-fn")
         .unwrap()
         .0;
     let source = format!(
@@ -12084,7 +12128,7 @@ fn graph_whole_pinned_reborrows_preserve_kind_before_and_after_pending() {
 #[test]
 fn graph_pinned_parent_retains_a_local_mutable_slice_across_pending() {
     let runtime = external_mutable_slice_source()
-        .split_once("(#generate #async-fn")
+        .split_once("#generate #async-fn")
         .unwrap()
         .0;
     let source = format!(
@@ -12813,7 +12857,8 @@ fn async_function_can_suspend_at_each_await() {
          (#return (#u64::add-wrap total offset))",
     );
     let source = format!(
-        "{prefix}#fn main () #u64
+        "{prefix}
+#fn main () #u64
              (#let executor Executor
                (#struct-literal Executor ((notifications
                  (#call CellU64::create ((value 0u64)))))))
@@ -12837,7 +12882,8 @@ fn async_function_can_suspend_at_each_await() {
              (#let notifications #u64 (#call CellU64::get ((cell (#borrow (#get executor-ref notifications))))))
              (#drop executor-ref)
              (#forget executor)
-             (#return (#u64::add-wrap value notifications))\n"
+             (#return (#u64::add-wrap value notifications))
+"
     );
     build_and_run_graph(&source, 43);
 }
@@ -12847,7 +12893,8 @@ fn async_function_pending_state_can_be_cancelled_explicitly() {
     let original = example_source();
     let (prefix, _) = original.split_once("#fn main () #u64").unwrap();
     let source = format!(
-        "{prefix}#fn main () #u64
+        "{prefix}
+#fn main () #u64
              (#let executor Executor
                (#struct-literal Executor ((notifications
                  (#call CellU64::create ((value 0u64)))))))
@@ -12862,7 +12909,8 @@ fn async_function_pending_state_can_be_cancelled_explicitly() {
              (#let notifications #u64 (#call CellU64::get ((cell (#borrow (#get executor-ref notifications))))))
              (#drop executor-ref)
              (#forget executor)
-             (#return notifications)\n"
+             (#return notifications)
+"
     );
     build_and_run_graph(&source, 1);
 }

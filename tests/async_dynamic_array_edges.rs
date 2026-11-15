@@ -188,7 +188,7 @@ fn two_runtime_array_coordinates_preserve_the_selected_leaf() {
     let record = |value| format!("(#struct-literal Record ((header 0u64) (tail {value}u64)))");
     let row = |left, right| format!("(#array-of Row {} {})", record(left), record(right));
     let source = nested_array_source()
-        .replace("#struct Empty () ()", "(#type Row (#array Record 2))")
+        .replace("#struct Empty () ()", "#type Row (#array Record 2)")
         .replace("(#assert (#usize::eq (#size-of Empty) 0usize))", "")
         .replace("Empty", "#u64")
         .replace("(#array Record 2)", "(#array Row 2)")

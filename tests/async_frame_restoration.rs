@@ -42,8 +42,8 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
         .map(|entry| without_context(&fs::read_to_string(entry.unwrap().path()).unwrap()))
         .find(|text| text.contains("#fn Work::poll "))
         .unwrap();
-    assert!(artifact.contains("(#fn OwnerAccess::read "));
-    assert!(artifact.contains("(#fn OwnerAccess::replace "));
+    assert!(artifact.contains("#fn OwnerAccess::read "));
+    assert!(artifact.contains("#fn OwnerAccess::replace "));
     // The same ordinary helper must work with the source actually reused from
     // disk, not only the first emission's in-memory analysis identities.
     lim::write_generated_sources_from_path_with_config_and_cache(
@@ -89,7 +89,7 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
             .unwrap();
         artifact[declaration.span.start..declaration.span.end].replacen(
             &format!("#fn {name} "),
-            &format!("(#fn {renamed} "),
+            &format!("#fn {renamed} "),
             1,
         )
     };
@@ -271,8 +271,8 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
             .map(|entry| without_context(&fs::read_to_string(entry.unwrap().path()).unwrap()))
             .find(|text| text.contains("#fn Work::poll "))
             .unwrap();
-        assert!(artifact.contains("(#fn OwnerAccess::read "));
-        assert!(artifact.contains("(#fn OwnerAccess::replace "));
+        assert!(artifact.contains("#fn OwnerAccess::read "));
+        assert!(artifact.contains("#fn OwnerAccess::replace "));
         if let Some(previous) = previous.replace(artifact.clone()) {
             assert_eq!(artifact, previous);
         }
@@ -396,9 +396,12 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
     .enumerate()
     {
         let source = format!(
-            "{context}#generate {kind} ((protocol WorkAwait) (waker #u64) (access ({access}))
+            "{context}
+#generate {kind} ((protocol WorkAwait) (waker #u64) (access ({access}))
             (function (#fn work {parameters} #u64 (#forget amount) (#return 42u64))))
-          {suffix}#fn main () #u64 (#return 0u64)\n"
+          {suffix}
+#fn main () #u64 (#return 0u64)
+"
         );
         let cache = scratch.path().join(format!("cache-{index}"));
         let output = scratch.path().join(format!("output-{index}"));
@@ -522,9 +525,11 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
                 "(#let ignored #u64 (#call AmountAccess::read ((task (#pin-borrow frame)))))"
             };
             let source = format!(
-                "{prefix}#fn main () #u64 (#let waker #u64 0u64)
+                "{prefix}
+#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut frame Work::Frame (#call work ((amount 40u64))))
-                {suspend} {call} (#forget frame) (#return 0u64)\n"
+                {suspend} {call} (#forget frame) (#return 0u64)
+"
             );
             let scratch = support::Scratch::new("async-access-before-terminal");
             let mut config = lim::CompileConfig::default();

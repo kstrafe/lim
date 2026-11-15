@@ -466,7 +466,7 @@ fn slice_borrows_do_not_allow_local_escape_or_mutation_of_live_referents() {
             "{ordinary_error}"
         );
         let source =
-            format!("#generate #async-fn ((protocol WorkAwait) (waker #u64) (function {body}))\n");
+            format!("#generate #async-fn ((protocol WorkAwait) (waker #u64) (function ({body})))\n");
         let scratch = support::Scratch::new("async-slice-rejection");
         let error = lim::compile_source_to_assembly(
             &source,

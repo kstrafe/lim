@@ -43,7 +43,7 @@ fn wake_aware_pipeline_is_generated_and_runs() {
         .map(|entry| fs::read_to_string(entry.path()).unwrap())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(generated.contains("(#fn pipeline-poll"));
+    assert!(generated.contains("#fn pipeline-poll"));
     assert!(generated.contains("(waker (#ref LocalWaker))"));
     assert!(generated.contains("(waker waker)"));
     let (status, _, stderr) =

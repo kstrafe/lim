@@ -38,7 +38,7 @@ fn generated_standalone_with_config(
         .unwrap_or_else(|error| panic!("read {}: {error}", artifact_dir.display()))
         .filter_map(Result::ok)
         .map(|entry| fs::read_to_string(entry.path()).unwrap())
-        .find(|artifact| artifact.contains(&format!("(#fn {poll} ")))
+        .find(|artifact| artifact.contains(&format!("#fn {poll} ")))
         .unwrap_or_else(|| panic!("no generated artifact contains poll function {poll}"))
         .replace("Lim.async.", "Ordinary.frame.")
         .replace(".graph.", ".ordinary.")

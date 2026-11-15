@@ -36,7 +36,7 @@ fn run(source: &str, expected: i32) {
         let invocation = lim::parse_source_unit(source)
             .unwrap()
             .into_iter()
-            .find(|node| source[node.span.start..node.span.end].starts_with("(#generate #async-fn"))
+            .find(|node| source[node.span.start..node.span.end].starts_with("#generate #async-fn"))
             .unwrap();
         let standalone = format!(
             "{}\n{artifact}\n{}",

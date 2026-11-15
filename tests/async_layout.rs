@@ -44,7 +44,7 @@ fn forward_child_layouts_use_untagged_parent_storage_on_cold_and_warm_runs() {
         .collect::<Vec<_>>();
     let parent = generated
         .iter()
-        .find(|source| source.contains("(#fn Parent::poll "))
+        .find(|source| source.contains("#fn Parent::poll "))
         .unwrap();
     assert!(
         parent.contains("(#array Child::Task 0)"),

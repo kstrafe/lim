@@ -70,7 +70,7 @@ fn cancellation_selects_only_the_child_live_at_the_current_await() {
 fn runtime_array_child_is_cancelled_before_destroying_its_selected_owner() {
     let program = source()
         .replace("#fn destroy-owner ((value Owner)) ()\n          (#assert (#u64::eq (#get value amount) 40u64))",
-            "(#fn destroy-owner ((value (#array Owner 2))) ()\n        (#assert (#u64::eq (#get (#index value 0usize) amount) 10u64))\n        (#assert (#u64::eq (#get (#index value 1usize) amount) 40u64))")
+            "#fn destroy-owner ((value (#array Owner 2))) ()\n        (#assert (#u64::eq (#get (#index value 0usize) amount) 10u64))\n        (#assert (#u64::eq (#get (#index value 1usize) amount) 40u64))")
         .replace("(#let owner Owner (#struct-literal Owner ((amount 40u64))))",
             "(#let owner (#array Owner 2) (#array-of (#array Owner 2)\n            (#struct-literal Owner ((amount 10u64))) (#struct-literal Owner ((amount 40u64)))))\n          (#let-mut index #usize 1usize)")
         .replace("(Child.Holding (#tuple (#borrow owner) 0u64))",
@@ -109,7 +109,7 @@ fn exclusive_dependent_mutates_owner_before_owner_destruction() {
         .replace("(#drop view) (#forget count)",
             "(#deref-set (#borrow-mut (#get view amount)) 41u64) (#drop view) (#forget count)")
         .replace("#fn destroy-owner ((value Owner)) ()\n          (#assert (#u64::eq (#get value amount) 40u64))",
-            "(#fn destroy-owner ((value Owner)) ()\n        (#assert (#u64::eq (#get value amount) 41u64))");
+            "#fn destroy-owner ((value Owner)) ()\n        (#assert (#u64::eq (#get value amount) 41u64))");
     run(&program, "async-exclusive-dependent-cancellation");
 }
 
@@ -259,7 +259,7 @@ fn reference_free_pinned_child_cancels_in_word_storage_exactly_once() {
         .replace("(#get view amount)", "amount")
         .replace("#call child ((view (#borrow owner)))", "#call child ((amount (#get owner amount)))")
         .replace("#fn cancel-step ((value Step)) () (#forget value) (#return ())",
-            "(#fn cancel-step ((value Step)) () (#let byte #u8 67u8) (#assert (#i64::eq (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))) 1i64)) (#forget value) (#return ()))");
+            "#fn cancel-step ((value Step)) () (#let byte #u8 67u8) (#assert (#i64::eq (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))) 1i64)) (#forget value) (#return ())");
     run_with_output(&program, "async-pinned-word-child-cancellation", b"C");
     let heap = heap_pinned_source(&program);
     run_with_output(&heap, "async-pinned-word-heap-child-cancellation", b"C");
