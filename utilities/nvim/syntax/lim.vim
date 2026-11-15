@@ -18,8 +18,11 @@ syn match limKeyword +#[[:alpha:]_][^[:space:](){}=;\[\]"'`,@#]*+
 syn match limBuiltinValue +#arg\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limGenerated +#generate\ze\%($\|[[:space:](){}=;\[\]"'`,#]\|:\%($\|[[:space:]]\)\)+
 syn match limExternal +[[:alpha:]_][[:alnum:]_.-]*@[^[:space:](){}=;\[\]"'`,#]\++
+" Bundled #std/ paths are source callees even though they begin with #.
+syn match limBundledPath +#std/[^[:space:](){}=;\[\]"'`,@#]*[.]lim::[^[:space:](){}=;\[\]"'`,@#]\++
 " A leading @ resolves a source name; embedded @ is ordinary identifier text.
-syn match limQualified +\%(^\|[[:space:]('`]\)\@<=@[^[:space:](){}=;\[\]"'`,#]\++
+syn match limQualified +\%(^\|[[:space:]('`{=;]\)\@<=@[^[:space:](){}=;\[\]"'`,#]\++
+syn match limQualified +\%(^\|[[:space:]('`{=;]\)\@<=@#std/[^[:space:](){}=;\[\]"'`,@#]*[.]lim::[^[:space:](){}=;\[\]"'`,@#]\++
 syn match limGenerated +#generated-context\ze\%($\|[[:space:](){}=;\[\]"'`,#]\|:\%($\|[[:space:]]\)\)+
 " Type properties are declaration annotations, not callable forms.
 syn match limTypeProperty +#\%(linear\|repr-c\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
@@ -46,7 +49,10 @@ syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:spa
 syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limUnsafe +#\%(unsafe\|unsafe-call\|unsafe-fn\|unsafe-impl\|unstable\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limPin +#\%(pin\|pin-shared\|pin-share\|pin-share-clone\|pin-shared-borrow\|pin-shared-borrow-mut\|pin-shared-release\)\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
-syn match limGeneratorKeyword +#gn\%(-[^[:space:](){}=;\[\]"'`,@#]\+\)\?\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
+" Generator declarations and helper calls use named records. Keys, binding
+" values and capability names stay identifiers; delimiters belong to the
+" ordinary record syntax. Recognize full operation tokens, not suffix matches.
+syn match limGeneratorKeyword +#gn\%(-\%(call\|equal\|error\|first\|fn\|for-each\|gensym\|get\|if\|length\|list\|list?\|rest\|symbol\|symbol-append\|symbol?\|variant\)\)\?\ze\%($\|[[:space:](){}=;\[\]"'`,@#]\|:\%($\|[[:space:]]\)\)+
 syn match limCfg +#cfg-[^[:space:](){}=;\[\]"'`,@#]\++
 syn match limNumber "\<\d[[:alnum:]_]*\>"
 syn match limNumber "\<\d[[:digit:]_]*\.\d[[:digit:]_]*\([eE][+-]\?[[:digit:]_]*\)\?[fF]\?\(32\|64\)\?\>"
@@ -67,7 +73,7 @@ syn match limParen3 "[(){}\[\]]" contained
 syn match limParen4 "[(){}\[\]]" contained
 syn match limParen5 "[(){}\[\]]" contained
 syn match limParen6 "[(){}\[\]]" contained
-syn cluster limForms contains=limSection,limSeparator,limContract,limKeyword,limBuiltinValue,limGenerated,limExternal,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn cluster limForms contains=limSection,limSeparator,limContract,limKeyword,limBuiltinValue,limGenerated,limExternal,limBundledPath,limQualified,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
 syn cluster limForms add=limEffect,limIO
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
 syn region limNest1 transparent start="{" end="}" contains=@limForms,limNest2,limParen1
@@ -98,6 +104,7 @@ hi def link limKeyword Keyword
 hi def link limBuiltinValue Identifier
 hi def link limGenerated Special
 hi def link limExternal Identifier
+hi def link limBundledPath Include
 hi def link limQualified Special
 hi def link limTypeProperty Keyword
 hi def link limType Type

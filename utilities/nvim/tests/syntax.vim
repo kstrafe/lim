@@ -144,6 +144,43 @@ for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#params', 'limSection'],
   endfor
 endfor
 
+" Generator record roles stay identifiers; only the operation and delimiters
+" receive lexical highlighting. Positional compatibility is not a syntax mode.
+for s:operation in ['gn', 'gn-fn', 'gn-call', 'gn-for-each', 'gn-symbol-append', 'gn-list?']
+  call s:check('#' . s:operation, 'limGeneratorKeyword')
+  call s:check('#' . s:operation . '-custom', 'limKeyword')
+endfor
+call s:check('#std/cell.lim::cell', 'limBundledPath')
+call s:check('@#std/cell.lim::cell', 'limQualified')
+call s:check('#std/collections/vec.lim::make', 'limBundledPath')
+call s:check('#std', 'limKeyword')
+for s:line in [
+      \ '#gn make { name; label = binding; cap = (ty Copy); } `()',
+      \ '#gn-fn helper { field = local; } local',
+      \ '#generate #std/cell.lim::cell { name = Holder; type = #u64; }',
+      \ '(#gn-call helper { field = (#gn-symbol-append "item" local); })']
+  call setline(1, s:line)
+  call synID(1, 1, 1)
+  for s:token in ['=', ';']
+    let s:column = stridx(s:line, s:token) + 1
+    if s:column > 0
+      call assert_equal('limSeparator', synIDattr(synID(1, s:column, 1), 'name'), s:line)
+    endif
+  endfor
+endfor
+call setline(1, '#generate make { callback=@Value; source=@#std/cell.lim::cell; }')
+for s:token in ['@Value', '@#std/cell.lim::cell']
+  let s:column = stridx(getline(1), s:token) + 1
+  for s:offset in range(0, strlen(s:token) - 1)
+    call assert_equal('limQualified', synIDattr(synID(1, s:column + s:offset, 1), 'name'), s:token)
+  endfor
+endfor
+call setline(1, '#gn make { label = binding; cap = (ty Copy); name; } `()')
+for s:token in ['label', 'binding', 'cap', 'ty', 'Copy', 'name']
+  let s:column = stridx(getline(1), s:token) + 1
+  call assert_equal('', synIDattr(synID(1, s:column, 1), 'name'), s:token)
+endfor
+
 if !empty(v:errors)
   for s:error in v:errors
     echomsg s:error

@@ -571,11 +571,11 @@ fn explicit_type_positions_and_variant_operations_navigate() {
 fn generators_resolve_evaluated_bindings_but_not_literal_template_symbols() {
     run(
         r#"
-#gn-fn [[helper|identity]] ([[param|value]]) [[param-use|value]]
-#gn emit ([[items|items]])
+#gn-fn [[helper|identity]] { [[param|value]]; } [[param-use|value]]
+#gn emit { [[items|items]]; }
           (#gn-for-each [[item|item]] [[items-use|items]]
-            (#gn-call [[call|identity]]
-              `(([[literal|item]] ,[[unquoted|item]] ',[[quoted|item]]))))
+            (#gn-call [[call|identity]] { value =
+              `(([[literal|item]] ,[[unquoted|item]] ',[[quoted|item]])); }))
 #syntax [[bundle|Protocol]] (#u64)
 #fn ordinary {
   #params = (([[runtime|x]] #u64));
@@ -583,7 +583,7 @@ fn generators_resolve_evaluated_bindings_but_not_literal_template_symbols() {
   #body = ( (#return x)
   );
 }
-#generate emit [[argument-literal|ordinary]]
+#generate emit { items = [[argument-literal|ordinary]]; }
     "#,
         &[
             ("param-use", &["param"]),
@@ -601,10 +601,10 @@ fn generators_resolve_evaluated_bindings_but_not_literal_template_symbols() {
 fn function_syntax_inside_generator_inputs_and_utf16_names_keep_local_roles() {
     run(
         r#"
-#generate unknown ((function
-          (#fn work (([[param|名字]] #u64)) #u64
-            (#let [[local|résultat]] #u64 [[param-use|名字]])
-            (#return [[local-use|résultat]]))))
+#generate unknown { function =
+          (#fn work { #params = (([[param|名字]] #u64)); #returns = #u64;
+            #body = ((#let [[local|résultat]] #u64 [[param-use|名字]])
+                     (#return [[local-use|résultat]])); }); }
     "#,
         &[("param-use", &["param"]), ("local-use", &["local"])],
     );
@@ -1303,4 +1303,111 @@ fn delimited_let_multiline_initializers_keep_callees_and_named_arguments() {
             ],
         );
     }
+}
+
+#[test]
+fn generator_records_separate_argument_keys_bindings_and_capabilities() {
+    run(r#"
+#capability [[capability|Copy]] #u64 ()
+#gn-fn [[helper|echo]] { [[helper-key|item]] = [[helper-binding|local]]; }
+  [[helper-use|local]]
+#gn [[generator|emit]] {
+  [[key|input]] = [[binding|value]];
+  [[pun|items]];
+  [[cap-key|type]] = ([[cap-binding|ty]] [[cap-use|Copy]]);
+}
+  (#gn-list [[binding-use|value]] [[pun-use|items]] [[type-use|ty]]
+            [[label-leak|input]]
+            (#gn-call [[helper-call|echo]] {
+              [[helper-label|item]] = [[helper-value|value]];
+            }))
+#generate [[generator-call|emit]] {
+  [[invocation-label|input]] = [[literal-value|value]];
+  [[pun-label|items]] = ([[literal-item|items]]);
+  [[type-label|type]] = #u64;
+}
+#gn outside {} [[binding-leak|value]]
+"#, &[
+        ("key", &["key"]), ("binding", &["binding"]),
+        ("binding-use", &["binding"]), ("pun-use", &["pun"]),
+        ("type-use", &["cap-binding"]), ("cap-use", &["capability"]),
+        ("label-leak", &[]), ("binding-leak", &[]),
+        ("helper-call", &["helper"]), ("helper-use", &["helper-binding"]),
+        ("helper-label", &["helper-key"]), ("helper-value", &["binding"]),
+        ("generator-call", &["generator"]), ("invocation-label", &["key"]),
+        ("pun-label", &["pun"]), ("type-label", &["cap-key"]),
+        ("literal-value", &[]), ("literal-item", &[]),
+    ]);
+}
+
+#[test]
+fn generator_call_puns_keep_both_roles_and_loop_bindings_stay_local() {
+    run(r#"
+#gn-fn echo { [[helper-key|item]] = local; } local
+#gn emit { [[binding|item]]; [[items|items]]; }
+  (#gn-list
+    (#gn-call echo { [[call-pun|item]]; })
+    (#gn-for-each [[loop-binding|entry]] [[loop-input|items]]
+      (#gn-call echo { [[call-key|item]] = [[loop-use|entry]]; }))
+    [[loop-leak|entry]])
+#generate emit { [[literal-pun|item]]; items = (); }
+"#, &[
+        ("call-pun", &["helper-key", "binding"]),
+        ("loop-input", &["items"]), ("loop-use", &["loop-binding"]),
+        ("call-key", &["helper-key"]), ("loop-leak", &[]),
+        ("literal-pun", &["binding"]),
+    ]);
+}
+
+#[test]
+fn generator_literal_arguments_keep_only_explicit_qualification_and_function_roles() {
+    run(r#"
+#fn [[runtime|ordinary]] { #params = (); #returns = #u64; #body = ((#return 42u64)); }
+#gn emit { [[key|input]]; } `()
+#generate emit { [[label|input]] =
+  (([[literal|ordinary]]) [[qualified|@ordinary]]
+   (#gn-call [[literal-helper|ordinary]] { input = [[literal-expression|ordinary]]; })
+   (#fn nested { #params = (([[parameter|value]] #u64)); #returns = #u64;
+     #body = ((#return [[parameter-use|value]])); }));
+}
+"#, &[
+        ("label", &["key"]), ("literal", &[]), ("qualified", &["runtime"]),
+        ("literal-helper", &[]), ("literal-expression", &[]),
+        ("parameter-use", &["parameter"]),
+    ]);
+}
+
+#[test]
+fn generator_record_targets_reject_wrong_kinds_and_old_positional_binding_roles() {
+    run(r#"
+#fn [[runtime|ordinary]] { #params = (); #returns = #u64; #body = ((#return 42u64)); }
+#struct Fake () ()
+#gn-fn helper { [[helper-key|item]] = local; } local
+#gn emit { [[binding|item]]; }
+  (#gn-list
+    (#gn-call [[wrong-helper|ordinary]] { [[wrong-label|item]] = [[value-use|item]]; })
+    (#gn-call [[wrong-qualified-helper|@ordinary]] { item = item; })
+    (#gn-call [[generator-as-helper|emit]] { [[generator-as-helper-label|item]] = item; })
+    (#gn-call helper { [[unknown-label|missing]] = item; }))
+#generate [[wrong-generator|ordinary]] { [[wrong-generator-label|item]] = item; }
+#generate [[helper-as-generator|helper]] { [[helper-as-generator-label|item]] = item; }
+#gn wrong-capability { type = (bound [[wrong-capability|Fake]]); } bound
+#gn old ([[old-binding|legacy]]) [[old-use|legacy]]
+"#, &[
+        ("wrong-helper", &[]), ("wrong-label", &[]), ("value-use", &["binding"]),
+        ("wrong-qualified-helper", &[]), ("unknown-label", &[]),
+        ("generator-as-helper", &[]), ("generator-as-helper-label", &[]),
+        ("wrong-generator", &[]), ("wrong-generator-label", &[]),
+        ("helper-as-generator", &[]), ("helper-as-generator-label", &[]),
+        ("wrong-capability", &[]), ("old-binding", &[]), ("old-use", &[]),
+    ]);
+}
+
+#[test]
+fn capability_annotations_resolve_all_implementations_without_using_type_roles() {
+    run(r#"
+#capability [[first|Copy]] #u64 ()
+#capability [[second|Copy]] #u32 ()
+#gn emit { type = (ty [[reference|Copy]]); } `()
+"#, &[("reference", &["first", "second"])]);
 }

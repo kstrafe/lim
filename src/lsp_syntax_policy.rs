@@ -1,5 +1,17 @@
 //! Navigation review inventory. Adding a language form must also update its
 //! source roles, positive/negative navigation tests, and docs/lsp-design.md.
+//!
+//! Generator record policy: declaration keys are public labels; value patterns
+//! alone bind generator names. Puns share one authored span. Capability names
+//! refer only to capability declarations, never same-spelled lexical bindings.
+//! #generate values remain syntax data (apart from @ and nested #fn roles);
+//! #gn-call values are evaluated in generator scope, and labels target helper
+//! keys. An invocation pun retains both destinations when its label and value
+//! are semantic references; repeated source spans are deduplicated. Calls
+//! require the correct #gn/#gn-fn declaration kind. Quoted labels
+//! and bare record values never acquire local roles through token spelling.
+//! Bundled #std/...lim::symbol callees use file-target navigation, including
+//! when the leading # would otherwise resemble an ordinary reserved keyword.
 
 #[cfg(test)]
 mod tests {
@@ -92,15 +104,15 @@ mod tests {
         "for-range", // Layout headers retain binder/body scopes; ':' has no target.
         "forget",
         "get",
-        "generate",
+        "generate", // Named literal arguments; keys target #gn record declarations.
         "generated-context",
         "get-payload",
-        "gn",
-        "gn-call",
+        "gn", // Record keys are distinct from body bindings; puns share a span.
+        "gn-call", // #gn-fn keys + evaluated generator-scope values.
         "gn-equal",
         "gn-error",
         "gn-first",
-        "gn-fn",
+        "gn-fn", // Capabilities annotate binding values, not argument keys.
         "gn-for-each",
         "gn-gensym",
         "gn-get",

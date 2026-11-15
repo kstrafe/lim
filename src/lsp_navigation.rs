@@ -16,7 +16,11 @@ fn named_call(node: &Node) -> Option<(&Node, &Node)> {
     let [callee, arguments] = &node.children[..] else {
         return None;
     };
-    (symbol(callee).is_some_and(crate::surface_syntax::callable_name)
+    // A bundled #std/ file target keeps its # prefix without becoming a
+    // reserved operator; declaration identity still comes from file resolution.
+    (symbol(callee).is_some_and(|name| {
+        crate::surface_syntax::callable_name(name) || crate::file_access::split(name).is_some()
+    })
         && crate::named_argument_list(&arguments.expr))
     .then_some((callee, arguments))
 }
@@ -47,6 +51,50 @@ pub(super) fn binding_parts(node: &Node) -> (Option<&Node>, Option<&Node>) {
         }
     }
     (node.children.get(2), node.children.get(3))
+}
+
+// Named generator patterns have two distinct declaration roles. Keys are
+// public argument labels; only values bind names in generator expressions.
+// A declaration pun shares one source token for both roles. Old positional
+// parameter lists deliberately provide no record roles, even in recovery.
+pub(super) struct GeneratorParameter<'a> {
+    pub key: &'a Node,
+    pub binding: &'a Node,
+    pub capabilities: &'a [Node],
+}
+pub(super) fn generator_parameters(node: &Node) -> Option<Vec<GeneratorParameter<'_>>> {
+    if !matches!(node.expr, Expr::List(_)) {
+        return None;
+    }
+    let mut keys = HashSet::new();
+    let mut bindings = HashSet::new();
+    let mut parameters = Vec::new();
+    for pair in &node.children {
+        let [key, pattern] = pair.children.as_slice() else { return None };
+        let key_name = symbol(key)?;
+        if key_name.is_empty() || key_name.starts_with(['#', '@']) || !keys.insert(key_name) {
+            return None;
+        }
+        let (binding, capabilities) = if symbol(pattern).is_some() {
+            (pattern, &[][..])
+        } else if matches!(pattern.expr, Expr::List(_)) {
+            (pattern.children.first()?, &pattern.children[1..])
+        } else {
+            return None;
+        };
+        let binding_name = symbol(binding)?;
+        if binding_name.is_empty() || binding_name.starts_with(['#', '@'])
+            || !bindings.insert(binding_name)
+            || capabilities.iter().any(|node| symbol(node).is_none_or(|name| {
+                name.is_empty() || (name.starts_with(['#', '@'])
+                    && crate::file_access::split(name).is_none())
+            }))
+        {
+            return None;
+        }
+        parameters.push(GeneratorParameter { key, binding, capabilities });
+    }
+    Some(parameters)
 }
 
 fn name_index(node: &Node) -> usize {
@@ -891,6 +939,7 @@ impl<'a> Index<'a> {
                 return self.function(node);
             }
             "gn" | "gn-fn" => return self.generator(node),
+            "gn-call" => return vec![],
             "export" => {
                 for name in xs.iter().skip(1).filter(|name| self.contains(name)) {
                     if let Some(name) = symbol(name) {
@@ -1424,50 +1473,112 @@ impl<'a> Index<'a> {
         }
         vec![]
     }
+    fn generator_declaration(&self, name: &str, helper: bool) -> Option<&'a Node> {
+        let name = name.trim_start_matches('@');
+        if name.starts_with('#') && crate::file_access::split(name).is_none() { return None; }
+        let declaration = self.declaration(name)?;
+        (head(declaration) == if helper { "gn-fn" } else { "gn" }).then_some(declaration)
+    }
+    fn generator_target(&self, node: &Node, helper: bool) -> Vec<Span> {
+        symbol(node).and_then(|name| self.generator_declaration(name, helper))
+            .and_then(|node| node.children.get(1))
+            .map(|name| vec![name.span]).unwrap_or_default()
+    }
+    fn generator_label(&self, callee: &Node, label: &Node, helper: bool) -> Vec<Span> {
+        let Some(parameters) = symbol(callee)
+            .and_then(|name| self.generator_declaration(name, helper))
+            .and_then(|node| node.children.get(2))
+            .and_then(generator_parameters)
+        else { return vec![] };
+        parameters.iter().find(|parameter| symbol(parameter.key) == symbol(label))
+            .map(|parameter| {
+                self.explicit_locals.borrow_mut().insert(parameter.key.span);
+                vec![parameter.key.span]
+            }).unwrap_or_default()
+    }
+    fn capability_reference(&self, node: &Node) -> Vec<Span> {
+        let Some(nodes) = symbol(node).and_then(|name| self.globals.get(self.scoped_name(name)))
+        else { return vec![] };
+        if nodes.iter().any(|node| head(node) != "capability") { return vec![]; }
+        nodes.iter().filter_map(|node| node.children.get(1).map(|name| name.span)).collect()
+    }
+    fn qualified_symbol(&self, node: &Node) -> Option<Vec<Span>> {
+        let name = symbol(node)?;
+        let authored = self.program.and_then(|program| {
+            program.source_files.get(node.span.source_id as usize)?
+                .source.get(node.span.start..node.span.end)
+        });
+        authored.map_or_else(|| name.starts_with('@'), |text| text.starts_with('@'))
+            .then(|| self.global(name.trim_start_matches('@')))
+    }
+    fn qualified_literal(&self, node: &Node) -> Vec<Span> {
+        if !self.contains(node) { return vec![]; }
+        if let Some(target) = self.qualified_symbol(node) { return target; }
+        node.children.iter().find(|child| self.contains(child))
+            .map(|child| self.qualified_literal(child)).unwrap_or_default()
+    }
+    fn generator_literal(&self, node: &Node) -> Vec<Span> {
+        if !self.contains(node) { return vec![]; }
+        if let Some(target) = self.qualified_symbol(node) { return target; }
+        if matches!(node.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
+            return self.qualified_literal(node);
+        }
+        if matches!(head(node), "fn" | "unsafe-fn") { return self.function(node); }
+        node.children.iter().find(|child| self.contains(child))
+            .map(|child| self.generator_literal(child)).unwrap_or_default()
+    }
+    fn generator_invocation(&self, node: &Node, scope: Option<&Scope>) -> Vec<Span> {
+        let Some(callee) = node.children.get(1) else { return vec![] };
+        let helper = scope.is_some();
+        if self.contains(callee) { return self.generator_target(callee, helper); }
+        let Some(arguments) = node.children.get(2) else { return vec![] };
+        for pair in arguments.children.iter().filter(|pair| self.contains(pair)) {
+            let [key, value] = pair.children.as_slice() else { return vec![] };
+            let mut targets = Vec::new();
+            if self.contains(key) {
+                targets.extend(self.generator_label(callee, key, helper));
+            }
+            if self.contains(value) {
+                targets.extend(match scope {
+                    Some(scope) => self.generator_expr(value, scope),
+                    None => self.generator_literal(value),
+                });
+            }
+            // An invocation pun can occupy both roles. Keep both precise
+            // destinations; do not invent a second token or prefer by spelling.
+            targets.sort_by_key(|span| (span.source_id, span.start, span.end));
+            targets.dedup();
+            return targets;
+        }
+        vec![]
+    }
     fn generator(&self, node: &Node) -> Vec<Span> {
         if let Some(name) = node.children.get(1).filter(|node| self.contains(node)) {
             return vec![name.span];
         }
         let mut scope = Scope::new();
-        if let Some(args) = node.children.get(2) {
-            for arg in &args.children {
-                let name = if symbol(arg).is_some() {
-                    arg
-                } else {
-                    arg.children.first().unwrap_or(arg)
-                };
-                if let Some(name_string) = symbol(name) {
-                    scope.insert(
-                        name_string.to_owned(),
-                        Binding {
-                            spans: vec![name.span],
-                            ty: None,
-                        },
-                    );
+        if let Some(parameters) = node.children.get(2).and_then(generator_parameters) {
+            for parameter in parameters {
+                self.explicit_locals.borrow_mut().extend([
+                    parameter.key.span, parameter.binding.span,
+                ]);
+                if self.contains(parameter.key) { return vec![parameter.key.span]; }
+                if self.contains(parameter.binding) { return vec![parameter.binding.span]; }
+                for capability in parameter.capabilities.iter().filter(|node| self.contains(node)) {
+                    return self.capability_reference(capability);
                 }
-                self.explicit_locals.borrow_mut().insert(name.span);
-                if self.contains(name) {
-                    return vec![name.span];
-                }
-                for contract in arg
-                    .children
-                    .iter()
-                    .skip(1)
-                    .filter(|node| self.contains(node))
-                {
-                    return self.references(contract, &scope);
-                }
+                scope.insert(symbol(parameter.binding).unwrap().to_owned(), Binding {
+                    spans: vec![parameter.binding.span], ty: None,
+                });
             }
         }
-        node.children
-            .get(3)
-            .map(|body| self.generator_expr(body, &scope))
-            .unwrap_or_default()
+        node.children.get(3).map(|body| self.generator_expr(body, &scope)).unwrap_or_default()
     }
     fn generator_expr(&self, node: &Node, scope: &Scope) -> Vec<Span> {
         if !self.contains(node) {
             return vec![];
         }
+        if let Some(targets) = self.qualified_symbol(node) { return targets; }
         if let Some(name) = symbol(node) {
             return scope
                 .get(name)
@@ -1475,7 +1586,7 @@ impl<'a> Index<'a> {
                 .unwrap_or_default();
         }
         if matches!(node.expr, Expr::Quote(_)) {
-            return vec![];
+            return self.qualified_literal(node);
         }
         if matches!(node.expr, Expr::QuasiQuote(_)) {
             return node
@@ -1511,17 +1622,10 @@ impl<'a> Index<'a> {
                 .unwrap_or_default();
         }
         if head(node) == "gn-call" {
-            if let Some(name) = node
-                .children
-                .get(1)
-                .filter(|node| self.contains(node))
-                .and_then(symbol)
-            {
-                return self.global(name);
-            }
+            return self.generator_invocation(node, Some(scope));
         }
         if !head(node).starts_with("gn-") {
-            return vec![];
+            return self.generator_literal(node);
         }
         for child in node
             .children
@@ -1537,6 +1641,7 @@ impl<'a> Index<'a> {
         if !self.contains(node) {
             return vec![];
         }
+        if let Some(targets) = self.qualified_symbol(node) { return targets; }
         match node.expr {
             Expr::Unquote(_) | Expr::UnquoteSplicing(_) if depth == 1 => {
                 return node
@@ -1559,7 +1664,7 @@ impl<'a> Index<'a> {
                     .map(|node| self.template(node, scope, depth + 1))
                     .unwrap_or_default();
             }
-            Expr::Quote(_) => return vec![],
+            Expr::Quote(_) => return self.qualified_literal(node),
             _ => {}
         }
         for child in &node.children {
@@ -1580,32 +1685,11 @@ impl<'a> Index<'a> {
             node.children.first().map(|node| &node.expr),
             Some(Expr::Generate)
         ) {
-            // Literal generator arguments are data. Explicit function syntax
-            // inside them still has lexical binding/type roles of its own.
-            for child in node.children.iter().skip(2) {
-                let found = self.nested_function(child);
-                if !found.is_empty() {
-                    return found;
-                }
-            }
-            return vec![];
+            // Public keys are navigable; values remain literal syntax except
+            // for explicit qualification and the existing nested #fn roles.
+            return self.generator_invocation(node, None);
         }
         self.walk(node, &mut Scope::new(), &Scope::new())
-    }
-    fn nested_function(&self, node: &Node) -> Vec<Span> {
-        if !self.contains(node) || matches!(node.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
-            return vec![];
-        }
-        if matches!(head(node), "fn" | "unsafe-fn") {
-            return self.function(node);
-        }
-        for child in &node.children {
-            let found = self.nested_function(child);
-            if !found.is_empty() {
-                return found;
-            }
-        }
-        vec![]
     }
     pub fn resolve(&self) -> Vec<Span> {
         for node in self.forms {
@@ -1615,10 +1699,16 @@ impl<'a> Index<'a> {
         }
         // Qualification is a source operation, even inside otherwise literal
         // generator arguments and templates. Navigate the resolved identifier,
-        // not a same-spelled generator parameter or runtime local.
-        fn qualified(index: &Index<'_>, node: &Node) -> Option<Vec<Span>> {
+        // not a same-spelled generator parameter or runtime local. Generator
+        // roles run first so @ cannot bypass the callee's declaration kind.
+        fn qualified(index: &Index<'_>, node: &Node, literal: bool) -> Option<Vec<Span>> {
             if !index.contains(node) {
                 return None;
+            }
+            if !literal && (matches!(head(node), "gn" | "gn-fn")
+                || matches!(node.children.first().map(|node| &node.expr), Some(Expr::Generate)))
+            {
+                return Some(index.source_form(node));
             }
             if let Some(name) = symbol(node) {
                 if index
@@ -1632,10 +1722,13 @@ impl<'a> Index<'a> {
             }
             node.children
                 .iter()
-                .find_map(|child| qualified(index, child))
+                .find_map(|child| qualified(index, child,
+                    literal || matches!(node.expr, Expr::Quote(_) | Expr::QuasiQuote(_))))
         }
         for node in self.forms {
-            if let Some(targets) = qualified(self, node) {
+            if let Some(mut targets) = qualified(self, node, false) {
+                targets.sort_by_key(|span| (span.source_id, span.start, span.end));
+                targets.dedup();
                 return targets;
             }
         }

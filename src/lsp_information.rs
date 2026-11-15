@@ -1,6 +1,6 @@
 //! Editor information uses the navigation resolver's declaration identities.
 //! Presentation reads authored spans instead of exposing compiler-private names.
-use super::navigation::{Index, binding_parts};
+use super::navigation::{Index, binding_parts, generator_parameters};
 use crate::{Expr, SourceFile, Span, SpannedExpr as Node, Type, editor::NavigationContext};
 
 pub(crate) struct Signature {
@@ -431,6 +431,13 @@ pub(crate) fn signature(
     roots(context).find_map(|node| declaration_signature(context, node, *target))
 }
 
+fn capability_description(context: &NavigationContext, node: &Node, target: Span) -> Option<String> {
+    if head(node) == "capability" && node.children.get(1).is_some_and(|name| name.span == target) {
+        return Some(text(context, node));
+    }
+    node.children.iter().find_map(|node| capability_description(context, node, target))
+}
+
 fn description(context: &NavigationContext, node: &Node, target: Span) -> Option<String> {
     if is_function(node)
         && node
@@ -451,6 +458,23 @@ fn description(context: &NavigationContext, node: &Node, target: Span) -> Option
         if let Some(params) = xs.get(name_index(node) + 1).filter(|params| params.span == target) {
             if crate::positional_parameter_type(&params.expr).is_some() {
                 return Some(format!("#arg {}", text(context, params)));
+            }
+        }
+    }
+    if matches!(head(node), "gn" | "gn-fn") {
+        if let Some(parameters) = xs.get(2).and_then(generator_parameters) {
+            for parameter in parameters {
+                if parameter.key.span == target || parameter.binding.span == target {
+                    let pattern = text(context, &xs[2]);
+                    let role = match (parameter.key.span == target, parameter.binding.span == target) {
+                        (true, true) => "generator label and binding",
+                        (true, false) => "generator argument label",
+                        _ => "generator binding",
+                    };
+                    return Some(format!("{role} {}\n{pattern}",
+                        if parameter.key.span == target { text(context, parameter.key) }
+                        else { text(context, parameter.binding) }));
+                }
             }
         }
     }
@@ -577,6 +601,13 @@ pub(crate) fn hover(context: &NavigationContext, file: u32, byte: usize) -> Opti
         [target] => *target,
         [] => return None,
         targets => {
+            // A generator capability annotation denotes the interface across
+            // its concrete implementations, not an ambiguous runtime binding.
+            if let Some(descriptions) = targets.iter().map(|target| {
+                roots(context).find_map(|node| capability_description(context, node, *target))
+            }).collect::<Option<Vec<_>>>() {
+                return Some((queried.span, descriptions.join("\n")));
+            }
             // Each branch of an or-pattern declares the same lexical binding.
             // Several source targets are useful only when the resolver supplied
             // an identical type for every binding; global ambiguity stays inert.
