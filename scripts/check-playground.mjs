@@ -59,6 +59,17 @@ for (const legacy of [
     assert.match(result.message, /require a named record/);
   }
 }
+for (const mixed of [
+  '#fn main {} #u64 (#return 42u64)',
+  '#unsafe-fn main {} #u64 (#return 42u64)',
+  '#fn identity { value = #u64; } #u64 (#return value)',
+]) {
+  for (const options of [{}, { checkOnly: true }]) {
+    const result = compiler.compile(mixed, options);
+    assert.equal(result.ok, false, 'a declaration record must contain the entire signature');
+    assert.match(result.message, /must end after its record/);
+  }
+}
 const badPromise = `#fn liar {
   #params = {}; #returns = #u64;
   #ensures: [#u64; (#result) == 0];
