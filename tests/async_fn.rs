@@ -9122,8 +9122,15 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
 
     let initializer_then_condition_await = source
         .replace(
-            "      (#generate #async-fn",
-            "      (#enum ConditionTask (#linear) ((ConditionTask.ConditionStart #u64) (ConditionTask.ConditionResume #u64)))\n      \n      (#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool)))\n      (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll\n        (#return (#match task\n          (#case (ConditionTask.ConditionStart iteration) (ConditionPoll.ConditionPending (ConditionTask.ConditionResume iteration)))\n          (#case (ConditionTask.ConditionResume iteration)\n            (ConditionPoll.ConditionReady (#u64::lt iteration 3u64))))))\n      (#generate #async-fn",
+            "#generate #async-fn",
+            "#enum ConditionTask (#linear) ((ConditionTask.ConditionStart #u64) (ConditionTask.ConditionResume #u64))
+#enum ConditionPoll () ((ConditionPoll.ConditionPending ConditionTask) (ConditionPoll.ConditionReady #bool))
+#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
+  (#return (#match task
+    (#case (ConditionTask.ConditionStart iteration) (ConditionPoll.ConditionPending (ConditionTask.ConditionResume iteration)))
+    (#case (ConditionTask.ConditionResume iteration)
+      (ConditionPoll.ConditionReady (#u64::lt iteration 3u64)))))
+#generate #async-fn",
         )
         .replace(
             "                  (#u64::lt iteration 3u64)\n                  (#set iteration",
@@ -9140,6 +9147,10 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
             "(#let second Work::Poll\n          (#call Work::poll ((task pending) (waker (#borrow waker)))))\n        (#let-else (Work::Poll.Pending condition-pending) Work::Poll second (#unreachable))\n        (#let third Work::Poll\n          (#call Work::poll ((task condition-pending) (waker (#borrow waker)))))\n        (#let-else (Work::Poll.Pending resumed-condition-pending) Work::Poll third (#unreachable))\n        (#let fourth Work::Poll\n          (#call Work::poll ((task resumed-condition-pending) (waker (#borrow waker)))))\n        (#let result #u64\n          (#match fourth",
         );
     assert_ne!(initializer_then_condition_await, source);
+    assert!(initializer_then_condition_await.contains("#fn condition-poll"));
+    assert!(initializer_then_condition_await.contains(
+        "(#await ConditionTask ConditionPoll.ConditionPending ConditionPoll.ConditionReady condition-poll"
+    ));
     let generated = build_and_run_graph(&initializer_then_condition_await, 42);
     assert!(
         generated.contains("ConditionPoll.ConditionPending"),
