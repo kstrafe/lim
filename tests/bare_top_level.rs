@@ -290,3 +290,57 @@ fn unprefixed_bare_heads_report_the_missing_prefix_at_the_written_head() {
     assert!(wrapped.contains("bare root"), "{wrapped}");
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn root_colon_operands_can_contain_inline_and_indented_cfg_declarations() {
+    let expected = lim::parse(
+        "(#cfg-if (#cfg-is #feature selected) (#fn main () #u64 (#return 42u64)))",
+    )
+    .unwrap()
+    .into_iter()
+    .map(|node| node.expr)
+    .collect::<Vec<_>>();
+    let mut config = CompileConfig::default();
+    config.set("feature", "selected");
+    for source in [
+        "#cfg-if (#cfg-is #feature selected): #fn main { #params = {}; #returns = #u64; #body: #return 42u64; }",
+        "#cfg-if (#cfg-is #feature selected):\n  #fn main { #params = {}; #returns = #u64; #body: #return 42u64; }\n",
+    ] {
+        assert_eq!(trees(source), expected, "{source}");
+        let formatted = lim::format_source(source).unwrap();
+        assert_eq!(trees(&formatted), expected);
+        assert_eq!(lim::format_source(&formatted).unwrap(), formatted);
+        let program = lim::parse_program_with_config(source, &config).unwrap();
+        lim::check_types(&program).unwrap();
+    }
+}
+
+#[test]
+fn root_colon_generator_arguments_keep_nested_function_data() {
+    for invocation in [
+        "#generate emit: #fn answer { #params = {}; #returns = #u64; #body: #return 42u64; }",
+        "#generate emit:\n  #fn answer { #params = {}; #returns = #u64; #body: #return 42u64; }",
+    ] {
+        let source = format!(
+            "#gn emit (declaration) (#gn-list declaration)\n{invocation}\n#fn main () #u64 (#return (#call answer ()))\n"
+        );
+        let formatted = lim::format_source(&source).unwrap();
+        assert_eq!(trees(&source), trees(&formatted));
+        let program = lim::parse_program(&source).unwrap();
+        lim::check_types(&program).unwrap();
+    }
+}
+
+#[test]
+fn colon_exemptions_do_not_accept_unseparated_source_roots() {
+    for source in [
+        "#fn main { #params = {}; #returns = #u64; #body: #return 42u64; } #type Extra #u64",
+        "#type First #u64 #type Second #u64",
+        "#cfg-if (#cfg-is #feature selected):\n  #fn selected () #u64 (#return 42u64)\n#fn main { #params = {}; #returns = #u64; #body: #return 42u64; } #type Extra #u64",
+    ] {
+        let error = lim::parse_source_unit(source).unwrap_err();
+        assert!(error.contains("newline or semicolon separator"), "{error}");
+        assert!(lim::format_source(source).is_err());
+    }
+    assert!(lim::parse_source_unit(": #fn main () #u64 (#return 42u64)").is_err());
+}

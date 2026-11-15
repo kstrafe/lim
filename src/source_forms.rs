@@ -76,6 +76,11 @@ impl<'a> SourceForms<'a> {
                 .count()
         };
         let baseline = indentation(header.start);
+        let trailing_colon = |kind: &TokenKind| {
+            matches!(kind, TokenKind::Symbol(name)
+                if name.ends_with(':') && !name.ends_with("::"))
+        };
+        let mut colon_operand = trailing_colon(&first.kind);
         let mut tokens = vec![first];
         let mut delimiters = Vec::new();
         let mut last_line = header.line;
@@ -98,7 +103,17 @@ impl<'a> SourceForms<'a> {
                     break;
                 }
             }
+            // A colon introduces a nested operand even without explicit
+            // delimiters. Declaration heads inside it are data/children of
+            // this root, not unseparated sibling roots. Colons inside records
+            // and other explicit operands must not change root boundaries.
             if delimiters.is_empty()
+                && (token.kind == TokenKind::Colon || trailing_colon(&token.kind))
+            {
+                colon_operand = true;
+            }
+            if delimiters.is_empty()
+                && !colon_operand
                 && (token.kind == TokenKind::Generate
                     || matches!(&token.kind, TokenKind::Symbol(head) if matches!(head.as_str(),
                     "#fn" | "#unsafe-fn" | "#extern-fn" | "#struct" | "#enum" | "#type"
