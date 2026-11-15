@@ -260,7 +260,7 @@ fn injected_stdio(syscall: &str) -> String {
             edits.push((
                 position,
                 position,
-                "\n(#let-mut attempts #usize 0usize)".into(),
+                "\n  (#let-mut attempts #usize 0usize)".into(),
             ));
         }
         if matches!(node.children.first().map(|head| &head.expr),

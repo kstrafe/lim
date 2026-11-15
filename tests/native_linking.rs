@@ -75,10 +75,7 @@ fn referenced_tuple_fields_keep_layout_direction_and_evaluate_receivers_once() {
     for (ty, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
         let tuple = "(#tuple #u128 #f64 #u64)";
         let source = format!(
-            "(#let values {tuple} (#tuple {tuple} 18446744073709551617u128 3.5f64 42u64))
-              (#fn main () #u64 (#let view ({ty} {tuple}) ({borrow} values))
-                (#assert (#u128::eq (#get view 0) 18446744073709551617u128))
-                (#assert (#f64::eq (#get view 1) 3.5f64)) (#return (#get view 2)))"
+            "#let values {tuple} (#tuple {tuple} 18446744073709551617u128 3.5f64 42u64)\n#fn main () #u64 (#let view ({ty} {tuple}) ({borrow} values))\n                  (#assert (#u128::eq (#get view 0) 18446744073709551617u128))\n                  (#assert (#f64::eq (#get view 1) 3.5f64)) (#return (#get view 2))\n"
         );
         assert_runs(&compile(&source, scratch.path(), &[]), b"");
     }

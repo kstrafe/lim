@@ -23,13 +23,13 @@ fn run(source: &str) -> std::process::ExitStatus {
 #[test]
 fn unit_tuple_fields_need_no_slot_or_register() {
     let source = r#"
-      (#let gLOBAL (#tuple #u64 ()) (#tuple (#tuple #u64 ()) 42u64 ()))
-      (#fn main () #u64
-        (#let local (#tuple () #u64 ()) (#tuple (#tuple () #u64 ()) () 42u64 ()))
-        (#get local 0)
-        (#get local 2)
-        (#get gLOBAL 1)
-        (#return (#get local 1)))
+#let gLOBAL (#tuple #u64 ()) (#tuple (#tuple #u64 ()) 42u64 ())
+#fn main () #u64
+          (#let local (#tuple () #u64 ()) (#tuple (#tuple () #u64 ()) () 42u64 ()))
+          (#get local 0)
+          (#get local 2)
+          (#get gLOBAL 1)
+          (#return (#get local 1))
     "#;
     assert_eq!(run(source).code(), Some(42));
 }
