@@ -116,8 +116,12 @@
 <li><a href="#grammar-and-builtin-semantics" id="toc-grammar-and-builtin-semantics">Grammar and builtin semantics</a></li>
 <li><a href="#examples-and-verification" id="toc-examples-and-verification">Examples and verification</a>
 <ul>
-<li><a href="#typed-word-memory-loan-inputs" id="toc-typed-word-memory-loan-inputs">Typed word-memory loan inputs</a></li>
+<li><a href="#maintaining-documentation-examples" id="toc-maintaining-documentation-examples">Maintaining documentation examples</a></li>
 </ul></li>
+</ul></li>
+<li><a href="#generated-thread-calls" id="toc-generated-thread-calls">Generated thread calls</a>
+<ul>
+<li><a href="#typed-word-memory-loan-inputs" id="toc-typed-word-memory-loan-inputs">Typed word-memory loan inputs</a></li>
 </ul></li>
 <li><a href="#verification-notes" id="toc-verification-notes">Verification notes</a>
 <ul>
@@ -517,24 +521,21 @@ Lim compilation pipeline
 </section>
 <section id="language-reference" class="level1">
 <h1>Language reference</h1>
-<p>Lim code fences carry explicit test metadata: <code>run=N</code> compiles and runs with exit code N; <code>library</code> compiles through native emission; <code>fragment=NAME</code> uses the named function wrapper in <code>tests/language_docs.rs</code>; <code>error=CODE</code> must fail with that diagnostic. <code>syntax</code> marks schematic forms or signatures with intentionally undefined placeholders; these are parsed, not type-checked. The documentation tests cover this reference, README, allocator notes, and the soundness audit, and reject unclassified Lim fences.</p>
-<p>Lim is a compiled, statically typed Lisp. Its syntax lowers to S-expression trees, with bare declarations at source-file roots. Its type and evaluation rules are deliberately explicit. The compiler currently targets Linux x86-64 System V. It emits inspectable assembly, then encodes and links ELF binaries internally, including supported ELF objects and shared-library calls. Unsupported assembly or object features produce a link diagnostic; the compiler does not invoke <code>as</code> or <code>ld</code>.</p>
-<p>This document describes the language implemented by this crate. Builtin forms and all sixteen scalar types use a leading <code>#</code>, such as <code>#u64</code> or <code>#bool</code>; unprefixed builtin forms and scalar types are rejected. Numeric literal suffixes keep their established spelling, such as <code>42u64</code>. User-defined type names remain ordinary identifiers and never receive a <code>#</code> prefix.</p>
-<p>Declaration spelling identifies its role. Every <code>::</code> component in a type name starts with an ASCII uppercase letter (<code>Reading</code>, <code>Work::Frame</code>). Functions, parameters, fields and variables start lowercase or with <code>_</code>; a function can have uppercase type prefixes (<code>Work::poll</code>). A dot is reserved for enum variants: <code>Work::Poll.Ready</code> is variant <code>Ready</code> of enum <code>Work::Poll</code>. These are single global identifiers, not namespace or field-access operations. The compiler enforces the same rules on generated declarations and handwritten code. Compiler-issued hygienic <code>#gn-gensym</code> names occupy a separate reserved domain; they can also name private types without colliding with public declarations.</p>
-<p>User function names retain their identity in named calls, even when a name also spells a builtin. For example, <code>panic { value = reference; }</code> calls the declared user function named <code>panic</code>; <code>(#panic)</code> remains the builtin trap. Calls require named arguments, evaluate their expressions in written call-site order, and apply the declared function signature and ordinary eager-call ownership rules. Ordinary calls accept only safe functions, even inside <code>#unsafe</code>. Use <code>#unsafe-call</code> for unsafe or external functions; it requires an enclosing <code>#unsafe</code> block and uses the same named arguments, evaluation order, signature checks, and ownership rules.</p>
-<p>Strict scalar intrinsics also accept ordinary named calls. The compiler generates their typed signatures and lowers calls to the existing native operations. Binary parameters are <code>left</code> and <code>right</code>; unary <code>not</code> takes <code>value</code>. Integer arithmetic still requires <code>-wrap</code> or <code>-saturate</code>. Short-circuit <code>#bool::and</code> and <code>#bool::or</code> retain their direct control-flow forms. Callable subtraction is binary; direct subtraction also supports unary negation. Floating-point remainder is currently unsupported by the native backend and has no callable declaration.</p>
+<p>Lim is a compiled, statically typed Lisp. When you read a program, you can see what type each binding holds, which value a function returns, and how integer arithmetic handles overflow. This reference explains those choices and the language forms you use to express them.</p>
+<p>Start with a small program that returns 42:</p>
 <pre class="lisp"><code><span class="lim-keyword">#fn</span> main {
   <span class="lim-keyword">#params</span> <span class="lim-operator">=</span> {};
   <span class="lim-keyword">#returns</span> <span class="lim-operator">=</span> <span class="lim-type">#u64</span>;
   <span class="lim-keyword">#body</span><span class="lim-operator">:</span>
-    <span class="lim-keyword">#let</span> index <span class="lim-type">#usize</span> <span class="lim-literal">1usize</span>;
-    <span class="lim-keyword">#return</span><span class="lim-operator">:</span>
-      <span class="lim-keyword">#if-valid</span>
-        (<span class="lim-operator">#usize::lt</span> { left <span class="lim-operator">=</span> index; right <span class="lim-operator">=</span> <span class="lim-literal">4usize</span>; })
-        (<span class="lim-operator">#u64::add-wrap</span> { right <span class="lim-operator">=</span> <span class="lim-literal">22u64</span>; left <span class="lim-operator">=</span> <span class="lim-literal">20u64</span>; })
-        <span class="lim-literal">0u64</span>
+    <span class="lim-keyword">#let</span> answer <span class="lim-type">#u64</span> <span class="lim-literal">40u64</span>;
+    <span class="lim-keyword">#return</span> [<span class="lim-type">#u64</span> <span class="lim-keyword">#wrap</span>; answer <span class="lim-operator">+</span> <span class="lim-literal">2u64</span>];
 }</code></pre>
-<p>For syntax, contextual examples, and semantics of every builtin, see the <a href="#complete--builtin-reference-alphabetical">alphabetical builtin reference</a> and its <a href="#typed-operator-families-alphabetical">typed operator families</a>.</p>
+<p><code>#fn main</code> declares a function. Its <code>#params</code> record is empty, and <code>#returns</code> says it returns an unsigned 64-bit integer. In the body, <code>#let</code> gives <code>answer</code> an explicit type and initial value. <code>#return</code> selects the result; <code>#wrap</code> chooses wrapping arithmetic for the addition. The result becomes the native program&#39;s exit status.</p>
+<p>The <code>#</code> prefix marks language forms and builtin types, such as <code>#fn</code>, <code>#return</code>, <code>#u64</code> and <code>#bool</code>. Names you declare, such as <code>main</code> and <code>answer</code>, use ordinary identifiers. Numeric suffixes spell a literal&#39;s type directly: <code>40u64</code> is an unsigned 64-bit integer.</p>
+<p>Names give you another clue about a declaration&#39;s role. Each <code>::</code> component in a type name starts with an ASCII uppercase letter, as in <code>Reading</code> or <code>Work::Frame</code>. Functions, parameters, fields and variables start lowercase or with <code>_</code>; a function can have uppercase type prefixes, as in <code>Work::poll</code>. An enum variant uses a dot: <code>Work::Poll.Ready</code> names variant <code>Ready</code> of <code>Work::Poll</code>. These spellings are single identifiers; they do not perform namespace lookup or field access.</p>
+<p>The same naming rules apply to generated declarations. Compiler-issued <code>#gn-gensym</code> names use a separate reserved domain and can name private types without colliding with public declarations.</p>
+<p>Source files contain bare declarations like <code>#fn main</code> above. Inside them, records, indentation, parentheses and typed infix expressions organize the code. These spellings lower to the S-expression trees that generators and the checker use. The next section explains how to read each spelling.</p>
+<p>You can read this reference in order or look up a form in the <a href="#complete--builtin-reference-alphabetical">alphabetical builtin reference</a> and its <a href="#typed-operator-families-alphabetical">typed operator families</a>. For a guided walkthrough, start with the <a href="#first-program">tutorial</a>.</p>
 <section id="design-and-scope" class="level2">
 <h2>Design and scope</h2>
 <section id="surface-notation" class="level3">
@@ -3587,7 +3588,23 @@ identifier    = { letter | digit | &quot;_&quot; | &quot;-&quot; | &quot;.&quot;
 <p>The <code>examples/</code> directory contains programs covering arithmetic, all integer widths, floating point, constants, statics, arrays, tuples, structs, enums, patterns, loops, generated optional/result types, aggregate ABI paths, and external functions. <code>examples/fibonacci.lim</code> computes Fibonacci(10) and exits with <code>55</code>.</p>
 <p>Run the complete native check with:</p>
 <pre class="sh"><code>nix develop --command ./scripts/native-sweep.sh</code></pre>
-<p>The sweep compiles and links every example, executes it, and reports ordinary successes, intentional traps, and compiler/linker/timeout failures separately. # Generated thread calls {#generated-thread-calls}</p>
+<p>The sweep compiles and links every example, executes it, and reports ordinary successes, intentional traps, and compiler/linker/timeout failures separately.</p>
+<section id="maintaining-documentation-examples" class="level3">
+<h3>Maintaining documentation examples</h3>
+<p>When adding or changing a Lim code fence, give it explicit test metadata after <code>lisp</code>. <code>tests/language_docs.rs</code> uses that metadata to decide how to check it:</p>
+<ul>
+<li><code>run=N</code> compiles, links and runs the program, expecting exit code N.</li>
+<li><code>library</code> compiles through native assembly generation without running a program.</li>
+<li><code>fragment=NAME</code> puts function-body code in the named wrapper defined by the test harness.</li>
+<li><code>error=CODE</code> requires compilation to fail with that diagnostic code.</li>
+<li><code>syntax</code> marks schematic forms, signatures or syntax-tree examples. These are parsed as syntax data, so placeholders need not resolve and types are not checked.</li>
+</ul>
+<p>The harness rejects unclassified <code>lisp</code> fences in the documents it covers: this reference, README, tutorial, introduction, allocator notes and soundness audit. Keep each fence&#39;s classification accurate when changing its example.</p>
+</section>
+</section>
+</section>
+<section id="generated-thread-calls" class="level1">
+<h1>Generated thread calls</h1>
 <p>Spawn and join are ordinary named calls, including when the compiler derives their signatures from a short <code>#thread-task</code> declaration. Spawn uses the worker&#39;s parameter names; join uses <code>task</code>. For example, write <code>(#call Task::join ((task handle)))</code>. Generated enum variants in <code>#case</code> patterns retain their constructor syntax. There is no positional-call exception for generated thread functions. # Floating-point global evaluation {#floating-point-global-evaluation}</p>
 <p>Float constants and static aggregate fields retain their declared f32/f64 bit representation. Each arithmetic operation rounds at its operand width, including intermediate f32 results; it is not an integer conversion or a single rounding at the end of an expression. Literal tokens must be finite, but pure arithmetic can produce infinities and NaNs, as at runtime. Signed zero is preserved. NaN payload bits are not a portable equality contract. Pure float arithmetic, named constants, and supported constant conditionals may initialize globals; calls and runtime effects remain forbidden, and constant dependency cycles are errors. Reading or writing statics still requires <code>#unsafe</code>.</p>
 <section id="typed-word-memory-loan-inputs" class="level3">
@@ -3633,7 +3650,6 @@ identifier    = { letter | digit | &quot;_&quot; | &quot;-&quot; | &quot;.&quot;
 }</code></pre>
 <p>Removing the typed write, or overwriting its reference word with a number before the call, fails compilation. Inferred inputs are not permission to fabricate a reference. The unsafe implementation still proves capacity, representation validity and ownership conservation. The same input contracts apply to numeric arrays passed by value, including arrays inside structs and tuples. Moving the backing into another local or extracting its array field preserves the required slot&#39;s relationship to the caller&#39;s real loan. Shared inputs cannot satisfy an exclusive read. A thread capturing such backing retains its input loans until join; checking only the spawn call would not protect the caller while it runs.</p>
 <p>Numeric parameter slots are symbolic candidates during contract inference, not evidence that a reference was initialized. Array candidates use one symbolic index rather than enumerating every element. A typed read specializes the requirement to its selected offset; every ordinary call must then supply the actual loan recorded by a typed write. Raw numeric snapshots are not a general mechanism for transporting concealed reference ownership.</p>
-</section>
 </section>
 </section>
 <section id="verification-notes" class="level1">
