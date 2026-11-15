@@ -77,7 +77,7 @@ fn pinned_nested_enum_payload_borrows_survive_cold_and_cached_suspension() {
         .replace("(#pin-ref #u64)", "(#pin-ref-mut #u64)")
         .replace("(#pin-borrow ", "(#pin-borrow-mut ")
         .replace("(#pin-borrow\n", "(#pin-borrow-mut\n")
-        .replace("(mode #pin-ref ", "(mode #pin-ref-mut ")
+        .replace("(mode #pin-ref)", "(mode #pin-ref-mut)")
         .replace(
             "(#return (#u64::add-wrap (#deref view) result))",
             "(#unsafe (#pin-write view 40u64)) (#return (#u64::add-wrap (#deref view) result))",
@@ -475,7 +475,7 @@ fn runtime_selected_array_indices_are_not_reread_after_suspension() {
         let source = selected_array_elements_source(mutable)
             .replace(
                 "(#let view (#ref",
-                "(#let-mut selected #usize 1usize)\n(#let view (#ref",
+                "(#let-mut selected #usize 1usize)\n  (#let view (#ref",
             )
             .replace("(#index owner 1usize)", "(#index owner selected)")
             .replace(
@@ -484,14 +484,14 @@ fn runtime_selected_array_indices_are_not_reread_after_suspension() {
             )
             .replace(
                 "(#let ignored #u64 (#await",
-                "(#set selected 0usize)\n(#let ignored #u64 (#await",
+                "(#set selected 0usize)\n  (#let ignored #u64 (#await",
             );
         assert!(source.contains("(#index owner selected)"));
         assert_independent_generated_source(&source);
         run_native(&source, "async-runtime-array-selection", 42);
         let conflicting = source.replace(
             "(#drop next)",
-            "(#drop next)\n(#set-index external 2usize 99u64)",
+            "(#drop next)\n  (#set-index external 2usize 99u64)",
         );
         assert_borrow_error(
             &conflicting,

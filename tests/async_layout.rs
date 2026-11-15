@@ -55,7 +55,7 @@ fn forward_child_layouts_use_untagged_parent_storage_on_cold_and_warm_runs() {
     let mut standalone = String::new();
     let mut cursor = 0;
     for form in forms {
-        if source[form.span.start..form.span.end].starts_with("(#generate #async-fn") {
+        if source[form.span.start..form.span.end].starts_with("#generate #async-fn") {
             standalone.push_str(&source[cursor..form.span.start]);
             cursor = form.span.end;
         }
