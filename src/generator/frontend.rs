@@ -573,28 +573,6 @@ pub(crate) fn prepare_program_syntax(
     generator_origins.qualified = qualified;
     generator_origins.visibility = Some(visibility);
     generator_origins.source_paths = source_files.iter().map(|file| file.path.clone()).collect();
-    // Imports may prefix the bodies of library generators. Authorize only the
-    // original shipped declaration, never a path or a transformed name alone.
-    for expression in &loaded {
-        if !matches!(&expression.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#gn")
-            && matches!(items.get(1), Some(Expr::Symbol(name)) if name.starts_with('#')))
-        {
-            continue;
-        }
-        if let Some(source) = source_files
-            .get(expression.span.source_id as usize)
-            .and_then(|file| file.source.get(expression.span.start..expression.span.end))
-        {
-            if let Ok(forms) = crate::parse_source_unit(source) {
-                if forms.len() == 1 && standard_library::is_generator_declaration(&forms[0].expr) {
-                    generator_origins
-                        .standard_declarations
-                        .insert(expression.span);
-                }
-            }
-        }
-    }
     let (expanded, _) = generator::expand_with_origins(
         loaded,
         cache_directory,

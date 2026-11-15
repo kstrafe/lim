@@ -33,7 +33,9 @@ pub(crate) fn project_root(entry: &Path) -> PathBuf {
 }
 
 pub(crate) fn reference_path(base: &Path, name: &str, root: &Path) -> PathBuf {
-    if let Some(relative) = name
+    if let Some(relative) = name.strip_prefix("#std/") {
+        Path::new(crate::standard_library::DIRECTORY).join(relative)
+    } else if let Some(relative) = name
         .strip_prefix("project::")
         .or_else(|| name.strip_prefix("//"))
     {
@@ -44,6 +46,18 @@ pub(crate) fn reference_path(base: &Path, name: &str, root: &Path) -> PathBuf {
 }
 
 pub(crate) fn validate_path(name: &str) -> Result<(), String> {
+    if let Some(relative) = name.strip_prefix("#std/") {
+        if relative.is_empty() || Path::new(relative).components().any(|part| {
+            matches!(part, std::path::Component::ParentDir | std::path::Component::RootDir)
+        }) {
+            return Err("standard-library paths must stay within #std/".into());
+        }
+        let path = Path::new(crate::standard_library::DIRECTORY).join(relative);
+        if crate::standard_library::source(&path).is_none() {
+            return Err(format!("unknown standard-library module '#std/{relative}'"));
+        }
+        return Ok(());
+    }
     if let Some(relative) = name
         .strip_prefix("project::")
         .or_else(|| name.strip_prefix("//"))
@@ -226,14 +240,15 @@ pub(crate) fn with_dependencies(forms: Vec<Node>) -> Result<Vec<Node>, SourceErr
 }
 
 fn identity(file: &SourceFile, name: &str, root: bool) -> String {
-    if crate::standard_library::source(&file.path).is_some() {
-        return name.into();
-    }
     if root && name == "main" || name.starts_with('#') || crate::gensym::reserved(name) {
         return name.into();
     }
+    qualified_identity(&file.path, name)
+}
+
+pub(crate) fn qualified_identity(source: &Path, name: &str) -> String {
     let mut path = String::new();
-    for byte in crate::editor::path_key(&file.path)
+    for byte in crate::editor::path_key(source)
         .to_string_lossy()
         .bytes()
     {

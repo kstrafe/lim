@@ -5290,7 +5290,7 @@ fn named_call_argument_span(
             }
         }
         if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#println")
-            && function_name == "std-println"
+            && function_name == crate::standard_library::println_name()
             && parameter_name == "text"
         {
             return expression.children.get(1).map(|value| value.span);

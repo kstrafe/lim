@@ -223,7 +223,6 @@ pub(crate) struct Origins {
     pub builtins: HashMap<String, Vec<Span>>,
     pub source_invocation_names: HashMap<Span, String>,
     pub source_paths: Vec<PathBuf>,
-    pub standard_declarations: HashSet<Span>,
     pub generation: crate::generator_provenance::Registry,
 }
 
@@ -335,12 +334,9 @@ fn expand_with_hits_and_origins(
             if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#gn" || head == "#gn-fn")
             {
                 if let Some(Expr::Symbol(name)) = items.get(1) {
-                    if name.starts_with('#')
-                        && !origins.standard_declarations.contains(&expression.span)
-                        && !crate::standard_library::is_generator_declaration(&expression.expr)
-                    {
+                    if name.starts_with('#') {
                         return Err(at_span(
-                            format!("identifier '{name}' is reserved for the language and standard library"),
+                            format!("identifier '{name}' is reserved for the language"),
                             expression.children.get(1).map_or(expression.span, |name| name.span),
                             "generator name",
                         ));

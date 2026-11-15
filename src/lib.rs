@@ -3540,16 +3540,17 @@ fn normalize_call_expr(
                 if items.len() != 2 {
                     return Err("#println requires exactly one shared String reference".into());
                 }
-                if !signatures.contains_key("std-println") {
-                    return Err("#println requires the standard IO library; add (#std)".into());
+                let println = standard_library::println_name();
+                if !signatures.contains_key(println) {
+                    return Err("#println requires the standard IO library; add #std".into());
                 }
-                if signatures["std-println"].unsafe_call {
+                if signatures[println].unsafe_call {
                     return Err("#println requires safe function 'std-println'".into());
                 }
                 normalize_call_expr(&mut items[1], signatures)?;
                 // Preserve the source shape and reuse the checked operand;
                 // this is only call sugar, not a new emission primitive.
-                items[0] = Expr::Function("std-println".into());
+                items[0] = Expr::Function(println.into());
                 return Ok(());
             }
             if matches!(items.first(), Some(Expr::Symbol(name)) if name == "call" || name == "unsafe-call")
