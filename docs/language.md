@@ -192,7 +192,7 @@ Dynamic allocation follows the concrete allocator ABI in
 generated collections retain an immutable allocator reference; interior
 mutability belongs to the allocator implementation.
 
-`#generate #cell` is a standard-library generator in `library/cell.lim`, not a builtin
+`#std/cell.lim::cell` names a standard-library generator, not a builtin
 type. Each invocation explicitly names the concrete type and three
 free-standing functions. It currently accepts the integer widths supported
 by `#atomic` (`#i8/#i16/#i32/#i64`, `#u8/#u16/#u32/#u64`, and `#usize`); it does not
@@ -201,9 +201,15 @@ shared reference to the concrete cell and never return a reference to its
 contents:
 
 ```lisp library
-#alias cell-generator = ../library/cell.lim::#cell
+#alias cell-generator = #std/cell.lim::cell
 
-#generate cell-generator #u64 CellU64 CellU64::create CellU64::get CellU64::set
+#generate cell-generator {
+  value-type = #u64;
+  name = CellU64;
+  create = CellU64::create;
+  get = CellU64::get;
+  set = CellU64::set;
+}
 
 #struct Arena () { cursor = CellU64; }
 
@@ -288,7 +294,7 @@ derives both properties recursively for structs, enums, tuples, and arrays:
 
 - Scalar types are `Send + Sync`.
 - Raw pointers are neither `Send` nor `Sync`.
-- Generated `#generate #cell` types use relaxed atomic storage and are `Send + Sync` for
+- Generated `#std/cell.lim::cell` types use relaxed atomic storage and are `Send + Sync` for
   their supported integer widths.
 - `(#atomic T)` is both `Send` and `Sync` only for the supported atomic integer
   widths listed below.
@@ -1296,16 +1302,19 @@ invocation arguments literally; generator values are immutable syntax nodes:
 symbols, literals, or lists. A generator returns a list of top-level forms,
 which are expanded before ordinary Lim parsing and type checking.
 
-Language and standard-library generator names are reserved and start with
-`#`: for example, `#generate #optional ((type #u64) (name MaybeU64))`, `#generate #cell`,
-and `#generate #utf8-view`. User generators use ordinary names, such as `#generate make-record`.
-The `#generate` keyword invokes generation/import; a generator name's `#`
-identifies a reserved name, not a different execution or caching mechanism. Standard-library generators
-remain ordinary immutable Lim declarations and must be imported before use.
-Their shipped declarations cannot be redefined. All `#`-prefixed names are
-unavailable for user declarations, including declarations emitted by generators.
-There are no compatibility aliases for the old unprefixed builtin spellings;
-unprefixed names belong to users, including names such as `optional` or `cell`.
+Compiler built-in generators keep keyword names, for example
+`#generate #optional { type = #u64; name = MaybeU64; }`. Standard-library
+items have ordinary names and are addressed through the reserved `#std/` root:
+`#generate #std/cell.lim::cell { ... }`. The root selects immutable bundled
+sources independently of project paths or the working directory. Modules can
+be aliased with normal `#alias`, and different source files retain distinct
+canonical declaration identities. No per-item standard-library keyword registry
+or shipped-source privilege exception is needed.
+
+All `#`-prefixed declaration names remain reserved for the language. A generator
+cannot manufacture a user declaration with such a name. Standard-library names
+such as `cell`, `pin-box`, and `utf8-view` follow ordinary naming, visibility,
+source-provenance and caching rules.
 
 Capabilities are explicit declarations for generator requirements. A concrete
 type opts in with `#capability`, and a generator parameter can require one:
@@ -1320,33 +1329,34 @@ type opts in with `#capability`, and a generator parameter can require one:
 }
 #capability sortable #u64
     ((u64-less ((#ref #u64) (#ref #u64)) #bool))
-#gn make-sortable ((element sortable))
+#gn make-sortable { element = (element sortable); }
     `((#type Sortable ,element))
-#generate make-sortable #u64
+#generate make-sortable { element = #u64; }
 ```
 
-The list after a generator's name is its parameter declaration list, not a
-pattern match. A bare symbol such as `name` declares an ordinary literal-syntax
-parameter. A pair such as `(element sortable)` declares one parameter that
-requires a capability; it does not destructure the invocation argument.
-All invocation arguments are literal syntax; there is no implicit registry
-lookup or distributed syntax expansion.
-This mirrors function signatures, where each nested pair declares one named
-parameter and its type.
+A generator declares one named-record pattern. Each field binds a literal
+syntax value; field order at the call site does not determine argument roles.
+`{ name; target; }` binds two fields with matching local names. A field can
+rename its binding, as in `{ type = element; }`. A capability requirement uses
+an annotated binding, as in `{ type = (element sortable); }`.
 
 ```text
-parameters := (parameter ...)
-parameter  := name | (name capability-name ...)
+parameters := { (label = binding; | binding;) ... }
+binding    := name | (name capability-name ...)
 ```
 
-For example, `#gn alias (name target) ...` has two literal-syntax
-parameters. `#gn sortable ((element sortable)) ...` has one parameter
-named `element` requiring the `sortable` capability. Likewise, `((left right))`
-declares one parameter named `left` with a capability annotation `right`; it
-never binds two names. Nested lists in the name or annotation position are
-rejected as malformed declarations. No implicit destructuring takes place; use
-`#gn-first`, `#gn-rest`, or `#gn-for-each` inside the generator body to inspect
-literal list arguments.
+A call supplies exactly those labels in one record. Missing, unknown and
+duplicate labels are errors, as are duplicate local binding names. There are
+no defaults and no positional argument path. Record punning works at the call
+site too. For example, `#generate alias { target = #u64; name = Word; }` names
+each argument independently of its position. Reordering fields reuses the same
+cached expansion; resolved value provenance remains part of cache identity.
+
+All `#generate` values are literal syntax. Named-record binding does not
+implicitly inspect nested lists: a `pairs` field containing `((Byte #u8)
+(Word #u16))` remains one syntax value. Use `#gn-first`, `#gn-rest` or
+`#gn-for-each` in the body to inspect it. There is no implicit registry lookup,
+distributed syntax expansion, runtime dictionary or type inference.
 
 Each capability declaration lists concrete free-standing operations and their
 full argument/return types. Before any generator runs, the compiler verifies
@@ -1358,30 +1368,33 @@ changing an operation contract cannot reuse expansions made under an older
 contract.
 
 ```lisp library
-#gn aliases (pairs)
+#gn aliases { pairs; }
     (#gn-for-each pair pairs
       (#gn-list
         (#gn-symbol "#type")
         (#gn-first pair)
         (#gn-first (#gn-rest pair))))
 
-#generate aliases ((Byte #u8) (Word #u16))
+#generate aliases { pairs = ((Byte #u8) (Word #u16)); }
 ```
 
 Generator helpers can be declared with `#gn-fn` and called with `#gn-call`.
 They take and return only syntax values (symbols, literals, or lists), so
 predicate booleans remain internal to conditionals. Helpers may call other
-helpers, but direct or indirect recursive calls are rejected. For example:
+helpers, but direct or indirect recursive calls are rejected. Helper calls
+also use named records; their field values are generator expressions evaluated
+once in written order, then bound by label. For example:
 
 ```lisp library
-#gn-fn make-alias (name target)
+#gn-fn make-alias { name; target; }
     `(#type ,name ,target)
 
-#gn aliases (pairs)
+#gn aliases { pairs; }
     `(,@(#gn-for-each pair pairs
-         (#gn-call make-alias
-           (#gn-first pair)
-           (#gn-first (#gn-rest pair)))))
+         (#gn-call make-alias {
+           name = (#gn-first pair);
+           target = (#gn-first (#gn-rest pair));
+         })))
 ```
 
 Backtick starts a syntax template, comma evaluates one generator expression
@@ -1578,7 +1591,7 @@ For example, an exported `counter-reader` generator can emit a call to a private
 
 ```lisp syntax
 #alias counter-reader = ./encapsulation/lib.lim::counter-reader
-#generate counter-reader read-generated-counter
+#generate counter-reader { name = read-generated-counter; }
 ```
 
 See `examples/generator_private_helpers.lim` for a complete executable example.
@@ -3045,15 +3058,15 @@ syntax input, reports an error for a non-symbol, and emits a concrete type
 alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 
 ```lisp run=42
-#gn-fn alias-declaration (name)
+#gn-fn alias-declaration { name; }
     (#gn-if (#gn-symbol? name)
       `(#type ,name #u64)
       (#gn-error "alias name must be a symbol"))
 
-#gn make-alias (name)
-    (#gn-list (#gn-call alias-declaration name))
+#gn make-alias { name; }
+    (#gn-list (#gn-call alias-declaration { name; }))
 
-#generate make-alias Answer
+#generate make-alias { name = Answer; }
 
 #fn main {
   #params = ();
@@ -3137,17 +3150,17 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#for` | `(#for init condition step body...)` | `(#for (#let-mut i #u64 0u64) (#u64::lt i 4u64) (#set i (#u64::add-wrap i 1u64)) (#set sum (#u64::add-wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
 | `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i #u64) 0u64 4u64 (#set sum (#u64::add-wrap sum i)))` (statement) | Evaluates start, then end, once and iterates the typed, half-open range `[start, end)`. |
 | `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Discards a value without cleanup; use after explicit resource release. Forgetting a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. Lim never inserts destructors. Task handles/results cannot be forgotten. |
-| `#generate` | `#generate generator arguments...` | `#generate #optional ((type #u64) (name Number))` (top level) | Expands a generator into inspectable, cached Lim declarations. Arguments are literal syntax, with named lists for builtin generators. |
+| `#generate` | `#generate generator { parameter = literal; ... }` | `#generate #optional { type = #u64; name = Number; }` (top level) | Binds literal syntax by declared labels and expands inspectable, cached Lim declarations. |
 | `#generated-context` | `#generated-context ((producer "name") (definition-module "path") (definition-file "path") (invocation-module "path") (invocation-file "path"))` | `#generated-context ((producer "/lib/lib.lim::make") (definition-module "/lib/lib.lim") (definition-file "/lib/lib.lim") (invocation-module "<global>") (invocation-file "/app/main.lim"))` (compiler-generated file header) | Records definition and invocation file identities and permission boundaries for generated-file private access. Validated against the expansion/cache key; forbidden in handwritten source and generator-produced forms. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
 | `#global-access` | `#global-access` in `#effects` | `(#effects (#global-access))` (function signature clause) | Permits reading and writing any runtime global; unsafe rules still apply. |
-| `#gn` | `#gn name (name-or-(name capability...)...) body` | ``#gn make-alias (name) `((#type ,name #u64))`` (top level) | Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values. |
-| `#gn-call` | `(#gn-call function syntax-arg...)` | `(#gn-call make-alias name target)` (generator body) | Calls a `#gn-fn` helper during generator interpretation. |
+| `#gn` | `#gn name { label = binding; ... } body` | ``#gn make-alias { name; } `((#type ,name #u64))`` (top level) | Declares a pure interpreted syntax generator with an exhaustive named-record parameter pattern. |
+| `#gn-call` | `(#gn-call function { label = expression; ... })` | `(#gn-call make-alias { name; target; })` (generator body) | Evaluates named field expressions once in written order and invokes a generator-time helper. |
 | `#gn-equal` | `(#gn-equal syntax-a syntax-b)` | `(#gn-equal item expected)` (generator expression) | Tests structural equality of immutable generator syntax values. |
 | `#gn-error` | `(#gn-error message)` where `message` evaluates to string syntax | `(#gn-error "unsupported element type")` (generator expression) | Stops generation with a source-associated explanatory diagnostic; non-string syntax is rejected. |
 | `#gn-first` | `(#gn-first list)` | `(#gn-first members)` (generator expression) | Returns the first element of a non-empty syntax list. |
-| `#gn-fn` | `#gn-fn name (parameter...) body` | `#gn-fn identity (value) value` (top level) | Declares a reusable generator-time function with one syntax-producing body. |
+| `#gn-fn` | `#gn-fn name { label = binding; ... } body` | `#gn-fn identity { value; } value` (top level) | Declares a reusable syntax-producing helper with named record bindings. |
 | `#gn-for-each` | `(#gn-for-each name syntax-list body)` | `(#gn-for-each field fields (#gn-list (#gn-symbol "#type") field #u64))` (generator body) | Maps one syntax-producing body over a syntax list; returns a list of results and is the bounded iteration primitive. |
 | `#gn-gensym` | `(#gn-gensym string-hint)` | `(#gn-gensym "task")` (generator expression) | Evaluates a string hint and returns a fresh syntax symbol. The hint must be one non-keyword ordinary identifier; generated names use the reserved `lim.gensym.` prefix and cannot be forged or changed by source, `#gn-symbol`, or `#gn-symbol-append`. |
 | `#gn-get` | `(#gn-get named-syntax key [fallback])` | `(#gn-get ((type #u64) (name PinnedU64)) type)` (generator expression) | Returns a literal value from a list of key/value syntax pairs. Rejects malformed pairs and duplicate keys; a missing key errors unless a lazily evaluated fallback is supplied. |
@@ -3265,7 +3278,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#slice-of` | `(#slice-of shared-array-reference)` | `(#slice-of (#borrow bytes))` (expression) | Creates a full immutable slice while retaining the source borrow. |
 | `#slice-range` | `(#slice-range slice start end)` | `(#slice-range view 1usize 3usize)` (expression) | Creates a checked half-open immutable subslice `[start,end)`. |
 | `#static` | `#static name Type value` | `#static answer #u64 42u64` (top level) | Declares storage with static lifetime; accesses must be inside `#unsafe`. |
-| `#std` | `#std` | `#std` (top level) | Loads the embedded standard String and stdout modules into the program. This is explicit opt-in and works without a source checkout. |
+| `#std` | `#std` or `#std/module.lim::name` | `#alias cell = #std/cell.lim::cell` (top level) | Selects immutable bundled library sources; ordinary item names need no keyword reservation. The bare prelude explicitly imports common aliases. |
 | `#struct` | `#struct Name (properties...) ((field Type)...)` | `#struct Point () ((x #u64) (y #u64))` (top level) | Declares a concrete struct; properties may include `#linear` and `#repr-c`. |
 | `#struct-literal` | `(#struct-literal Type ((field value)...))` | `(#struct-literal Point ((x 1u64) (y 2u64)))` (expression) | Constructs a struct by explicitly naming every field; no defaults are applied. |
 | `#sync` | `#unsafe-impl #sync Type` | `#struct Handle () ((raw (#ptr #u8))); #unsafe-impl #sync Handle` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |

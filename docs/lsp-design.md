@@ -269,3 +269,23 @@ identities through aliases and file paths; `#read-global` and `#write-global`
 target global declarations. Qualification keywords have no definition target.
 Hover and signature help display written effects separately from predicate
 requirements. Byte-IO operands retain ordinary lexical value roles.
+
+### Named generator record roles
+
+`#gn` and `#gn-fn` parameter records declare field labels and local syntax
+bindings. A renamed field links call labels to its declared key and body uses
+to its declared binding. Punned fields share the authored token. Capability
+annotations retain declaration roles; no field label becomes a local use.
+
+`#generate` consumes one exhaustive named record of literal syntax. Unqualified
+values remain literal data; explicit `@` qualification and nested authored
+function syntax keep their existing roles. `#gn-call` also names its fields,
+but each value is an evaluated generator expression with lexical scope.
+Aliases and direct file references must preserve the selected generator's
+parameter identity. New syntax must update navigation tests and this role
+inventory together with formatting and diagnostics.
+
+`#std/module.lim::name` is a reserved source-path root, not an item keyword.
+Resolve its suffix through the ordinary file declaration roles. Standard
+library declarations use canonical file identities and editor snapshots of the
+embedded module, preserving navigation when no source checkout exists.

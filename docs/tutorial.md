@@ -295,10 +295,13 @@ Generators produce concrete declarations instead of hidden runtime dispatch:
 }
 ```
 
-Generated source is inspectable in `.lim/generated/`. Builtin and library
-generators use reserved names such as `#optional`; user generators use ordinary
-names. The pure generator language uses `#gn`, `#gn-fn` and the restricted
-`#gn-*` operations. All emitted runtime code still passes ordinary validation.
+Generated source is inspectable in `.lim/generated/`. Compiler builtin generators use reserved names such as `#optional`.
+Standard-library generators use ordinary names through reserved paths, such as
+`#std/cell.lim::cell`; user generators also use ordinary names. The pure generator language uses `#gn`, `#gn-fn` and the restricted
+`#gn-*` operations. Generators declare named record patterns, such as
+`#gn make-record { name; } ...`, and calls supply an exhaustive named record,
+such as `#generate make-record { name = Record; }`. Field order does not select
+argument roles. All emitted runtime code still passes ordinary validation.
 
 Use the [generator reference](#user-defined-generators) for syntax bundles,
 quoting, generated declarations, validation witnesses and file authority.

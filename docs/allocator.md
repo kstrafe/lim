@@ -163,8 +163,14 @@ An allocator is an ordinary user-defined value with a stable concrete type.
 Collections store an immutable reference to that value:
 
 ```lisp library
-#alias cell-generator = ../library/cell.lim::#cell
-#generate cell-generator #usize CellUsize CellUsize::create CellUsize::get CellUsize::set
+#alias cell-generator = #std/cell.lim::cell
+#generate cell-generator {
+  value-type = #usize;
+  name = CellUsize;
+  create = CellUsize::create;
+  get = CellUsize::get;
+  set = CellUsize::set;
+}
 #struct AllocatorU64 () ((cursor CellUsize))
 #struct VecU64 () ((allocator (#ref AllocatorU64))
                    (pointer (#ptr-mut #u64))
