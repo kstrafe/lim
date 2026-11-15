@@ -56,12 +56,12 @@ fn generated_nested_field_projection_matrix() {
         let (decls, ty, leaf, literal) = nested_prefix(depth);
         let left = format!("(#get {leaf} left)");
         let right = format!("(#get {leaf} right)");
-        let base = format!("{decls}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let-mut owner {ty} {literal})\n  );\n}}\n");
+        let base = format!("{decls}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let-mut owner {ty} {literal})\n");
         let disjoint = format!(
-            "{base}  (#let a (#ref-mut #u64) (#borrow-mut {left}))\n  (#let b (#ref-mut #u64) (#borrow-mut {right}))\n  (#deref-set a 4u64) (#deref-set b 5u64)\n  (#drop a) (#drop b) (#return 0u64)"
+            "{base}  (#let a (#ref-mut #u64) (#borrow-mut {left}))\n  (#let b (#ref-mut #u64) (#borrow-mut {right}))\n  (#deref-set a 4u64) (#deref-set b 5u64)\n  (#drop a) (#drop b) (#return 0u64)\n  );\n}}"
         );
         let overlap = format!(
-            "{base}  (#let a (#ref-mut #u64) (#borrow-mut {left}))\n  (#let b (#ref-mut #u64) (#borrow-mut {left}))\n  (#deref-set a 4u64) (#deref-set b 5u64)\n  (#drop a) (#drop b) (#return 0u64)"
+            "{base}  (#let a (#ref-mut #u64) (#borrow-mut {left}))\n  (#let b (#ref-mut #u64) (#borrow-mut {left}))\n  (#deref-set a 4u64) (#deref-set b 5u64)\n  (#drop a) (#drop b) (#return 0u64)\n  );\n}}"
         );
         expect_accept(&format!("nested-{depth}-disjoint"), &disjoint);
         expect_borrow(&format!("nested-{depth}-overlap"), &overlap);
@@ -90,13 +90,13 @@ fn generated_helper_returned_reference_matrix() {
                 "{decls}\n#fn pick {{\n  #params = ((target (#ref-mut {ty})));\n  #returns = (#ref-mut #u64);\n  #body = (\n    (#return (#borrow-mut {helper_selected}))\n  );\n}}\n"
             );
             let common = format!(
-                "{helper}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let-mut owner {ty} {literal})\n    (#let view (#ref-mut #u64) (#call pick ((target (#borrow-mut owner)))))\n  );\n}}\n"
+                "{helper}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let-mut owner {ty} {literal})\n    (#let view (#ref-mut #u64) (#call pick ((target (#borrow-mut owner)))))\n"
             );
             let accepted = format!(
-                "{common}  (#let sibling (#ref-mut #u64) (#borrow-mut {sibling}))\n  (#deref-set sibling 7u64) (#deref-set view 8u64)\n  (#drop sibling) (#drop view) (#return 0u64)"
+                "{common}  (#let sibling (#ref-mut #u64) (#borrow-mut {sibling}))\n  (#deref-set sibling 7u64) (#deref-set view 8u64)\n  (#drop sibling) (#drop view) (#return 0u64)\n  );\n}}"
             );
             let rejected = format!(
-                "{common}  (#let sibling (#ref-mut #u64) (#borrow-mut {selected}))\n  (#deref-set sibling 7u64) (#deref-set view 8u64)\n  (#drop sibling) (#drop view) (#return 0u64)"
+                "{common}  (#let sibling (#ref-mut #u64) (#borrow-mut {selected}))\n  (#deref-set sibling 7u64) (#deref-set view 8u64)\n  (#drop sibling) (#drop view) (#return 0u64)\n  );\n}}"
             );
             expect_accept(&format!("helper-{field}-depth-{depth}-sibling"), &accepted);
             expect_borrow(&format!("helper-{field}-depth-{depth}-selected"), &rejected);

@@ -63,8 +63,8 @@ fn borrowed_payload_matches_and_updates_in_place() {
     run(
         &source
             .replace(
-                "inspect ((choice (#ref Choice)))",
-                "inspect ((choice (#ref-mut Choice)))",
+                "inspect {\n  #params = ((choice (#ref Choice)));",
+                "inspect {\n  #params = ((choice (#ref-mut Choice)));",
             )
             .replace(
                 "inspect (($ (#borrow choice)))",
@@ -245,16 +245,16 @@ fn async_generator_matches_reference_returned_by_call() {
 #[test]
 fn borrowed_case_rejections_cover_mode_and_aliasing_rules() {
     reject("#enum E () ((E.A #u64) E.B)\n#fn f {\n  #params = ((e (#ref E)));\n  #returns = #u64;\n  #body = ( (#return (#match e (#case-ref-mut (E.A x) (#deref x)) (#case-ref E.B 0u64)))\n  );\n}\n", "mutable");
-    let prefix = "#struct Pair () ((left #u64) (right #u64))\n#enum E () ((E.A Pair) E.B)\n#fn f {\n  #params = ((e (#ref E)));\n  #returns = #u64;";
+    let prefix = "#struct Pair () ((left #u64) (right #u64))\n#enum E () ((E.A Pair) E.B)\n#fn f {\n  #params = ((e (#ref E)));\n  #returns = #u64;\n  #body = (";
     reject_any(&format!(
-        "{prefix}(#return (#match e (#case-ref (E.A (Pair x y)) x) (#case-ref E.B 0u64)))"
+        "{prefix}(#return (#match e (#case-ref (E.A (Pair x y)) x) (#case-ref E.B 0u64)))\n  );\n}}"
     ));
-    reject_any(&format!("{prefix}(#return (#match e (#case-ref (E.A value) 1u64) (#case-ref (E.A again) 2u64) (#case-ref E.B 0u64)))"));
+    reject_any(&format!("{prefix}(#return (#match e (#case-ref (E.A value) 1u64) (#case-ref (E.A again) 2u64) (#case-ref E.B 0u64)))\n  );\n}}"));
     reject_any(&format!(
-        "{prefix}(#return (#match e (#case-ref (E.A value) 1u64)))"
+        "{prefix}(#return (#match e (#case-ref (E.A value) 1u64)))\n  );\n}}"
     ));
     reject_any(&format!(
-        "{prefix}(#return (#match e (#case-ref (E.A value) 1u64) (#case-pin E.B 0u64)))"
+        "{prefix}(#return (#match e (#case-ref (E.A value) 1u64) (#case-pin E.B 0u64)))\n  );\n}}"
     ));
     let shadowing = "#enum E () ((E.A #u64))\n#fn f {\n  #params = ((e (#ref E)));\n  #returns = #u64;\n  #body = ( (#return (#match e (#case-ref (E.A e) (#deref e))))\n  );\n}\n";
     lim::parse_source_unit(shadowing).unwrap();

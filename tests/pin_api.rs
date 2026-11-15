@@ -25,7 +25,7 @@ fn compile(source: &str, scratch: &support::Scratch) -> Result<String, lim::Diag
 fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
     let scratch = support::Scratch::new("pin-api-scope");
     let source = source().replace(
-        "#fn destroy-frame {\n  #params = ((pin PinnedFrame));\n  #returns = ();",
+        "#fn destroy-frame {\n  #params = ((pin PinnedFrame));\n  #returns = ();\n  #body = (",
         "#fn destroy-frame {
   #params = ((pin PinnedFrame));
   #returns = ();
@@ -33,7 +33,7 @@ fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
       (#let byte #u64 67u64)
       (#let pointer (#ptr #u64) (#unsafe (#addr-of byte)))
       (#let written #i64 (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))))
-      (#assert (#i64::eq written 1i64))\n  );\n}",
+      (#assert (#i64::eq written 1i64))\n",
     );
     let assembly = compile(&source, &scratch).unwrap();
     let binary = scratch.path().join("program");

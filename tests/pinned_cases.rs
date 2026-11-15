@@ -141,18 +141,18 @@ fn exclusive_pinned_match_requires_exclusive_input_and_local_escape_is_rejected(
 
 #[test]
 fn pinned_match_keeps_standard_exhaustiveness_and_pattern_restrictions() {
-    let prefix = "#struct Pair () ((left #u64) (right #u64))\n#enum Choice () ((Choice.Full Pair) Choice.Empty)\n#fn bad {\n  #params = ((choice (#pin-ref Choice)));\n  #returns = #u64;";
+    let prefix = "#struct Pair () ((left #u64) (right #u64))\n#enum Choice () ((Choice.Full Pair) Choice.Empty)\n#fn bad {\n  #params = ((choice (#pin-ref Choice)));\n  #returns = #u64;\n  #body = (";
     reject_any(&format!(
-        "{prefix}(#return (#match choice (#case-pin (Choice.Full (Pair left right)) left) (#case-pin Choice.Empty 0u64)))"
+        "{prefix}(#return (#match choice (#case-pin (Choice.Full (Pair left right)) left) (#case-pin Choice.Empty 0u64)))\n  );\n}}"
     ));
     reject_any(&format!(
-        "{prefix}(#return (#match choice (#case-pin (Choice.Full payload) 1u64) (#case-pin (Choice.Full again) 2u64) (#case-pin Choice.Empty 0u64)))"
+        "{prefix}(#return (#match choice (#case-pin (Choice.Full payload) 1u64) (#case-pin (Choice.Full again) 2u64) (#case-pin Choice.Empty 0u64)))\n  );\n}}"
     ));
     reject_any(&format!(
-        "{prefix}(#return (#match choice (#case-pin (Choice.Full payload) (#get payload left))))"
+        "{prefix}(#return (#match choice (#case-pin (Choice.Full payload) (#get payload left))))\n  );\n}}"
     ));
     reject_any(&format!(
-        "{prefix}(#return (#match choice (#case (Choice.Full payload) (#get payload left)) (#case _ 0u64)))"
+        "{prefix}(#return (#match choice (#case (Choice.Full payload) (#get payload left)) (#case _ 0u64)))\n  );\n}}"
     ));
     reject_program(
         "#enum Choice () ((Choice.Full #u64) Choice.Empty)

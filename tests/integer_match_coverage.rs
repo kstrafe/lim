@@ -134,14 +134,14 @@ fn exhaustive_matches_dispatch_all_u8_values_and_full_width_boundaries() {
         "u8",
         "(#case (#range 0u8 127u8) 0u64) (#case (#range 128u8 255u8) 1u64)",
     );
-    program.push_str("#fn main {\n  #params = ();\n  #returns = #u64;");
+    program.push_str("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = (");
     for value in 0..=255 {
         program.push_str(&format!(
             "(#assert (#u64::eq (#call classify ((value {value}u8))) {}u64))",
             usize::from(value >= 128)
         ));
     }
-    program.push_str("  (#return 42u64)");
+    program.push_str("  (#return 42u64)\n  );\n}");
     run(&program);
     for (ty, minimum, maximum) in [
         ("u64", "0", "18446744073709551615"),

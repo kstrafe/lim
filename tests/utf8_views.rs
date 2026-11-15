@@ -298,7 +298,7 @@ fn string_and_slice_views_reject_mutation_destruction_and_source_escape() {
         ("iterator", "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut text String (#call String::new ())) (#let whole StringView (#call String::view ((string (#borrow text))))) (#let-mut iterator StringView::Chars (#call StringView::chars ((view whole)))) (#call String::free ((string text))) (#call StringView::Chars::next ((iterator (#borrow-mut iterator)))) (#forget iterator) (#return 42u64)\n  );\n}\n"),
         ("returned", "#std\n#fn bad {\n  #params = ();\n  #returns = StringView;\n  #body = ( (#let text String (#call String::new ())) (#let view StringView (#call String::view ((string (#borrow text))))) (#forget text) (#return view)\n  );\n}\n"),
         ("slice", "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view Utf8Slice (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic)))) (#let change (#ref-mut (#array #u8 1)) (#borrow-mut bytes)) (#call Utf8Slice::len ((view (#borrow view)))) (#forget view) (#return 42u64)\n  );\n}\n"),
-        ("slice-returned", "#std\n#fn bad {\n  #params = ();\n  #returns = Utf8Slice;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#return (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic))))\n"),
+        ("slice-returned", "#std\n#fn bad {\n  #params = ();\n  #returns = Utf8Slice;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#return (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic))))\n  );\n}\n"),
     ] {
         let scratch = support::Scratch::new(&format!("utf8-reject-{label}"));
         let error = compile(source, &scratch.path().join("main.lim")).unwrap_err();
@@ -340,7 +340,7 @@ fn generated_views_are_cached_inspectable_and_compile_as_ordinary_lim() {
         modified,
         fs::metadata(&generated).unwrap().modified().unwrap()
     );
-    execute(&format!("#std\n{text}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view BorrowedText (#match (#call BorrowedText::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (BorrowedText::Result.Valid accepted) accepted) (#case _ (#panic)))) (#assert (#usize::eq (#call BorrowedText::len ((view (#borrow view)))) 1usize)) (#forget view) (#return 42u64)\n"), "utf8-emitted-source");
+    execute(&format!("#std\n{text}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view BorrowedText (#match (#call BorrowedText::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (BorrowedText::Result.Valid accepted) accepted) (#case _ (#panic)))) (#assert (#usize::eq (#call BorrowedText::len ((view (#borrow view)))) 1usize)) (#forget view) (#return 42u64)\n  );\n}}\n"), "utf8-emitted-source");
 }
 
 #[test]

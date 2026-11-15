@@ -286,11 +286,11 @@ fn injected_stdio(syscall: &str) -> String {
             && matches!(node.children.get(1).map(|name| &name.expr),
                 Some(lim::Expr::Symbol(name)) if name == "std-write-all")
         {
-            let position = node.children[3].span.end;
+            let position = node.children[4].span.start;
             edits.push((
                 position,
                 position,
-                "\n  (#let-mut attempts #usize 0usize)".into(),
+                "(#let-mut attempts #usize 0usize)\n  ".into(),
             ));
         }
         if matches!(node.children.first().map(|head| &head.expr),
