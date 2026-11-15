@@ -262,7 +262,7 @@ fn mixed_local_allocation_exclusive_targets_survive_pending_and_cancellation() {
         .replace("(#pin-ref #u64)", "(#pin-ref-mut #u64)")
         .replace(" (fallback (#pin-ref-mut #u64))", "")
         .replace(" (fallback (#unsafe (#pin-borrow (#get fallback-storage value))))", "")
-        .replace("(#if (#u64::eq choice 1u64)\n          allocated\n          fallback)", "allocated")
+        .replace("(#if (#u64::eq choice 1u64)\n            allocated\n            fallback)", "allocated")
         .replace("(#let heap (#pin-own Data)", "(#let-mut heap (#pin-own Data)")
         .replace("(#pin-ref Data) (#pin-own-borrow heap)", "(#pin-ref-mut Data) (#pin-own-borrow-mut (#borrow-mut heap))")
         .replace("(#pin-borrow (#get local 1))", "(#pin-borrow-mut (#get local 1))")
@@ -392,7 +392,7 @@ fn direct_static_field_borrow_keeps_global_identity_across_pending() {
     );
     run(&source);
     run(&source.replace("#static fallback-storage Data (#struct-literal Data ((padding 999u128) (value 60u64) (sentinel 70u64)))",
-        "(#static fallback-storage (#tuple #u8 #u64) (#tuple (#tuple #u8 #u64) 1u8 60u64))")
+        "#static fallback-storage (#tuple #u8 #u64) (#tuple (#tuple #u8 #u64) 1u8 60u64)")
         .replace("(#get fallback-storage value)", "(#get fallback-storage 1)"));
     let invalid = source.replace(
         "(#unsafe (#pin-borrow (#get fallback-storage value)))",

@@ -282,16 +282,7 @@ fn partial_exclusive_holder_lends_its_handle_before_a_later_await() {
     let begin = source.find("    (#let kept").unwrap();
     let end = source.find("#fn main").unwrap();
     let source = format!(
-        "{}\n
-        (#let moved Token (#get owner item)) (#forget moved)
-        (#set-field owner item (#struct-literal Token ((value 1u64))))
-        (#let answer #u64 (#call read
-          ((view (#get owner kept))
-           (amount (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start)))))
-        (#forget owner) (#return answer)))))
-        (#fn read ((view (#ref-mut #u64)) (amount ())) #u64
-          (#deref-set view (#u64::add-wrap (#deref view) 2u64))
-          (#return (#deref view)))\n{}",
+        "{}\n\n        (#let moved Token (#get owner item)) (#forget moved)\n        (#set-field owner item (#struct-literal Token ((value 1u64))))\n        (#let answer #u64 (#call read\n          ((view (#get owner kept))\n           (amount (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start)))))\n        (#forget owner) (#return answer))))\n#fn read ((view (#ref-mut #u64)) (amount ())) #u64\n          (#deref-set view (#u64::add-wrap (#deref view) 2u64))\n          (#return (#deref view))\n{}",
         &source[..begin],
         &source[end..],
     );
