@@ -1,11 +1,11 @@
 #extern-fn  abs {
   #abi = #abi-c;
   #params = ((value #i32));
-  #returns = #i32;
+  #returns = #i32; #effects = (#io #global-access);
 }
 #fn work {
   #params = ();
-  #returns = #i32;
+  #returns = #i32; #effects = ((#effects-of abs));
   #body = ( (#return (#unsafe (#unsafe-call abs ((value -42i32)))))
   );
 }

@@ -287,7 +287,7 @@ fn aliasing_foreign_functions_preserves_the_linker_symbol() {
         "foreign.lim",
         "#extern-fn  c_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n#effects = (#global-access #io); }\n",
     );
-    let program = lim::parse_program_from_path("#alias read = ./foreign.lim::c_value\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read ())))\n  );\n}\n", &scratch.path().join("main.lim")).unwrap();
+    let program = lim::parse_program_from_path("#alias read = ./foreign.lim::c_value\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of read));\n  #body = ( (#return (#unsafe (#unsafe-call read ())))\n  );\n}\n", &scratch.path().join("main.lim")).unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     assert!(assembly.contains(".extern c_value\n"), "{assembly}");
 }
@@ -318,7 +318,7 @@ fn async_generator_outputs_are_distinct_between_source_files() {
   #effects = ((#effects-of Work::poll)); #body = ( (#let waker #u64 0u64) (#let result Work::Poll (#call Work::poll ((task (#call work ((value 21u64)))) (waker (#borrow waker))))) (#return (#match result (#case (Work::Poll.Ready answer) answer) (#case (Work::Poll.Pending task) (#block (#forget task) (#unreachable)))))\n  );\n}\n";
     write(scratch.path(), "first.lim", source);
     write(scratch.path(), "second.lim", source);
-    check(scratch.path(), "#alias first = ./first.lim::run\n#alias second = ./second.lim::run\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-wrap (#call first ()) (#call second ())))\n  );\n}\n").unwrap();
+    check(scratch.path(), "#alias first = ./first.lim::run\n#alias second = ./second.lim::run\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #effects = ((#effects-of first) (#effects-of second));\n  #body = ( (#return (#u64::add-wrap (#call first ()) (#call second ())))\n  );\n}\n").unwrap();
 }
 
 #[test]
