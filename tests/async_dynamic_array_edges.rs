@@ -65,7 +65,7 @@ fn nested_array_lifetime_anchor_can_read_through_a_shared_pointer_borrow() {
 #fn inspect {
   #params = ((data (#pin-ref-mut (#array Record 2))));
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let pointer (#ptr Empty) (#ref-ptr (#pin-borrow (#get (#index data 0usize) tail))))
           (#let view (#ref Empty) (#unsafe (#ptr-borrow
             (#block
@@ -77,7 +77,7 @@ fn nested_array_lifetime_anchor_can_read_through_a_shared_pointer_borrow() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ( (#let-mut data (#array Record 2)
+  #effects = ((#effects-of inspect)); #body = ( (#let-mut data (#array Record 2)
           (#array-of (#array Record 2)
             (#struct-literal Record ((header 1u64) (tail (#struct-literal Empty ()))))
             (#struct-literal Record ((header 2u64) (tail (#struct-literal Empty ()))))))
@@ -137,7 +137,7 @@ fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_ow
 #fn run {
   #params = ((choose #bool));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let-mut external (#array Empty 2)
             (#array-of (#array Empty 2) (#struct-literal Empty ()) (#struct-literal Empty ())))
           (#let waker #u64 0u64)
@@ -158,7 +158,7 @@ fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_ow
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
           (#assert (#usize::eq (#size-of Empty) 0usize))
           (#assert (#u64::eq (#call run ((choose true))) 42u64))
           (#return (#call run ((choose false))))
@@ -310,7 +310,7 @@ fn nested_array_source() -> &'static str {
 #fn run {
   #params = ((choose #bool));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let-mut external (#array Record 2)
             (#array-of (#array Record 2)
               (#struct-literal Record ((header 31u64) (tail (#struct-literal Empty ()))))
@@ -333,7 +333,7 @@ fn nested_array_source() -> &'static str {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
           (#assert (#usize::eq (#size-of Empty) 0usize))
           (#assert (#u64::eq (#call run ((choose true))) 42u64))
           (#return (#call run ((choose false))))

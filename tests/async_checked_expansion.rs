@@ -21,7 +21,7 @@ const SOURCE: &str = "
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
       (#let waker #u64 0u64)
       (#let first Work::Poll (#call Work::poll
         ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))

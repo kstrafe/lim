@@ -317,7 +317,7 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::Poll::cleanup)); #body = ( (#let waker #u64 0u64)
               (#let count Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
               (#let-mut task Work::Frame (#call work ((owner (#struct-literal Owner
                 ((choice (Choice.Number (#struct-literal NumberPayload ((value 40u64)))))))) (counter (#borrow count)))))
@@ -353,7 +353,7 @@ fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::Poll::cleanup)); #body = ( (#let waker #u64 0u64)
               (#let-mut task Work::Frame (#call work ((seed 42u64)))) {polls}
               (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
               (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
@@ -385,7 +385,7 @@ fn movable_cleanup_consumes_the_frame_at_entry_and_pending() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::Poll::cleanup)); #body = ( (#let waker #u64 0u64)
               (#let task Work::Task (#call work ((seed 42u64)))) {polls}
               (#call work-cancel ((task (#call Work::Poll::cleanup ((task {task}))))))
               (#return 42u64)\n  );\n}}\n"
@@ -412,7 +412,7 @@ fn movable_dynamic_store_preserves_selection_in_cached_and_standalone_code() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let first Work::Poll (#call Work::poll
             ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
@@ -447,7 +447,7 @@ fn guard_preview_keeps_linear_scrutinee_through_rejection_and_resumption() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::poll)); #body = ( (#let waker #u64 0u64)
           (#let first Work::Poll (#call Work::poll ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
           (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
           (#let second Work::Poll (#call Work::poll ((task next) (waker (#borrow waker)))))
@@ -613,7 +613,7 @@ fn repeated_direct_field_reads_lend_a_unique_parent_before_and_after_pending() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64) (#let-mut owner #u64 21u64)
           (#let-mut view View (#struct-literal View ((field (#borrow-mut owner)))))
           (#let-mut frame Work::Frame (#call work ((view (#borrow-mut view)))))
@@ -655,7 +655,7 @@ fn linear_reference_guard_acceptance_consumes_only_the_selected_payload() {
         "{}\n#fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
         (#let waker #u64 0u64) (#let owner #u64 0u64)
         (#let-mut frame Work::Frame (#call work ((source (#borrow owner)))))
         (#let-else (Work::Poll.Pending next) Work::Poll
@@ -698,7 +698,7 @@ fn movable_linear_guard_borrows_the_retained_payload_only_during_poll() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64) (#let owner #u64 42u64)
           (#let-else (Work::Poll.Pending next) Work::Poll
             (#call Work::poll ((task (#call work ((source (#borrow owner)))))
@@ -878,7 +878,7 @@ fn cancelled_guard_source(declarations: &str, polls: &str, handle: &str) -> Stri
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
+  #effects = ((#effects-of Work::Poll::cleanup)); #body = ( (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
           (#let-mut frame Work::Frame (#call work ((source (#borrow owner)))))
           {polls}
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
@@ -1033,7 +1033,7 @@ fn exclusive_guard_commit_releases_the_preview_before_mutating_the_payload() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
+  #effects = ((#effects-of Work::poll)); #body = ( (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
           (#let-mut frame Work::Frame (#call work ((source (#borrow-mut owner)))))
           (#let first Work::Poll
             (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
@@ -1293,7 +1293,7 @@ fn delayed_owner_initialization_and_configured_destruction_are_exactly_once() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::Poll::cleanup)); #body = ( (#let waker #u64 0u64)
               (#let created Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
               (#let destroyed Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
               (#let-mut task Work::Frame (#call work ((created (#borrow created)) (destroyed (#borrow destroyed)))))
@@ -1343,7 +1343,7 @@ fn scoped_external_tokens_survive_pending_and_release_on_exit_or_cleanup() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::poll)); #body = ( (#let waker #u64 0u64)
                   (#let-mut owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 1u64 2u64))
                   (#let-mut task Work::Frame (#call work ((owner ({borrow} owner)))))
                   (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))

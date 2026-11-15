@@ -21,7 +21,7 @@ const PREFIX: &str = r#"
 #fn make-heap {
   #params = ();
   #returns = (#pin-own Data);
-  #body = (
+  #effects = (#global-access #io); #body = (
     (#let pointer (#ptr-mut Data) (#unsafe (#linux-syscall (#ptr-mut Data) 9usize
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
     (#assert (#usize::lt (#ptr-address pointer) 18446744073709547520usize))
@@ -32,7 +32,7 @@ const PREFIX: &str = r#"
 #fn destroy-heap {
   #params = ((owner (#pin-own Data)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io (#write-global destroyed)); #body = (
     (#let view (#pin-ref Data) (#pin-own-borrow owner))
     (#assert (#u64::eq (#get view sentinel) 80u64))
     (#drop view)
@@ -57,7 +57,7 @@ const PREFIX: &str = r#"
 #fn cancel-child {
   #params = ((child Child));
   #returns = ();
-  #body = (
+  #effects = ((#write-global cancelled)); #body = (
     (#match child (#case (Child.Holding (#tuple reference count)) (#block
       (#assert (#u64::ge (#deref reference) 40u64))
       (#drop reference) ())))
@@ -68,7 +68,7 @@ const PREFIX: &str = r#"
 #fn verify-cancel {
   #params = ((phase #u64));
   #returns = ();
-  #body = (
+  #effects = ((#read-global cancelled)); #body = (
     (#let expected #u64 (#if (#bool::or (#u64::eq phase 1u64) (#u64::eq phase 2u64)) 1u64 0u64))
     (#assert (#u64::eq (#unsafe (#atomic-load (#borrow cancelled) #memory-relaxed)) expected))
     (#return ())
@@ -81,7 +81,7 @@ fn direct_source() -> String {
         r#"{PREFIX}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
     (cancel (work-cancel ((heap destroy-heap) (await-0 cancel-child))))
-    (function (#fn work ((choice #u64)) #u64
+    (function (#fn work ((choice #u64)) #u64 (#effects ((#effects-of destroy-heap) (#effects-of make-heap)))
       (#let-mut local (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 90u64 40u64))
       (#let-mut heap (#pin-own Data) (#call make-heap ()))
       (#let view (#pin-ref #u64)
@@ -98,7 +98,7 @@ fn direct_source() -> String {
 #fn run {{
   #params = ((choice #u64) (cancel-at #u64));
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::destroy) (#effects-of Work::poll)); #body = (
     (#unsafe (#atomic-store (#borrow destroyed) 0u64 #memory-relaxed))
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work (($ choice))))
@@ -132,7 +132,7 @@ fn direct_source() -> String {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of run)); #body = (
     (#assert (#u64::eq (#call run ((choice 0u64) (cancel-at 9u64))) 42u64))
     (#assert (#u64::eq (#call run ((choice 1u64) (cancel-at 9u64))) 42u64))
     (#assert (#u64::eq (#call run ((choice 2u64) (cancel-at 9u64))) 42u64))
@@ -251,7 +251,7 @@ fn direct_ordinary_allocation_mix_requires_a_real_owner_recipe() {
 #fn make {
   #params = ();
   #returns = (#pin-own Data);
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let pointer (#ptr-mut Data) (#unsafe (#linux-syscall (#ptr-mut Data) 9usize (0usize 4096usize 3usize 34usize -1i64 0usize))))
           (#return (#unsafe (#pin-own-of pointer (#struct-literal Data ((value 42u64))))))
   );
@@ -259,7 +259,7 @@ fn direct_ordinary_allocation_mix_requires_a_real_owner_recipe() {
 #fn destroy {
   #params = ((owner (#pin-own Data)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
           (#let pointer (#ptr-mut Data) (#unsafe (#pin-release owner)))
           (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) (#return ())
   );
@@ -280,7 +280,7 @@ fn direct_ordinary_allocation_mix_requires_a_real_owner_recipe() {
   );
 }
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (cancel (work-cancel ((heap destroy) (await-0 cancel))))
-          (function (#fn work ((choose #bool)) #u64
+          (function (#fn work ((choose #bool)) #u64 (#effects (#global-access #io (#effects-of destroy) (#effects-of make)))
             (#let-mut local #u64 40u64) (#let-mut heap (#pin-own Data) (#call make ()))
             (#let view (#ref #u64) (#if choose (#borrow local) (#block
               (#let anchor (#pin-ref Data) (#pin-own-borrow heap))
@@ -437,7 +437,7 @@ fn direct_static_field_borrow_keeps_global_identity_across_pending() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::destroy) (#effects-of Work::poll)); #body = (
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work ()))
     (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))

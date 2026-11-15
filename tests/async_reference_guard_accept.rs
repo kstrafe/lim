@@ -59,7 +59,7 @@ fn run_guard(guard_accepts: bool) {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64) (#let owner #u64 42u64)
           (#let-mut frame Work::Frame
             (#call work ((source (#borrow owner)))))

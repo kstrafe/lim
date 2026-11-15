@@ -22,7 +22,7 @@ const PREFIX: &str = r#"
 #fn destroy {
   #params = ((owner (#pin-own Holder)));
   #returns = ();
-  #body = (
+  #effects = (#global-access #io); #body = (
       (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
       (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
       (#return ())
@@ -41,7 +41,7 @@ const PREFIX: &str = r#"
   );
 }
 #generate #async-fn ((protocol work-await) (waker #u64) (function
-      (#fn work ((pointer (#ptr-mut Holder)) (source (#ref #u64))) #u64
+      (#fn work ((pointer (#ptr-mut Holder)) (source (#ref #u64))) #u64 (#effects ((#effects-of destroy)))
         (#let ignored #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
         (#let owner (#pin-own Holder) (#call make ((pointer pointer) (source source))))
         (#let completed #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
@@ -68,7 +68,7 @@ fn heap_reference_owner_created_after_await_survives_next_await() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of Work::poll) (#effects-of work)); #body = (
           (#let-mut source #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -111,7 +111,7 @@ fn async_heap_reference_prevents_source_mutation_across_pending() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of Work::poll) (#effects-of work)); #body = (
           (#let-mut source #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -142,7 +142,7 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
     let prefix = PREFIX
         .replace(
             "#fn make {\n  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)));\n  #returns = (#pin-own Holder);\n  #body = (\n      (#return",
-            "#fn make {\n  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)) (counts (#ptr-mut #u64)));\n  #returns = (#pin-own Holder);\n  #body = (\n    (#unsafe (#ptr-write counts (#u64::add-wrap (#ptr-read counts) 1u64)))\n    (#return",
+            "#fn make {\n  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)) (counts (#ptr-mut #u64)));\n  #returns = (#pin-own Holder);\n  #effects = (#global-access #io); #body = (\n    (#unsafe (#ptr-write counts (#u64::add-wrap (#ptr-read counts) 1u64)))\n    (#return",
         )
         .replace(
             "#fn destroy {\n  #params = ((owner (#pin-own Holder)));\n  #returns = ();",
@@ -198,7 +198,7 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
 #fn destroy-counted {{
   #params = ((counted CountedOwner));
   #returns = ();
-  #body = (
+  #effects = ((#effects-of destroy)); #body = (
           (#let (CountedOwner owner counts) CountedOwner counted)
           (#call destroy ((owner owner) (counts counts))) (#return ())
   );
@@ -212,7 +212,7 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = (#global-access #io (#effects-of Work::Poll::cleanup) (#effects-of Work::poll) (#effects-of work)); #body = (
           (#let-mut source #u64 42u64)
           (#let counts (#ptr-mut #u64) (#unsafe (#linux-syscall (#ptr-mut #u64) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))

@@ -18,7 +18,7 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = ( (#let waker #u64 0u64)
+  #effects = ((#effects-of Work::poll)); #body = ( (#let waker #u64 0u64)
           (#let-mut frame Work::Frame (#call work ((owner (#struct-literal Owner
             ((payload (#struct-literal Payload ((left 40u64) (right 5u64))))))))))
           (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
@@ -211,7 +211,7 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of Work::Poll::cleanup) (#effects-of Work::poll)); #body = (
           (#let waker #u64 0u64)
           (#let-mut frame Work::Frame (#call work ((owner (#struct-literal Owner
             ((payload (#struct-literal Payload ((left 40u64) (right 5u64))))))))))
@@ -469,7 +469,7 @@ fn access_handles_unit_aliases_multiple_parameters_and_imports() {
 #fn main {{
   #params = ();
   #returns = #u64;
-  #body = (
+  #effects = ((#effects-of {prefix}Work::poll)); #body = (
               (#let waker #u64 0u64)
               (#let-mut frame {frame} (#call {prefix}work (({prefix}empty ()) ({prefix}amount 40u64) ({prefix}other 5u64))))
               (#let poll-result #u64 (#match

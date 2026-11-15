@@ -714,7 +714,7 @@ fn native_thread_entry_points_are_private_unless_exported() {
 #fn main {
   #params = ();
   #returns = #u64;
-  #body = ( (#return
+  #effects = (#io #global-access); #body = ( (#return
           (#match (#call workers@Task::spawn ())
             (#case (workers@Task::SpawnResult.Ok task)
               (#match (#call workers@Task::join ((task task)))
