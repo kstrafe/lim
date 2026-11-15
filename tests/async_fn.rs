@@ -1625,7 +1625,7 @@ fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
     );
 
     let duplicate_exclusive_borrow = source.replace(
-        "    (#let result #u64",
+        "      (#let result #u64",
         "    (#let second-view (#pin-ref-mut #u64)\n      (#pin-borrow-mut (#get (#get owner payload) left)))\n    (#let result #u64",
     );
     assert_ne!(duplicate_exclusive_borrow, source);
@@ -1633,7 +1633,7 @@ fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
         &duplicate_exclusive_borrow,
         "async-exclusive-self-duplicate",
     );
-    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
     let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access") || error.contains("pinned"),
@@ -1685,7 +1685,7 @@ fn pinned_async_result_cannot_export_a_local_self_reference() {
             "(#let result #u64\n      (#match second",
             "(#let result (#pin-ref #u64)\n    (#match second",
         )
-        .replace("(#return result))", "(#return (#deref result))");
+        .replace("(#return result)", "(#return (#deref result))");
     let error = graph_compile_error(&source, "async-pinned-local-reference-result");
     assert_eq!(error.code, lim::DiagnosticCode::Borrow);
     let error = error.message;
