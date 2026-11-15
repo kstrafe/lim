@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "lim"
 version = "0.1.0"
+
+[[package]]
+name = "lim-browser"
+version = "0.1.0"
+dependencies = [
+ "lim",
+]

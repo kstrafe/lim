@@ -75,6 +75,7 @@ mod typed_ir;
 mod typed_place;
 mod unsafecheck;
 mod warnings;
+pub mod wasm;
 mod word_loans;
 use generator::builtins::normalize_builtin_generator_invocation;
 use generator::frontend::*;

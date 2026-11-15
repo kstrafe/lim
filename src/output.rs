@@ -20,12 +20,14 @@ impl StagingDirectory {
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
-            let mut builder = fs::DirBuilder::new();
+            let builder = fs::DirBuilder::new();
             #[cfg(unix)]
-            {
+            let builder = {
                 use std::os::unix::fs::DirBuilderExt;
+                let mut builder = builder;
                 builder.mode(0o700);
-            }
+                builder
+            };
             match builder.create(&path) {
                 Ok(()) => return Ok(Self(path)),
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -67,15 +69,15 @@ pub fn reject_source_output_collision(source: &Path, output: &Path) -> io::Resul
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
     };
-    let mut same = source_path == output_path;
+    let same = source_path == output_path;
     #[cfg(unix)]
-    {
+    let same = {
         use std::os::unix::fs::MetadataExt;
         let source_metadata = fs::metadata(&source_path)?;
         let output_metadata = fs::metadata(&output_path)?;
-        same |= source_metadata.dev() == output_metadata.dev()
-            && source_metadata.ino() == output_metadata.ino();
-    }
+        same || (source_metadata.dev() == output_metadata.dev()
+            && source_metadata.ino() == output_metadata.ino())
+    };
     if same {
         Err(io::Error::new(
             io::ErrorKind::InvalidInput,

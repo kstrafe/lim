@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Compile and run small Lim programs locally in your browser with the real Rust compiler, compiled to WebAssembly.">
+<title>Lim playground</title><link rel="stylesheet" href="reference.css">
+<script type="module" src="playground.mjs"></script>
+</head>
+<body class="playground">
+<a class="skip-link" href="#main">Skip to editor</a>
+<header class="topbar"><a class="brand" href="reference.html">lim<span>/ playground</span></a><nav aria-label="Page navigation"><a href="reference.html#tutorial">Tutorial</a><a href="reference.html#language-reference">Reference</a><a href="reference.html#browser-compiler">Build notes</a></nav></header>
+<main id="main" class="playground-main">
+<p class="eyebrow">Learn by changing the code</p>
+<h1>A small program.<br>A real compiler.</h1>
+<p class="lead">The Lim compiler runs in this browser. Edit an example, compile it to WebAssembly, and call <code>main</code>. Your source stays on your device.</p>
+<div class="editor-toolbar"><label for="example">Example <select id="example"><option value="answer">Functions &amp; arithmetic</option><option value="loop">A loop from 1 to 10</option><option value="contract">Branch evidence &amp; contracts</option><option value="invalid">Find a type error</option><option value="array">Check array bounds evidence</option></select></label><span><kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>Enter</kbd> to run</span></div>
+<div class="actions"><button id="run" type="button">Compile &amp; run <span aria-hidden="true">↗</span></button><button id="check" class="secondary" type="button">Check only</button><button id="stop" class="secondary" type="button" disabled>Stop</button><span class="quiet">32 KiB source · 10-second limit · contract audits enabled</span></div>
+<div class="workbench">
+<section class="editor-panel" aria-labelledby="source-heading"><h2 id="source-heading">Source <span>playground.lim</span></h2><label class="sr-only" for="source">Lim source code</label><textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off">// Change either argument, then run again.
+#fn subtract {
+  #params = { left = #u64; right = #u64; };
+  #returns = #u64;
+  #body: #return : #u64::sub-wrap left right;
+}
+
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body: #return subtract { right = 2; left = 44; };
+}</textarea></section>
+<section class="result-panel" aria-labelledby="result-heading"><h2 id="result-heading">Result <span id="status" role="status" aria-live="polite">Ready</span></h2><pre id="output" aria-live="polite">Choose Compile &amp; run or Check only.</pre><a id="download" class="text-action" download="program.wasm" hidden>Download program.wasm ↓</a></section>
+</div>
+<noscript><p>This separate playground needs JavaScript to load WebAssembly. The <a href="reference.html">complete tutorial and reference</a> works without it.</p></noscript>
+<section class="scope-note"><h2>What runs here</h2><p>Scalar <code>#u64</code>, <code>#i64</code>, <code>#usize</code>, <code>#isize</code>, <code>#bool</code> and <code>()</code>; safe functions and named calls; wrapping arithmetic, comparisons and bit operations; local mutation; branches, blocks and loops; predicate contracts. The normal checker runs before code generation.</p><p><strong>Check only</strong> also checks self-contained examples with arrays, references, structs and other language features. Runnable output currently excludes memory access, globals, aggregates, matching, saturating arithmetic, floats, narrow integers, labeled/value loops, host I/O and external functions. File imports are unavailable. <code>#usize</code> values retain Lim’s 64-bit scalar semantics here.</p><p>This is an experimental teaching backend. The <a href="reference.html">full language reference</a> also describes the broader native compiler.</p></section>
+</main><footer class="page-footer">Lim · explicit types, visible contracts, ordinary trees. <a href="reference.html">Read the handbook →</a></footer>
+<template id="example-answer">// Change either argument, then run again.
+#fn subtract {
+  #params = { left = #u64; right = #u64; };
+  #returns = #u64;
+  #body: #return : #u64::sub-wrap left right;
+}
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body: #return subtract { right = 2; left = 44; };
+}</template>
+<template id="example-loop">#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let-mut total #u64 0;
+    #for-range (number #u64) 1 11:
+      #set total [#u64 #wrap; total + number];
+    #return total;
+}
+// The half-open range includes 1 through 10. Result: 55.</template>
+<template id="example-contract">#fn positive {
+  #params = { n = #u64; };
+  #returns = #bool;
+  #body: #return [#u64; n &gt; 0];
+}
+#fn accept {
+  #params = { n = #u64; };
+  #returns = #u64;
+  #requires: positive { n = n; };
+  #body: #return n;
+}
+#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let n #u64 42;
+    #return (#if-valid positive { n = n; }
+      accept { n = n; }
+      0u64);
+}
+// Replace the #if-valid expression with accept { n = n; }.
+// The checker then reports missing evidence.</template>
+<template id="example-invalid">#fn main {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let answer #u64 false;
+    #return answer;
+}
+// Replace false with 42 to fix the error.</template>
+<template id="example-array">// Use Check only: array code generation is a native feature today.
+(#fn main () #u64
+  (#let items (#array #u64 2)
+    (#array-of (#array #u64 2) 20u64 42u64))
+  (#let view (#ref (#array #u64 2)) (#borrow items))
+  (#let index #usize 1usize)
+  (#return (#if-valid (#usize::lt index 2usize)
+    (#index-proven view index)
+    0u64)))</template>
+</body></html>

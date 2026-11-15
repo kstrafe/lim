@@ -25,3 +25,14 @@ codegen-units = 1
 lto = "fat"
 panic = "abort"
 strip = true
+
+[workspace]
+members = ["browser"]
+default-members = ["."]
+resolver = "2"
+
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+lto = "thin"
+codegen-units = 8

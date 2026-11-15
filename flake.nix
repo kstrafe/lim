@@ -20,6 +20,7 @@
 
       rust-collection = pkgs.rust-bin.nightly.latest.default.override {
         extensions = [ "miri-preview" "rust-src" ];
+        targets = [ "wasm32-unknown-unknown" ];
       };
 
       packages = with pkgs; [
@@ -30,6 +31,9 @@
         cmake
         fontconfig.dev
         just
+        nodejs
+        pandoc
+        python3
         libGL
         libxkbcommon
         libxkbcommon
