@@ -165,7 +165,7 @@ fn public_cancellation_examples_use_cleanup_slots_not_legacy_state_variants() {
 fn self_reference_example_uses_source_named_access_and_cleanup_on_the_same_frame() {
     let source = include_str!("../examples/async_fn_self_reference.lim")
         .replace("read-after-await", "work")
-        .replace("Read::after-await", "Work")
+        .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait");
     let artifact = run_expected(&source, "async-graph-self-reference-example", 58);
     assert!(artifact.contains("#fn work-owner-replace "));
@@ -212,7 +212,7 @@ fn self_reference_graph_pending_handle_blocks_frame_destruction() {
 fn graph_allows_reading_copy_owner_data_while_shared_self_references_are_retained() {
     let source = include_str!("../examples/async_fn_self_reference.lim")
         .replace("read-after-await", "work")
-        .replace("Read::after-await", "Work")
+        .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait")
         .replace("(#u64::add-wrap (#u64::add-wrap (#deref view) (#deref right-view)) result)",
             "(#u64::add-wrap (#u64::add-wrap (#u64::add-wrap (#deref view) (#deref right-view)) result) (#get (#get owner payload) left))");
@@ -223,7 +223,7 @@ fn graph_allows_reading_copy_owner_data_while_shared_self_references_are_retaine
 fn enum_self_reference_example_checks_and_runs_as_standalone_graph_code() {
     let source = include_str!("../examples/async_fn_enum_self_reference.lim")
         .replace("read-after-await", "work")
-        .replace("Read::after-await", "Work")
+        .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait");
     run_expected(&source, "async-enum-self-reference-graph", 42);
 }
@@ -271,7 +271,7 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
         .next()
         .unwrap()
         .replace("read-after-await", "work")
-        .replace("Read::after-await", "Work")
+        .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait")
         .replace("(waker #u64)", "(waker #u64) (cancel (work-cancel ((await-0 cancel-child))))")
         .replace(
@@ -282,7 +282,7 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
         .replace("Child.Waiting 1u64", "Child.Waiting (#tuple counter 1u64)")
         .replace("Child.Waiting 0u64", "Child.Waiting (#tuple counter 0u64)")
         .replace("(#fn work ((owner Owner))", "(#fn work ((owner Owner) (counter (#ref Counter)))")
-        .replace("(#forget task) (#return ())", "(#match task (#case (Child.Waiting (#tuple counter count)) (#block (#call bump-counter ((count counter))) (#drop counter) ()))) (#return ()))");
+        .replace("(#forget task) (#return ())", "(#match task (#case (Child.Waiting (#tuple counter count)) (#block (#call bump-counter ((count counter))) (#drop counter) ()))) (#return ())");
     let first = "(#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
       (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))";
     let second =
@@ -293,10 +293,11 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
     for (polls, handle, cancellations) in [
         (String::new(), "(#pin-borrow-mut task)", 0),
         (first.to_owned(), "pending", 1),
-        (format!("{first}\n{second}"), "(#pin-borrow-mut task)", 0),
+        (format!("{first}\n  {second}"), "(#pin-borrow-mut task)", 0),
     ] {
         let source = format!(
-            "{counter} {prefix}
+            "{counter}
+{prefix}
 #fn main () #u64 (#let waker #u64 0u64)
               (#let count Counter (#struct-literal Counter ((storage (#atomic-init #u64 0u64)))))
               (#let-mut task Work::Frame (#call work ((owner (#struct-literal Owner
@@ -305,7 +306,8 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
               (#call work-cancel ((task (#call Work::Poll::cleanup ((task {handle}))))))
               (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
               (#assert (#u64::eq (#call read-counter ((count (#borrow count)))) {cancellations}u64))
-              (#forget count) (#forget task) (#return 42u64)\n"
+              (#forget count) (#forget task) (#return 42u64)
+"
         );
         run_expected(&source, "async-enum-self-reference-public-cleanup", 42);
     }
@@ -321,7 +323,7 @@ fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
     for (polls, handle) in [
         (String::new(), "(#pin-borrow-mut task)"),
         (first.into(), "next"),
-        (format!("{first}\n{second}"), "(#pin-borrow-mut task)"),
+        (format!("{first}\n  {second}"), "(#pin-borrow-mut task)"),
     ] {
         let source = format!(
             "{CONTEXT}
@@ -631,7 +633,7 @@ fn linear_reference_guard_acceptance_consumes_only_the_selected_payload() {
 #[test]
 fn linear_guard_whole_payload_borrow_survives_suspension_before_preview_read() {
     let source = linear_reference_guard_source().replace(
-        "(#when (#u64::eq\n          (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64))\n          (#deref (#get (#borrow view) value))))",
+        "(#when (#u64::eq\n            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64))\n            (#deref (#get (#borrow view) value))))",
         "(#when (#block
           (#let guard-view (#ref View) (#borrow view))
           (#let decision #bool (#u64::eq
@@ -855,7 +857,7 @@ fn run_guard_cancellation_matrix_with_borrow(declarations: &str, label: &str, bo
     for (polls, handle) in [
         (String::new(), "(#pin-borrow-mut frame)"),
         (poll_first.into(), "next"),
-        (format!("{poll_first}\n{poll_second}"), "last"),
+        (format!("{poll_first}\n  {poll_second}"), "last"),
     ] {
         let source = cancelled_guard_source(declarations, &polls, handle)
             .replace("(#borrow owner)", &format!("({borrow} owner)"));
@@ -1183,9 +1185,9 @@ fn delayed_owner_initialization_and_configured_destruction_are_exactly_once() {
     for (polls, handle, created, destroyed) in [
         (String::new(), "(#pin-borrow-mut task)", 0, 0),
         (first.into(), "next", 0, 0),
-        (format!("{first}\n{second}"), "last", 1, 0),
+        (format!("{first}\n  {second}"), "last", 1, 0),
         (
-            format!("{first}\n{second}\n{ready}"),
+            format!("{first}\n  {second}\n  {ready}"),
             "(#pin-borrow-mut task)",
             1,
             1,

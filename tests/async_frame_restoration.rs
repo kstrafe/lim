@@ -12,7 +12,7 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
         .next()
         .unwrap()
         .replace("read-after-await", "work")
-        .replace("Read::after-await", "Work")
+        .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait");
     let source = format!("{prefix}
 #fn main () #u64 (#let waker #u64 0u64)
@@ -197,7 +197,7 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
         .next()
         .unwrap()
         .replace("read-after-await", "work")
-        .replace("Read::after-await", "Work")
+        .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait")
         .replace("(access ((owner OwnerAccess)))", "")
         .replace(
