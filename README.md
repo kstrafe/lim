@@ -69,7 +69,10 @@ Open the [Lim homepage and handbook](docs/index.html) for the design introductio
 tutorial and complete searchable reference. It works offline with no JavaScript
 or external resources.
 The separate [browser playground](docs/playground.html) uses a WebAssembly build
-of the real compiler. See [build and serve instructions](docs/webassembly.md).
+of the real compiler. Its printing example executes a compiled loop and displays
+real, bounded stdout separately from the return value. See
+[browser output](docs/webassembly.md#browser-output) and
+[build and serve instructions](docs/webassembly.md).
 
 ## Build the compiler
 

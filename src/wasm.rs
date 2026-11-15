@@ -16,6 +16,7 @@ pub const MAX_SOURCE_BYTES: usize = 32 * 1024;
 const MAX_FUNCTIONS: usize = 64;
 const MAX_NODES: usize = 16_384;
 const FILENAME: &str = "/playground/main.lim";
+const PRINT_FUNCTION: &str = "browser-print-u64";
 
 type Error = (String, Option<Span>);
 type Result<T> = std::result::Result<T, Error>;
@@ -217,6 +218,28 @@ fn emit(checked: &CheckedProgram<'_>) -> Result<Module> {
             ));
         }
         let name = d.function_name(id).unwrap();
+        if let Some(function) = p.items.iter().find_map(|item| match item {
+            Item::Function(function) if function.name == name && function.external => {
+                Some(function)
+            }
+            _ => None,
+        }) {
+            let span = d.function(id).span;
+            if name != PRINT_FUNCTION {
+                return Err((format!("WebAssembly teaching backend cannot call external function '{name}'; only {PRINT_FUNCTION} is supported"), span));
+            }
+            let resolve = |ty: &Type| {
+                crate::typed_ir::resolve_type(ty, &d.aliases).map_err(|error| (error, span))
+            };
+            if function.calling_convention != crate::CallingConvention::C
+                || function.parameters.len() != 1
+                || resolve(&function.parameters[0].ty)? != Type::U64
+                || resolve(&function.return_type)? != Type::Unit
+            {
+                return Err(("browser-print-u64 requires #extern-fn #abi-c, one #u64 argument, and () return".into(), span));
+            }
+            continue;
+        }
         let body = d.bodies.get(name).ok_or_else(|| {
             (
                 format!("WebAssembly teaching backend cannot call external function '{name}'"),
@@ -233,7 +256,7 @@ fn emit(checked: &CheckedProgram<'_>) -> Result<Module> {
             _ => None,
         }));
     }
-    let functions: Vec<_> = p
+    let needed_functions: Vec<_> = p
         .items
         .iter()
         .filter_map(|item| match item {
@@ -244,15 +267,31 @@ fn emit(checked: &CheckedProgram<'_>) -> Result<Module> {
             _ => None,
         })
         .collect();
-    let indices: HashMap<_, _> = functions
+    let (imports, functions): (Vec<_>, Vec<_>) = needed_functions
+        .into_iter()
+        .partition(|(_, function)| function.external);
+    let indices: HashMap<_, _> = imports
         .iter()
+        .chain(functions.iter())
         .enumerate()
         .map(|(index, (id, _))| (*id, index))
         .collect();
     let mut types = Vec::new();
     let mut declarations = Vec::new();
     let mut code = Vec::new();
-    unsigned(functions.len(), &mut types);
+    unsigned(imports.len() + functions.len(), &mut types);
+    let mut import_section = Vec::new();
+    unsigned(imports.len(), &mut import_section);
+    for (index, _) in imports.iter().enumerate() {
+        // The whitelist above fixes both the host capability and its i64 -> () ABI.
+        types.extend([0x60, 1, 0x7e, 0]);
+        unsigned(3, &mut import_section);
+        import_section.extend(b"lim");
+        unsigned(9, &mut import_section);
+        import_section.extend(b"print_u64");
+        import_section.push(0);
+        unsigned(index, &mut import_section);
+    }
     unsigned(functions.len(), &mut declarations);
     unsigned(functions.len(), &mut code);
     for (index, (_, function)) in functions.iter().enumerate() {
@@ -269,7 +308,7 @@ fn emit(checked: &CheckedProgram<'_>) -> Result<Module> {
         if result.scalar() {
             types.push(result.byte());
         }
-        unsigned(index, &mut declarations);
+        unsigned(index + imports.len(), &mut declarations);
         let body = &d.bodies[&function.name];
         let mut emitter = Emitter::new(body, d, &indices)?;
         emitter.instructions(&body.instructions, false)?;
@@ -286,6 +325,9 @@ fn emit(checked: &CheckedProgram<'_>) -> Result<Module> {
     }
     let mut bytes = b"\0asm\x01\0\0\0".to_vec();
     section(1, types, &mut bytes);
+    if !imports.is_empty() {
+        section(2, import_section, &mut bytes);
+    }
     section(3, declarations, &mut bytes);
     let mut exports = vec![1, 4, b'm', b'a', b'i', b'n', 0];
     unsigned(indices[&entry_id], &mut exports);

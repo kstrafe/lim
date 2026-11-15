@@ -66,6 +66,11 @@ try {
   await click('run'); await until('document.querySelector("#status").textContent === "Compiled and ran"');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned 42/);
   assert.equal(await evaluate('document.querySelector("#download").hidden'), false);
+  console.log('Checking compiled stdout separately from the return value');
+  await choose('print'); await click('run'); await until('document.querySelector("#status").textContent === "Compiled and ran"');
+  assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n');
+  assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned \(\)/);
+  assert.match(await evaluate('document.querySelector("#output").textContent'), /lim.print_u64/);
   const playgroundShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   await writeFile('/tmp/lim-playground-preview.png', Buffer.from(playgroundShot.data, 'base64'));
   console.log('Checking diagnostics and arrays');
@@ -77,13 +82,24 @@ try {
   console.log('Checking contracts and worker cancellation');
   await choose('contract'); await click('run'); await until('document.querySelector("#status").textContent === "Compiled and ran"');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /main returned 42/);
-  await evaluate(`document.querySelector('#source').value='(#fn main () #u64 (#loop (#continue)) (#return 0u64))'`);
-  await click('run'); await until('document.querySelector("#status").textContent === "Running…"'); await click('stop');
+  const binding = '(#extern-fn #abi-c browser-print-u64 ((value #u64)) ())';
+  await evaluate(`document.querySelector('#source').value=${JSON.stringify(`${binding} (#fn main () #u64 (#unsafe (#unsafe-call browser-print-u64 ((value 7u64)))) (#return (#panic)))`)}`);
+  await click('run'); await until('document.querySelector("#status").textContent === "Needs attention"');
+  assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '7\n');
+  assert.equal(await evaluate('document.querySelector("#download").hidden'), false);
+  await evaluate(`document.querySelector('#source').value=${JSON.stringify(`${binding} (#fn main () () (#for-range (number #u64) 0u64 100000u64 (#unsafe (#unsafe-call browser-print-u64 ((value number))))) (#return ()))`)}`);
+  await click('run'); await until('document.querySelector("#status").textContent === "Needs attention"');
+  assert.match(await evaluate('document.querySelector("#output").textContent'), /64 KiB output limit/);
+  assert.equal(await evaluate('document.querySelector("#stdout").textContent.length <= 65536'), true);
+  await evaluate(`document.querySelector('#source').value=${JSON.stringify(`${binding} (#fn main () #u64 (#unsafe (#unsafe-call browser-print-u64 ((value 7u64)))) (#loop (#continue)) (#return 0u64))`)}`);
+  await click('run'); await until('document.querySelector("#status").textContent === "Running…" && document.querySelector("#stdout").textContent === "7\\n"'); await click('stop');
   assert.equal(await evaluate('document.querySelector("#status").textContent'), 'Stopped');
   assert.equal(await evaluate('document.querySelector("#run").disabled'), false);
+  assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '7\n');
   console.log('Checking deadline');
   await click('run'); await until('document.querySelector("#status").textContent === "Stopped"');
   assert.match(await evaluate('document.querySelector("#output").textContent'), /10-second time limit/);
+  assert.equal(await evaluate('document.querySelector("#stdout").textContent'), '7\n');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'playground overflows on mobile');
   console.log('Checking manual and mobile layout');
@@ -105,7 +121,7 @@ try {
   await until('location.protocol === "file:" && document.readyState === "complete" && document.querySelector("#language-reference")');
   assert.equal(await evaluate('window.find("#preserves",false,false,true)'), true, 'offline homepage must support browser Find');
   assert.equal(await evaluate('document.scripts.length + performance.getEntriesByType("resource").length'), 0, 'offline manual must be self-contained');
-  console.log('Browser UI: run, diagnostics, check-only, contracts, cancellation, deadline, mobile layout, published homepage and offline Find passed.');
+  console.log('Browser UI: run, real stdout, output bounds/traps, diagnostics, check-only, contracts, cancellation, deadline, mobile layout, published homepage and offline Find passed.');
 } finally {
   socket?.close();
   try { process.kill(-browser.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }

@@ -132,3 +132,70 @@ fn syntax_diagnostics_keep_native_phase_codes_and_source_locations() {
         assert_eq!(diagnostic.source_text.as_deref(), Some(source));
     }
 }
+
+const PRINT_BINDING: &str = "(#extern-fn #abi-c browser-print-u64 ((value #u64)) ())";
+
+#[test]
+fn compiled_loop_prints_through_the_single_explicit_host_import() {
+    let source = format!(
+        "{PRINT_BINDING}
+      (#fn main () #u64
+        (#for-range (number #u64) 1u64 11u64
+          (#unsafe (#unsafe-call browser-print-u64 ((value number)))))
+        (#unsafe (#unsafe-call browser-print-u64 ((value 18446744073709551615u64))))
+        (#return 42u64))"
+    );
+    let module = wasm::compile(&source).unwrap();
+    let scratch = support::Scratch::new("wasm-stdout");
+    let path = scratch.path().join("program.wasm");
+    fs::write(&path, module.bytes).unwrap();
+    let script = "const fs=require('node:fs'); const module=new WebAssembly.Module(fs.readFileSync(process.argv[1])); const imports=WebAssembly.Module.imports(module); if(JSON.stringify(imports)!==JSON.stringify([{module:'lim',name:'print_u64',kind:'function'}]))throw Error('unexpected imports'); let stdout=''; const instance=new WebAssembly.Instance(module,{lim:{print_u64(value){stdout+=BigInt.asUintN(64,value)+'\\n';}}}); const value=instance.exports.main(); console.log(JSON.stringify({stdout,value:String(value)}));";
+    let (status, out, error) = support::run(
+        Command::new("node").arg("-e").arg(script).arg(path),
+        Duration::from_secs(5),
+        8192,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&error));
+    assert_eq!(String::from_utf8(out).unwrap().trim(), "{\"stdout\":\"1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9\\n10\\n18446744073709551615\\n\",\"value\":\"42\"}");
+}
+
+#[test]
+fn host_output_requires_the_exact_foreign_signature_and_unsafe_call_rules() {
+    for binding in [
+        "(#extern-fn #abi-c browser-print-u64 ((value #i64)) ())",
+        "(#extern-fn #abi-c browser-print-u64 ((value #u64)) #u64)",
+        "(#extern-fn #abi-c other-output ((value #u64)) ())",
+    ] {
+        let name = if binding.contains("other-output") {
+            "other-output"
+        } else {
+            "browser-print-u64"
+        };
+        let source = format!(
+            "{binding} (#fn main () () (#unsafe (#unsafe-call {name} ((value 1)))) (#return ()))"
+        );
+        let error = wasm::compile(&source)
+            .err()
+            .expect("an unrecognized host signature must fail");
+        assert!(
+            error.message.contains("browser-print-u64"),
+            "{}",
+            error.message
+        );
+        assert!(error.span.is_some());
+    }
+    assert!(wasm::compile(&format!(
+        "{PRINT_BINDING} (#fn main () () (#call browser-print-u64 ((value 1u64))) (#return ()))"
+    ))
+    .is_err());
+    assert!(wasm::compile(&format!("{PRINT_BINDING} (#fn main () () (#unsafe-call browser-print-u64 ((value 1u64))) (#return ()))")).is_err());
+    assert!(
+        wasm::compile("(#alias print = ./main.lim::browser-print-u64)")
+            .err()
+            .unwrap()
+            .message
+            .contains("file imports")
+    );
+    run("(#fn browser-print-u64 ((value #u64)) #u64 (#return value)) (#fn main () #u64 (#return (#call browser-print-u64 ((value 42u64)))))", "42");
+}

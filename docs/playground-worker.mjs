@@ -1,4 +1,5 @@
 import { createCompiler, displayResult } from './compiler.mjs';
+import { createStdout } from './playground-host.mjs';
 
 self.onmessage = async ({ data: { source, checkOnly } }) => {
   try {
@@ -9,11 +10,16 @@ self.onmessage = async ({ data: { source, checkOnly } }) => {
     const result = compiler.compile(source, { checkOnly });
     if (!result.ok || result.checked) { self.postMessage(result); return; }
     self.postMessage({ phase: 'Running…' });
-    const { instance } = await WebAssembly.instantiate(result.bytes, {});
+    const stdout = createStdout(text => self.postMessage({ stdout: text }));
+    const module = new WebAssembly.Module(result.bytes);
+    const hostOutput = WebAssembly.Module.imports(module).length !== 0;
+    const instance = new WebAssembly.Instance(module, stdout.imports);
     try {
       const value = displayResult(instance.exports.main(), result.returnType);
-      self.postMessage({ ok: true, value, bytes: result.bytes }, [result.bytes.buffer]);
+      stdout.flush();
+      self.postMessage({ ok: true, value, hostOutput, bytes: result.bytes }, [result.bytes.buffer]);
     } catch (error) {
+      stdout.flush();
       // Keep the compiled artifact downloadable even if its execution traps.
       self.postMessage({ ok: false, message: `Runtime trap: ${error.message}`, bytes: result.bytes }, [result.bytes.buffer]);
     }

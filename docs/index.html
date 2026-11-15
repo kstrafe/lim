@@ -11,6 +11,7 @@
 @media(max-width:1000px){.reading-layout{grid-template-columns:210px minmax(0,1fr);gap:2rem}.workbench{grid-template-columns:1fr}.editor-panel{border-right:0;border-bottom:1px solid var(--line)}textarea{min-height:390px}.result-panel pre{min-height:140px}.actions .quiet{margin-left:0;width:100%;margin-top:.4rem}}
 @media(max-width:700px){.topbar{height:auto;min-height:64px;flex-wrap:wrap;padding-block:.8rem;gap:.7rem}.topbar nav{gap:1rem;font-size:.75rem}.brand span{margin-left:.45rem}.reading-layout{display:block;padding-top:2rem}.contents{position:static;max-height:none;border-bottom:1px solid var(--line);padding:0 0 1.5rem;margin-bottom:2.5rem}.contents>ul{columns:2;column-gap:1.5rem}.contents>ul>li{break-inside:avoid}.contents ul ul{display:none}.manual table{font-size:.75rem}.manual th,.manual td{padding:.6rem}.manual>section.level1>h1{font-size:1.9rem}pre{padding:1rem}pre code{font-size:.77rem}.editor-toolbar{display:block}.editor-toolbar>span{display:block;margin-top:.7rem}.editor-toolbar label{display:flex;align-items:center}select{min-width:0}.page-footer{display:block}.page-footer a{display:block;margin-top:.7rem}}
 @media print{body{background:#fff;color:#000;font-size:10pt}.topbar,.contents,.skip-link{display:none}.reading-layout{display:block;padding:0}.manual{max-width:none}.manual>section.level1{break-before:page}.manual>section.level1:first-of-type{break-before:auto}pre{white-space:pre-wrap;break-inside:avoid;border-color:#ddd;background:#fafafa}pre code{white-space:pre-wrap;font-size:8pt}.manual table{display:table;font-size:8pt}.manual th,.manual td{min-width:0;padding:.4rem}a{color:#000;text-decoration:underline}.page-footer{display:none}}
+.stdout-panel{border-top:1px solid var(--line)}.stdout-panel pre{max-height:320px;overflow:auto}.stdout-panel pre:empty::before{content:"(no output)";color:var(--muted)}
 </style>
 </head>
 <body>
@@ -122,6 +123,7 @@
 <ul>
 <li><a href="#build-browser-compiler" id="toc-build-browser-compiler">Build and serve</a></li>
 <li><a href="#browser-support" id="toc-browser-support">Supported browser programs</a></li>
+<li><a href="#browser-output" id="toc-browser-output">Print numbers in the browser</a></li>
 <li><a href="#browser-limits" id="toc-browser-limits">Bounds, cancellation and failure</a></li>
 <li><a href="#browser-abi" id="toc-browser-abi">Compiler interface</a></li>
 <li><a href="#browser-testing" id="toc-browser-testing">Verification and extending the backend</a></li>
@@ -3637,7 +3639,7 @@ identifier    = { letter | digit | &quot;_&quot; | &quot;-&quot; | &quot;.&quot;
 </section>
 <section id="browser-compiler" class="level1">
 <h1>Browser compiler</h1>
-<p>The <a href="playground.html">playground</a> compiles Lim inside a browser worker. It uses the Rust compiler built for <code>wasm32-unknown-unknown</code>, then emits a second, standalone WebAssembly module for the example. The worker instantiates that module and calls its exported <code>main</code> function. Source is not sent to a server.</p>
+<p>The <a href="playground.html">playground</a> compiles Lim inside a browser worker. It uses the Rust compiler built for <code>wasm32-unknown-unknown</code>, then emits a second, WebAssembly module for the example. The worker instantiates that module and calls its exported <code>main</code> function. Source is not sent to a server.</p>
 <p>The <a href="#main">homepage and handbook</a> is a self-contained HTML document with no JavaScript or external resources. Reading it does not download the compiler. The playground loads the compiler artifact only after an action is requested.</p>
 <section id="build-browser-compiler" class="level2">
 <h2>Build and serve</h2>
@@ -3706,6 +3708,11 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/build-reference.py --
 <td>Yes</td>
 </tr>
 <tr>
+<td>Unsigned decimal stdout</td>
+<td>Yes; explicit <code>browser-print-u64</code> host binding</td>
+<td>Yes</td>
+</tr>
+<tr>
 <td>Arrays, references, structs, enums, constrained storage</td>
 <td>Not yet</td>
 <td>Yes for self-contained programs</td>
@@ -3721,7 +3728,7 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/build-reference.py --
 <td>Yes</td>
 </tr>
 <tr>
-<td>External functions, native syscalls, host I/O</td>
+<td>Other external functions, native syscalls, host I/O</td>
 <td>No</td>
 <td>Declarations can be checked; no host calls execute</td>
 </tr>
@@ -3733,7 +3740,23 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/build-reference.py --
 </tbody>
 </table>
 <p><code>#usize</code> and <code>#isize</code> retain their existing 64-bit Lim scalar meaning here; they are not browser linear-memory addresses. Unsigned 64-bit results display without truncation, using JavaScript BigInt at the boundary. Unit displays as <code>()</code>. The native backend remains the route for the full runtime language.</p>
-<p>The emitted example module has no memory or host imports. The first backend is intentionally a teaching subset, not a portable implementation of the native standard library, an FFI, or a WASI runtime. Unsupported code generation produces an explicit diagnostic. <strong>Check only</strong> does not require a runnable <code>main</code>.</p>
+<p>The emitted example module has no memory. Pure examples have no host imports; printing examples import only <code>lim.print_u64</code> as described below. The backend is intentionally a teaching subset, not a portable implementation of the native standard library, a general-purpose FFI, or a WASI runtime. Unsupported code generation produces an explicit diagnostic. <strong>Check only</strong> does not require a runnable <code>main</code>.</p>
+</section>
+<section id="browser-output" class="level2">
+<h2>Print numbers in the browser</h2>
+<p>Choose <strong>Print 1 through 10</strong> in the playground. This example executes compiled loop and call instructions; the host receives each number from the running WebAssembly module. <strong>Standard output</strong> displays its text separately from the <strong>Result</strong> panel&#39;s <code>main</code> return value.</p>
+<pre class="lisp"><code>(#extern-fn #abi-c browser-print-u64 ((value #u64)) ())
+#fn main {
+  #params = {};
+  #returns = ();
+  #body:
+    #for-range (number #u64) 1 11:
+      #unsafe : #unsafe-call browser-print-u64 { value = number; };
+    #return ();
+}</code></pre>
+<p>This is an explicit foreign-function binding. The normal type, ownership, contract and unsafe-call checks still apply. The backend accepts this external name only with the C calling convention, one <code>#u64</code> argument and unit return. Its module import is exactly <code>lim.print_u64: (i64) -&gt; ()</code>. Each invocation writes an unsigned decimal line, including full 64-bit values; it does not return the printed text. A defined Lim function with that name remains an ordinary function. Other foreign imports are rejected. File references and aliases remain unavailable in the single-file playground.</p>
+<p>The browser host supplies this binding; the native linker does not supply its symbol. There is no browser implementation of native String printing, arbitrary text buffers, WASI, or general I/O. The guest receives no memory access through this import. Programs downloaded from printing examples need the same explicit host binding when instantiated elsewhere; pure downloads need no imports.</p>
+<p>Stdout is limited to <strong>64 KiB per run</strong>. Exceeding it traps execution while retaining the output already accepted and the compiled module download. Small outputs stream immediately; larger output is batched. <strong>Stop</strong> and the worker deadline still terminate execution, and previously displayed output remains visible after a runtime trap or cancellation. Starting another action clears it.</p>
 </section>
 <section id="browser-limits" class="level2">
 <h2>Bounds, cancellation and failure</h2>
@@ -3744,7 +3767,7 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/build-reference.py --
 <li>Compilation and example execution run off the page’s main thread. Each action uses a fresh worker, which is terminated when complete, cancelled, or after the 10-second total deadline. <strong>Stop</strong> can interrupt an infinite example loop.</li>
 <li>These limits supplement the compiler’s own analysis budgets. No result is accepted by weakening a failed proof or skipping ownership checking.</li>
 </ul>
-<p>A runtime trap can come from <code>#panic</code>, <code>#assert</code>, a failed contract audit, division by zero or an invalid shift count. A compiled module is still available for download when execution traps. A compile diagnostic has the native error code, source position and excerpt. Editing the source does not change an already-running example; rerun it for a new result.</p>
+<p>A runtime trap can come from <code>#panic</code>, <code>#assert</code>, a failed contract audit, division by zero, an invalid shift count or the stdout limit. A compiled module is still available for download when execution traps. A compile diagnostic has the native error code, source position and excerpt. Editing the source does not change an already-running example; rerun it for a new result.</p>
 </section>
 <section id="browser-abi" class="level2">
 <h2>Compiler interface</h2>
@@ -3798,7 +3821,7 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/build-reference.py --
 bash scripts/limited-run.sh nix develop -c node scripts/check-playground.mjs
 # Optional UI smoke test; requires Chromium on PATH (or set CHROMIUM).
 bash scripts/limited-run.sh nix develop -c node scripts/check-browser-ui.mjs</code></pre>
-<p>The engine tests execute emitted modules, check integer boundaries, branches, loop control, short-circuit evaluation and contract evidence, and reject unsupported features. The artifact test loads the actual Rust compiler Wasm, compiles the page’s example templates, checks diagnostics and unsigned results, and verifies runtime postcondition and shift traps. The Chromium test also checks the worker deadline, cancellation, mobile layout, browser Find and the manual’s absence of scripts or fetched resources. Its process/thread flags keep headless Chromium within the development runner’s process limit.</p>
+<p>The engine tests execute emitted modules, check integer boundaries, branches, loop control, short-circuit evaluation, contract evidence and the exact output import signature, and reject unsupported features. The artifact test loads the actual Rust compiler Wasm, compiles the page’s example templates, checks diagnostics and unsigned results, and verifies runtime postcondition and shift traps. Printing tests execute the page&#39;s real loop, check full-width unsigned output, retain stdout before traps, and enforce the output bound and batching. The Chromium test also checks stdout and return values independently, output bounds, printed output across the worker deadline and cancellation, mobile layout, browser Find and the manual’s absence of scripts or fetched resources. Its process/thread flags keep headless Chromium within the development runner’s process limit.</p>
 <p><code>src/wasm.rs</code> consumes checked <code>typed_body</code> nodes, rather than adding a second type checker. Extend its explicit supported cases and add execution tests before advertising another feature. Memory-backed values and aggregate layout need a separate design; silently representing references as integers would lose the language’s guarantees.</p>
 <p>Background specifications: <a href="https://doc.rust-lang.org/rustc/platform-support/wasm32-unknown-unknown.html">Rust’s browser target</a>, <a href="https://webassembly.github.io/spec/core/binary/instructions.html">WebAssembly binary instructions</a>, <a href="https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/instantiate_static">instantiating a module</a> and <a href="https://developer.mozilla.org/en-US/docs/Web/API/Worker/terminate">terminating a worker</a>.</p>
 </section>

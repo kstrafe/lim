@@ -2,7 +2,7 @@
 
 The [playground](playground.html) compiles Lim inside a browser worker. It uses
 the Rust compiler built for `wasm32-unknown-unknown`, then emits a second,
-standalone WebAssembly module for the example. The worker instantiates that
+WebAssembly module for the example. The worker instantiates that
 module and calls its exported `main` function. Source is not sent to a server.
 
 The [homepage and handbook](index.html) is a self-contained HTML document with
@@ -59,10 +59,11 @@ checker when it encounters a feature it cannot emit.
 | Wrapping integer arithmetic, comparisons, bit operations | Yes | Yes |
 | Short-circuit Boolean operators | Yes | Yes |
 | Scalar predicate contracts and runtime audits | Yes | Yes |
+| Unsigned decimal stdout | Yes; explicit `browser-print-u64` host binding | Yes |
 | Arrays, references, structs, enums, constrained storage | Not yet | Yes for self-contained programs |
 | Narrow integers, floats, saturation, globals, matching | Not yet | Yes for self-contained programs |
 | Labeled loops and value-carrying break | Not yet | Yes |
-| External functions, native syscalls, host I/O | No | Declarations can be checked; no host calls execute |
+| Other external functions, native syscalls, host I/O | No | Declarations can be checked; no host calls execute |
 | Authored file imports | No | No |
 
 `#usize` and `#isize` retain their existing 64-bit Lim scalar meaning here;
@@ -70,10 +71,51 @@ they are not browser linear-memory addresses. Unsigned 64-bit results display
 without truncation, using JavaScript BigInt at the boundary. Unit displays as
 `()`. The native backend remains the route for the full runtime language.
 
-The emitted example module has no memory or host imports. The first backend
+The emitted example module has no memory. Pure examples have no host imports;
+printing examples import only `lim.print_u64` as described below. The backend
 is intentionally a teaching subset, not a portable implementation of the native
-standard library, an FFI, or a WASI runtime. Unsupported code generation produces
+standard library, a general-purpose FFI, or a WASI runtime. Unsupported code generation produces
 an explicit diagnostic. **Check only** does not require a runnable `main`.
+
+## Print numbers in the browser {#browser-output}
+
+Choose **Print 1 through 10** in the playground. This example executes compiled
+loop and call instructions; the host receives each number from the running
+WebAssembly module. **Standard output** displays its text separately from the
+**Result** panel's `main` return value.
+
+```lisp syntax
+(#extern-fn #abi-c browser-print-u64 ((value #u64)) ())
+#fn main {
+  #params = {};
+  #returns = ();
+  #body:
+    #for-range (number #u64) 1 11:
+      #unsafe : #unsafe-call browser-print-u64 { value = number; };
+    #return ();
+}
+```
+
+This is an explicit foreign-function binding. The normal type, ownership,
+contract and unsafe-call checks still apply. The backend accepts this external
+name only with the C calling convention, one `#u64` argument and unit return.
+Its module import is exactly `lim.print_u64: (i64) -> ()`. Each invocation writes
+an unsigned decimal line, including full 64-bit values; it does not return the
+printed text. A defined Lim function with that name remains an ordinary function.
+Other foreign imports are rejected. File references and aliases remain unavailable
+in the single-file playground.
+
+The browser host supplies this binding; the native linker does not supply its
+symbol. There is no browser implementation of native String printing, arbitrary
+text buffers, WASI, or general I/O. The guest receives no memory access through
+this import. Programs downloaded from printing examples need the same explicit
+host binding when instantiated elsewhere; pure downloads need no imports.
+
+Stdout is limited to **64 KiB per run**. Exceeding it traps execution while
+retaining the output already accepted and the compiled module download. Small
+outputs stream immediately; larger output is batched. **Stop** and the worker
+deadline still terminate execution, and previously displayed output remains
+visible after a runtime trap or cancellation. Starting another action clears it.
 
 ## Bounds, cancellation and failure {#browser-limits}
 
@@ -89,7 +131,7 @@ an explicit diagnostic. **Check only** does not require a runnable `main`.
   accepted by weakening a failed proof or skipping ownership checking.
 
 A runtime trap can come from `#panic`, `#assert`, a failed contract audit,
-division by zero or an invalid shift count. A compiled module is still available
+division by zero, an invalid shift count or the stdout limit. A compiled module is still available
 for download when execution traps. A compile diagnostic has the native error
 code, source position and excerpt. Editing the source does not change an
 already-running example; rerun it for a new result.
@@ -131,11 +173,15 @@ bash scripts/limited-run.sh nix develop -c node scripts/check-browser-ui.mjs
 ```
 
 The engine tests execute emitted modules, check integer boundaries, branches,
-loop control, short-circuit evaluation and contract evidence, and reject
+loop control, short-circuit evaluation, contract evidence and the exact output
+import signature, and reject
 unsupported features. The artifact test loads the actual Rust compiler Wasm,
 compiles the page’s example templates, checks diagnostics and unsigned results,
-and verifies runtime postcondition and shift traps. The Chromium test also
-checks the worker deadline, cancellation, mobile layout, browser Find and the
+and verifies runtime postcondition and shift traps. Printing tests execute the
+page's real loop, check full-width unsigned output, retain stdout before traps,
+and enforce the output bound and batching. The Chromium test also
+checks stdout and return values independently, output bounds, printed output
+across the worker deadline and cancellation, mobile layout, browser Find and the
 manual’s absence of scripts or fetched resources. Its process/thread flags keep
 headless Chromium within the development runner’s process limit.
 
