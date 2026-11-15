@@ -144,3 +144,25 @@ fn long_simple_parameter_lists_fill_lines_instead_of_expanding_each_item() {
     assert!(output.lines().count() < 12, "{output}");
     assert!(output.lines().any(|line| line.matches("#u64)").count() > 2), "{output}");
 }
+
+#[test]
+fn single_body_canonical_loops_put_the_body_below_the_header() {
+    for (statement, header) in [
+        ("(#while false (#break))", "(#while false"),
+        ("(#for () false () (#break))", "(#for () false ()"),
+        ("(#loop (#break))", "(#loop"),
+        (
+            "(#for-range (index #u64) 0u64 3u64 (#break))",
+            "(#for-range (index #u64) 0u64 3u64",
+        ),
+    ] {
+        // The function record selects surface formatting while the loop itself
+        // retains canonical Lisp syntax and has exactly one body operand.
+        let source = format!(
+            "#fn main {{ #params = (); #returns = #u64; #body = ({statement} (#return 0u64)); }}\n"
+        );
+        let output = formatted(&source);
+        let expected = format!("    {header}\n      (#break)\n    )");
+        assert!(output.contains(&expected), "{statement}: {output}");
+    }
+}

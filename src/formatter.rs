@@ -65,7 +65,7 @@ fn equivalent(before: &str, after: &str) -> bool {
                 .collect::<Vec<_>>()
         })
     };
-    let comments = |text: &str| {
+    let comments = |text: &str| -> Vec<String> {
         crate::source_comments(text).into_iter()
             .map(|comment| comment.text)
             .collect::<Vec<_>>()
@@ -229,7 +229,7 @@ fn flat(node: &Node<'_>, source: &str) -> Option<String> {
     }) {
         return None;
     }
-    if body_header(children).is_some_and(|header| children.len() > header + 1) {
+    if body_header(children).is_some_and(|header| children.len() > header) {
         return None;
     }
     if children.windows(2).any(|pair| {
@@ -280,7 +280,7 @@ fn render(node: &Node<'_>, source: &str, indent: usize, start_column: usize) -> 
         && (node.first.text == "("
             || (node.first.text == "{" && flat(node, source)
                 .map_or(true, |text| start_column + text.chars().count() > WIDTH)));
-    let body = body_header(children).filter(|&header| children.len() > header + 1);
+    let body = body_header(children).filter(|&header| children.len() > header);
     let flat = flat(node, source);
     if !record && !semicolon_list && body.is_none() {
         if let Some(flat) = flat.as_ref().filter(|text| start_column + text.chars().count() <= WIDTH) {
