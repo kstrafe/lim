@@ -1,29 +1,25 @@
-(#type Value #u64)
+#type Value #u64
 
-(
-  #enum
-  Box ()
-  (
-    (Box.Some Value)
-    Box.None
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#enum
+    Box ()
     (
-      #match
-      (Box.Some 42)
-      (#case
-        (Box.Some value)
-        value
-      )
-      (#case Box.None 0)
+      (Box.Some Value)
+      Box.None
     )
-  )
-)
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (
+        #match
+        (Box.Some 42)
+        (#case
+          (Box.Some value)
+          value
+        )
+        (#case Box.None 0)
+      )
+    )

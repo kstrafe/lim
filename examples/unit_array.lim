@@ -1,6 +1,6 @@
-(#fn main () #u64
-  (#let-mut values (#array () 2)
-    (#array (#array () 2) () ()))
-  (#set-index values 1 ())
-  (#index values 0)
-  (#return 42))
+#fn main () #u64
+    (#let-mut values (#array () 2)
+      (#array (#array () 2) () ()))
+    (#set-index values 1 ())
+    (#index values 0)
+    (#return 42)

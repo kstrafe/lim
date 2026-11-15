@@ -1,48 +1,48 @@
-(#alias WakeRegister4 = ../library/wake_tokens.lim::WakeRegister4)
-(#alias WakeRetire4 = ../library/wake_tokens.lim::WakeRetire4)
-(#alias WakeTable4 = ../library/wake_tokens.lim::WakeTable4)
-(#alias WakeToken4 = ../library/wake_tokens.lim::WakeToken4)
-(#alias wake-table4-create = ../library/wake_tokens.lim::wake-table4-create)
-(#alias wake-table4-register = ../library/wake_tokens.lim::wake-table4-register)
-(#alias wake-table4-retire = ../library/wake_tokens.lim::wake-table4-retire)
-(#alias wake-table4-valid = ../library/wake_tokens.lim::wake-table4-valid)
-(#alias wake-token4-generation = ../library/wake_tokens.lim::wake-token4-generation)
+#alias WakeRegister4 = ../library/wake_tokens.lim::WakeRegister4
+#alias WakeRetire4 = ../library/wake_tokens.lim::WakeRetire4
+#alias WakeTable4 = ../library/wake_tokens.lim::WakeTable4
+#alias WakeToken4 = ../library/wake_tokens.lim::WakeToken4
+#alias wake-table4-create = ../library/wake_tokens.lim::wake-table4-create
+#alias wake-table4-register = ../library/wake_tokens.lim::wake-table4-register
+#alias wake-table4-retire = ../library/wake_tokens.lim::wake-table4-retire
+#alias wake-table4-valid = ../library/wake_tokens.lim::wake-table4-valid
+#alias wake-token4-generation = ../library/wake_tokens.lim::wake-token4-generation
 
-(#fn main () #u64
-  (#let-mut table WakeTable4 (#call wake-table4-create ()))
-  (#let first WakeRegister4
-    (#call wake-table4-register ((table (#borrow-mut table)) (slot 2usize))))
-  (#let old WakeToken4 (#match first
-    (#case (WakeRegister4.WakeRegistered4 token) token)
-    (#case _ (#unreachable))))
-  (#let initially-valid #bool
-    (#call wake-table4-valid ((table (#borrow table)) (token old))))
-  (#let retired WakeRetire4
-    (#call wake-table4-retire ((table (#borrow-mut table)) (token old))))
-  (#let retired-ok #bool (#match retired
-    (#case WakeRetire4.WakeRetired4 true) (#case WakeRetire4.WakeStale4 false)))
-  (#let old-stale #bool
-    (#bool::not (#call wake-table4-valid ((table (#borrow table)) (token old)))))
-  (#let second WakeRegister4
-    (#call wake-table4-register ((table (#borrow-mut table)) (slot 2usize))))
-  (#let fresh WakeToken4 (#match second
-    (#case (WakeRegister4.WakeRegistered4 token) token)
-    (#case _ (#unreachable))))
-  (#let generation-changed #bool
-    (#u64::gt
-      (#call wake-token4-generation ((token fresh)))
-      (#call wake-token4-generation ((token old)))))
-  (#let stale-retire WakeRetire4
-    (#call wake-table4-retire ((table (#borrow-mut table)) (token old))))
-  (#let stale-retire-ok #bool (#match stale-retire
-    (#case WakeRetire4.WakeStale4 true) (#case WakeRetire4.WakeRetired4 false)))
-  (#let fresh-valid #bool
-    (#call wake-table4-valid ((table (#borrow table)) (token fresh))))
-  (#forget table)
-  (#return (#if
-    (#bool::and initially-valid
-      (#bool::and retired-ok
-        (#bool::and old-stale
-          (#bool::and generation-changed
-            (#bool::and stale-retire-ok fresh-valid)))))
-    42u64 0u64)))
+#fn main () #u64
+    (#let-mut table WakeTable4 (#call wake-table4-create ()))
+    (#let first WakeRegister4
+      (#call wake-table4-register ((table (#borrow-mut table)) (slot 2usize))))
+    (#let old WakeToken4 (#match first
+      (#case (WakeRegister4.WakeRegistered4 token) token)
+      (#case _ (#unreachable))))
+    (#let initially-valid #bool
+      (#call wake-table4-valid ((table (#borrow table)) (token old))))
+    (#let retired WakeRetire4
+      (#call wake-table4-retire ((table (#borrow-mut table)) (token old))))
+    (#let retired-ok #bool (#match retired
+      (#case WakeRetire4.WakeRetired4 true) (#case WakeRetire4.WakeStale4 false)))
+    (#let old-stale #bool
+      (#bool::not (#call wake-table4-valid ((table (#borrow table)) (token old)))))
+    (#let second WakeRegister4
+      (#call wake-table4-register ((table (#borrow-mut table)) (slot 2usize))))
+    (#let fresh WakeToken4 (#match second
+      (#case (WakeRegister4.WakeRegistered4 token) token)
+      (#case _ (#unreachable))))
+    (#let generation-changed #bool
+      (#u64::gt
+        (#call wake-token4-generation ((token fresh)))
+        (#call wake-token4-generation ((token old)))))
+    (#let stale-retire WakeRetire4
+      (#call wake-table4-retire ((table (#borrow-mut table)) (token old))))
+    (#let stale-retire-ok #bool (#match stale-retire
+      (#case WakeRetire4.WakeStale4 true) (#case WakeRetire4.WakeRetired4 false)))
+    (#let fresh-valid #bool
+      (#call wake-table4-valid ((table (#borrow table)) (token fresh))))
+    (#forget table)
+    (#return (#if
+      (#bool::and initially-valid
+        (#bool::and retired-ok
+          (#bool::and old-stale
+            (#bool::and generation-changed
+              (#bool::and stale-retire-ok fresh-valid)))))
+      42u64 0u64))

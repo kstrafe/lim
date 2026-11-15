@@ -1,5 +1,5 @@
-(#fn values () (#array (#tuple #u64 #u64) 2)
-  (#return (#array-repeat (#tuple 30 12))))
+#fn values () (#array (#tuple #u64 #u64) 2)
+    (#return (#array-repeat (#tuple 30 12)))
 
-(#fn main () #u64
-  (#return (#get (#index (#call values ()) 1) 0)))
+#fn main () #u64
+    (#return (#get (#index (#call values ()) 1) 0))

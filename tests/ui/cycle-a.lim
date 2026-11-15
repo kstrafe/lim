@@ -1,1 +1,1 @@
-(#fn main () #u64 (#return (#call ./cycle-b.lim::cycle ())))
+#fn main () #u64 (#return (#call ./cycle-b.lim::cycle ()))

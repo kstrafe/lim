@@ -1,32 +1,32 @@
 //; The stored shared view aliases the owner's value field. Reads through
 //; either path are valid; an exclusive reborrow through the owner is not.
-(#struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64))))
+#struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64)))
 
-(#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-  (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
-  (#pin-set-field target view view)
-  (#return target))
+#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+    (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
+    (#pin-set-field target view view)
+    (#return target)
 
-(#fn inspect ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-  (#let through-owner #u64 (#get target value))
-  (#let through-child #u64 (#deref (#get target view)))
-  (#assert (#u64::eq through-owner through-child))
-  (#pin-set-field target state 1u32)
-  (#return target))
+#fn inspect ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+    (#let through-owner #u64 (#get target value))
+    (#let through-child #u64 (#deref (#get target view)))
+    (#assert (#u64::eq through-owner through-child))
+    (#pin-set-field target state 1u32)
+    (#return target)
 
-(#fn run ((outside (#pin-ref #u64))) #u64
-  (#let-mut link Link
-    (#struct-literal Link ((value 42u64) (state 0u32) (view outside))))
-  (#let initialized (#pin-ref-mut Link)
-    (#call install ((target (#pin-borrow-mut link)))))
-  (#let inspected (#pin-ref-mut Link) (#call inspect ((target initialized))))
-  (#let answer #u64 (#deref (#get inspected view)))
-  //; Retire the internal loan before consuming its stationary owner.
-  (#pin-set-field inspected view outside)
-  (#drop inspected)
-  (#forget link)
-  (#return answer))
+#fn run ((outside (#pin-ref #u64))) #u64
+    (#let-mut link Link
+      (#struct-literal Link ((value 42u64) (state 0u32) (view outside))))
+    (#let initialized (#pin-ref-mut Link)
+      (#call install ((target (#pin-borrow-mut link)))))
+    (#let inspected (#pin-ref-mut Link) (#call inspect ((target initialized))))
+    (#let answer #u64 (#deref (#get inspected view)))
+    //; Retire the internal loan before consuming its stationary owner.
+    (#pin-set-field inspected view outside)
+    (#drop inspected)
+    (#forget link)
+    (#return answer)
 
-(#fn main () #u64
-  (#let outside #u64 0u64)
-  (#return (#call run ((outside (#pin-borrow outside))))))
+#fn main () #u64
+    (#let outside #u64 0u64)
+    (#return (#call run ((outside (#pin-borrow outside)))))

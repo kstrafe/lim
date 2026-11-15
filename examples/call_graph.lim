@@ -1,28 +1,28 @@
-(#alias String = /<lim-std>/string.lim::String)
-(#alias String::free = /<lim-std>/string.lim::String::free)
-(#alias String::from-chars = /<lim-std>/string.lim::String::from-chars)
-(#alias StringCreateResult = /<lim-std>/string.lim::StringCreateResult)
+#alias String = /<lim-std>/string.lim::String
+#alias String::free = /<lim-std>/string.lim::String::free
+#alias String::from-chars = /<lim-std>/string.lim::String::from-chars
+#alias StringCreateResult = /<lim-std>/string.lim::StringCreateResult
 
-(#std)
+#std
 
-(#fn print-trace ((text (#slice #char))) ()
-  (#let owned String
-    (#match (#call String::from-chars (($ text)))
-      (#case (StringCreateResult.StringCreated string) string)
-      (#case (StringCreateResult.StringCreateFailed error) (#panic))))
-  (#assert (#i64::eq (#println (#borrow owned)) 0i64))
-  (#call String::free ((string owned)))
-  (#return ()))
+#fn print-trace ((text (#slice #char))) ()
+    (#let owned String
+      (#match (#call String::from-chars (($ text)))
+        (#case (StringCreateResult.StringCreated string) string)
+        (#case (StringCreateResult.StringCreateFailed error) (#panic))))
+    (#assert (#i64::eq (#println (#borrow owned)) 0i64))
+    (#call String::free ((string owned)))
+    (#return ())
 
-(#fn third () ()
-  (#call print-trace ((text (#call-graph))))
-  (#return ()))
+#fn third () ()
+    (#call print-trace ((text (#call-graph))))
+    (#return ())
 
-(#fn second () ()
-  (#call third ())
-  (#return ()))
+#fn second () ()
+    (#call third ())
+    (#return ())
 
-(#fn main () #u64
-  (#call second ())
-  (#call second ())
-  (#return 42u64))
+#fn main () #u64
+    (#call second ())
+    (#call second ())
+    (#return 42u64)

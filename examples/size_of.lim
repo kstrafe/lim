@@ -1,29 +1,25 @@
-(
-  #struct
-  Point ()
-  (
-    (x #u64)
-    (y #u64)
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#struct
+    Point ()
     (
-      #as
-      (#usize::add-wrap
-        (#size-of Point)
-        (
-          #size-of
-          (#array #u32 2)
-        )
-      )
-      #u64
+      (x #u64)
+      (y #u64)
     )
-  )
-)
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (
+        #as
+        (#usize::add-wrap
+          (#size-of Point)
+          (
+            #size-of
+            (#array #u32 2)
+          )
+        )
+        #u64
+      )
+    )

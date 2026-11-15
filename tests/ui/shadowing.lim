@@ -1,4 +1,4 @@
-(#fn main () #u64
-  (#let value #u64 1u64)
-  (#let value #u64 2u64)
-  (#return value))
+#fn main () #u64
+    (#let value #u64 1u64)
+    (#let value #u64 2u64)
+    (#return value)

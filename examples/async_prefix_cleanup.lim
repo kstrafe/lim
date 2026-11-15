@@ -1,49 +1,49 @@
 // Consume a linear field before suspension, retaining only its plain result.
-(#struct Token (#linear) ((value #u64)))
+#struct Token (#linear) ((value #u64))
 
-(#struct Values () ((z (#tuple #u16 #u16)) (a Token)))
-(#fn destroy-token ((token Token)) #u64
-  (#let value #u64 (#get token value))
-  (#forget token)
-  (#return value))
+#struct Values () ((z (#tuple #u16 #u16)) (a Token))
+#fn destroy-token ((token Token)) #u64
+    (#let value #u64 (#get token value))
+    (#forget token)
+    (#return value)
 
-(#enum Step () ((Step.Start #u64) (Step.Resume #u64)))
-(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
-(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
-  (#return (#match task
-    (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
-    (#case (Step.Resume value) (StepPoll.StepReady value)))))
+#enum Step () ((Step.Start #u64) (Step.Resume #u64))
+#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+    (#return (#match task
+      (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
+      (#case (Step.Resume value) (StepPoll.StepReady value))))
 
-(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-  (#fn work ((choose #bool) (values Values)) #u64
-    (#let result #u64 (#if choose
-      (#block
-        (#let (Values (#tuple left right) bias) Values values)
-        (#let bias-value #u64 (#call destroy-token ((token bias))))
-        (#let first #u64
-          (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as left #u64))))
-        (#let second #u64
-          (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as right #u64))))
-        (#u64::add-wrap (#u64::add-wrap first second) bias-value))
-      (#block (#forget values) 5u64)))
-    (#return result)))))
+#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
+    (#fn work ((choose #bool) (values Values)) #u64
+      (#let result #u64 (#if choose
+        (#block
+          (#let (Values (#tuple left right) bias) Values values)
+          (#let bias-value #u64 (#call destroy-token ((token bias))))
+          (#let first #u64
+            (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as left #u64))))
+          (#let second #u64
+            (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start (#as right #u64))))
+          (#u64::add-wrap (#u64::add-wrap first second) bias-value))
+        (#block (#forget values) 5u64)))
+      (#return result))))
 
-(#fn run ((choose #bool) (waker (#ref #u64))) #u64
-  (#let-mut task Work::Task
-    (#call work ((choose choose) (values
-      (#struct-literal Values
-        ((a (#struct-literal Token ((value 22u64))))
-         (z (#tuple (#tuple #u16 #u16) 9u16 11u16))))))))
-  (#for-range (attempt #u64) 0u64 4u64
-    (#let result Work::Poll (#call Work::poll ((task task) (waker waker))))
-    (#match result
-      (#case (Work::Poll.Pending next) (#block (#set task next) ()))
-      (#case (Work::Poll.Ready value) (#block (#return value)))))
-  (#forget task)
-  (#return (#unreachable)))
+#fn run ((choose #bool) (waker (#ref #u64))) #u64
+    (#let-mut task Work::Task
+      (#call work ((choose choose) (values
+        (#struct-literal Values
+          ((a (#struct-literal Token ((value 22u64))))
+           (z (#tuple (#tuple #u16 #u16) 9u16 11u16))))))))
+    (#for-range (attempt #u64) 0u64 4u64
+      (#let result Work::Poll (#call Work::poll ((task task) (waker waker))))
+      (#match result
+        (#case (Work::Poll.Pending next) (#block (#set task next) ()))
+        (#case (Work::Poll.Ready value) (#block (#return value)))))
+    (#forget task)
+    (#return (#unreachable))
 
-(#fn main () #u64
-  (#let waker #u64 0u64)
-  (#let selected #u64 (#call run ((choose true) (waker (#borrow waker)))))
-  (#let skipped #u64 (#call run ((choose false) (waker (#borrow waker)))))
-  (#return (#u64::add-wrap selected skipped)))
+#fn main () #u64
+    (#let waker #u64 0u64)
+    (#let selected #u64 (#call run ((choose true) (waker (#borrow waker)))))
+    (#let skipped #u64 (#call run ((choose false) (waker (#borrow waker)))))
+    (#return (#u64::add-wrap selected skipped))

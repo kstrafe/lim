@@ -1,12 +1,12 @@
-(#gn aliases (pairs)
-  (#gn-for-each pair pairs
-    (#gn-list
-      (#gn-symbol "#type")
-      (#gn-first pair)
-      (#gn-first (#gn-rest pair)))))
+#gn aliases (pairs)
+    (#gn-for-each pair pairs
+      (#gn-list
+        (#gn-symbol "#type")
+        (#gn-first pair)
+        (#gn-first (#gn-rest pair))))
 
-(#generate aliases ((Byte #u8) (Word #u16)))
+#generate aliases ((Byte #u8) (Word #u16))
 
-(#fn main () #u64
-  (#let byte Byte 40)
-  (#return (#u64::add-wrap (#as byte #u64) 2)))
+#fn main () #u64
+    (#let byte Byte 40)
+    (#return (#u64::add-wrap (#as byte #u64) 2))

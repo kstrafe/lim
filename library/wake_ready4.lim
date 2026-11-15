@@ -1,12 +1,12 @@
-(#alias WakeRegister4 = ./wake_tokens.lim::WakeRegister4)
-(#alias WakeRetire4 = ./wake_tokens.lim::WakeRetire4)
-(#alias WakeTable4 = ./wake_tokens.lim::WakeTable4)
-(#alias WakeToken4 = ./wake_tokens.lim::WakeToken4)
-(#alias wake-table4-create = ./wake_tokens.lim::wake-table4-create)
-(#alias wake-table4-register = ./wake_tokens.lim::wake-table4-register)
-(#alias wake-table4-retire = ./wake_tokens.lim::wake-table4-retire)
-(#alias wake-table4-valid = ./wake_tokens.lim::wake-table4-valid)
-(#alias wake-token4-slot = ./wake_tokens.lim::wake-token4-slot)
+#alias WakeRegister4 = ./wake_tokens.lim::WakeRegister4
+#alias WakeRetire4 = ./wake_tokens.lim::WakeRetire4
+#alias WakeTable4 = ./wake_tokens.lim::WakeTable4
+#alias WakeToken4 = ./wake_tokens.lim::WakeToken4
+#alias wake-table4-create = ./wake_tokens.lim::wake-table4-create
+#alias wake-table4-register = ./wake_tokens.lim::wake-table4-register
+#alias wake-table4-retire = ./wake_tokens.lim::wake-table4-retire
+#alias wake-table4-valid = ./wake_tokens.lim::wake-table4-valid
+#alias wake-token4-slot = ./wake_tokens.lim::wake-token4-slot
 
 //; A bounded, single-threaded ready set. Register before polling. A wake
 //; records one bit even if it occurs before the poll returns Pending; duplicate
@@ -14,56 +14,56 @@
 //; read/modify/write protocol between threads.
 
 
-(#struct WakeReady4 (#linear)
-  ((table WakeTable4) (ready (#atomic #u64)) (local-marker (#ptr #u8))))
-(#opaque WakeReady4)
+#struct WakeReady4 (#linear)
+    ((table WakeTable4) (ready (#atomic #u64)) (local-marker (#ptr #u8)))
+#opaque WakeReady4
 
 
-(#fn wake-ready4-create () WakeReady4
-  (#let table WakeTable4 (#call wake-table4-create ()))
-  (#return (#struct-literal WakeReady4
-    ((table table)
-     (ready (#atomic-init #u64 0u64))
-     (local-marker (#ptr-null (#ptr #u8)))))))
+#fn wake-ready4-create () WakeReady4
+    (#let table WakeTable4 (#call wake-table4-create ()))
+    (#return (#struct-literal WakeReady4
+      ((table table)
+       (ready (#atomic-init #u64 0u64))
+       (local-marker (#ptr-null (#ptr #u8))))))
 
-(#fn wake-ready4-register ((queue (#ref-mut WakeReady4)) (slot #usize)) WakeRegister4
-  (#return (#call wake-table4-register
-    ((table (#borrow-mut (#get queue table))) (slot slot)))))
+#fn wake-ready4-register ((queue (#ref-mut WakeReady4)) (slot #usize)) WakeRegister4
+    (#return (#call wake-table4-register
+      ((table (#borrow-mut (#get queue table))) (slot slot))))
 
-(#fn wake-ready4-notify ((queue (#ref WakeReady4)) (token WakeToken4)) #bool
-  (#return (#if (#call wake-table4-valid
-          ((table (#borrow (#get queue table))) (token token)))
-    (#block
-      (#let mask #u64 (#u64::shl 1u64 (#as (#call wake-token4-slot ((token token))) #u64)))
-      (#let cell (#ref (#atomic #u64)) (#borrow (#get queue ready)))
-      (#atomic-store cell
-        (#u64::bit-or (#atomic-load (#clone cell) #memory-relaxed) mask)
-        #memory-relaxed)
-      true)
-    false)))
+#fn wake-ready4-notify ((queue (#ref WakeReady4)) (token WakeToken4)) #bool
+    (#return (#if (#call wake-table4-valid
+            ((table (#borrow (#get queue table))) (token token)))
+      (#block
+        (#let mask #u64 (#u64::shl 1u64 (#as (#call wake-token4-slot ((token token))) #u64)))
+        (#let cell (#ref (#atomic #u64)) (#borrow (#get queue ready)))
+        (#atomic-store cell
+          (#u64::bit-or (#atomic-load (#clone cell) #memory-relaxed) mask)
+          #memory-relaxed)
+        true)
+      false))
 
-(#fn wake-ready4-take ((queue (#ref WakeReady4)) (token WakeToken4)) #bool
-  (#return (#if (#call wake-table4-valid
-          ((table (#borrow (#get queue table))) (token token)))
-    (#block
-      (#let mask #u64 (#u64::shl 1u64 (#as (#call wake-token4-slot ((token token))) #u64)))
-      (#let cell (#ref (#atomic #u64)) (#borrow (#get queue ready)))
-      (#let bits #u64 (#atomic-load (#clone cell) #memory-relaxed))
-      (#if (#u64::ne (#u64::bit-and bits mask) 0u64)
-        (#block
-          (#atomic-store cell (#u64::bit-xor bits mask) #memory-relaxed)
-          true)
-        false))
-    false)))
+#fn wake-ready4-take ((queue (#ref WakeReady4)) (token WakeToken4)) #bool
+    (#return (#if (#call wake-table4-valid
+            ((table (#borrow (#get queue table))) (token token)))
+      (#block
+        (#let mask #u64 (#u64::shl 1u64 (#as (#call wake-token4-slot ((token token))) #u64)))
+        (#let cell (#ref (#atomic #u64)) (#borrow (#get queue ready)))
+        (#let bits #u64 (#atomic-load (#clone cell) #memory-relaxed))
+        (#if (#u64::ne (#u64::bit-and bits mask) 0u64)
+          (#block
+            (#atomic-store cell (#u64::bit-xor bits mask) #memory-relaxed)
+            true)
+          false))
+      false))
 
-(#fn wake-ready4-retire ((queue (#ref-mut WakeReady4)) (token WakeToken4)) WakeRetire4
-  (#return (#if (#call wake-table4-valid
-          ((table (#borrow (#get queue table))) (token token)))
-    (#block
-      (#let mask #u64 (#u64::shl 1u64 (#as (#call wake-token4-slot ((token token))) #u64)))
-      (#let cell (#ref (#atomic #u64)) (#borrow (#get queue ready)))
-      (#let bits #u64 (#atomic-load (#clone cell) #memory-relaxed))
-      (#atomic-store cell (#u64::bit-and bits (#u64::not mask)) #memory-relaxed)
-      (#call wake-table4-retire
-        ((table (#borrow-mut (#get queue table))) (token token))))
-    WakeRetire4.WakeStale4)))
+#fn wake-ready4-retire ((queue (#ref-mut WakeReady4)) (token WakeToken4)) WakeRetire4
+    (#return (#if (#call wake-table4-valid
+            ((table (#borrow (#get queue table))) (token token)))
+      (#block
+        (#let mask #u64 (#u64::shl 1u64 (#as (#call wake-token4-slot ((token token))) #u64)))
+        (#let cell (#ref (#atomic #u64)) (#borrow (#get queue ready)))
+        (#let bits #u64 (#atomic-load (#clone cell) #memory-relaxed))
+        (#atomic-store cell (#u64::bit-and bits (#u64::not mask)) #memory-relaxed)
+        (#call wake-table4-retire
+          ((table (#borrow-mut (#get queue table))) (token token))))
+      WakeRetire4.WakeStale4))

@@ -1,4 +1,4 @@
-(#std)
-(#fn main () ()
-  (#println 1u64)
-  (#return ()))
+#std
+#fn main () ()
+    (#println 1u64)
+    (#return ())

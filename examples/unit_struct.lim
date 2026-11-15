@@ -1,11 +1,11 @@
-(#struct Marker () ())
+#struct Marker () ()
 
-(#fn make () Marker
-  (#return (#struct-literal Marker ())))
+#fn make () Marker
+    (#return (#struct-literal Marker ()))
 
-(#fn consume ((marker Marker)) #u64
-  (#return 41))
+#fn consume ((marker Marker)) #u64
+    (#return 41)
 
-(#fn main () #u64
-  (#let marker Marker (#call make ()))
-  (#return (#call consume ((marker marker)))))
+#fn main () #u64
+    (#let marker Marker (#call make ()))
+    (#return (#call consume ((marker marker))))

@@ -1,4 +1,4 @@
-(#alias write-byte = ../library/linux_x86_64.lim::linux-write-byte)
+#alias write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
 // Print an unsigned integer in decimal, followed by a newline (Linux x86-64).
 #fn print-number {

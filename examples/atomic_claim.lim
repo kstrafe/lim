@@ -1,34 +1,34 @@
-(#fn claim ((state (#ref (#atomic #u64)))) #u64
-  (#let (#tuple won observed) (#tuple #bool #u64)
-    (#atomic-compare-exchange state 0u64 42u64 #memory-acq-rel #memory-acquire))
-  (#return (#if won 1u64 0u64)))
+#fn claim ((state (#ref (#atomic #u64)))) #u64
+    (#let (#tuple won observed) (#tuple #bool #u64)
+      (#atomic-compare-exchange state 0u64 42u64 #memory-acq-rel #memory-acquire))
+    (#return (#if won 1u64 0u64))
 
-(#generate #thread-spawn ((task FirstClaim) (worker claim)))
-(#generate #thread-spawn ((task SecondClaim) (worker claim)))
+#generate #thread-spawn ((task FirstClaim) (worker claim))
+#generate #thread-spawn ((task SecondClaim) (worker claim))
 
-(#fn main () #u64
-  (#let-mut state (#atomic #u64) (#atomic-init #u64 0u64))
-  (#let winners #u64
-    (#match (#call FirstClaim::spawn ((state (#borrow state))))
-      (#case (FirstClaim::SpawnResult.Ok first)
-        (#match (#call SecondClaim::spawn ((state (#borrow state))))
-          (#case (SecondClaim::SpawnResult.Ok second)
-            (#block
-              (#let a #u64
-                (#match (#call FirstClaim::join ((task first)))
-                  (#case (FirstClaim::JoinResult.Ok result) result)
-                  (#case (FirstClaim::JoinResult.Error (#tuple retry error)) (#panic))))
-              (#let b #u64
-                (#match (#call SecondClaim::join ((task second)))
-                  (#case (SecondClaim::JoinResult.Ok result) result)
-                  (#case (SecondClaim::JoinResult.Error (#tuple retry error)) (#panic))))
-              (#u64::add-wrap a b)))
-          (#case (SecondClaim::SpawnResult.Error _)
-            (#match (#call FirstClaim::join ((task first)))
-              (#case (FirstClaim::JoinResult.Ok _) (#panic))
-              (#case (FirstClaim::JoinResult.Error (#tuple retry error)) (#panic))))))
-      (#case (FirstClaim::SpawnResult.Error _) (#panic))))
-  (#assert (#u64::eq winners 1u64))
-  (#let value #u64 (#atomic-load (#borrow state) #memory-acquire))
-  (#forget state)
-  (#return value))
+#fn main () #u64
+    (#let-mut state (#atomic #u64) (#atomic-init #u64 0u64))
+    (#let winners #u64
+      (#match (#call FirstClaim::spawn ((state (#borrow state))))
+        (#case (FirstClaim::SpawnResult.Ok first)
+          (#match (#call SecondClaim::spawn ((state (#borrow state))))
+            (#case (SecondClaim::SpawnResult.Ok second)
+              (#block
+                (#let a #u64
+                  (#match (#call FirstClaim::join ((task first)))
+                    (#case (FirstClaim::JoinResult.Ok result) result)
+                    (#case (FirstClaim::JoinResult.Error (#tuple retry error)) (#panic))))
+                (#let b #u64
+                  (#match (#call SecondClaim::join ((task second)))
+                    (#case (SecondClaim::JoinResult.Ok result) result)
+                    (#case (SecondClaim::JoinResult.Error (#tuple retry error)) (#panic))))
+                (#u64::add-wrap a b)))
+            (#case (SecondClaim::SpawnResult.Error _)
+              (#match (#call FirstClaim::join ((task first)))
+                (#case (FirstClaim::JoinResult.Ok _) (#panic))
+                (#case (FirstClaim::JoinResult.Error (#tuple retry error)) (#panic))))))
+        (#case (FirstClaim::SpawnResult.Error _) (#panic))))
+    (#assert (#u64::eq winners 1u64))
+    (#let value #u64 (#atomic-load (#borrow state) #memory-acquire))
+    (#forget state)
+    (#return value)

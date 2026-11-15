@@ -1,58 +1,58 @@
 //; An owner initialized after an await can retain an external source's borrow
 //; through another suspension. Storage is stationary; the owner handle moves.
 //; This does not demonstrate a self-reference into the async frame itself.
-(#struct Holder () ((link (#ref #u64))))
+#struct Holder () ((link (#ref #u64)))
 
-(#fn make-holder ((pointer (#ptr-mut Holder)) (source (#ref #u64))) (#pin-own Holder)
-  (#return (#unsafe
-    (#pin-own-of pointer (#struct-literal Holder ((link source)))))))
+#fn make-holder ((pointer (#ptr-mut Holder)) (source (#ref #u64))) (#pin-own Holder)
+    (#return (#unsafe
+      (#pin-own-of pointer (#struct-literal Holder ((link source))))))
 
-(#fn holder-source ((owner (#ref (#pin-own Holder)))) (#ref #u64)
-  (#let view (#pin-ref Holder) (#pin-own-borrow owner))
-  (#return (#get view link)))
+#fn holder-source ((owner (#ref (#pin-own Holder)))) (#ref #u64)
+    (#let view (#pin-ref Holder) (#pin-own-borrow owner))
+    (#return (#get view link))
 
-(#fn destroy-holder ((owner (#pin-own Holder))) ()
-  (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
-  (#assert (#i64::eq
-    (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
-  (#return ()))
+#fn destroy-holder ((owner (#pin-own Holder))) ()
+    (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
+    (#assert (#i64::eq
+      (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
+    (#return ())
 
-(#enum Step (#linear) ((Step.Waiting #u64)))
+#enum Step (#linear) ((Step.Waiting #u64))
 
-(#enum StepPoll (#linear) ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
+#enum StepPoll (#linear) ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
 
-(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
-  (#return (#match task
-    (#case (Step.Waiting count)
-      (#if (#u64::eq count 0u64)
-        (StepPoll.StepReady 0u64)
-        (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap count 1u64))))))))
+#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+    (#return (#match task
+      (#case (Step.Waiting count)
+        (#if (#u64::eq count 0u64)
+          (StepPoll.StepReady 0u64)
+          (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap count 1u64)))))))
 
-(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-  (#fn work ((pointer (#ptr-mut Holder)) (source (#ref #u64))) #u64
-    (#let first-step #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
-    (#let owner (#pin-own Holder)
-      (#call make-holder ((pointer pointer) (source source))))
-    (#let second-step #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
-    (#let stored (#ref #u64) (#call holder-source ((owner (#borrow owner)))))
-    (#let answer #u64 (#deref stored))
-    (#call destroy-holder ((owner owner)))
-    (#return answer)))))
+#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
+    (#fn work ((pointer (#ptr-mut Holder)) (source (#ref #u64))) #u64
+      (#let first-step #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
+      (#let owner (#pin-own Holder)
+        (#call make-holder ((pointer pointer) (source source))))
+      (#let second-step #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
+      (#let stored (#ref #u64) (#call holder-source ((owner (#borrow owner)))))
+      (#let answer #u64 (#deref stored))
+      (#call destroy-holder ((owner owner)))
+      (#return answer))))
 
-(#fn main () #u64
-  (#let-mut source #u64 42u64)
-  (#let pointer (#ptr-mut Holder)
-    (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
-      (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#assert (#usize::lt (#ptr-address pointer) 18446744073709547521usize))
-  (#let waker #u64 0u64)
-  (#let first Work::Poll (#call Work::poll
-    ((task (#call work ((pointer pointer) (source (#borrow source)))))
-     (waker (#borrow waker)))))
-  (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-  (#let second Work::Poll (#call Work::poll ((task next) (waker (#borrow waker)))))
-  (#let-else (Work::Poll.Pending last) Work::Poll second (#unreachable))
-  (#let third Work::Poll (#call Work::poll ((task last) (waker (#borrow waker)))))
-  (#return (#match third
-    (#case (Work::Poll.Ready answer) answer)
-    (#case (Work::Poll.Pending unfinished) (#block (#forget unfinished) (#unreachable))))))
+#fn main () #u64
+    (#let-mut source #u64 42u64)
+    (#let pointer (#ptr-mut Holder)
+      (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
+        (0usize 4096usize 3usize 34usize -1i64 0usize))))
+    (#assert (#usize::lt (#ptr-address pointer) 18446744073709547521usize))
+    (#let waker #u64 0u64)
+    (#let first Work::Poll (#call Work::poll
+      ((task (#call work ((pointer pointer) (source (#borrow source)))))
+       (waker (#borrow waker)))))
+    (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+    (#let second Work::Poll (#call Work::poll ((task next) (waker (#borrow waker)))))
+    (#let-else (Work::Poll.Pending last) Work::Poll second (#unreachable))
+    (#let third Work::Poll (#call Work::poll ((task last) (waker (#borrow waker)))))
+    (#return (#match third
+      (#case (Work::Poll.Ready answer) answer)
+      (#case (Work::Poll.Pending unfinished) (#block (#forget unfinished) (#unreachable)))))

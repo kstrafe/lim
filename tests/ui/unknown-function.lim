@@ -1,2 +1,2 @@
-(#fn main () #u64
-  (#return (#call missing ())))
+#fn main () #u64
+    (#return (#call missing ()))

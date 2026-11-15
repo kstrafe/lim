@@ -1,19 +1,17 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (#let-mut total #u64 0)
-  (
-    #for-range
-    (i #u64)
-    0
-    10
+#fn
+    main
+    ()
+    #u64
+    (#let-mut total #u64 0)
     (
-      #set
-      total
-      (#u64::add-wrap  total i)
+      #for-range
+      (i #u64)
+      0
+      10
+      (
+        #set
+        total
+        (#u64::add-wrap  total i)
+      )
     )
-  )
-  (#return total)
-)
+    (#return total)

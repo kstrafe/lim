@@ -1,31 +1,27 @@
-(
-  #fn
-  choose
-  (
-    (flag #bool)
-  )
-  #f32
-  (
-    #return
-    (#if flag 1.5 2.5)
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    choose
     (
-      #if
-      (#f32::gt
-        (#call choose ((flag true)))
-        1.0
-      )
-      42
-      0
+      (flag #bool)
     )
-  )
-)
+    #f32
+    (
+      #return
+      (#if flag 1.5 2.5)
+    )
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (
+        #if
+        (#f32::gt
+          (#call choose ((flag true)))
+          1.0
+        )
+        42
+        0
+      )
+    )

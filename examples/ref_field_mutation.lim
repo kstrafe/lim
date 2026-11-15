@@ -1,35 +1,35 @@
-(#alias lim-gen-cell = ../library/cell.lim::#cell)
+#alias lim-gen-cell = ../library/cell.lim::#cell
 
-(#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
-(#struct Point () ((x #u64) (y #u64)))
-(#struct CellState () ((prefix #u64) (counter CellU64)))
-(#static origin Point (#struct-literal Point ((x 19) (y 23))))
+#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set
+#struct Point () ((x #u64) (y #u64))
+#struct CellState () ((prefix #u64) (counter CellU64))
+#static origin Point (#struct-literal Point ((x 19) (y 23)))
 
-(#fn origin-y () #u64
-  (#let origin-ref (#ref Point) (#unsafe (#borrow origin)))
-  (#let y-ref (#ref #u64) (#borrow (#get origin-ref y)))
-  (#return (#deref y-ref)))
+#fn origin-y () #u64
+    (#let origin-ref (#ref Point) (#unsafe (#borrow origin)))
+    (#let y-ref (#ref #u64) (#borrow (#get origin-ref y)))
+    (#return (#deref y-ref))
 
-(#fn point-y ((point (#ref Point))) #u64
-  (#return (#get point y)))
+#fn point-y ((point (#ref Point))) #u64
+    (#return (#get point y))
 
-(#fn mutate-cell-through-reference () #u64
-  (#let-mut state CellState (#struct-literal CellState ((prefix 5) (counter
-    (#call CellU64::create ((value 1u64)))))))
-  (#let state-ref (#ref CellState) (#borrow state))
-  (#let cell (#ref CellU64) (#borrow (#get state-ref counter)))
-  (#call CellU64::set ((cell (#clone cell)) (value 42u64)))
-  (#let result #u64 (#call CellU64::get ((cell cell))))
-  (#drop state-ref)
-  (#forget state)
-  (#return result))
+#fn mutate-cell-through-reference () #u64
+    (#let-mut state CellState (#struct-literal CellState ((prefix 5) (counter
+      (#call CellU64::create ((value 1u64)))))))
+    (#let state-ref (#ref CellState) (#borrow state))
+    (#let cell (#ref CellU64) (#borrow (#get state-ref counter)))
+    (#call CellU64::set ((cell (#clone cell)) (value 42u64)))
+    (#let result #u64 (#call CellU64::get ((cell cell))))
+    (#drop state-ref)
+    (#forget state)
+    (#return result)
 
-(#fn main () #u64
-  (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
-  (#let original-y #u64 (#call point-y ((point (#borrow point)))))
-  (#let point-ref (#ref-mut Point) (#borrow-mut point))
-  (#let y-ref (#ref-mut #u64) (#borrow-mut (#get point-ref y)))
-  (#deref-set y-ref 42)
-  (#return (#u64::add-wrap
-    (#u64::add-wrap (#u64::add-wrap (#deref y-ref) original-y) (#call origin-y ()))
-    (#call mutate-cell-through-reference ()))))
+#fn main () #u64
+    (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
+    (#let original-y #u64 (#call point-y ((point (#borrow point)))))
+    (#let point-ref (#ref-mut Point) (#borrow-mut point))
+    (#let y-ref (#ref-mut #u64) (#borrow-mut (#get point-ref y)))
+    (#deref-set y-ref 42)
+    (#return (#u64::add-wrap
+      (#u64::add-wrap (#u64::add-wrap (#deref y-ref) original-y) (#call origin-y ()))
+      (#call mutate-cell-through-reference ())))

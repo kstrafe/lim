@@ -1,10 +1,10 @@
-(#struct Point () ((x #u64) (y #u64)))
+#struct Point () ((x #u64) (y #u64))
 
-(#fn classify ((value Point)) #u64
-  (#return
-    (#match value
-      (#case (Point 40 second) second)
-      (#case _ 0))))
+#fn classify ((value Point)) #u64
+    (#return
+      (#match value
+        (#case (Point 40 second) second)
+        (#case _ 0)))
 
-(#fn main () #u64
-  (#return (#call classify ((value (#struct-literal Point ((x 40) (y 2))))))))
+#fn main () #u64
+    (#return (#call classify ((value (#struct-literal Point ((x 40) (y 2)))))))

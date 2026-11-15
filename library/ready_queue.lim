@@ -4,46 +4,46 @@
 //; runtime storage. IDs are #u64; generations and task ownership are separate.
 //; Operations write only Copy fields through derived references. The linear
 //; queue owner remains alive and must still be explicitly consumed by its user.
-(#gn #ready-queue
-  (name enqueue-result dequeue-result create enqueue dequeue
-    enqueued full item empty slots)
-  (#gn-if (#gn-equal (#gn-length slots) 0)
-    (#gn-error "ready queue requires at least one slot ID")
-    `((#enum ,enqueue-result () (,enqueued ,full))
-      (#enum ,dequeue-result () ((,item #u64) ,empty))
-      (#struct ,name (#linear)
-        ((items (#array #u64 ,(#gn-length slots)))
-         (head #u64) (tail #u64) (length #u64)))
+#gn #ready-queue
+    (name enqueue-result dequeue-result create enqueue dequeue
+      enqueued full item empty slots)
+    (#gn-if (#gn-equal (#gn-length slots) 0)
+      (#gn-error "ready queue requires at least one slot ID")
+      `((#enum ,enqueue-result () (,enqueued ,full))
+        (#enum ,dequeue-result () ((,item #u64) ,empty))
+        (#struct ,name (#linear)
+          ((items (#array #u64 ,(#gn-length slots)))
+           (head #u64) (tail #u64) (length #u64)))
 
-      (#fn ,create () ,name
-        (#return (#struct-literal ,name
-          ((items (#array-repeat 0u64))
-           (head 0u64) (tail 0u64) (length 0u64)))))
-      (#fn ,enqueue ((queue (#ref-mut ,name)) (task-id #u64)) ,enqueue-result
-        (#return
-          (#if (#u64::eq (#get queue length) ,(#gn-length slots))
-            ,full
-            (#block
-              (#let-mut items (#array #u64 ,(#gn-length slots)) (#get queue items))
-              (#set-index items (#clone (#get queue tail)) task-id)
-              (#let next-tail #u64
-                (#if (#u64::eq (#u64::add-wrap (#clone (#get queue tail)) 1u64) ,(#gn-length slots))
-                  0u64 (#u64::add-wrap (#clone (#get queue tail)) 1u64)))
-              (#deref-set (#borrow-mut (#get queue items)) items)
-              (#deref-set (#borrow-mut (#get queue tail)) next-tail)
-              (#deref-set (#borrow-mut (#get queue length))
-                (#u64::add-wrap (#clone (#get queue length)) 1u64))
-              ,enqueued))))
-      (#fn ,dequeue ((queue (#ref-mut ,name))) ,dequeue-result
-        (#return
-          (#if (#u64::eq (#get queue length) 0u64)
-            ,empty
-            (#block
-              (#let item #u64 (#index (#clone (#get queue items)) (#clone (#get queue head))))
-              (#let next-head #u64
-                (#if (#u64::eq (#u64::add-wrap (#clone (#get queue head)) 1u64) ,(#gn-length slots))
-                  0u64 (#u64::add-wrap (#clone (#get queue head)) 1u64)))
-              (#deref-set (#borrow-mut (#get queue head)) next-head)
-              (#deref-set (#borrow-mut (#get queue length))
-                (#u64::sub-wrap (#clone (#get queue length)) 1u64))
-              (,item item))))))))
+        (#fn ,create () ,name
+          (#return (#struct-literal ,name
+            ((items (#array-repeat 0u64))
+             (head 0u64) (tail 0u64) (length 0u64)))))
+        (#fn ,enqueue ((queue (#ref-mut ,name)) (task-id #u64)) ,enqueue-result
+          (#return
+            (#if (#u64::eq (#get queue length) ,(#gn-length slots))
+              ,full
+              (#block
+                (#let-mut items (#array #u64 ,(#gn-length slots)) (#get queue items))
+                (#set-index items (#clone (#get queue tail)) task-id)
+                (#let next-tail #u64
+                  (#if (#u64::eq (#u64::add-wrap (#clone (#get queue tail)) 1u64) ,(#gn-length slots))
+                    0u64 (#u64::add-wrap (#clone (#get queue tail)) 1u64)))
+                (#deref-set (#borrow-mut (#get queue items)) items)
+                (#deref-set (#borrow-mut (#get queue tail)) next-tail)
+                (#deref-set (#borrow-mut (#get queue length))
+                  (#u64::add-wrap (#clone (#get queue length)) 1u64))
+                ,enqueued))))
+        (#fn ,dequeue ((queue (#ref-mut ,name))) ,dequeue-result
+          (#return
+            (#if (#u64::eq (#get queue length) 0u64)
+              ,empty
+              (#block
+                (#let item #u64 (#index (#clone (#get queue items)) (#clone (#get queue head))))
+                (#let next-head #u64
+                  (#if (#u64::eq (#u64::add-wrap (#clone (#get queue head)) 1u64) ,(#gn-length slots))
+                    0u64 (#u64::add-wrap (#clone (#get queue head)) 1u64)))
+                (#deref-set (#borrow-mut (#get queue head)) next-head)
+                (#deref-set (#borrow-mut (#get queue length))
+                  (#u64::sub-wrap (#clone (#get queue length)) 1u64))
+                (,item item)))))))

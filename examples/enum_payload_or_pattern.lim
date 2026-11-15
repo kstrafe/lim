@@ -1,8 +1,8 @@
-(#enum Number () ((Number.Value #u64) Number.Empty))
+#enum Number () ((Number.Value #u64) Number.Empty)
 
-(#fn main () #u64
-  (#let value Number (Number.Value 2))
-  (#return
-    (#match value
-      (#case (Number.Value (#or 1 2 3)) 42)
-      (#case Number.Empty 0))))
+#fn main () #u64
+    (#let value Number (Number.Value 2))
+    (#return
+      (#match value
+        (#case (Number.Value (#or 1 2 3)) 42)
+        (#case Number.Empty 0)))

@@ -1,19 +1,19 @@
-(#struct Counter (#linear) ((value #u64)))
+#struct Counter (#linear) ((value #u64))
 
-(#fn counter-new ((value #u64)) Counter
-  (#return (#struct-literal Counter ((value value)))))
+#fn counter-new ((value #u64)) Counter
+    (#return (#struct-literal Counter ((value value))))
 
-(#fn counter-read ((counter (#ref Counter))) #u64
-  (#return (#call counter-value ((counter counter)))))
+#fn counter-read ((counter (#ref Counter))) #u64
+    (#return (#call counter-value ((counter counter))))
 
 // Private implementation shared by ordinary API functions and the generator.
-(#fn counter-value ((counter (#ref Counter))) #u64
-  (#return (#get counter value)))
+#fn counter-value ((counter (#ref Counter))) #u64
+    (#return (#get counter value))
 
-(#gn counter-reader (name)
-  `((#fn ,name ((counter (#ref @Counter))) #u64
-      (#return (#call @counter-value ((counter counter)))))))
+#gn counter-reader (name)
+    `((#fn ,name ((counter (#ref @Counter))) #u64
+        (#return (#call @counter-value ((counter counter))))))
 
-(#fn counter-destroy ((counter Counter)) ()
-  (#forget counter)
-  (#return ()))
+#fn counter-destroy ((counter Counter)) ()
+    (#forget counter)
+    (#return ())

@@ -1,13 +1,13 @@
-(#fn main () #u64
-  (#let value #u32 2)
-  (#return
-    (#u64::add-wrap
-      (#match value
-        (#case (#or 1 2 3) 42)
-        (#case _ 0))
-      (#call bool-or ((value true))))))
+#fn main () #u64
+    (#let value #u32 2)
+    (#return
+      (#u64::add-wrap
+        (#match value
+          (#case (#or 1 2 3) 42)
+          (#case _ 0))
+        (#call bool-or ((value true)))))
 
-(#fn bool-or ((value #bool)) #u64
-  (#return
-    (#match value
-      (#case (#or true false) 42))))
+#fn bool-or ((value #bool)) #u64
+    (#return
+      (#match value
+        (#case (#or true false) 42)))

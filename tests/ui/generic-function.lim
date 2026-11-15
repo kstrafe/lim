@@ -1,2 +1,2 @@
-(#fn identity (T) ((value T)) T
-  (#return value))
+#fn identity (T) ((value T)) T
+    (#return value)

@@ -1,10 +1,10 @@
-(#alias Widget = ./modules/shared.lim::Widget)
-(#alias external@Widget = ./modules/shared.lim::Widget)
-(#alias external@widget-value = ./modules/shared.lim::widget-value)
-(#alias widget-value = ./modules/shared.lim::widget-value)
+#alias Widget = ./modules/shared.lim::Widget
+#alias external@Widget = ./modules/shared.lim::Widget
+#alias external@widget-value = ./modules/shared.lim::widget-value
+#alias widget-value = ./modules/shared.lim::widget-value
 
-(#fn main () #u64
-  (#return
-    (#u64::add-wrap
-      (#call widget-value ((widget (#struct-literal Widget ((value 20))))))
-      (#call external@widget-value ((widget (#struct-literal external@Widget ((value 22)))))))))
+#fn main () #u64
+    (#return
+      (#u64::add-wrap
+        (#call widget-value ((widget (#struct-literal Widget ((value 20))))))
+        (#call external@widget-value ((widget (#struct-literal external@Widget ((value 22))))))))

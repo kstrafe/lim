@@ -1,39 +1,39 @@
 // Both conditional exits of this value-producing loop survive suspension. The inner
 // synchronous loop's break belongs to that loop, not the enclosing async loop.
-(#enum Step (#linear) ((Step.Waiting #u64) (Step.Resuming #u64)))
+#enum Step (#linear) ((Step.Waiting #u64) (Step.Resuming #u64))
 
-(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
-(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
-  (#return (#match task
-    (#case (Step.Waiting value) (StepPoll.StepPending (Step.Resuming value)))
-    (#case (Step.Resuming value) (StepPoll.StepReady value)))))
+#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+    (#return (#match task
+      (#case (Step.Waiting value) (StepPoll.StepPending (Step.Resuming value)))
+      (#case (Step.Resuming value) (StepPoll.StepReady value))))
 
-(#fn identity ((value #u64)) #u64 (#return value))
-(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-  (#fn work ((choose #bool)) #u64
-    (#let result #u64
-      (#call identity ((value
-        (#loop
-          (#let awaited #u64
-            (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 41u64)))
-          (#let nested #u64 (#loop (#break 7u64)))
-          (#assert (#u64::eq nested 7u64))
-          (#if choose (#break 42u64) (#break awaited)))))))
-    (#return result)))))
+#fn identity ((value #u64)) #u64 (#return value)
+#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
+    (#fn work ((choose #bool)) #u64
+      (#let result #u64
+        (#call identity ((value
+          (#loop
+            (#let awaited #u64
+              (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 41u64)))
+            (#let nested #u64 (#loop (#break 7u64)))
+            (#assert (#u64::eq nested 7u64))
+            (#if choose (#break 42u64) (#break awaited)))))))
+      (#return result))))
 
-(#fn run ((choose #bool) (waker (#ref #u64))) #u64
-  (#let first Work::Poll
-    (#call Work::poll ((task (#call work ((choose choose)))) (waker waker))))
-  (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
-  (#let second Work::Poll (#call Work::poll ((task pending) (waker waker))))
-  (#return (#match second
-    (#case (Work::Poll.Ready value) value)
-    (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+#fn run ((choose #bool) (waker (#ref #u64))) #u64
+    (#let first Work::Poll
+      (#call Work::poll ((task (#call work ((choose choose)))) (waker waker))))
+    (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
+    (#let second Work::Poll (#call Work::poll ((task pending) (waker waker))))
+    (#return (#match second
+      (#case (Work::Poll.Ready value) value)
+      (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
 
-(#fn main () #u64
-  (#let waker #u64 0u64)
-  (#let early #u64 (#call run ((choose true) (waker (#borrow waker)))))
-  (#let final #u64 (#call run ((choose false) (waker (#borrow waker)))))
-  (#assert (#u64::eq final 41u64))
-  (#forget waker)
-  (#return early))
+#fn main () #u64
+    (#let waker #u64 0u64)
+    (#let early #u64 (#call run ((choose true) (waker (#borrow waker)))))
+    (#let final #u64 (#call run ((choose false) (waker (#borrow waker)))))
+    (#assert (#u64::eq final 41u64))
+    (#forget waker)
+    (#return early)

@@ -1,65 +1,65 @@
-(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
-(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
-(#alias linux-getitimer = ../library/linux_x86_64.lim::linux-getitimer)
-(#alias linux-setitimer = ../library/linux_x86_64.lim::linux-setitimer)
+#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP
+#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP
+#alias linux-getitimer = ../library/linux_x86_64.lim::linux-getitimer
+#alias linux-setitimer = ../library/linux_x86_64.lim::linux-setitimer
 
-(#fn main () #u64
-  (#let memory (#ptr-mut #i64)
-    (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
-      (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let initialized ()
-    (#unsafe
-      (#block
-        (#ptr-write memory 0i64)
-        (#ptr-write (#ptr-offset memory 1usize) 0i64)
-        (#ptr-write (#ptr-offset memory 2usize) 60i64)
-        (#ptr-write (#ptr-offset memory 3usize) 0i64)
-        ()) ))
-  (#let initial-query #i64
-    (#unsafe (#unsafe-call linux-getitimer ((which 0i64) (current-value (#ptr-offset memory 8usize))))))
-  (#let timer-armed #i64
-    (#unsafe (#unsafe-call linux-setitimer ((which 0i64) (new-value memory) (old-value (#ptr-offset memory 4usize))))))
-  (#let active-query #i64
-    (#unsafe (#unsafe-call linux-getitimer ((which 0i64) (current-value (#ptr-offset memory 8usize))))))
-  (#let remaining-seconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 10usize))))
-  (#let remaining-microseconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 11usize))))
-  (#let timer-restored #i64
-    (#unsafe (#unsafe-call linux-setitimer ((which 0i64) (new-value (#ptr-offset memory 4usize)) (old-value (#ptr-offset memory 12usize))))))
-  (#let restored-query #i64
-    (#unsafe (#unsafe-call linux-getitimer ((which 0i64) (current-value (#ptr-offset memory 16usize))))))
-  (#let original-interval-seconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 4usize))))
-  (#let restored-interval-seconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 16usize))))
-  (#let original-interval-microseconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 5usize))))
-  (#let restored-interval-microseconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 17usize))))
-  (#let original-expiration-seconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 6usize))))
-  (#let restored-expiration-seconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 18usize))))
-  (#let original-expiration-microseconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 7usize))))
-  (#let restored-expiration-microseconds #i64
-    (#unsafe (#ptr-read (#ptr-offset memory 19usize))))
-  (#let memory-unmapped #i64
-    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
-  (#let expiration-active #bool
-    (#bool::or (#i64::gt remaining-seconds 0i64)
-      (#i64::gt remaining-microseconds 0i64)))
-  (#let state-restored #bool
-    (#bool::and (#i64::eq original-interval-seconds restored-interval-seconds)
-      (#bool::and (#i64::eq original-interval-microseconds restored-interval-microseconds)
-        (#bool::and (#i64::eq original-expiration-seconds restored-expiration-seconds)
-          (#i64::eq original-expiration-microseconds restored-expiration-microseconds)))))
-  (#return
-    (#if (#bool::and (#i64::eq initial-query 0i64)
-      (#bool::and (#i64::eq timer-armed 0i64)
-        (#bool::and (#i64::eq active-query 0i64)
-          (#bool::and expiration-active
-            (#bool::and (#i64::eq timer-restored 0i64)
-              (#bool::and (#i64::eq restored-query 0i64)
-                (#bool::and state-restored (#i64::eq memory-unmapped 0i64)))))))) 42u64 1u64)))
+#fn main () #u64
+    (#let memory (#ptr-mut #i64)
+      (#unsafe (#linux-syscall (#ptr-mut #i64) lINUX-SYS-MMAP
+        (0usize 4096usize 3usize 34usize -1i64 0usize))))
+    (#let initialized ()
+      (#unsafe
+        (#block
+          (#ptr-write memory 0i64)
+          (#ptr-write (#ptr-offset memory 1usize) 0i64)
+          (#ptr-write (#ptr-offset memory 2usize) 60i64)
+          (#ptr-write (#ptr-offset memory 3usize) 0i64)
+          ()) ))
+    (#let initial-query #i64
+      (#unsafe (#unsafe-call linux-getitimer ((which 0i64) (current-value (#ptr-offset memory 8usize))))))
+    (#let timer-armed #i64
+      (#unsafe (#unsafe-call linux-setitimer ((which 0i64) (new-value memory) (old-value (#ptr-offset memory 4usize))))))
+    (#let active-query #i64
+      (#unsafe (#unsafe-call linux-getitimer ((which 0i64) (current-value (#ptr-offset memory 8usize))))))
+    (#let remaining-seconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 10usize))))
+    (#let remaining-microseconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 11usize))))
+    (#let timer-restored #i64
+      (#unsafe (#unsafe-call linux-setitimer ((which 0i64) (new-value (#ptr-offset memory 4usize)) (old-value (#ptr-offset memory 12usize))))))
+    (#let restored-query #i64
+      (#unsafe (#unsafe-call linux-getitimer ((which 0i64) (current-value (#ptr-offset memory 16usize))))))
+    (#let original-interval-seconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 4usize))))
+    (#let restored-interval-seconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 16usize))))
+    (#let original-interval-microseconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 5usize))))
+    (#let restored-interval-microseconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 17usize))))
+    (#let original-expiration-seconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 6usize))))
+    (#let restored-expiration-seconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 18usize))))
+    (#let original-expiration-microseconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 7usize))))
+    (#let restored-expiration-microseconds #i64
+      (#unsafe (#ptr-read (#ptr-offset memory 19usize))))
+    (#let memory-unmapped #i64
+      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (memory 4096usize))))
+    (#let expiration-active #bool
+      (#bool::or (#i64::gt remaining-seconds 0i64)
+        (#i64::gt remaining-microseconds 0i64)))
+    (#let state-restored #bool
+      (#bool::and (#i64::eq original-interval-seconds restored-interval-seconds)
+        (#bool::and (#i64::eq original-interval-microseconds restored-interval-microseconds)
+          (#bool::and (#i64::eq original-expiration-seconds restored-expiration-seconds)
+            (#i64::eq original-expiration-microseconds restored-expiration-microseconds)))))
+    (#return
+      (#if (#bool::and (#i64::eq initial-query 0i64)
+        (#bool::and (#i64::eq timer-armed 0i64)
+          (#bool::and (#i64::eq active-query 0i64)
+            (#bool::and expiration-active
+              (#bool::and (#i64::eq timer-restored 0i64)
+                (#bool::and (#i64::eq restored-query 0i64)
+                  (#bool::and state-restored (#i64::eq memory-unmapped 0i64)))))))) 42u64 1u64))

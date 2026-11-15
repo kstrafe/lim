@@ -1,9 +1,9 @@
-(#fn nested-values () (#array (#array #u64 2) 2)
-  (#let value (#array (#array #u64 2) 2)
-    (#array (#array (#array #u64 2) 2)
-      (#array (#array #u64 2) 10 20)
-      (#array (#array #u64 2) 30 40)))
-  (#return value))
+#fn nested-values () (#array (#array #u64 2) 2)
+    (#let value (#array (#array #u64 2) 2)
+      (#array (#array (#array #u64 2) 2)
+        (#array (#array #u64 2) 10 20)
+        (#array (#array #u64 2) 30 40)))
+    (#return value)
 
-(#fn main () #u64
-  (#return (#index (#index (#call nested-values ()) 1) 0)))
+#fn main () #u64
+    (#return (#index (#index (#call nested-values ()) 1) 0))

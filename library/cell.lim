@@ -2,13 +2,13 @@
 //; operations preserve single-threaded get/set behavior; the concrete type is
 //; also safe to share across threads. Pipeline.Only supported atomic scalar types may
 //; be used as T. Each instantiation names its type and operations.
-(#gn #cell (value-type name create get set)
-  `((#struct ,name (#linear) ((storage (#atomic ,value-type))))
+#gn #cell (value-type name create get set)
+    `((#struct ,name (#linear) ((storage (#atomic ,value-type))))
 
-    (#fn ,create ((value ,value-type)) ,name
-      (#return (#struct-literal ,name ((storage (#atomic-init ,value-type value))))))
-    (#fn ,get ((cell (#ref ,name))) ,value-type
-      (#return (#atomic-load (#borrow (#get cell storage)) #memory-relaxed)))
-    (#fn ,set ((cell (#ref ,name)) (value ,value-type)) ()
-      (#atomic-store (#borrow (#get cell storage)) value #memory-relaxed)
-      (#return ()))))
+      (#fn ,create ((value ,value-type)) ,name
+        (#return (#struct-literal ,name ((storage (#atomic-init ,value-type value))))))
+      (#fn ,get ((cell (#ref ,name))) ,value-type
+        (#return (#atomic-load (#borrow (#get cell storage)) #memory-relaxed)))
+      (#fn ,set ((cell (#ref ,name)) (value ,value-type)) ()
+        (#atomic-store (#borrow (#get cell storage)) value #memory-relaxed)
+        (#return ())))

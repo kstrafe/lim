@@ -1,21 +1,21 @@
 //; Contiguous explicit tags use a bounds-checked native jump table. Source
 //; declaration and case order need not match the discriminant order.
-(#enum Work ()
-  ((Work.Read 11 #u64)
-   (Work.Idle 10)
-   (Work.Finished 13 #u64)
-   (Work.Write 12 #u64)))
+#enum Work ()
+    ((Work.Read 11 #u64)
+     (Work.Idle 10)
+     (Work.Finished 13 #u64)
+     (Work.Write 12 #u64))
 
-(#fn dispatch ((task Work)) #u64
-  (#return
-    (#match task
-      (#case (Work.Finished result) result)
-      (#case (Work.Write written) written)
-      (#case Work.Idle 0u64)
-      (#case (Work.Read received) received))))
+#fn dispatch ((task Work)) #u64
+    (#return
+      (#match task
+        (#case (Work.Finished result) result)
+        (#case (Work.Write written) written)
+        (#case Work.Idle 0u64)
+        (#case (Work.Read received) received)))
 
-(#fn main () #u64
-  (#assert (#u64::eq (#call dispatch ((task Work.Idle))) 0u64))
-  (#assert (#u64::eq (#call dispatch ((task (Work.Read 10u64)))) 10u64))
-  (#assert (#u64::eq (#call dispatch ((task (Work.Write 20u64)))) 20u64))
-  (#return (#call dispatch ((task (Work.Finished 42u64))))))
+#fn main () #u64
+    (#assert (#u64::eq (#call dispatch ((task Work.Idle))) 0u64))
+    (#assert (#u64::eq (#call dispatch ((task (Work.Read 10u64)))) 10u64))
+    (#assert (#u64::eq (#call dispatch ((task (Work.Write 20u64)))) 20u64))
+    (#return (#call dispatch ((task (Work.Finished 42u64)))))

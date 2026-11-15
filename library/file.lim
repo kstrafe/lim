@@ -1,150 +1,150 @@
-(#alias String = ./string.lim::String)
-(#alias String::byte-at = ./string.lim::String::byte-at)
-(#alias String::data-pointer = ./string.lim::String::data-pointer)
-(#alias String::free = ./string.lim::String::free)
-(#alias String::len = ./string.lim::String::len)
-(#alias String::push-char = ./string.lim::String::push-char)
-(#alias String::try-clone = ./string.lim::String::try-clone)
-(#alias StringByteResult = ./string.lim::StringByteResult)
-(#alias StringCreateResult = ./string.lim::StringCreateResult)
-(#alias StringError = ./string.lim::StringError)
-(#alias StringStatus = ./string.lim::StringStatus)
-(#alias SystemAllocationError = ./system_allocator.lim::SystemAllocationError)
-(#alias SystemAllocationResult = ./system_allocator.lim::SystemAllocationResult)
-(#alias system-allocate = ./system_allocator.lim::system-allocate)
-(#alias system-deallocate = ./system_allocator.lim::system-deallocate)
+#alias String = ./string.lim::String
+#alias String::byte-at = ./string.lim::String::byte-at
+#alias String::data-pointer = ./string.lim::String::data-pointer
+#alias String::free = ./string.lim::String::free
+#alias String::len = ./string.lim::String::len
+#alias String::push-char = ./string.lim::String::push-char
+#alias String::try-clone = ./string.lim::String::try-clone
+#alias StringByteResult = ./string.lim::StringByteResult
+#alias StringCreateResult = ./string.lim::StringCreateResult
+#alias StringError = ./string.lim::StringError
+#alias StringStatus = ./string.lim::StringStatus
+#alias SystemAllocationError = ./system_allocator.lim::SystemAllocationError
+#alias SystemAllocationResult = ./system_allocator.lim::SystemAllocationResult
+#alias system-allocate = ./system_allocator.lim::system-allocate
+#alias system-deallocate = ./system_allocator.lim::system-deallocate
 
 // Safe descriptor ownership and explicitly allocated buffered byte input.
 
-(#struct File (#linear) ((descriptor #i64)))
-(#opaque File)
+#struct File (#linear) ((descriptor #i64))
+#opaque File
 
-(#enum FileError () ((FileError.FileIoError #i64) (FileError.FileTextError StringError)
-  (FileError.FileAllocationError SystemAllocationError) FileError.FilePathContainsNul))
-(#enum FileOpenResult () ((FileOpenResult.FileOpened File) (FileOpenResult.FileOpenFailed FileError)))
-(#enum FileStatus () (FileStatus.FileOk (FileStatus.FileFailed FileError)))
-(#struct FileWriteFailure () ((written #usize) (error FileError)))
-(#enum FileWriteResult () ((FileWriteResult.FileWritten #usize) (FileWriteResult.FileWriteFailed FileWriteFailure)))
+#enum FileError () ((FileError.FileIoError #i64) (FileError.FileTextError StringError)
+    (FileError.FileAllocationError SystemAllocationError) FileError.FilePathContainsNul)
+#enum FileOpenResult () ((FileOpenResult.FileOpened File) (FileOpenResult.FileOpenFailed FileError))
+#enum FileStatus () (FileStatus.FileOk (FileStatus.FileFailed FileError))
+#struct FileWriteFailure () ((written #usize) (error FileError))
+#enum FileWriteResult () ((FileWriteResult.FileWritten #usize) (FileWriteResult.FileWriteFailed FileWriteFailure))
 
-(#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
-  (#unsafe-fn file-open-descriptor ((path (#ptr-mut #u8)) (flags #u32) (permissions #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 257usize (-100i64 path flags permissions)))))
-  (#fn file-close-descriptor ((descriptor #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 3usize (descriptor)))))
-  (#unsafe-fn File::read-raw ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (capacity #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 0usize ((#get file descriptor) buffer capacity)))))
-  (#unsafe-fn file-write-raw ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (length #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 1usize ((#get file descriptor) buffer length))))))
-(#cfg-if (#cfg-not (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64)))
-  (#unsafe-fn file-open-descriptor ((path (#ptr-mut #u8)) (flags #u32) (permissions #u32)) #i64
-    (#return -38i64))
-  (#fn file-close-descriptor ((descriptor #i64)) #i64 (#return -38i64))
-  (#unsafe-fn File::read-raw ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (capacity #usize)) #i64
-    (#return -38i64))
-  (#unsafe-fn file-write-raw ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (length #usize)) #i64
-    (#return -38i64)))
+#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
+    (#unsafe-fn file-open-descriptor ((path (#ptr-mut #u8)) (flags #u32) (permissions #u32)) #i64
+      (#return (#unsafe (#linux-syscall #i64 257usize (-100i64 path flags permissions)))))
+    (#fn file-close-descriptor ((descriptor #i64)) #i64
+      (#return (#unsafe (#linux-syscall #i64 3usize (descriptor)))))
+    (#unsafe-fn File::read-raw ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (capacity #usize)) #i64
+      (#return (#unsafe (#linux-syscall #i64 0usize ((#get file descriptor) buffer capacity)))))
+    (#unsafe-fn file-write-raw ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (length #usize)) #i64
+      (#return (#unsafe (#linux-syscall #i64 1usize ((#get file descriptor) buffer length)))))
+#cfg-if (#cfg-not (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64)))
+    (#unsafe-fn file-open-descriptor ((path (#ptr-mut #u8)) (flags #u32) (permissions #u32)) #i64
+      (#return -38i64))
+    (#fn file-close-descriptor ((descriptor #i64)) #i64 (#return -38i64))
+    (#unsafe-fn File::read-raw ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (capacity #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn file-write-raw ((file (#ref-mut File)) (buffer (#ptr-mut #u8)) (length #usize)) #i64
+      (#return -38i64))
 
-(#fn File::open-with-flags ((path (#ref String)) (flags #u32) (permissions #u32)) FileOpenResult
-  (#let length #usize (#call String::len ((string path))))
-  (#let-mut index #usize 0usize)
-  (#while (#usize::lt index length)
-    (#match (#call String::byte-at ((string path) (index index)))
-      (#case (StringByteResult.StringByte byte)
-        (#if (#u8::eq byte 0u8) (#block (#return (FileOpenResult.FileOpenFailed FileError.FilePathContainsNul))) ()))
-      (#case StringByteResult.StringByteOutOfBounds (#unreachable)))
-    (#set index (#usize::add-wrap index 1usize)))
-  (#return (#match (#call String::try-clone ((string path)))
-    (#case (StringCreateResult.StringCreateFailed error) (FileOpenResult.FileOpenFailed (FileError.FileTextError error)))
-    (#case (StringCreateResult.StringCreated copied)
-      (#block
-        (#let-mut terminated String copied)
-        (#match (#call String::push-char ((string (#borrow-mut terminated)) (value #\null)))
-          (#case (StringStatus.StringErr error)
-            (#block (#call String::free ((string terminated)))
-              (#return (FileOpenResult.FileOpenFailed (FileError.FileTextError error)))))
-          (#case StringStatus.StringOk ()))
-        (#let descriptor #i64 (#unsafe (#unsafe-call file-open-descriptor
-          ((path (#unsafe-call String::data-pointer ((string (#borrow terminated)))))
-           (flags flags) (permissions permissions)))))
-        (#call String::free ((string terminated)))
-        (#if (#i64::lt descriptor 0i64) (FileOpenResult.FileOpenFailed (FileError.FileIoError descriptor))
-          (FileOpenResult.FileOpened (#struct-literal File ((descriptor descriptor))))))))))
+#fn File::open-with-flags ((path (#ref String)) (flags #u32) (permissions #u32)) FileOpenResult
+    (#let length #usize (#call String::len ((string path))))
+    (#let-mut index #usize 0usize)
+    (#while (#usize::lt index length)
+      (#match (#call String::byte-at ((string path) (index index)))
+        (#case (StringByteResult.StringByte byte)
+          (#if (#u8::eq byte 0u8) (#block (#return (FileOpenResult.FileOpenFailed FileError.FilePathContainsNul))) ()))
+        (#case StringByteResult.StringByteOutOfBounds (#unreachable)))
+      (#set index (#usize::add-wrap index 1usize)))
+    (#return (#match (#call String::try-clone ((string path)))
+      (#case (StringCreateResult.StringCreateFailed error) (FileOpenResult.FileOpenFailed (FileError.FileTextError error)))
+      (#case (StringCreateResult.StringCreated copied)
+        (#block
+          (#let-mut terminated String copied)
+          (#match (#call String::push-char ((string (#borrow-mut terminated)) (value #\null)))
+            (#case (StringStatus.StringErr error)
+              (#block (#call String::free ((string terminated)))
+                (#return (FileOpenResult.FileOpenFailed (FileError.FileTextError error)))))
+            (#case StringStatus.StringOk ()))
+          (#let descriptor #i64 (#unsafe (#unsafe-call file-open-descriptor
+            ((path (#unsafe-call String::data-pointer ((string (#borrow terminated)))))
+             (flags flags) (permissions permissions)))))
+          (#call String::free ((string terminated)))
+          (#if (#i64::lt descriptor 0i64) (FileOpenResult.FileOpenFailed (FileError.FileIoError descriptor))
+            (FileOpenResult.FileOpened (#struct-literal File ((descriptor descriptor)))))))))
 
-(#fn File::open-read ((path (#ref String))) FileOpenResult
-  (#return (#call File::open-with-flags ((path path) (flags 524288u32) (permissions 0u32)))))
+#fn File::open-read ((path (#ref String))) FileOpenResult
+    (#return (#call File::open-with-flags ((path path) (flags 524288u32) (permissions 0u32))))
 // O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC. The name explicitly signals creation.
-(#fn File::create ((path (#ref String)) (permissions #u32)) FileOpenResult
-  (#return (#call File::open-with-flags ((path path) (flags 524865u32) (permissions permissions)))))
-(#fn File::close ((file File)) FileStatus
-  (#let result #i64 (#call file-close-descriptor ((descriptor (#get file descriptor)))))
-  (#forget file)
-  // Linux releases the descriptor even on EINTR; never retry a possibly reused FD.
-  (#return (#if (#i64::lt result 0i64) (FileStatus.FileFailed (FileError.FileIoError result)) FileStatus.FileOk)))
+#fn File::create ((path (#ref String)) (permissions #u32)) FileOpenResult
+    (#return (#call File::open-with-flags ((path path) (flags 524865u32) (permissions permissions))))
+#fn File::close ((file File)) FileStatus
+    (#let result #i64 (#call file-close-descriptor ((descriptor (#get file descriptor)))))
+    (#forget file)
+    // Linux releases the descriptor even on EINTR; never retry a possibly reused FD.
+    (#return (#if (#i64::lt result 0i64) (FileStatus.FileFailed (FileError.FileIoError result)) FileStatus.FileOk))
 
-(#fn File::write-string ((file (#ref-mut File)) (text (#ref String))) FileWriteResult
-  (#let length #usize (#call String::len ((string text))))
-  (#let pointer (#ptr-mut #u8) (#unsafe (#unsafe-call String::data-pointer ((string text)))))
-  (#let-mut offset #usize 0usize)
-  (#while (#usize::lt offset length)
-    (#let count #i64 (#unsafe (#unsafe-call file-write-raw
-      ((file file) (buffer (#ptr-offset pointer offset)) (length (#usize::sub-wrap length offset))))))
-    (#if (#i64::gt count 0i64)
-      (#block
-        (#let amount #usize (#as count #usize))
-        (#if (#usize::gt amount (#usize::sub-wrap length offset))
+#fn File::write-string ((file (#ref-mut File)) (text (#ref String))) FileWriteResult
+    (#let length #usize (#call String::len ((string text))))
+    (#let pointer (#ptr-mut #u8) (#unsafe (#unsafe-call String::data-pointer ((string text)))))
+    (#let-mut offset #usize 0usize)
+    (#while (#usize::lt offset length)
+      (#let count #i64 (#unsafe (#unsafe-call file-write-raw
+        ((file file) (buffer (#ptr-offset pointer offset)) (length (#usize::sub-wrap length offset))))))
+      (#if (#i64::gt count 0i64)
+        (#block
+          (#let amount #usize (#as count #usize))
+          (#if (#usize::gt amount (#usize::sub-wrap length offset))
+            (#block
+              (#return
+                (FileWriteResult.FileWriteFailed
+                  (#struct-literal FileWriteFailure
+                    ((written offset) (error (FileError.FileIoError -5i64)))))))
+            ())
+          (#set offset (#usize::add-wrap offset amount)) ())
+        (#if (#i64::eq count -4i64) ()
           (#block
             (#return
               (FileWriteResult.FileWriteFailed
                 (#struct-literal FileWriteFailure
-                  ((written offset) (error (FileError.FileIoError -5i64)))))))
-          ())
-        (#set offset (#usize::add-wrap offset amount)) ())
-      (#if (#i64::eq count -4i64) ()
-        (#block
-          (#return
-            (FileWriteResult.FileWriteFailed
-              (#struct-literal FileWriteFailure
-                ((written offset)
-                 (error (FileError.FileIoError (#if (#i64::eq count 0i64) -5i64 count)))))))))))
-  (#return (FileWriteResult.FileWritten offset)))
+                  ((written offset)
+                   (error (FileError.FileIoError (#if (#i64::eq count 0i64) -5i64 count)))))))))))
+    (#return (FileWriteResult.FileWritten offset))
 
-(#struct FileReader (#linear) ((file File) (buffer (#ptr-mut #u8)) (capacity #usize)
-  (position #usize) (length #usize) (ended #bool)))
-(#opaque FileReader)
+#struct FileReader (#linear) ((file File) (buffer (#ptr-mut #u8)) (capacity #usize)
+    (position #usize) (length #usize) (ended #bool))
+#opaque FileReader
 
-(#struct FileReaderCreateFailure () ((file File) (error FileError)))
-(#enum FileReaderCreateResult () ((FileReaderCreateResult.FileReaderCreated FileReader) (FileReaderCreateResult.FileReaderCreateFailed FileReaderCreateFailure)))
-(#enum FileByteResult () ((FileByteResult.FileByte #u8) FileByteResult.FileByteEof (FileByteResult.FileByteFailed FileError)))
+#struct FileReaderCreateFailure () ((file File) (error FileError))
+#enum FileReaderCreateResult () ((FileReaderCreateResult.FileReaderCreated FileReader) (FileReaderCreateResult.FileReaderCreateFailed FileReaderCreateFailure))
+#enum FileByteResult () ((FileByteResult.FileByte #u8) FileByteResult.FileByteEof (FileByteResult.FileByteFailed FileError))
 
-(#fn FileReader::create ((file File) (capacity #usize)) FileReaderCreateResult
-  (#return (#match (#call system-allocate ((size capacity)))
-    (#case (SystemAllocationResult.SystemAllocationFailed error) (FileReaderCreateResult.FileReaderCreateFailed
-      (#struct-literal FileReaderCreateFailure ((file file) (error (FileError.FileAllocationError error))))))
-    (#case (SystemAllocationResult.SystemAllocated pointer)
-      (FileReaderCreateResult.FileReaderCreated (#struct-literal FileReader ((file file) (buffer pointer)
-        (capacity capacity) (position 0usize) (length 0usize) (ended false))))))))
+#fn FileReader::create ((file File) (capacity #usize)) FileReaderCreateResult
+    (#return (#match (#call system-allocate ((size capacity)))
+      (#case (SystemAllocationResult.SystemAllocationFailed error) (FileReaderCreateResult.FileReaderCreateFailed
+        (#struct-literal FileReaderCreateFailure ((file file) (error (FileError.FileAllocationError error))))))
+      (#case (SystemAllocationResult.SystemAllocated pointer)
+        (FileReaderCreateResult.FileReaderCreated (#struct-literal FileReader ((file file) (buffer pointer)
+          (capacity capacity) (position 0usize) (length 0usize) (ended false)))))))
 
-(#fn FileReader::next-byte ((reader (#ref-mut FileReader))) FileByteResult
-  (#if (#usize::eq (#get reader position) (#get reader length))
-    (#block
-      (#if (#get reader ended) (#block (#return FileByteResult.FileByteEof)) ())
-      (#let count #i64 (#unsafe (#unsafe-call File::read-raw
-        ((file (#borrow-mut (#get reader file))) (buffer (#get reader buffer)) (capacity (#get reader capacity))))))
-      (#if (#i64::lt count 0i64) (#block (#return (FileByteResult.FileByteFailed (FileError.FileIoError count)))) ())
-      (#if (#i64::eq count 0i64)
-        (#block (#deref-set (#borrow-mut (#get reader ended)) true) (#return FileByteResult.FileByteEof)) ())
-      (#let amount #usize (#as count #usize))
-      (#if (#usize::gt amount (#get reader capacity)) (#block (#return (FileByteResult.FileByteFailed (FileError.FileIoError -5i64)))) ())
-      (#deref-set (#borrow-mut (#get reader position)) 0usize)
-      (#deref-set (#borrow-mut (#get reader length)) amount)
-      ()) ())
-  (#let position #usize (#get reader position))
-  (#let byte #u8 (#unsafe (#ptr-read (#ptr-offset (#get reader buffer) position))))
-  (#deref-set (#borrow-mut (#get reader position)) (#usize::add-wrap position 1usize))
-  (#return (FileByteResult.FileByte byte)))
+#fn FileReader::next-byte ((reader (#ref-mut FileReader))) FileByteResult
+    (#if (#usize::eq (#get reader position) (#get reader length))
+      (#block
+        (#if (#get reader ended) (#block (#return FileByteResult.FileByteEof)) ())
+        (#let count #i64 (#unsafe (#unsafe-call File::read-raw
+          ((file (#borrow-mut (#get reader file))) (buffer (#get reader buffer)) (capacity (#get reader capacity))))))
+        (#if (#i64::lt count 0i64) (#block (#return (FileByteResult.FileByteFailed (FileError.FileIoError count)))) ())
+        (#if (#i64::eq count 0i64)
+          (#block (#deref-set (#borrow-mut (#get reader ended)) true) (#return FileByteResult.FileByteEof)) ())
+        (#let amount #usize (#as count #usize))
+        (#if (#usize::gt amount (#get reader capacity)) (#block (#return (FileByteResult.FileByteFailed (FileError.FileIoError -5i64)))) ())
+        (#deref-set (#borrow-mut (#get reader position)) 0usize)
+        (#deref-set (#borrow-mut (#get reader length)) amount)
+        ()) ())
+    (#let position #usize (#get reader position))
+    (#let byte #u8 (#unsafe (#ptr-read (#ptr-offset (#get reader buffer) position))))
+    (#deref-set (#borrow-mut (#get reader position)) (#usize::add-wrap position 1usize))
+    (#return (FileByteResult.FileByte byte))
 
-(#fn FileReader::close ((reader FileReader)) FileStatus
-  (#unsafe (#unsafe-call system-deallocate ((pointer (#get reader buffer)))))
-  (#let file File (#get reader file))
-  (#forget reader)
-  (#return (#call File::close ((file file)))))
+#fn FileReader::close ((reader FileReader)) FileStatus
+    (#unsafe (#unsafe-call system-deallocate ((pointer (#get reader buffer)))))
+    (#let file File (#get reader file))
+    (#forget reader)
+    (#return (#call File::close ((file file))))

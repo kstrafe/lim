@@ -1,7 +1,7 @@
-(#let answer #u64 42)
+#let answer #u64 42
 
-(#fn identity ((value (#ref #u64))) (#ref #u64)
-  (#return value))
+#fn identity ((value (#ref #u64))) (#ref #u64)
+    (#return value)
 
-(#fn main () #u64
-  (#return (#deref (#call identity ((value (#borrow answer)))))))
+#fn main () #u64
+    (#return (#deref (#call identity ((value (#borrow answer))))))

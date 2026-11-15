@@ -1,107 +1,107 @@
-(#alias String = ./string.lim::String)
-(#alias String::push-char = ./string.lim::String::push-char)
-(#alias StringError = ./string.lim::StringError)
-(#alias StringStatus = ./string.lim::StringStatus)
+#alias String = ./string.lim::String
+#alias String::push-char = ./string.lim::String::push-char
+#alias StringError = ./string.lim::StringError
+#alias StringStatus = ./string.lim::StringStatus
 
-(#enum StdReadError () ((StdReadError.StdIoError #i64) (StdReadError.StdTextError StringError)))
-(#enum StdReadResult () ((StdReadResult.StdLineRead #usize) StdReadResult.StdEndOfInput (StdReadResult.StdReadFailed StdReadError)))
-(#enum StdReadCharResult () ((StdReadCharResult.StdReadChar #u8) StdReadCharResult.StdReadCharEof (StdReadCharResult.StdReadCharFailed #i64)))
+#enum StdReadError () ((StdReadError.StdIoError #i64) (StdReadError.StdTextError StringError))
+#enum StdReadResult () ((StdReadResult.StdLineRead #usize) StdReadResult.StdEndOfInput (StdReadResult.StdReadFailed StdReadError))
+#enum StdReadCharResult () ((StdReadCharResult.StdReadChar #u8) StdReadCharResult.StdReadCharEof (StdReadCharResult.StdReadCharFailed #i64))
 
-(#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
-  (#fn std-read-one-char () StdReadCharResult
-    (#let-mut byte #u8 0u8)
-    (#let-mut result StdReadCharResult StdReadCharResult.StdReadCharEof)
-    (#let-mut done #bool false)
-    (#while (#bool::eq done false)
-      (#let count #i64 (#unsafe (#linux-syscall #i64 0usize
-        (0i64 (#addr-of-mut byte) 1usize))))
-      (#if (#i64::eq count 1i64)
-        (#block (#set result (StdReadCharResult.StdReadChar byte)) (#set done true) ())
-        (#if (#i64::eq count 0i64)
-          (#block (#set result StdReadCharResult.StdReadCharEof) (#set done true) ())
-          (#if (#i64::eq count -4i64)
-            ()
-            (#block (#set result (StdReadCharResult.StdReadCharFailed count)) (#set done true) ())))))
-    (#return result)))
-(#cfg-if (#cfg-not (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64)))
-  (#fn std-read-one-char () StdReadCharResult
-    (#return (StdReadCharResult.StdReadCharFailed -38i64))))
+#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
+    (#fn std-read-one-char () StdReadCharResult
+      (#let-mut byte #u8 0u8)
+      (#let-mut result StdReadCharResult StdReadCharResult.StdReadCharEof)
+      (#let-mut done #bool false)
+      (#while (#bool::eq done false)
+        (#let count #i64 (#unsafe (#linux-syscall #i64 0usize
+          (0i64 (#addr-of-mut byte) 1usize))))
+        (#if (#i64::eq count 1i64)
+          (#block (#set result (StdReadCharResult.StdReadChar byte)) (#set done true) ())
+          (#if (#i64::eq count 0i64)
+            (#block (#set result StdReadCharResult.StdReadCharEof) (#set done true) ())
+            (#if (#i64::eq count -4i64)
+              ()
+              (#block (#set result (StdReadCharResult.StdReadCharFailed count)) (#set done true) ())))))
+      (#return result))
+#cfg-if (#cfg-not (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64)))
+    (#fn std-read-one-char () StdReadCharResult
+      (#return (StdReadCharResult.StdReadCharFailed -38i64)))
 
-(#fn std-read-line ((string (#ref-mut String))) StdReadResult
-  (#let-mut appended #usize 0usize)
-  (#let-mut result StdReadResult StdReadResult.StdEndOfInput)
-  (#let-mut finished #bool false)
-  (#while (#bool::eq finished false)
-    (#let first-result StdReadCharResult (#call std-read-one-char ()))
-    (#match first-result
-      (#case StdReadCharResult.StdReadCharEof
-        (#block
-          (#set result (#if (#usize::eq appended 0usize) StdReadResult.StdEndOfInput (StdReadResult.StdLineRead appended)))
-          (#set finished true)
-          ()))
-      (#case (StdReadCharResult.StdReadCharFailed error)
-        (#block
-          (#set result (StdReadResult.StdReadFailed (StdReadError.StdIoError error)))
-          (#set finished true)
-          ()))
-      (#case (StdReadCharResult.StdReadChar first)
-        (#if (#u8::eq first 10u8)
-          (#block (#set result (StdReadResult.StdLineRead appended)) (#set finished true) ())
+#fn std-read-line ((string (#ref-mut String))) StdReadResult
+    (#let-mut appended #usize 0usize)
+    (#let-mut result StdReadResult StdReadResult.StdEndOfInput)
+    (#let-mut finished #bool false)
+    (#while (#bool::eq finished false)
+      (#let first-result StdReadCharResult (#call std-read-one-char ()))
+      (#match first-result
+        (#case StdReadCharResult.StdReadCharEof
           (#block
-            (#let width #usize (#if (#u8::lt first 128u8) 1usize
-              (#if (#u8::le first 223u8) 2usize
-                (#if (#u8::le first 239u8) 3usize 4usize))))
-            (#let-mut code #u32 (#as
-              (#if (#usize::eq width 1usize) first
-                (#if (#usize::eq width 2usize) (#u8::bit-and first 31u8)
-                  (#if (#usize::eq width 3usize) (#u8::bit-and first 15u8) (#u8::bit-and first 7u8)))) #u32))
-            (#let-mut got #usize 1usize)
-            (#let-mut bad #bool
-              (#bool::or (#bool::and (#u8::ge first 128u8) (#u8::lt first 194u8))
-                (#u8::gt first 244u8)))
-            (#while (#bool::and (#usize::lt got width) (#bool::eq bad false))
-              (#let continuation-result StdReadCharResult (#call std-read-one-char ()))
-              (#match continuation-result
-                (#case (StdReadCharResult.StdReadChar continuation)
-                  (#if (#bool::or (#u8::lt continuation 128u8) (#u8::gt continuation 191u8))
-                    (#block (#set bad true) ())
-                    (#block
-                      (#set code (#u32::bit-or (#u32::shl code 6u32) (#as (#u8::bit-and continuation 63u8) #u32)))
-                      (#set got (#usize::add-wrap got 1usize))
-                      ())))
-                (#case StdReadCharResult.StdReadCharEof (#block (#set bad true) ()))
-                (#case (StdReadCharResult.StdReadCharFailed error)
-                  (#block
-                    (#set result (StdReadResult.StdReadFailed (StdReadError.StdIoError error)))
-                    (#set bad true)
-                    ()))))
-            (#if (#bool::eq bad true)
-              (#block
-                (#if (#match result (#case (StdReadResult.StdReadFailed error) true) (#case _ false))
-                  ()
-                  (#block (#set result (StdReadResult.StdReadFailed (StdReadError.StdTextError StringError.StringInvalidUtf8))) ()))
-                (#set finished true)
-                ())
-              (#block
-                (#if (#bool::or
-                    (#bool::and (#usize::eq width 2usize) (#u32::lt code 128u32))
-                    (#bool::or
-                      (#bool::and (#usize::eq width 3usize) (#u32::lt code 2048u32))
-                      (#bool::or
-                        (#bool::and (#usize::eq width 4usize) (#u32::lt code 65536u32))
-                        (#bool::or
-                          (#bool::and (#u32::ge code 55296u32) (#u32::le code 57343u32))
-                          (#u32::gt code 1114111u32)))))
-                  (#block
-                    (#set result (StdReadResult.StdReadFailed (StdReadError.StdTextError StringError.StringInvalidUtf8)))
-                    (#set finished true)
-                    ())
-                  (#match (#call String::push-char
-                    ((string string) (value (#as code #char))))
-                    (#case StringStatus.StringOk (#block (#set appended (#usize::add-wrap appended width)) ()))
-                    (#case (StringStatus.StringErr error)
+            (#set result (#if (#usize::eq appended 0usize) StdReadResult.StdEndOfInput (StdReadResult.StdLineRead appended)))
+            (#set finished true)
+            ()))
+        (#case (StdReadCharResult.StdReadCharFailed error)
+          (#block
+            (#set result (StdReadResult.StdReadFailed (StdReadError.StdIoError error)))
+            (#set finished true)
+            ()))
+        (#case (StdReadCharResult.StdReadChar first)
+          (#if (#u8::eq first 10u8)
+            (#block (#set result (StdReadResult.StdLineRead appended)) (#set finished true) ())
+            (#block
+              (#let width #usize (#if (#u8::lt first 128u8) 1usize
+                (#if (#u8::le first 223u8) 2usize
+                  (#if (#u8::le first 239u8) 3usize 4usize))))
+              (#let-mut code #u32 (#as
+                (#if (#usize::eq width 1usize) first
+                  (#if (#usize::eq width 2usize) (#u8::bit-and first 31u8)
+                    (#if (#usize::eq width 3usize) (#u8::bit-and first 15u8) (#u8::bit-and first 7u8)))) #u32))
+              (#let-mut got #usize 1usize)
+              (#let-mut bad #bool
+                (#bool::or (#bool::and (#u8::ge first 128u8) (#u8::lt first 194u8))
+                  (#u8::gt first 244u8)))
+              (#while (#bool::and (#usize::lt got width) (#bool::eq bad false))
+                (#let continuation-result StdReadCharResult (#call std-read-one-char ()))
+                (#match continuation-result
+                  (#case (StdReadCharResult.StdReadChar continuation)
+                    (#if (#bool::or (#u8::lt continuation 128u8) (#u8::gt continuation 191u8))
+                      (#block (#set bad true) ())
                       (#block
-                        (#set result (StdReadResult.StdReadFailed (StdReadError.StdTextError error)))
-                        (#set finished true)
-                        ())))))))))))
-  (#return (#if (#bool::eq finished true) result (StdReadResult.StdLineRead appended))))
+                        (#set code (#u32::bit-or (#u32::shl code 6u32) (#as (#u8::bit-and continuation 63u8) #u32)))
+                        (#set got (#usize::add-wrap got 1usize))
+                        ())))
+                  (#case StdReadCharResult.StdReadCharEof (#block (#set bad true) ()))
+                  (#case (StdReadCharResult.StdReadCharFailed error)
+                    (#block
+                      (#set result (StdReadResult.StdReadFailed (StdReadError.StdIoError error)))
+                      (#set bad true)
+                      ()))))
+              (#if (#bool::eq bad true)
+                (#block
+                  (#if (#match result (#case (StdReadResult.StdReadFailed error) true) (#case _ false))
+                    ()
+                    (#block (#set result (StdReadResult.StdReadFailed (StdReadError.StdTextError StringError.StringInvalidUtf8))) ()))
+                  (#set finished true)
+                  ())
+                (#block
+                  (#if (#bool::or
+                      (#bool::and (#usize::eq width 2usize) (#u32::lt code 128u32))
+                      (#bool::or
+                        (#bool::and (#usize::eq width 3usize) (#u32::lt code 2048u32))
+                        (#bool::or
+                          (#bool::and (#usize::eq width 4usize) (#u32::lt code 65536u32))
+                          (#bool::or
+                            (#bool::and (#u32::ge code 55296u32) (#u32::le code 57343u32))
+                            (#u32::gt code 1114111u32)))))
+                    (#block
+                      (#set result (StdReadResult.StdReadFailed (StdReadError.StdTextError StringError.StringInvalidUtf8)))
+                      (#set finished true)
+                      ())
+                    (#match (#call String::push-char
+                      ((string string) (value (#as code #char))))
+                      (#case StringStatus.StringOk (#block (#set appended (#usize::add-wrap appended width)) ()))
+                      (#case (StringStatus.StringErr error)
+                        (#block
+                          (#set result (StdReadResult.StdReadFailed (StdReadError.StdTextError error)))
+                          (#set finished true)
+                          ())))))))))))
+    (#return (#if (#bool::eq finished true) result (StdReadResult.StdLineRead appended)))

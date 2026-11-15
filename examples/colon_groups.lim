@@ -1,10 +1,10 @@
 // Each ':' starts a pair and ends the preceding pair at this list depth.
-(#fn sum ((left #u32) (right #u32)) #u32
-  (#return (#u32::add-wrap left right)))
+#fn sum ((left #u32) (right #u32)) #u32
+    (#return (#u32::add-wrap left right))
 
-(#fn main () #u64
-  (#let left #u32 40u32)
-  (#let right #u32 2u32)
-  // Named call arguments can appear in any order.
-  // ($ name) expands to (name name), forwarding a same-named variable.
-  (#return (#as (#call sum (($ right) ($ left))) #u64)))
+#fn main () #u64
+    (#let left #u32 40u32)
+    (#let right #u32 2u32)
+    // Named call arguments can appear in any order.
+    // ($ name) expands to (name name), forwarding a same-named variable.
+    (#return (#as (#call sum (($ right) ($ left))) #u64))

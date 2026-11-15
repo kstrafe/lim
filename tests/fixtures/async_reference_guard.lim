@@ -1,34 +1,34 @@
 // Warm::cache performance fixture, also run cold/warm and independently in the
 // graph-production suite. A rejected suspended guard retains its source loan.
-(#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
-(#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-(#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-  (#return (#match task
-    (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
-    (#case (Child.Resume value) (ChildPoll.ChildReady value)))))
-(#fn cancel-child ((child Child)) () (#forget child) (#return ()))
-(#enum Holder (#linear) ((Holder.Holding (#ref #u64))))
-(#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-  (function (#fn work ((source (#ref #u64))) #u64
-    (#let holder Holder (Holder.Holding source))
-    (#return (#match holder
-      (#case (Holder.Holding view)
-        (#when (#u64::eq
-          (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64))
-          (#deref view)))
-        (#deref view))
-      (#case (Holder.Holding view)
-        (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start (#deref view))))))))))
-(#fn main () #u64 (#let waker #u64 0u64) (#let owner #u64 42u64)
-  (#let-mut frame Work::Frame (#call work ((source (#borrow owner)))))
-  (#let first Work::Poll
-    (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
-  (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-  (#let second Work::Poll
-    (#call Work::poll ((task next) (waker (#borrow waker)))))
-  (#let-else (Work::Poll.Pending last) Work::Poll second (#unreachable))
-  (#let answer #u64 (#match
-    (#call Work::poll ((task last) (waker (#borrow waker))))
-    (#case (Work::Poll.Ready result) result)
-    (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-  (#forget frame) (#return answer))
+#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
+#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+    (#return (#match task
+      (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
+      (#case (Child.Resume value) (ChildPoll.ChildReady value))))
+#fn cancel-child ((child Child)) () (#forget child) (#return ())
+#enum Holder (#linear) ((Holder.Holding (#ref #u64)))
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+    (function (#fn work ((source (#ref #u64))) #u64
+      (#let holder Holder (Holder.Holding source))
+      (#return (#match holder
+        (#case (Holder.Holding view)
+          (#when (#u64::eq
+            (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64))
+            (#deref view)))
+          (#deref view))
+        (#case (Holder.Holding view)
+          (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start (#deref view)))))))))
+#fn main () #u64 (#let waker #u64 0u64) (#let owner #u64 42u64)
+    (#let-mut frame Work::Frame (#call work ((source (#borrow owner)))))
+    (#let first Work::Poll
+      (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
+    (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+    (#let second Work::Poll
+      (#call Work::poll ((task next) (waker (#borrow waker)))))
+    (#let-else (Work::Poll.Pending last) Work::Poll second (#unreachable))
+    (#let answer #u64 (#match
+      (#call Work::poll ((task last) (waker (#borrow waker))))
+      (#case (Work::Poll.Ready result) result)
+      (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
+    (#forget frame) (#return answer)

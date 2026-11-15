@@ -1,16 +1,16 @@
-(#type Word #u64)
-(#type WordRef (#ref Word))
-(#type Words (#slice Word))
+#type Word #u64
+#type WordRef (#ref Word)
+#type Words (#slice Word)
 
-(#fn read-word ((value WordRef)) Word
-  (#return (#deref value)))
+#fn read-word ((value WordRef)) Word
+    (#return (#deref value))
 
-(#fn first-word ((values Words)) Word
-  (#return (#call read-word
-    ((value (#slice-idx values 0usize))))))
+#fn first-word ((values Words)) Word
+    (#return (#call read-word
+      ((value (#slice-idx values 0usize)))))
 
-(#fn main () #u64
-  (#let values (#array Word 2)
-    (#array-of (#array Word 2) 42u64 7u64))
-  (#let view Words (#borrow-slice values))
-  (#return (#call first-word ((values view)))))
+#fn main () #u64
+    (#let values (#array Word 2)
+      (#array-of (#array Word 2) 42u64 7u64))
+    (#let view Words (#borrow-slice values))
+    (#return (#call first-word ((values view))))

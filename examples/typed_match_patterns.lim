@@ -1,19 +1,19 @@
-(#enum TypedPattern () ((TypedPattern.Some #u64) TypedPattern.None))
+#enum TypedPattern () ((TypedPattern.Some #u64) TypedPattern.None)
 
-(#fn main () #u64
-  (#let value #u64 42u64)
-  (#let pair (#tuple #u64 #u64)
-    (#tuple (#tuple #u64 #u64) 1u64 2u64))
-  (#let option TypedPattern (TypedPattern.Some 42u64))
-  (#return
-    (#u64::add-wrap
-      (#match value
-        (#case (#or 41u64 42u64) 10u64)
-        (#case _ 0u64))
+#fn main () #u64
+    (#let value #u64 42u64)
+    (#let pair (#tuple #u64 #u64)
+      (#tuple (#tuple #u64 #u64) 1u64 2u64))
+    (#let option TypedPattern (TypedPattern.Some 42u64))
+    (#return
       (#u64::add-wrap
-        (#match pair
-          (#case (#tuple 1u64 2u64) 20u64)
+        (#match value
+          (#case (#or 41u64 42u64) 10u64)
           (#case _ 0u64))
-        (#match option
-          (#case (TypedPattern.Some (#or 41u64 42u64)) 12u64)
-          (#case TypedPattern.None 0u64))))))
+        (#u64::add-wrap
+          (#match pair
+            (#case (#tuple 1u64 2u64) 20u64)
+            (#case _ 0u64))
+          (#match option
+            (#case (TypedPattern.Some (#or 41u64 42u64)) 12u64)
+            (#case TypedPattern.None 0u64)))))

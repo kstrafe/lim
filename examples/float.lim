@@ -1,56 +1,50 @@
-(
-  #fn
-  add
-  (
-    (left #f64)
-    (right #f64)
-  )
-  #f64
-  (
-    #return
-    (#f64::add  left right)
-  )
-)
-
-(
-  #fn
-  choose
-  (
-    (value #u64)
-    (scale #f64)
-  )
-  #u64
-  (
-    #return
+#fn
+    add
     (
-      #if
-      (#f64::gt  scale 1.0)
-      value
-      0
+      (left #f64)
+      (right #f64)
     )
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (#let left #f64 1.5)
-  (#let right #f64 2.25)
-  (
-    #let
-    total
     #f64
-    (#call add ((left left) (right right)))
-  )
-  (
-    #return
     (
-      #if
-      (#f64::gt  total 3.0)
-      (#call choose ((value 42) (scale 2.0)))
-      0
+      #return
+      (#f64::add  left right)
     )
-  )
-)
+
+#fn
+    choose
+    (
+      (value #u64)
+      (scale #f64)
+    )
+    #u64
+    (
+      #return
+      (
+        #if
+        (#f64::gt  scale 1.0)
+        value
+        0
+      )
+    )
+
+#fn
+    main
+    ()
+    #u64
+    (#let left #f64 1.5)
+    (#let right #f64 2.25)
+    (
+      #let
+      total
+      #f64
+      (#call add ((left left) (right right)))
+    )
+    (
+      #return
+      (
+        #if
+        (#f64::gt  total 3.0)
+        (#call choose ((value 42) (scale 2.0)))
+        0
+      )
+    )

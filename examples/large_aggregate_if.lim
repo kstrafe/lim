@@ -1,30 +1,30 @@
-(#struct Large ()
-  ((a #u64) (b #u64) (c #u64) (d #u64)
-   (e #u64) (f #u64) (g #u64)))
+#struct Large ()
+    ((a #u64) (b #u64) (c #u64) (d #u64)
+     (e #u64) (f #u64) (g #u64))
 
-(#struct BigValues () ((first #u64) (second #u64) (third #u64) (fourth #u64)
-  (fifth #u64) (sixth #u64) (seventh #u64)))
-(#enum LargePayload () ((LargePayload.Big BigValues) LargePayload.Empty))
+#struct BigValues () ((first #u64) (second #u64) (third #u64) (fourth #u64)
+    (fifth #u64) (sixth #u64) (seventh #u64))
+#enum LargePayload () ((LargePayload.Big BigValues) LargePayload.Empty)
 
-(#fn main () #u64
-  (#let tuple-value (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
-    (#if true
-      (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
-        1u64 2u64 3u64 4u64 5u64 6u64 40u64)
-      (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
-        0u64 0u64 0u64 0u64 0u64 0u64 0u64)))
-  (#let struct-value Large
-    (#if true
-      (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 1u64)))
-      (#struct-literal Large ((a 0u64) (b 0u64) (c 0u64) (d 0u64) (e 0u64) (f 0u64) (g 0u64)))))
-  (#let enum-value LargePayload
-    (#if true
-      (LargePayload.Big (#struct-literal BigValues
-        ((first 1u64) (second 2u64) (third 3u64) (fourth 4u64) (fifth 5u64) (sixth 6u64) (seventh 1u64))))
-      LargePayload.Empty))
-  (#return
-    (#u64::add-wrap
-      (#u64::add-wrap (#get tuple-value 6) (#get struct-value g))
-      (#match enum-value
-        (#case (LargePayload.Big values) (#get values seventh))
-        (#case LargePayload.Empty 0u64)))))
+#fn main () #u64
+    (#let tuple-value (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
+      (#if true
+        (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
+          1u64 2u64 3u64 4u64 5u64 6u64 40u64)
+        (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)
+          0u64 0u64 0u64 0u64 0u64 0u64 0u64)))
+    (#let struct-value Large
+      (#if true
+        (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 1u64)))
+        (#struct-literal Large ((a 0u64) (b 0u64) (c 0u64) (d 0u64) (e 0u64) (f 0u64) (g 0u64)))))
+    (#let enum-value LargePayload
+      (#if true
+        (LargePayload.Big (#struct-literal BigValues
+          ((first 1u64) (second 2u64) (third 3u64) (fourth 4u64) (fifth 5u64) (sixth 6u64) (seventh 1u64))))
+        LargePayload.Empty))
+    (#return
+      (#u64::add-wrap
+        (#u64::add-wrap (#get tuple-value 6) (#get struct-value g))
+        (#match enum-value
+          (#case (LargePayload.Big values) (#get values seventh))
+          (#case LargePayload.Empty 0u64))))

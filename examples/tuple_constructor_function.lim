@@ -1,8 +1,8 @@
-(#fn make () (#tuple #u64 #u64)
-  (#return (#tuple (#tuple #u64 #u64) 40 2)))
+#fn make () (#tuple #u64 #u64)
+    (#return (#tuple (#tuple #u64 #u64) 40 2))
 
-(#fn consume ((value (#tuple #u64 #u64))) #u64
-  (#return (#get value 0)))
+#fn consume ((value (#tuple #u64 #u64))) #u64
+    (#return (#get value 0))
 
-(#fn main () #u64
-  (#return (#call consume ((value (#call make ()))))))
+#fn main () #u64
+    (#return (#call consume ((value (#call make ())))))

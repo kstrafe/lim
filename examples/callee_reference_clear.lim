@@ -1,28 +1,28 @@
 // A callee explicitly clears reference-bearing storage before mutation.
-(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
+#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64)))
 
-(#fn replace-choice ((target (#ref-mut Choice)) (value (#ref #u64))) ()
-  (#deref-set target (Choice.Full value))
-  (#return ()))
+#fn replace-choice ((target (#ref-mut Choice)) (value (#ref #u64))) ()
+    (#deref-set target (Choice.Full value))
+    (#return ())
 
-(#fn clear-choice ((target (#ref-mut Choice))) ()
-  (#deref-set target (Choice.Empty))
-  (#return ()))
+#fn clear-choice ((target (#ref-mut Choice))) ()
+    (#deref-set target (Choice.Empty))
+    (#return ())
 
-(#fn main () #u64
-  (#let old #u64 7u64)
-  (#let-mut value #u64 42u64)
-  (#let-mut holder Choice (Choice.Full (#borrow old)))
-  (#let target (#ref-mut Choice) (#borrow-mut holder))
-  (#call replace-choice ((target target) (value (#borrow value))))
-  (#drop target)
-  (#let result #u64
-    (#match holder
-      (#case (Choice.Empty) 0u64)
-      (#case (Choice.Full view) (#deref view))))
-  (#let clear-target (#ref-mut Choice) (#borrow-mut holder))
-  (#call clear-choice ((target clear-target)))
-  (#drop clear-target)
-  (#set value 1u64)
-  (#forget holder)
-  (#return result))
+#fn main () #u64
+    (#let old #u64 7u64)
+    (#let-mut value #u64 42u64)
+    (#let-mut holder Choice (Choice.Full (#borrow old)))
+    (#let target (#ref-mut Choice) (#borrow-mut holder))
+    (#call replace-choice ((target target) (value (#borrow value))))
+    (#drop target)
+    (#let result #u64
+      (#match holder
+        (#case (Choice.Empty) 0u64)
+        (#case (Choice.Full view) (#deref view))))
+    (#let clear-target (#ref-mut Choice) (#borrow-mut holder))
+    (#call clear-choice ((target clear-target)))
+    (#drop clear-target)
+    (#set value 1u64)
+    (#forget holder)
+    (#return result)

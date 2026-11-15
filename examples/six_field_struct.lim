@@ -1,62 +1,54 @@
-(
-  #struct
-  Values ()
-  (
-    (a #u64)
-    (b #u64)
-    (c #u64)
-    (d #u64)
-    (e #u64)
-    (f #u64)
-  )
-)
+#struct
+    Values ()
+    (
+      (a #u64)
+      (b #u64)
+      (c #u64)
+      (d #u64)
+      (e #u64)
+      (f #u64)
+    )
 
-(
-  #fn
-  make
-  ()
-  Values
-  (
-    #return
-    (#struct-literal Values ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6)))
-  )
-)
+#fn
+    make
+    ()
+    Values
+    (
+      #return
+      (#struct-literal Values ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6)))
+    )
 
-(
-  #fn
-  sum
-  (
-    (value Values)
-  )
-  #u64
-  (
-    #return
-    (#u64::add-wrap
+#fn
+    sum
+    (
+      (value Values)
+    )
+    #u64
+    (
+      #return
       (#u64::add-wrap
         (#u64::add-wrap
           (#u64::add-wrap
             (#u64::add-wrap
-              (#get value a)
-              (#get value b)
+              (#u64::add-wrap
+                (#get value a)
+                (#get value b)
+              )
+              (#get value c)
             )
-            (#get value c)
+            (#get value d)
           )
-          (#get value d)
+          (#get value e)
         )
-        (#get value e)
+        (#get value f)
       )
-      (#get value f)
     )
-  )
-)
 
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
-    (#call sum ((value (#call make ()))))
-  )
-)
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (#call sum ((value (#call make ()))))
+    )

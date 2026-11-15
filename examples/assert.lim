@@ -1,18 +1,16 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #assert
-    (#u64::eq
-      (#u64::add-wrap  20 22)
-      42
+#fn
+    main
+    ()
+    #u64
+    (
+      #assert
+      (#u64::eq
+        (#u64::add-wrap  20 22)
+        42
+      )
     )
-  )
-  (
-    #debug-assert
-    (#u64::ge  42 0)
-  )
-  (#return 42)
-)
+    (
+      #debug-assert
+      (#u64::ge  42 0)
+    )
+    (#return 42)

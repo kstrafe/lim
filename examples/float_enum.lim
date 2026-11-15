@@ -1,59 +1,51 @@
-(
-  #enum
-  MaybeF ()
-  (
-    (MaybeF.SomeF #f32)
-    MaybeF.None
-  )
-)
-
-(
-  #fn
-  make
-  ()
-  MaybeF
-  (
-    #return
-    (MaybeF.SomeF 2.5)
-  )
-)
-
-(
-  #fn
-  read
-  (
-    (value MaybeF)
-  )
-  #f32
-  (
-    #return
+#enum
+    MaybeF ()
     (
-      #match
-      value
-      (#case
-        (MaybeF.SomeF payload)
-        payload
-      )
-      (#case MaybeF.None 0.0)
+      (MaybeF.SomeF #f32)
+      MaybeF.None
     )
-  )
-)
 
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    make
+    ()
+    MaybeF
     (
-      #if
-      (#f32::gt
-        (#call read ((value (#call make ()))))
-        2.0
-      )
-      42
-      0
+      #return
+      (MaybeF.SomeF 2.5)
     )
-  )
-)
+
+#fn
+    read
+    (
+      (value MaybeF)
+    )
+    #f32
+    (
+      #return
+      (
+        #match
+        value
+        (#case
+          (MaybeF.SomeF payload)
+          payload
+        )
+        (#case MaybeF.None 0.0)
+      )
+    )
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (
+        #if
+        (#f32::gt
+          (#call read ((value (#call make ()))))
+          2.0
+        )
+        42
+        0
+      )
+    )

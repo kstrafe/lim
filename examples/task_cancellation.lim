@@ -1,20 +1,20 @@
-(#alias lim-gen-cell = ../library/cell.lim::#cell)
-(#alias lim-gen-task = ../library/tasks.lim::#task)
-(#alias lim-gen-task-cancel = ../library/tasks.lim::#task-cancel)
+#alias lim-gen-cell = ../library/cell.lim::#cell
+#alias lim-gen-task = ../library/tasks.lim::#task
+#alias lim-gen-task-cancel = ../library/tasks.lim::#task-cancel
 
-(#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
-(#struct Flag () ((released CellU64)))
-(#generate lim-gen-task (Held HeldPoll HeldPoll.HeldPending HeldPoll.HeldReady) #u64 ((Held.Holding (#ref Flag))))
-(#fn release ((task (#ref Flag))) ()
-  (#call CellU64::set ((cell (#borrow (#get task released))) (value 42u64)))
-  (#return ()))
-(#generate lim-gen-task-cancel cancel Held ((Held.Holding release)))
-(#fn main () #u64
-  (#let flag Flag (#struct-literal Flag ((released
-    (#call CellU64::create ((value 0u64)))))))
-  (#call cancel ((task (Held.Holding (#borrow flag)))))
-  (#let flag-ref (#ref Flag) (#borrow flag))
-  (#let result #u64 (#call CellU64::get ((cell (#borrow (#get flag-ref released))))))
-  (#drop flag-ref)
-  (#forget flag)
-  (#return result))
+#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set
+#struct Flag () ((released CellU64))
+#generate lim-gen-task (Held HeldPoll HeldPoll.HeldPending HeldPoll.HeldReady) #u64 ((Held.Holding (#ref Flag)))
+#fn release ((task (#ref Flag))) ()
+    (#call CellU64::set ((cell (#borrow (#get task released))) (value 42u64)))
+    (#return ())
+#generate lim-gen-task-cancel cancel Held ((Held.Holding release))
+#fn main () #u64
+    (#let flag Flag (#struct-literal Flag ((released
+      (#call CellU64::create ((value 0u64)))))))
+    (#call cancel ((task (Held.Holding (#borrow flag)))))
+    (#let flag-ref (#ref Flag) (#borrow flag))
+    (#let result #u64 (#call CellU64::get ((cell (#borrow (#get flag-ref released))))))
+    (#drop flag-ref)
+    (#forget flag)
+    (#return result)

@@ -1,1 +1,1 @@
-(#enum State () (State.Open State.Closed State.Open))
+#enum State () (State.Open State.Closed State.Open)

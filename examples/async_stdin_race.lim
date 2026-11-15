@@ -1,59 +1,59 @@
-(#alias AsyncByteRead1 = ../library/async_stdin_byte.lim::AsyncByteRead1)
-(#alias AsyncByteReadCreate1 = ../library/async_stdin_byte.lim::AsyncByteReadCreate1)
-(#alias AsyncByteReadPoll1 = ../library/async_stdin_byte.lim::AsyncByteReadPoll1)
-(#alias AsyncByteReadWait1 = ../library/async_stdin_byte.lim::AsyncByteReadWait1)
-(#alias async-byte-read1-create = ../library/async_stdin_byte.lim::async-byte-read1-create)
-(#alias async-byte-read1-destroy = ../library/async_stdin_byte.lim::async-byte-read1-destroy)
-(#alias async-byte-read1-enable-nonblocking = ../library/async_stdin_byte.lim::async-byte-read1-enable-nonblocking)
-(#alias async-byte-read1-poll = ../library/async_stdin_byte.lim::async-byte-read1-poll)
-(#alias async-byte-read1-wait = ../library/async_stdin_byte.lim::async-byte-read1-wait)
-(#alias linux-read-byte-from = ../library/linux_x86_64.lim::linux-read-byte-from)
+#alias AsyncByteRead1 = ../library/async_stdin_byte.lim::AsyncByteRead1
+#alias AsyncByteReadCreate1 = ../library/async_stdin_byte.lim::AsyncByteReadCreate1
+#alias AsyncByteReadPoll1 = ../library/async_stdin_byte.lim::AsyncByteReadPoll1
+#alias AsyncByteReadWait1 = ../library/async_stdin_byte.lim::AsyncByteReadWait1
+#alias async-byte-read1-create = ../library/async_stdin_byte.lim::async-byte-read1-create
+#alias async-byte-read1-destroy = ../library/async_stdin_byte.lim::async-byte-read1-destroy
+#alias async-byte-read1-enable-nonblocking = ../library/async_stdin_byte.lim::async-byte-read1-enable-nonblocking
+#alias async-byte-read1-poll = ../library/async_stdin_byte.lim::async-byte-read1-poll
+#alias async-byte-read1-wait = ../library/async_stdin_byte.lim::async-byte-read1-wait
+#alias linux-read-byte-from = ../library/linux_x86_64.lim::linux-read-byte-from
 
 // A competing read consumes the byte that made poll report readiness. The
 // asynchronous read must see EAGAIN/Pending rather than block inside poll.
 
 
-(#fn main () #i32
-  (#let-mut byte #u8 0u8)
-  (#let-mut stolen #u8 0u8)
-  (#assert (#i64::ge
-    (#call async-byte-read1-enable-nonblocking ((fd 0i64))) 0i64))
-  (#let created AsyncByteReadCreate1
-    (#call async-byte-read1-create
-      ((fd 0i64) (destination (#borrow-mut byte)))))
-  (#let-else (AsyncByteReadCreate1.AsyncByteReadCreated1 initial-task) AsyncByteReadCreate1 created
-    (#unreachable))
-  (#let-mut task AsyncByteRead1 initial-task)
-  (#let first AsyncByteReadPoll1
-    (#call async-byte-read1-poll ((task (#borrow-mut task)))))
-  (#let first-wait AsyncByteReadWait1
-    (#call async-byte-read1-wait ((task (#borrow task)))))
-  (#let stolen-count #i64
-    (#call linux-read-byte-from ((fd 0i64) (destination (#borrow-mut stolen)))))
-  (#let raced AsyncByteReadPoll1
-    (#call async-byte-read1-poll ((task (#borrow-mut task)))))
-  (#let second-wait AsyncByteReadWait1
-    (#call async-byte-read1-wait ((task (#borrow task)))))
-  (#let second AsyncByteReadPoll1
-    (#call async-byte-read1-poll ((task (#borrow-mut task)))))
-  (#let destroyed #i64 (#call async-byte-read1-destroy ((task task))))
-  (#let read-second #bool (#match second
-    (#case (AsyncByteReadPoll1.AsyncByteReadReady1 value) (#bool::and (#u8::eq value 66u8)
-                                                 (#u8::eq byte 66u8)))
-    (#case AsyncByteReadPoll1.AsyncByteReadEof1 false)
-    (#case (AsyncByteReadPoll1.AsyncByteReadFailed1 error) (#block (#forget error) false))
-    (#case AsyncByteReadPoll1.AsyncByteReadPending1 false)))
-  (#let race-ok #bool (#if (#i64::eq stolen-count 0i64)
-    (#match second
-      (#case AsyncByteReadPoll1.AsyncByteReadEof1 true)
-      (#case _ false))
-    (#bool::and (#u8::eq stolen 65u8)
-      (#bool::and (#match raced
-        (#case AsyncByteReadPoll1.AsyncByteReadPending1 true) (#case _ false)) read-second))))
-  (#return (#if (#bool::and (#match first
-        (#case AsyncByteReadPoll1.AsyncByteReadPending1 true) (#case _ false))
-      (#bool::and (#match first-wait
-        (#case AsyncByteReadWait1.AsyncByteReadWoken1 true) (#case _ false))
-      (#bool::and (#match second-wait
-        (#case AsyncByteReadWait1.AsyncByteReadWoken1 true) (#case _ false))
-        (#bool::and race-ok (#i64::eq destroyed 0i64))))) 42i32 1i32)))
+#fn main () #i32
+    (#let-mut byte #u8 0u8)
+    (#let-mut stolen #u8 0u8)
+    (#assert (#i64::ge
+      (#call async-byte-read1-enable-nonblocking ((fd 0i64))) 0i64))
+    (#let created AsyncByteReadCreate1
+      (#call async-byte-read1-create
+        ((fd 0i64) (destination (#borrow-mut byte)))))
+    (#let-else (AsyncByteReadCreate1.AsyncByteReadCreated1 initial-task) AsyncByteReadCreate1 created
+      (#unreachable))
+    (#let-mut task AsyncByteRead1 initial-task)
+    (#let first AsyncByteReadPoll1
+      (#call async-byte-read1-poll ((task (#borrow-mut task)))))
+    (#let first-wait AsyncByteReadWait1
+      (#call async-byte-read1-wait ((task (#borrow task)))))
+    (#let stolen-count #i64
+      (#call linux-read-byte-from ((fd 0i64) (destination (#borrow-mut stolen)))))
+    (#let raced AsyncByteReadPoll1
+      (#call async-byte-read1-poll ((task (#borrow-mut task)))))
+    (#let second-wait AsyncByteReadWait1
+      (#call async-byte-read1-wait ((task (#borrow task)))))
+    (#let second AsyncByteReadPoll1
+      (#call async-byte-read1-poll ((task (#borrow-mut task)))))
+    (#let destroyed #i64 (#call async-byte-read1-destroy ((task task))))
+    (#let read-second #bool (#match second
+      (#case (AsyncByteReadPoll1.AsyncByteReadReady1 value) (#bool::and (#u8::eq value 66u8)
+                                                   (#u8::eq byte 66u8)))
+      (#case AsyncByteReadPoll1.AsyncByteReadEof1 false)
+      (#case (AsyncByteReadPoll1.AsyncByteReadFailed1 error) (#block (#forget error) false))
+      (#case AsyncByteReadPoll1.AsyncByteReadPending1 false)))
+    (#let race-ok #bool (#if (#i64::eq stolen-count 0i64)
+      (#match second
+        (#case AsyncByteReadPoll1.AsyncByteReadEof1 true)
+        (#case _ false))
+      (#bool::and (#u8::eq stolen 65u8)
+        (#bool::and (#match raced
+          (#case AsyncByteReadPoll1.AsyncByteReadPending1 true) (#case _ false)) read-second))))
+    (#return (#if (#bool::and (#match first
+          (#case AsyncByteReadPoll1.AsyncByteReadPending1 true) (#case _ false))
+        (#bool::and (#match first-wait
+          (#case AsyncByteReadWait1.AsyncByteReadWoken1 true) (#case _ false))
+        (#bool::and (#match second-wait
+          (#case AsyncByteReadWait1.AsyncByteReadWoken1 true) (#case _ false))
+          (#bool::and race-ok (#i64::eq destroyed 0i64))))) 42i32 1i32))

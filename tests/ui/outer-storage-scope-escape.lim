@@ -1,11 +1,11 @@
-(#struct Holder () ((view (#ref #u64))))
-(#fn inspect ((external (#ref #u64))) #u64
-  (#let-mut holder Holder (#struct-literal Holder ((view external))))
-  (#let done () (#block
-    (#let local #u64 7u64)
-    (#let temporary Holder (#struct-literal Holder ((view (#borrow local)))))
-    (#deref-set (#borrow-mut holder) temporary)
-    ()))
-  (#let result #u64 (#deref (#get holder view)))
-  (#forget holder)
-  (#return result))
+#struct Holder () ((view (#ref #u64)))
+#fn inspect ((external (#ref #u64))) #u64
+    (#let-mut holder Holder (#struct-literal Holder ((view external))))
+    (#let done () (#block
+      (#let local #u64 7u64)
+      (#let temporary Holder (#struct-literal Holder ((view (#borrow local)))))
+      (#deref-set (#borrow-mut holder) temporary)
+      ()))
+    (#let result #u64 (#deref (#get holder view)))
+    (#forget holder)
+    (#return result)

@@ -1,38 +1,38 @@
-(#alias String = /<lim-std>/string.lim::String)
-(#alias String::free = /<lim-std>/string.lim::String::free)
-(#alias String::from-chars = /<lim-std>/string.lim::String::from-chars)
-(#alias String::view = /<lim-std>/utf8_view.lim::String::view)
-(#alias StringCreateResult = /<lim-std>/string.lim::StringCreateResult)
-(#alias StringView = /<lim-std>/utf8_view.lim::StringView)
-(#alias StringView::CharResult = /<lim-std>/utf8_view.lim::StringView::CharResult)
-(#alias StringView::Chars = /<lim-std>/utf8_view.lim::StringView::Chars)
-(#alias StringView::Chars::next = /<lim-std>/utf8_view.lim::StringView::Chars::next)
-(#alias StringView::Result = /<lim-std>/utf8_view.lim::StringView::Result)
-(#alias StringView::chars = /<lim-std>/utf8_view.lim::StringView::chars)
-(#alias StringView::len = /<lim-std>/utf8_view.lim::StringView::len)
-(#alias StringView::subview = /<lim-std>/utf8_view.lim::StringView::subview)
+#alias String = /<lim-std>/string.lim::String
+#alias String::free = /<lim-std>/string.lim::String::free
+#alias String::from-chars = /<lim-std>/string.lim::String::from-chars
+#alias String::view = /<lim-std>/utf8_view.lim::String::view
+#alias StringCreateResult = /<lim-std>/string.lim::StringCreateResult
+#alias StringView = /<lim-std>/utf8_view.lim::StringView
+#alias StringView::CharResult = /<lim-std>/utf8_view.lim::StringView::CharResult
+#alias StringView::Chars = /<lim-std>/utf8_view.lim::StringView::Chars
+#alias StringView::Chars::next = /<lim-std>/utf8_view.lim::StringView::Chars::next
+#alias StringView::Result = /<lim-std>/utf8_view.lim::StringView::Result
+#alias StringView::chars = /<lim-std>/utf8_view.lim::StringView::chars
+#alias StringView::len = /<lim-std>/utf8_view.lim::StringView::len
+#alias StringView::subview = /<lim-std>/utf8_view.lim::StringView::subview
 
-(#std)
-(#fn main () #u64
-  (#let source (#array #char 4) "Aλ😀!")
-  (#let text String
-    (#match (#call String::from-chars ((text (#borrow-slice source))))
-      (#case (StringCreateResult.StringCreated created) created)
-      (#case (StringCreateResult.StringCreateFailed error) (#panic))))
-  (#let whole StringView (#call String::view ((string (#borrow text)))))
-  (#let middle StringView
-    (#match (#call StringView::subview ((view (#borrow whole)) (start 1usize) (end 7usize)))
-      (#case (StringView::Result.Valid selected) selected)
-      (#case _ (#panic))))
-  (#assert (#usize::eq (#call StringView::len ((view (#borrow middle)))) 6usize))
-  (#let-mut characters StringView::Chars (#call StringView::chars ((view middle))))
-  (#assert (#match (#call StringView::Chars::next ((iterator (#borrow-mut characters))))
-    (#case (StringView::CharResult.Char first) (#char::eq first #\λ)) (#case _ false)))
-  (#assert (#match (#call StringView::Chars::next ((iterator (#borrow-mut characters))))
-    (#case (StringView::CharResult.Char second) (#char::eq second #\😀)) (#case _ false)))
-  (#assert (#match (#call StringView::Chars::next ((iterator (#borrow-mut characters))))
-    (#case StringView::CharResult.End true) (#case _ false)))
-  (#forget characters)
-  (#forget whole)
-  (#call String::free ((string text)))
-  (#return 42u64))
+#std
+#fn main () #u64
+    (#let source (#array #char 4) "Aλ😀!")
+    (#let text String
+      (#match (#call String::from-chars ((text (#borrow-slice source))))
+        (#case (StringCreateResult.StringCreated created) created)
+        (#case (StringCreateResult.StringCreateFailed error) (#panic))))
+    (#let whole StringView (#call String::view ((string (#borrow text)))))
+    (#let middle StringView
+      (#match (#call StringView::subview ((view (#borrow whole)) (start 1usize) (end 7usize)))
+        (#case (StringView::Result.Valid selected) selected)
+        (#case _ (#panic))))
+    (#assert (#usize::eq (#call StringView::len ((view (#borrow middle)))) 6usize))
+    (#let-mut characters StringView::Chars (#call StringView::chars ((view middle))))
+    (#assert (#match (#call StringView::Chars::next ((iterator (#borrow-mut characters))))
+      (#case (StringView::CharResult.Char first) (#char::eq first #\λ)) (#case _ false)))
+    (#assert (#match (#call StringView::Chars::next ((iterator (#borrow-mut characters))))
+      (#case (StringView::CharResult.Char second) (#char::eq second #\😀)) (#case _ false)))
+    (#assert (#match (#call StringView::Chars::next ((iterator (#borrow-mut characters))))
+      (#case StringView::CharResult.End true) (#case _ false)))
+    (#forget characters)
+    (#forget whole)
+    (#call String::free ((string text)))
+    (#return 42u64)

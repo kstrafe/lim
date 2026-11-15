@@ -1,35 +1,31 @@
-(#struct PairValues () ((left #u64) (right #u64)))
+#struct PairValues () ((left #u64) (right #u64))
 
-(
-  #enum
-  Pair ()
-  (
-    (Pair.Value PairValues)
-    Pair.Empty
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let
-    value
-    Pair
-    (#enum-literal Pair.Value (#struct-literal PairValues ((left 20u64) (right 22u64))))
-  )
-  (
-    #return
+#enum
+    Pair ()
     (
-      #match
-      value
-      (#case
-        (Pair.Value (PairValues left right))
-        (#u64::add-wrap  left right)
-      )
-      (#case Pair.Empty 0u64)
+      (Pair.Value PairValues)
+      Pair.Empty
     )
-  )
-)
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #let
+      value
+      Pair
+      (#enum-literal Pair.Value (#struct-literal PairValues ((left 20u64) (right 22u64))))
+    )
+    (
+      #return
+      (
+        #match
+        value
+        (#case
+          (Pair.Value (PairValues left right))
+          (#u64::add-wrap  left right)
+        )
+        (#case Pair.Empty 0u64)
+      )
+    )

@@ -1,20 +1,18 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (#let-mut value #u64 1)
-  (
-    #return
+#fn
+    main
+    ()
+    #u64
+    (#let-mut value #u64 1)
     (
-      #if
-      true
+      #return
       (
-        #block
-        (#set value 40)
-        value
+        #if
+        true
+        (
+          #block
+          (#set value 40)
+          value
+        )
+        (#block value)
       )
-      (#block value)
     )
-  )
-)

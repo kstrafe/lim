@@ -1,5 +1,5 @@
-(#fn main () #u64
-  (#return
-    (#if (#bool::eq true true)
-      42
-      (#unreachable))))
+#fn main () #u64
+    (#return
+      (#if (#bool::eq true true)
+        42
+        (#unreachable)))

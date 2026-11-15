@@ -1,29 +1,25 @@
-(
-  #fn
-  classify
-  (
-    (value #u64)
-  )
-  #u64
-  (
-    #return
+#fn
+    classify
     (
-      #match
-      value
-      (#case 0 10)
-      (#case 1 20)
-      (#case _ 30)
+      (value #u64)
     )
-  )
-)
+    #u64
+    (
+      #return
+      (
+        #match
+        value
+        (#case 0 10)
+        (#case 1 20)
+        (#case _ 30)
+      )
+    )
 
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
-    (#call classify ((value 1)))
-  )
-)
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (#call classify ((value 1)))
+    )

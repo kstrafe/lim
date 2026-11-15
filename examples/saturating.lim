@@ -1,5 +1,5 @@
-(#fn main () #u64
-  (#return
-    (#if (#u8::eq (#u8::add-saturate 250 10) 255)
-         (#if (#i8::eq (#i8::sub-saturate -128 1) -128) 42 0)
-         0)))
+#fn main () #u64
+    (#return
+      (#if (#u8::eq (#u8::add-saturate 250 10) 255)
+           (#if (#i8::eq (#i8::sub-saturate -128 1) -128) 42 0)
+           0))

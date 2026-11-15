@@ -1,8 +1,8 @@
-(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
+#enum Maybe () ((Maybe.Some #u64) Maybe.None)
 
-(#fn main () #u64
-  (#let value #u64 40u64)
-  (#return
-    (#match (Maybe.Some 1u64)
-      (#case (Maybe.Some matched) (#u64::add-wrap matched value))
-      (#case Maybe.None value))))
+#fn main () #u64
+    (#let value #u64 40u64)
+    (#return
+      (#match (Maybe.Some 1u64)
+        (#case (Maybe.Some matched) (#u64::add-wrap matched value))
+        (#case Maybe.None value)))

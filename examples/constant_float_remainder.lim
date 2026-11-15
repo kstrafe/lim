@@ -1,4 +1,4 @@
-(#const remainder #f64 (#f64::rem 7.5 2.5))
+#const remainder #f64 (#f64::rem 7.5 2.5)
 
-(#fn main () #u64
-  (#return (#if (#f64::eq remainder 0.0) 42 0)))
+#fn main () #u64
+    (#return (#if (#f64::eq remainder 0.0) 42 0))

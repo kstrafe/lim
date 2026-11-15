@@ -1,53 +1,53 @@
-(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)
+#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project
 
 // A pinned async frame may retain a reference into an active enum payload.
 
-(#enum Child (#linear) ((Child.Waiting #u64)))
+#enum Child (#linear) ((Child.Waiting #u64))
 
-(#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-(#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-  (#return (#match task
-    (#case (Child.Waiting count)
-      (#if (#u64::eq count 0u64)
-        (#enum-literal ChildPoll.ChildPending (#enum-literal Child.Waiting 1u64))
-        (#enum-literal ChildPoll.ChildReady 2u64))))))
-(#fn cancel-child ((task Child)) () (#forget task) (#return ()))
+#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+    (#return (#match task
+      (#case (Child.Waiting count)
+        (#if (#u64::eq count 0u64)
+          (#enum-literal ChildPoll.ChildPending (#enum-literal Child.Waiting 1u64))
+          (#enum-literal ChildPoll.ChildReady 2u64)))))
+#fn cancel-child ((task Child)) () (#forget task) (#return ())
 
-(#struct NumberPayload () ((value #u64)))
-(#enum Choice () ((Choice.Number NumberPayload) (Choice.Other #u64)))
-(#struct Owner () ((choice Choice)))
-(#generate lim-gen-enum-project
-  ((enum Choice) (variant Choice.Number) (payload NumberPayload) (mode #pin-ref) (name NumberView)))
+#struct NumberPayload () ((value #u64))
+#enum Choice () ((Choice.Number NumberPayload) (Choice.Other #u64))
+#struct Owner () ((choice Choice))
+#generate lim-gen-enum-project
+    ((enum Choice) (variant Choice.Number) (payload NumberPayload) (mode #pin-ref) (name NumberView))
 
-(#generate #async-fn-pinned ( (protocol ReadAfterAwaitAwait)
-                   (waker #u64)
-                   (function
-  (#fn read-after-await ((owner Owner)) #u64
-    (#let-else (NumberView.Some payload)
-      (#call NumberView::project ((source (#pin-borrow (#get owner choice)))))
-      (#else (#return 0u64)))
-    (#let view (#pin-ref #u64) (#pin-borrow (#get payload value)))
+#generate #async-fn-pinned ( (protocol ReadAfterAwaitAwait)
+                     (waker #u64)
+                     (function
+    (#fn read-after-await ((owner Owner)) #u64
+      (#let-else (NumberView.Some payload)
+        (#call NumberView::project ((source (#pin-borrow (#get owner choice)))))
+        (#else (#return 0u64)))
+      (#let view (#pin-ref #u64) (#pin-borrow (#get payload value)))
+      (#let result #u64
+        (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
+      (#return (#u64::add-wrap (#deref view) result)))))
+
+#fn main () #u64
+    (#let-mut frame Read-after-await::Frame
+      (#call read-after-await
+        ((owner (#struct-literal Owner
+          ((choice (#enum-literal Choice.Number (#struct-literal NumberPayload ((value 40u64)))))))))))
+    (#let waker #u64 0u64)
+    (#let first Read-after-await::Poll
+      (#call Read-after-await::poll
+        ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
+    (#let-else (Read-after-await::Poll.Pending pending-frame) Read-after-await::Poll first (#unreachable))
+    (#let second Read-after-await::Poll
+      (#call Read-after-await::poll ((task pending-frame) (waker (#borrow waker)))))
     (#let result #u64
-      (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
-    (#return (#u64::add-wrap (#deref view) result))))))
-
-(#fn main () #u64
-  (#let-mut frame Read-after-await::Frame
-    (#call read-after-await
-      ((owner (#struct-literal Owner
-        ((choice (#enum-literal Choice.Number (#struct-literal NumberPayload ((value 40u64)))))))))))
-  (#let waker #u64 0u64)
-  (#let first Read-after-await::Poll
-    (#call Read-after-await::poll
-      ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
-  (#let-else (Read-after-await::Poll.Pending pending-frame) Read-after-await::Poll first (#unreachable))
-  (#let second Read-after-await::Poll
-    (#call Read-after-await::poll ((task pending-frame) (waker (#borrow waker)))))
-  (#let result #u64
-    (#match second
-      (#case (Read-after-await::Poll.Ready value) value)
-      (#case (Read-after-await::Poll.Pending unexpected)
-        (#block (#forget unexpected) (#unreachable)))))
-  (#forget frame)
-  (#forget waker)
-  (#return result))
+      (#match second
+        (#case (Read-after-await::Poll.Ready value) value)
+        (#case (Read-after-await::Poll.Pending unexpected)
+          (#block (#forget unexpected) (#unreachable)))))
+    (#forget frame)
+    (#forget waker)
+    (#return result)

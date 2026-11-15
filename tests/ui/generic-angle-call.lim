@@ -1,4 +1,4 @@
-(#fn identity-u64 ((value #u64)) #u64
-  (#return value))
-(#fn main () #u64
-  (#return (identity<#u64> 42u64)))
+#fn identity-u64 ((value #u64)) #u64
+    (#return value)
+#fn main () #u64
+    (#return (identity<#u64> 42u64))

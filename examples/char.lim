@@ -1,15 +1,13 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    main
+    ()
+    #u64
     (
-      #if
-      (#char::eq  #\a #\a)
-      42
-      0
+      #return
+      (
+        #if
+        (#char::eq  #\a #\a)
+        42
+        0
+      )
     )
-  )
-)

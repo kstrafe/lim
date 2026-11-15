@@ -1,21 +1,21 @@
-(#alias lim-gen-task = ../library/tasks.lim::#task)
-(#alias lim-gen-threaded-executor = ../library/tasks.lim::#threaded-executor)
+#alias lim-gen-task = ../library/tasks.lim::#task
+#alias lim-gen-threaded-executor = ../library/tasks.lim::#threaded-executor
 
-(#generate lim-gen-task (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady) #u64
-  ((NumberTask.Number #u64)))
+#generate lim-gen-task (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady) #u64
+    ((NumberTask.Number #u64))
 
-(#fn number-poll ((task NumberTask)) NumberPoll
-  (#return (#match task (#case (NumberTask.Number value) (NumberPoll.NumberReady value)))))
+#fn number-poll ((task NumberTask)) NumberPoll
+    (#return (#match task (#case (NumberTask.Number value) (NumberPoll.NumberReady value))))
 
-(#generate lim-gen-threaded-executor run-worker WorkerResults
-  ((number NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady number-poll #u64 number-input))
-  Worker)
+#generate lim-gen-threaded-executor run-worker WorkerResults
+    ((number NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady number-poll #u64 number-input))
+    Worker
 
-(#fn main () #u64
-  (#return
-    (#match (#call Worker::spawn ((number-input (NumberTask.Number 42u64))))
-      (#case (Worker::SpawnResult.Ok thread)
-        (#match (#call Worker::join ((task thread)))
-          (#case (Worker::JoinResult.Ok results) (#get results number))
-          (#case (Worker::JoinResult.Error (#tuple retry error)) (#panic))))
-      (#case (Worker::SpawnResult.Error error) (#panic)))))
+#fn main () #u64
+    (#return
+      (#match (#call Worker::spawn ((number-input (NumberTask.Number 42u64))))
+        (#case (Worker::SpawnResult.Ok thread)
+          (#match (#call Worker::join ((task thread)))
+            (#case (Worker::JoinResult.Ok results) (#get results number))
+            (#case (Worker::JoinResult.Error (#tuple retry error)) (#panic))))
+        (#case (Worker::SpawnResult.Error error) (#panic))))

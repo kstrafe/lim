@@ -1,8 +1,8 @@
 // Releasing the only mutable-reference element ends its loan.
-(#fn main () #u64
-  (#let-mut owner #u64 7u64)
-  (#let aggregate (#array (#ref-mut #u64) 1)
-    (#array-repeat (#borrow-mut owner)))
-  (#forget (#index aggregate 0u64))
-  (#set owner 9u64)
-  (#return owner))
+#fn main () #u64
+    (#let-mut owner #u64 7u64)
+    (#let aggregate (#array (#ref-mut #u64) 1)
+      (#array-repeat (#borrow-mut owner)))
+    (#forget (#index aggregate 0u64))
+    (#set owner 9u64)
+    (#return owner)

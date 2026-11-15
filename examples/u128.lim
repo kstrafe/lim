@@ -1,28 +1,24 @@
-(
-  #fn
-  add
-  (
-    (left #u128)
-    (right #u128)
-  )
-  #u128
-  (
-    #return
-    (#u128::add-wrap  left right)
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    add
     (
-      #as
-      (#call add ((left 20) (right 22)))
-      #u64
+      (left #u128)
+      (right #u128)
     )
-  )
-)
+    #u128
+    (
+      #return
+      (#u128::add-wrap  left right)
+    )
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (
+        #as
+        (#call add ((left 20) (right 22)))
+        #u64
+      )
+    )

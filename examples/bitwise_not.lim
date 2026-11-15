@@ -1,13 +1,11 @@
-(
-  #fn
-  main
-  ()
-  #u32
-  (
-    #return
-    (#u32::bit-and
-      (#u32::not  0)
-      42
+#fn
+    main
+    ()
+    #u32
+    (
+      #return
+      (#u32::bit-and
+        (#u32::not  0)
+        42
+      )
     )
-  )
-)

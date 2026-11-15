@@ -1,3 +1,3 @@
-(#alias ApplicationError = ./error_collection.lim::ApplicationError)
+#alias ApplicationError = ./error_collection.lim::ApplicationError
 
-(#enum-contribute ApplicationError (ApplicationError.FileFailure #u32))
+#enum-contribute ApplicationError (ApplicationError.FileFailure #u32)

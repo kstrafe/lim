@@ -1,44 +1,44 @@
-(#alias lINUX-SYS-WAIT4 = ../../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-WAIT4)
-(#alias linux-close = ../../library/linux_x86_64.lim::linux-close)
-(#alias linux-execve = ../../library/linux_x86_64.lim::linux-execve)
-(#alias linux-execveat = ../../library/linux_x86_64.lim::linux-execveat)
-(#alias linux-exit-group = ../../library/linux_x86_64.lim::linux-exit-group)
-(#alias linux-fork = ../../library/linux_x86_64.lim::linux-fork)
-(#alias linux-mmap = ../../library/linux_x86_64.lim::linux-mmap)
-(#alias linux-munmap = ../../library/linux_x86_64.lim::linux-munmap)
-(#alias linux-openat = ../../library/linux_x86_64.lim::linux-openat)
+#alias lINUX-SYS-WAIT4 = ../../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-WAIT4
+#alias linux-close = ../../library/linux_x86_64.lim::linux-close
+#alias linux-execve = ../../library/linux_x86_64.lim::linux-execve
+#alias linux-execveat = ../../library/linux_x86_64.lim::linux-execveat
+#alias linux-exit-group = ../../library/linux_x86_64.lim::linux-exit-group
+#alias linux-fork = ../../library/linux_x86_64.lim::linux-fork
+#alias linux-mmap = ../../library/linux_x86_64.lim::linux-mmap
+#alias linux-munmap = ../../library/linux_x86_64.lim::linux-munmap
+#alias linux-openat = ../../library/linux_x86_64.lim::linux-openat
 
 // The Rust harness builds exec_target.lim as ./target in a private directory.
-(#fn main () #u64
-  (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
-  // "target\0", followed by argv {path, NULL}, empty envp and empty path.
-  (#unsafe (#asm () ((rdi memory))
-    "mov DWORD PTR [rdi], 0x67726174\nmov WORD PTR [rdi+4], 0x7465\nmov QWORD PTR [rdi+16], rdi"))
-  (#let arguments (#ptr-mut (#ptr-mut #u8))
-    (#unsafe (#asm (#ptr-mut (#ptr-mut #u8)) ((rdi memory)) "lea rax, [rdi+16]")))
-  (#let environment (#ptr-mut (#ptr-mut #u8)) (#unsafe (#ptr-offset arguments 2usize)))
-  (#let empty (#ptr-mut #u8) (#unsafe (#ptr-offset memory 48usize)))
-  (#assert (#i64::eq (#unsafe (#unsafe-call linux-execve ((path empty) (arguments arguments) (environment environment)))) -2i64))
-  (#assert (#i64::eq (#unsafe (#unsafe-call linux-execveat ((directory -100i64) (path memory) (arguments arguments) (environment environment) (flags -1i32)))) -22i64))
-  (#assert (#i64::eq (#unsafe (#unsafe-call linux-execveat ((directory -1i64) (path memory) (arguments arguments) (environment environment) (flags 0i32)))) -9i64))
-  (#let executable #i64 (#unsafe (#unsafe-call linux-openat ((directory -100i64) (path memory) (flags 524288i32) (mode 0u32)))))
-  (#assert (#i64::ge executable 0i64))
-  (#for-range (iteration #u32) 0u32 3u32
-    (#let child #i64 (#unsafe (#unsafe-call linux-fork ())))
-    (#assert (#i64::ge child 0i64))
-    (#if (#i64::eq child 0i64)
-      (#block
-        (#if (#u32::eq iteration 0u32)
-          (#drop (#unsafe (#unsafe-call linux-execve ((path memory) (arguments arguments) (environment environment)))))
-          (#if (#u32::eq iteration 1u32)
-            (#drop (#unsafe (#unsafe-call linux-execveat ((directory -100i64) (path memory) (arguments arguments) (environment environment) (flags 0i32)))))
-            (#drop (#unsafe (#unsafe-call linux-execveat ((directory executable) (path empty) (arguments arguments) (environment environment) (flags 4096i32)))))))
-        // Reaching this means exec failed; do not continue the parent's loop.
-        (#call linux-exit-group ((status 99i32)))) ())
-    (#let-mut status #i32 0i32)
-    (#assert (#i64::eq (#unsafe (#linux-syscall #i64 lINUX-SYS-WAIT4
-      (child (#addr-of-mut status) 0i32 0usize))) child))
-    (#assert (#i32::eq status 9472i32)))
-  (#assert (#i64::eq (#call linux-close ((fd executable))) 0i64))
-  (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))) 0i64))
-  (#return 42u64))
+#fn main () #u64
+    (#let memory (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
+    // "target\0", followed by argv {path, NULL}, empty envp and empty path.
+    (#unsafe (#asm () ((rdi memory))
+      "mov DWORD PTR [rdi], 0x67726174\nmov WORD PTR [rdi+4], 0x7465\nmov QWORD PTR [rdi+16], rdi"))
+    (#let arguments (#ptr-mut (#ptr-mut #u8))
+      (#unsafe (#asm (#ptr-mut (#ptr-mut #u8)) ((rdi memory)) "lea rax, [rdi+16]")))
+    (#let environment (#ptr-mut (#ptr-mut #u8)) (#unsafe (#ptr-offset arguments 2usize)))
+    (#let empty (#ptr-mut #u8) (#unsafe (#ptr-offset memory 48usize)))
+    (#assert (#i64::eq (#unsafe (#unsafe-call linux-execve ((path empty) (arguments arguments) (environment environment)))) -2i64))
+    (#assert (#i64::eq (#unsafe (#unsafe-call linux-execveat ((directory -100i64) (path memory) (arguments arguments) (environment environment) (flags -1i32)))) -22i64))
+    (#assert (#i64::eq (#unsafe (#unsafe-call linux-execveat ((directory -1i64) (path memory) (arguments arguments) (environment environment) (flags 0i32)))) -9i64))
+    (#let executable #i64 (#unsafe (#unsafe-call linux-openat ((directory -100i64) (path memory) (flags 524288i32) (mode 0u32)))))
+    (#assert (#i64::ge executable 0i64))
+    (#for-range (iteration #u32) 0u32 3u32
+      (#let child #i64 (#unsafe (#unsafe-call linux-fork ())))
+      (#assert (#i64::ge child 0i64))
+      (#if (#i64::eq child 0i64)
+        (#block
+          (#if (#u32::eq iteration 0u32)
+            (#drop (#unsafe (#unsafe-call linux-execve ((path memory) (arguments arguments) (environment environment)))))
+            (#if (#u32::eq iteration 1u32)
+              (#drop (#unsafe (#unsafe-call linux-execveat ((directory -100i64) (path memory) (arguments arguments) (environment environment) (flags 0i32)))))
+              (#drop (#unsafe (#unsafe-call linux-execveat ((directory executable) (path empty) (arguments arguments) (environment environment) (flags 4096i32)))))))
+          // Reaching this means exec failed; do not continue the parent's loop.
+          (#call linux-exit-group ((status 99i32)))) ())
+      (#let-mut status #i32 0i32)
+      (#assert (#i64::eq (#unsafe (#linux-syscall #i64 lINUX-SYS-WAIT4
+        (child (#addr-of-mut status) 0i32 0usize))) child))
+      (#assert (#i32::eq status 9472i32)))
+    (#assert (#i64::eq (#call linux-close ((fd executable))) 0i64))
+    (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address memory) (length 4096usize)))) 0i64))
+    (#return 42u64)

@@ -1,17 +1,15 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (#let-mut value #u64 0)
-  (
-    #loop
+#fn
+    main
+    ()
+    #u64
+    (#let-mut value #u64 0)
     (
-      #set
-      value
-      (#u64::add-wrap  value 1)
+      #loop
+      (
+        #set
+        value
+        (#u64::add-wrap  value 1)
+      )
+      (#break)
     )
-    (#break)
-  )
-  (#return value)
-)
+    (#return value)

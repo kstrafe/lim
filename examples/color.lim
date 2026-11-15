@@ -1,22 +1,18 @@
-(
-  #enum
-  Color ()
-  (Color.Red Color.Green Color.Blue)
-)
+#enum
+    Color ()
+    (Color.Red Color.Green Color.Blue)
 
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    main
+    ()
+    #u64
     (
-      #match
-      Color.Green
-      (#case Color.Red 10)
-      (#case Color.Green 20)
-      (#case _ 30)
+      #return
+      (
+        #match
+        Color.Green
+        (#case Color.Red 10)
+        (#case Color.Green 20)
+        (#case _ 30)
+      )
     )
-  )
-)

@@ -1,20 +1,20 @@
 // A whole borrowed load retains the fields' pointees, not the holder address.
-(#struct Views () ((left (#ref #u64)) (right (#ref #u64))))
+#struct Views () ((left (#ref #u64)) (right (#ref #u64)))
 
-(#fn load ((source (#ref Views))) Views
-  (#return (#deref source)))
+#fn load ((source (#ref Views))) Views
+    (#return (#deref source))
 
-(#fn main () #u64
-  (#let left #u64 19u64)
-  (#let right #u64 23u64)
-  (#let holder Views
-    (#struct-literal Views
-      ((left (#borrow left)) (right (#borrow right)))))
-  (#let source (#ref Views) (#borrow holder))
-  (#let loaded Views (#call load ((source source))))
-  (#drop source)
-  (#forget holder)
-  (#let result #u64
-    (#u64::add-wrap (#deref (#get loaded left)) (#deref (#get loaded right))))
-  (#forget loaded)
-  (#return result))
+#fn main () #u64
+    (#let left #u64 19u64)
+    (#let right #u64 23u64)
+    (#let holder Views
+      (#struct-literal Views
+        ((left (#borrow left)) (right (#borrow right)))))
+    (#let source (#ref Views) (#borrow holder))
+    (#let loaded Views (#call load ((source source))))
+    (#drop source)
+    (#forget holder)
+    (#let result #u64
+      (#u64::add-wrap (#deref (#get loaded left)) (#deref (#get loaded right))))
+    (#forget loaded)
+    (#return result)

@@ -1,30 +1,30 @@
 // Establish an internal field reference only after its owner is pinned.
 // Replacing the reference with an external one ends the self-loan before drop.
 // A later ordinary call may update disjoint storage, but not the borrowed value.
-(#struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64))))
+#struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64)))
 
-(#fn install-view ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-  (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
-  (#pin-set-field target view view)
-  (#return target))
+#fn install-view ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+    (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
+    (#pin-set-field target view view)
+    (#return target)
 
-(#fn update-state ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-  (#pin-set-field target state 2u32)
-  (#return target))
+#fn update-state ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+    (#pin-set-field target state 2u32)
+    (#return target)
 
-(#fn main () #u64
-  (#let-mut outside #u64 3u64)
-  (#let external (#pin-ref #u64) (#pin-borrow outside))
-  (#let-mut link Link
-    (#struct-literal Link ((value 42u64) (state 0u32) (view external))))
-  (#let pinned (#pin-ref-mut Link)
-    (#call install-view ((target (#pin-borrow-mut link)))))
-  (#let updated (#pin-ref-mut Link) (#call update-state ((target pinned))))
-  (#let observed #u64 (#deref (#get updated view)))
-  (#pin-set-field updated view external)
-  (#let state #u32 (#get updated state))
-  (#drop updated)
-  (#forget link)
-  (#drop external)
-  (#forget outside)
-  (#return (#u64::add-wrap observed (#as state #u64))))
+#fn main () #u64
+    (#let-mut outside #u64 3u64)
+    (#let external (#pin-ref #u64) (#pin-borrow outside))
+    (#let-mut link Link
+      (#struct-literal Link ((value 42u64) (state 0u32) (view external))))
+    (#let pinned (#pin-ref-mut Link)
+      (#call install-view ((target (#pin-borrow-mut link)))))
+    (#let updated (#pin-ref-mut Link) (#call update-state ((target pinned))))
+    (#let observed #u64 (#deref (#get updated view)))
+    (#pin-set-field updated view external)
+    (#let state #u32 (#get updated state))
+    (#drop updated)
+    (#forget link)
+    (#drop external)
+    (#forget outside)
+    (#return (#u64::add-wrap observed (#as state #u64)))

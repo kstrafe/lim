@@ -1,56 +1,56 @@
 // Each pattern test awaits a factory and the task returned by that factory.
 // Pattern payloads remain available through both body suspension points.
-(#enum Choice () ((Choice.Chosen #u64) Choice.Empty))
-(#enum ChoiceTask () ((ChoiceTask.ChoiceStart Choice) (ChoiceTask.ChoiceResume Choice)))
-(#enum ChoicePoll () ((ChoicePoll.ChoicePending ChoiceTask) (ChoicePoll.ChoiceReady Choice)))
-(#fn choice-poll ((task ChoiceTask) (waker (#ref #u64))) ChoicePoll
-  (#return (#match task
-    (#case (ChoiceTask.ChoiceStart value) (ChoicePoll.ChoicePending (ChoiceTask.ChoiceResume value)))
-    (#case (ChoiceTask.ChoiceResume value) (ChoicePoll.ChoiceReady value)))))
+#enum Choice () ((Choice.Chosen #u64) Choice.Empty)
+#enum ChoiceTask () ((ChoiceTask.ChoiceStart Choice) (ChoiceTask.ChoiceResume Choice))
+#enum ChoicePoll () ((ChoicePoll.ChoicePending ChoiceTask) (ChoicePoll.ChoiceReady Choice))
+#fn choice-poll ((task ChoiceTask) (waker (#ref #u64))) ChoicePoll
+    (#return (#match task
+      (#case (ChoiceTask.ChoiceStart value) (ChoicePoll.ChoicePending (ChoiceTask.ChoiceResume value)))
+      (#case (ChoiceTask.ChoiceResume value) (ChoicePoll.ChoiceReady value))))
 
-(#enum Factory (#linear) ((Factory.MakeChoice Choice) (Factory.ResumeChoice Choice)))
+#enum Factory (#linear) ((Factory.MakeChoice Choice) (Factory.ResumeChoice Choice))
 
-(#enum FactoryPoll () ((FactoryPoll.FactoryPending Factory) (FactoryPoll.FactoryReady ChoiceTask)))
-(#fn factory-poll ((task Factory) (waker (#ref #u64))) FactoryPoll
-  (#return (#match task
-    (#case (Factory.MakeChoice choice) (FactoryPoll.FactoryPending (Factory.ResumeChoice choice)))
-    (#case (Factory.ResumeChoice choice) (FactoryPoll.FactoryReady (ChoiceTask.ChoiceStart choice))))))
+#enum FactoryPoll () ((FactoryPoll.FactoryPending Factory) (FactoryPoll.FactoryReady ChoiceTask))
+#fn factory-poll ((task Factory) (waker (#ref #u64))) FactoryPoll
+    (#return (#match task
+      (#case (Factory.MakeChoice choice) (FactoryPoll.FactoryPending (Factory.ResumeChoice choice)))
+      (#case (Factory.ResumeChoice choice) (FactoryPoll.FactoryReady (ChoiceTask.ChoiceStart choice)))))
 
-(#enum Step () ((Step.Start #u64) (Step.Resume #u64)))
-(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
-(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
-  (#return (#match task
-    (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
-    (#case (Step.Resume value) (StepPoll.StepReady value)))))
+#enum Step () ((Step.Start #u64) (Step.Resume #u64))
+#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+    (#return (#match task
+      (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
+      (#case (Step.Resume value) (StepPoll.StepReady value))))
 
-(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-  (#fn work ((#mut choice Choice)) #u64
-    (#let-mut total #u64 0u64)
-    (#while-let (Choice.Chosen value)
-      (#await Choice ChoiceTask ChoicePoll.ChoicePending ChoicePoll.ChoiceReady choice-poll
-        (#await ChoiceTask Factory FactoryPoll.FactoryPending FactoryPoll.FactoryReady factory-poll
-          (#block
-            (#set total (#u64::add-wrap total 1u64))
-            (Factory.MakeChoice choice))))
-      (#let first #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start value)))
-      (#let second #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start first)))
-      (#set total (#u64::add-wrap total second))
-      (#set choice Choice.Empty))
-    (#return total)))))
+#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
+    (#fn work ((#mut choice Choice)) #u64
+      (#let-mut total #u64 0u64)
+      (#while-let (Choice.Chosen value)
+        (#await Choice ChoiceTask ChoicePoll.ChoicePending ChoicePoll.ChoiceReady choice-poll
+          (#await ChoiceTask Factory FactoryPoll.FactoryPending FactoryPoll.FactoryReady factory-poll
+            (#block
+              (#set total (#u64::add-wrap total 1u64))
+              (Factory.MakeChoice choice))))
+        (#let first #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start value)))
+        (#let second #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start first)))
+        (#set total (#u64::add-wrap total second))
+        (#set choice Choice.Empty))
+      (#return total))))
 
-(#fn run ((choice Choice) (waker (#ref #u64))) #u64
-  (#let-mut task Work::Task (#call work ((choice choice))))
-  (#for-range (attempt #u64) 0u64 8u64
-    (#let polled Work::Poll (#call Work::poll ((task task) (waker waker))))
-    (#match polled
-      (#case (Work::Poll.Pending next) (#block (#set task next) ()))
-      (#case (Work::Poll.Ready result) (#block (#return result)))))
-  (#forget task)
-  (#return (#unreachable)))
+#fn run ((choice Choice) (waker (#ref #u64))) #u64
+    (#let-mut task Work::Task (#call work ((choice choice))))
+    (#for-range (attempt #u64) 0u64 8u64
+      (#let polled Work::Poll (#call Work::poll ((task task) (waker waker))))
+      (#match polled
+        (#case (Work::Poll.Pending next) (#block (#set task next) ()))
+        (#case (Work::Poll.Ready result) (#block (#return result)))))
+    (#forget task)
+    (#return (#unreachable))
 
-(#fn main () #u64
-  (#let waker #u64 0u64)
-  (#let chosen #u64 (#call run ((choice (Choice.Chosen 37u64)) (waker (#borrow waker)))))
-  (#let empty #u64 (#call run ((choice Choice.Empty) (waker (#borrow waker)))))
-  // Chosen: 37 plus two factory constructions; Empty: one construction.
-  (#return (#u64::add-wrap chosen empty)))
+#fn main () #u64
+    (#let waker #u64 0u64)
+    (#let chosen #u64 (#call run ((choice (Choice.Chosen 37u64)) (waker (#borrow waker)))))
+    (#let empty #u64 (#call run ((choice Choice.Empty) (waker (#borrow waker)))))
+    // Chosen: 37 plus two factory constructions; Empty: one construction.
+    (#return (#u64::add-wrap chosen empty))

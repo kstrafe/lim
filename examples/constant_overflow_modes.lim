@@ -1,8 +1,8 @@
-(#const max #u8 255)
-(#const wrapped #u8 (#u8::add-wrap max 1))
-(#const clamped #u8 (#u8::add-saturate max 1))
+#const max #u8 255
+#const wrapped #u8 (#u8::add-wrap max 1)
+#const clamped #u8 (#u8::add-saturate max 1)
 
-(#fn main () #u64
-  (#return (#u64::add-wrap
-    (#as wrapped #u64)
-    (#as clamped #u64))))
+#fn main () #u64
+    (#return (#u64::add-wrap
+      (#as wrapped #u64)
+      (#as clamped #u64)))

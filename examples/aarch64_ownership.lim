@@ -1,14 +1,14 @@
 // Exclusive references transfer through aggregate arguments and return values.
-(#struct View () ((value (#ref-mut #u64))))
-(#fn package ((value (#ref-mut #u64))) View
-  (#return (#struct-literal View ((value value)))))
-(#fn increment ((view View)) #u64
-  (#let reference (#ref-mut #u64) (#get view value))
-  (#forget view)
-  (#deref-set reference (#u64::add-wrap (#deref reference) 2u64))
-  (#let result #u64 (#deref reference))
-  (#forget reference)
-  (#return result))
-(#fn main () #u64
-  (#let-mut owner #u64 40u64)
-  (#return (#call increment ((view (#call package ((value (#borrow-mut owner)))))))))
+#struct View () ((value (#ref-mut #u64)))
+#fn package ((value (#ref-mut #u64))) View
+    (#return (#struct-literal View ((value value))))
+#fn increment ((view View)) #u64
+    (#let reference (#ref-mut #u64) (#get view value))
+    (#forget view)
+    (#deref-set reference (#u64::add-wrap (#deref reference) 2u64))
+    (#let result #u64 (#deref reference))
+    (#forget reference)
+    (#return result)
+#fn main () #u64
+    (#let-mut owner #u64 40u64)
+    (#return (#call increment ((view (#call package ((value (#borrow-mut owner))))))))

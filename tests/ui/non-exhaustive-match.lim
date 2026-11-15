@@ -1,4 +1,4 @@
-(#enum State () (State.Ready State.Done))
-(#fn main () #u64
-  (#let value State State.Ready)
-  (#return (#match value (#case State.Ready 1u64))))
+#enum State () (State.Ready State.Done)
+#fn main () #u64
+    (#let value State State.Ready)
+    (#return (#match value (#case State.Ready 1u64)))

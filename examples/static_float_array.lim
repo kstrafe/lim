@@ -1,7 +1,7 @@
-(#static vALUES (#array #f32 2)
-  (#array (#array #f32 2) 1.5f32 2.5f32))
+#static vALUES (#array #f32 2)
+    (#array (#array #f32 2) 1.5f32 2.5f32)
 
-(#fn main () #u64
-  (#return (#unsafe (#if (#f32::eq (#index vALUES 1) 2.5)
-               42
-               0))))
+#fn main () #u64
+    (#return (#unsafe (#if (#f32::eq (#index vALUES 1) 2.5)
+                 42
+                 0)))

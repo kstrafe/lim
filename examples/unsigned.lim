@@ -1,16 +1,14 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (#let value #u64 1)
-  (
-    #return
+#fn
+    main
+    ()
+    #u64
+    (#let value #u64 1)
     (
-      #if
-      (#u64::lt  value 2)
-      42
-      7
+      #return
+      (
+        #if
+        (#u64::lt  value 2)
+        42
+        7
+      )
     )
-  )
-)

@@ -1,35 +1,29 @@
-(
-  #struct
-  Point ()
-  (
-    (x #u64)
-    (y #u64)
-  )
-)
+#struct
+    Point ()
+    (
+      (x #u64)
+      (y #u64)
+    )
 
-(
-  #fn
-  identity
-  (
-    (point Point)
-  )
-  Point
-  (#return point)
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let
-    result
+#fn
+    identity
+    (
+      (point Point)
+    )
     Point
-    (#call identity ((point (#struct-literal Point ((x 11) (y 37))))))
-  )
-  (
-    #return
-    (#get result y)
-  )
-)
+    (#return point)
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #let
+      result
+      Point
+      (#call identity ((point (#struct-literal Point ((x 11) (y 37))))))
+    )
+    (
+      #return
+      (#get result y)
+    )

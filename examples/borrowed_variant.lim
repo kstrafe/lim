@@ -1,20 +1,20 @@
 // An exact local write establishes the variant and its retained reference.
-(#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64))))
+#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64)))
 
-(#fn read ((source (#ref Choice))) #u64
-  (#return
-    (#match (#deref source)
-      (#case (Choice.Empty) 0u64)
-      (#case (Choice.Full value) (#deref value)))))
+#fn read ((source (#ref Choice))) #u64
+    (#return
+      (#match (#deref source)
+        (#case (Choice.Empty) 0u64)
+        (#case (Choice.Full value) (#deref value))))
 
-(#fn main () #u64
-  (#let value #u64 42u64)
-  (#let-mut choice Choice (Choice.Empty))
-  (#let writer (#ref-mut Choice) (#borrow-mut choice))
-  (#deref-set writer (Choice.Full (#borrow value)))
-  (#drop writer)
-  (#let source (#ref Choice) (#borrow choice))
-  (#let result #u64 (#call read ((source source))))
-  (#drop source)
-  (#forget choice)
-  (#return result))
+#fn main () #u64
+    (#let value #u64 42u64)
+    (#let-mut choice Choice (Choice.Empty))
+    (#let writer (#ref-mut Choice) (#borrow-mut choice))
+    (#deref-set writer (Choice.Full (#borrow value)))
+    (#drop writer)
+    (#let source (#ref Choice) (#borrow choice))
+    (#let result #u64 (#call read ((source source))))
+    (#drop source)
+    (#forget choice)
+    (#return result)

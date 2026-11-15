@@ -1,110 +1,110 @@
-(#alias WakeReady4 = ./wake_ready4.lim::WakeReady4)
-(#alias WakeToken4 = ./wake_tokens.lim::WakeToken4)
-(#alias linux-mmap = ./linux_x86_64.lim::linux-mmap)
-(#alias linux-munmap = ./linux_x86_64.lim::linux-munmap)
-(#alias linux-poll = ./linux_x86_64.lim::linux-poll)
-(#alias wake-ready4-notify = ./wake_ready4.lim::wake-ready4-notify)
-(#alias wake-ready4-take = ./wake_ready4.lim::wake-ready4-take)
+#alias WakeReady4 = ./wake_ready4.lim::WakeReady4
+#alias WakeToken4 = ./wake_tokens.lim::WakeToken4
+#alias linux-mmap = ./linux_x86_64.lim::linux-mmap
+#alias linux-munmap = ./linux_x86_64.lim::linux-munmap
+#alias linux-poll = ./linux_x86_64.lim::linux-poll
+#alias wake-ready4-notify = ./wake_ready4.lim::wake-ready4-notify
+#alias wake-ready4-take = ./wake_ready4.lim::wake-ready4-take
 
 //; Choice.One blocking Linux poll over at most four borrowed readiness sources.
 //; The source references keep each wake queue alive until the wait returns.
 
 
 
-(#struct AsyncPollSource4 ()
-  ((fd #i64) (queue (#ref WakeReady4)) (token WakeToken4)))
-(#opaque AsyncPollSource4)
-(#enum AsyncPoll4Result () ((AsyncPoll4Result.AsyncPoll4Ready #u32) (AsyncPoll4Result.AsyncPoll4Failed #i64)))
+#struct AsyncPollSource4 ()
+    ((fd #i64) (queue (#ref WakeReady4)) (token WakeToken4))
+#opaque AsyncPollSource4
+#enum AsyncPoll4Result () ((AsyncPoll4Result.AsyncPoll4Ready #u32) (AsyncPoll4Result.AsyncPoll4Failed #i64))
 
-(#fn async-poll4-source
-  ((fd #i64) (queue (#ref WakeReady4)) (token WakeToken4)) AsyncPollSource4
-  (#return (#struct-literal AsyncPollSource4
-    ((fd fd) (queue queue) (token token)))))
+#fn async-poll4-source
+    ((fd #i64) (queue (#ref WakeReady4)) (token WakeToken4)) AsyncPollSource4
+    (#return (#struct-literal AsyncPollSource4
+      ((fd fd) (queue queue) (token token))))
 
-(#fn async-poll4-disable-source
-  ((source AsyncPollSource4)) AsyncPollSource4
-  (#let (AsyncPollSource4 fd queue token) AsyncPollSource4 source)
-  (#forget fd)
-  (#return (#struct-literal AsyncPollSource4
-    ((fd -1i64) (queue queue) (token token)))))
+#fn async-poll4-disable-source
+    ((source AsyncPollSource4)) AsyncPollSource4
+    (#let (AsyncPollSource4 fd queue token) AsyncPollSource4 source)
+    (#forget fd)
+    (#return (#struct-literal AsyncPollSource4
+      ((fd -1i64) (queue queue) (token token))))
 
-(#fn async-poll4-wait
-  ((sources (#slice AsyncPollSource4)) (timeout-ms #i32)) AsyncPoll4Result
-  (#let count #usize (#slice-len sources))
-  (#return (#if (#bool::or (#usize::eq count 0usize) (#usize::gt count 4usize))
-    (AsyncPoll4Result.AsyncPoll4Failed -22i64)
-    (#block
-      (#let memory (#ptr-mut #u8)
-        (#unsafe (#unsafe-call linux-mmap
-          ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)
-           (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
-      (#let address #i64 (#as (#ptr-address memory) #i64))
-      (#if (#i64::lt address 0i64)
-        (AsyncPoll4Result.AsyncPoll4Failed address)
-        (#block
-          (#for-range (byte #usize) 0usize 32usize
-            (#unsafe (#ptr-write (#ptr-offset (#clone memory) byte) 0u8)))
-          (#for-range (slot #usize) 0usize count
-            (#block
-              (#let source AsyncPollSource4
-                (#deref (#slice-idx sources slot)))
-              (#let fd-bits #u64 (#as (#get source fd) #u64))
-              (#for-range (byte #usize) 0usize 4usize
+#fn async-poll4-wait
+    ((sources (#slice AsyncPollSource4)) (timeout-ms #i32)) AsyncPoll4Result
+    (#let count #usize (#slice-len sources))
+    (#return (#if (#bool::or (#usize::eq count 0usize) (#usize::gt count 4usize))
+      (AsyncPoll4Result.AsyncPoll4Failed -22i64)
+      (#block
+        (#let memory (#ptr-mut #u8)
+          (#unsafe (#unsafe-call linux-mmap
+            ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize)
+             (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
+        (#let address #i64 (#as (#ptr-address memory) #i64))
+        (#if (#i64::lt address 0i64)
+          (AsyncPoll4Result.AsyncPoll4Failed address)
+          (#block
+            (#for-range (byte #usize) 0usize 32usize
+              (#unsafe (#ptr-write (#ptr-offset (#clone memory) byte) 0u8)))
+            (#for-range (slot #usize) 0usize count
+              (#block
+                (#let source AsyncPollSource4
+                  (#deref (#slice-idx sources slot)))
+                (#let fd-bits #u64 (#as (#get source fd) #u64))
+                (#for-range (byte #usize) 0usize 4usize
+                  (#unsafe (#ptr-write
+                    (#ptr-offset (#clone memory)
+                      (#usize::add-wrap (#usize::mul-wrap slot 8usize) byte))
+                    (#as (#u64::shr fd-bits
+                      (#as (#usize::mul-wrap byte 8usize) #u64)) #u8)))
                 (#unsafe (#ptr-write
                   (#ptr-offset (#clone memory)
-                    (#usize::add-wrap (#usize::mul-wrap slot 8usize) byte))
-                  (#as (#u64::shr fd-bits
-                    (#as (#usize::mul-wrap byte 8usize) #u64)) #u8)))
-              (#unsafe (#ptr-write
-                (#ptr-offset (#clone memory)
-                  (#usize::add-wrap (#usize::mul-wrap slot 8usize) 4usize)) 1u8)))))
-          //; A task may wake its local executor before the executor enters the
-          //; kernel wait. Consume those already-published wake bits first so a
-          //; pre-wait wake cannot be lost behind an indefinite poll().
-          (#let-mut ready-mask #u32 0u32)
-          (#for-range (slot #usize) 0usize count
-            (#block
-              (#let source AsyncPollSource4
-                (#deref (#slice-idx sources slot)))
-              (#if (#call wake-ready4-take
-                    ((queue (#get source queue)) (token (#get source token))))
-                (#block
-                  (#set ready-mask
-                    (#u32::bit-or ready-mask (#u32::shl 1u32 (#as slot #u32))))
-                  ())
-                ())))
-          (#let count-ready #i64
-            (#if (#u32::ne ready-mask 0u32)
-              0i64
-              (#unsafe (#unsafe-call linux-poll
-                ((pollfds (#clone memory)) (count count) (timeout-ms timeout-ms))))))
-          (#let-mut error #i64 (#if (#i64::lt count-ready 0i64) count-ready 0i64))
-          (#if (#i64::ge count-ready 0i64)
-            (#block
-              (#for-range (slot #usize) 0usize count
+                    (#usize::add-wrap (#usize::mul-wrap slot 8usize) 4usize)) 1u8)))))
+            //; A task may wake its local executor before the executor enters the
+            //; kernel wait. Consume those already-published wake bits first so a
+            //; pre-wait wake cannot be lost behind an indefinite poll().
+            (#let-mut ready-mask #u32 0u32)
+            (#for-range (slot #usize) 0usize count
               (#block
-                (#let flags #u8 (#unsafe (#ptr-read
-                  (#ptr-offset (#clone memory)
-                    (#usize::add-wrap (#usize::mul-wrap slot 8usize) 6usize)))))
-                (#if (#u8::ne flags 0u8)
+                (#let source AsyncPollSource4
+                  (#deref (#slice-idx sources slot)))
+                (#if (#call wake-ready4-take
+                      ((queue (#get source queue)) (token (#get source token))))
                   (#block
-                    (#let source AsyncPollSource4
-                      (#deref (#slice-idx sources slot)))
-                    (#if (#call wake-ready4-notify
-                          ((queue (#get source queue))
-                           (token (#get source token))))
-                      (#block
-                        (#set ready-mask
-                          (#u32::bit-or ready-mask
-                            (#u32::shl 1u32 (#as slot #u32))))
-                        ())
-                      (#block (#set error -22i64) ())))
-                  ()))))
-            ())
-          (#let unmapped #i64 (#unsafe (#unsafe-call linux-munmap
-            ((address memory) (length 4096usize)))))
-          (#if (#i64::lt error 0i64)
-            (AsyncPoll4Result.AsyncPoll4Failed error)
-            (#if (#i64::lt unmapped 0i64)
-              (AsyncPoll4Result.AsyncPoll4Failed unmapped)
-              (AsyncPoll4Result.AsyncPoll4Ready ready-mask)))))))))
+                    (#set ready-mask
+                      (#u32::bit-or ready-mask (#u32::shl 1u32 (#as slot #u32))))
+                    ())
+                  ())))
+            (#let count-ready #i64
+              (#if (#u32::ne ready-mask 0u32)
+                0i64
+                (#unsafe (#unsafe-call linux-poll
+                  ((pollfds (#clone memory)) (count count) (timeout-ms timeout-ms))))))
+            (#let-mut error #i64 (#if (#i64::lt count-ready 0i64) count-ready 0i64))
+            (#if (#i64::ge count-ready 0i64)
+              (#block
+                (#for-range (slot #usize) 0usize count
+                (#block
+                  (#let flags #u8 (#unsafe (#ptr-read
+                    (#ptr-offset (#clone memory)
+                      (#usize::add-wrap (#usize::mul-wrap slot 8usize) 6usize)))))
+                  (#if (#u8::ne flags 0u8)
+                    (#block
+                      (#let source AsyncPollSource4
+                        (#deref (#slice-idx sources slot)))
+                      (#if (#call wake-ready4-notify
+                            ((queue (#get source queue))
+                             (token (#get source token))))
+                        (#block
+                          (#set ready-mask
+                            (#u32::bit-or ready-mask
+                              (#u32::shl 1u32 (#as slot #u32))))
+                          ())
+                        (#block (#set error -22i64) ())))
+                    ()))))
+              ())
+            (#let unmapped #i64 (#unsafe (#unsafe-call linux-munmap
+              ((address memory) (length 4096usize)))))
+            (#if (#i64::lt error 0i64)
+              (AsyncPoll4Result.AsyncPoll4Failed error)
+              (#if (#i64::lt unmapped 0i64)
+                (AsyncPoll4Result.AsyncPoll4Failed unmapped)
+                (AsyncPoll4Result.AsyncPoll4Ready ready-mask))))))))

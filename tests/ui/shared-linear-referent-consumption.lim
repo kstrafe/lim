@@ -1,5 +1,5 @@
-(#struct Resource (#linear) ((number #u64)))
+#struct Resource (#linear) ((number #u64))
 
-(#fn inspect ((reference (#ref Resource))) ()
-  (#forget (#deref reference))
-  (#return ()))
+#fn inspect ((reference (#ref Resource))) ()
+    (#forget (#deref reference))
+    (#return ())

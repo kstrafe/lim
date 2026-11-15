@@ -1,6 +1,6 @@
-(#fn unrelated () #u64
-  (#let missing #u64 1u64)
-  (#return missing))
-(#fn worker ((argument missing)) #u64 (#return 1u64))
-(#thread-task Task worker)
-(#fn main () #u64 (#return 0u64))
+#fn unrelated () #u64
+    (#let missing #u64 1u64)
+    (#return missing)
+#fn worker ((argument missing)) #u64 (#return 1u64)
+#thread-task Task worker
+#fn main () #u64 (#return 0u64)

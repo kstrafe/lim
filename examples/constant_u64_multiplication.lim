@@ -1,11 +1,11 @@
-(#const maximum #u64 18446744073709551615)
-(#const wrapped #u64 (#u64::mul-wrap maximum 2))
-(#const saturated #u64 (#u64::mul-saturate maximum 2))
+#const maximum #u64 18446744073709551615
+#const wrapped #u64 (#u64::mul-wrap maximum 2)
+#const saturated #u64 (#u64::mul-saturate maximum 2)
 
-(#fn main () #u64
-  (#return
-    (#if (#u64::and
-           (#u64::eq wrapped 18446744073709551614)
-           (#u64::eq saturated maximum))
-      42
-      0)))
+#fn main () #u64
+    (#return
+      (#if (#u64::and
+             (#u64::eq wrapped 18446744073709551614)
+             (#u64::eq saturated maximum))
+        42
+        0))

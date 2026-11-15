@@ -1,16 +1,14 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let
-    values
-    (#array #u64 3)
-    (#array-repeat 13)
-  )
-  (
-    #return
-    (#index values 1)
-  )
-)
+#fn
+    main
+    ()
+    #u64
+    (
+      #let
+      values
+      (#array #u64 3)
+      (#array-repeat 13)
+    )
+    (
+      #return
+      (#index values 1)
+    )

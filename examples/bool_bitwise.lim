@@ -1,18 +1,16 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    main
+    ()
+    #u64
     (
-      #if
-      (#bool::bit-xor
-        (#bool::bit-and  true true)
-        false
+      #return
+      (
+        #if
+        (#bool::bit-xor
+          (#bool::bit-and  true true)
+          false
+        )
+        42
+        0
       )
-      42
-      0
     )
-  )
-)

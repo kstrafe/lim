@@ -1,16 +1,16 @@
-(#gn-fn make-alias (name target)
-  `(#type ,name ,target))
+#gn-fn make-alias (name target)
+    `(#type ,name ,target)
 
-(#gn-fn make-aliases (pairs)
-  `(,@(#gn-for-each pair pairs
-       (#gn-call make-alias
-         (#gn-first pair)
-         (#gn-first (#gn-rest pair))))))
+#gn-fn make-aliases (pairs)
+    `(,@(#gn-for-each pair pairs
+         (#gn-call make-alias
+           (#gn-first pair)
+           (#gn-first (#gn-rest pair)))))
 
-(#gn aliases (pairs)
-  (#gn-call make-aliases pairs))
+#gn aliases (pairs)
+    (#gn-call make-aliases pairs)
 
-(#generate aliases ((Byte #u8) (Word #u16)))
+#generate aliases ((Byte #u8) (Word #u16))
 
-(#fn main () #u64
-  (#return 42))
+#fn main () #u64
+    (#return 42)

@@ -1,5 +1,5 @@
-(#generate #result ((ok #u64) (error #u32) (name Result)))
+#generate #result ((ok #u64) (error #u32) (name Result))
 
-(#fn main () #u64
-  (#return
-    (#as (#call Result::unwrap-err-or ((value (#call Result::err ((error 7)))) (fallback 0))) #u64)))
+#fn main () #u64
+    (#return
+      (#as (#call Result::unwrap-err-or ((value (#call Result::err ((error 7)))) (fallback 0))) #u64))

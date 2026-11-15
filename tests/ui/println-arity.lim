@@ -1,4 +1,4 @@
-(#std)
-(#fn main () ()
-  (#println)
-  (#return ()))
+#std
+#fn main () ()
+    (#println)
+    (#return ())

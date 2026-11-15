@@ -1,56 +1,56 @@
-(#alias lim-gen-pin-rc = ../library/pin_rc.lim::#pin-rc)
+#alias lim-gen-pin-rc = ../library/pin_rc.lim::#pin-rc
 
-(#struct Arena () ((destroyed (#atomic #u64)) (deallocated (#atomic #u64))))
-(#enum ArenaError () (ArenaError.OutOfMemory))
-(#type Arena::Allocator::State Arena)
-(#type Arena::Allocator::Error ArenaError)
-(#enum Arena::Allocator::Allocation ()
-  ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8))
-   (Arena::Allocator::Allocation.AllocationFailed ArenaError)))
-(#generate lim-gen-pin-rc ((type #u64) (allocator Arena::Allocator) (name PinnedNumberRc) (destroy destroy-number)))
+#struct Arena () ((destroyed (#atomic #u64)) (deallocated (#atomic #u64)))
+#enum ArenaError () (ArenaError.OutOfMemory)
+#type Arena::Allocator::State Arena
+#type Arena::Allocator::Error ArenaError
+#enum Arena::Allocator::Allocation ()
+    ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8))
+     (Arena::Allocator::Allocation.AllocationFailed ArenaError))
+#generate lim-gen-pin-rc ((type #u64) (allocator Arena::Allocator) (name PinnedNumberRc) (destroy destroy-number))
 
-(#fn Arena::Allocator::allocate ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
-  (#let pointer (#ptr-mut #u8)
-    (#unsafe (#linux-syscall (#ptr-mut #u8) 9usize
-      (0usize layout 3usize 34usize -1i64 0usize))))
-  (#return (#if (#usize::ge (#ptr-address pointer) 18446744073709547520usize)
-    (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory) (Arena::Allocator::Allocation.Allocated pointer))))
+#fn Arena::Allocator::allocate ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
+    (#let pointer (#ptr-mut #u8)
+      (#unsafe (#linux-syscall (#ptr-mut #u8) 9usize
+        (0usize layout 3usize 34usize -1i64 0usize))))
+    (#return (#if (#usize::ge (#ptr-address pointer) 18446744073709547520usize)
+      (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory) (Arena::Allocator::Allocation.Allocated pointer)))
 
-(#unsafe-fn Arena::Allocator::deallocate ((allocator (#ref Arena)) (pointer (#ptr-mut #u8))
-  (layout #usize) (alignment #usize)) ()
-  (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer layout))) 0i64))
-  (#let ignored #u64 (#atomic-fetch-add (#borrow (#get allocator deallocated)) 1u64 #memory-relaxed))
-  (#return ()))
+#unsafe-fn Arena::Allocator::deallocate ((allocator (#ref Arena)) (pointer (#ptr-mut #u8))
+    (layout #usize) (alignment #usize)) ()
+    (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer layout))) 0i64))
+    (#let ignored #u64 (#atomic-fetch-add (#borrow (#get allocator deallocated)) 1u64 #memory-relaxed))
+    (#return ())
 
-(#fn destroy-number ((allocator (#ref Arena)) (pin (#pin-ref-mut #u64))) ()
-  (#assert (#u64::eq (#deref pin) 42u64))
-  (#let ignored #u64 (#atomic-fetch-add (#borrow (#get allocator destroyed)) 1u64 #memory-relaxed))
-  (#forget pin) (#return ()))
+#fn destroy-number ((allocator (#ref Arena)) (pin (#pin-ref-mut #u64))) ()
+    (#assert (#u64::eq (#deref pin) 42u64))
+    (#let ignored #u64 (#atomic-fetch-add (#borrow (#get allocator destroyed)) 1u64 #memory-relaxed))
+    (#forget pin) (#return ())
 
-(#fn main () #u64
-  (#let arena Arena (#struct-literal Arena
-    ((destroyed (#atomic-init #u64 0u64)) (deallocated (#atomic-init #u64 0u64)))))
-  (#let owner PinnedNumberRc (#match (#call PinnedNumberRc::create ((allocator (#borrow arena)) (value 40u64)))
-    (#case (PinnedNumberRc::CreateResult.Created allocated) allocated)
-    (#case (PinnedNumberRc::CreateResult.Allocation-failed failure) (#block (#forget failure) (#unreachable)))))
-  (#let clone PinnedNumberRc (#call PinnedNumberRc::clone ((owner (#borrow owner)))))
-  (#let-mut moved PinnedNumberRc owner)
-  (#let unavailable PinnedNumberRc::MutResult (#call PinnedNumberRc::borrow-mut ((owner (#borrow-mut moved)))))
-  (#match unavailable
-    (#case PinnedNumberRc::MutResult.Shared ())
-    (#case (PinnedNumberRc::MutResult.Unique unexpected) (#block (#forget unexpected) (#unreachable))))
-  (#let shared (#pin-ref #u64) (#call PinnedNumberRc::borrow ((owner (#borrow clone)))))
-  (#assert (#u64::eq (#deref shared) 40u64)) (#drop shared)
-  (#call PinnedNumberRc::destroy ((owner clone)))
-  (#assert (#u64::eq (#atomic-load (#borrow (#get arena destroyed)) #memory-relaxed) 0u64))
-  (#let available PinnedNumberRc::MutResult (#call PinnedNumberRc::borrow-mut ((owner (#borrow-mut moved)))))
-  (#let exclusive (#pin-ref-mut #u64) (#match available
-    (#case (PinnedNumberRc::MutResult.Unique pin) pin)
-    (#case PinnedNumberRc::MutResult.Shared (#unreachable))))
-  (#unsafe (#pin-write exclusive 42u64)) (#drop exclusive)
-  (#let observed (#pin-ref #u64) (#call PinnedNumberRc::borrow ((owner (#borrow moved)))))
-  (#let answer #u64 (#deref observed)) (#drop observed)
-  (#call PinnedNumberRc::destroy ((owner moved)))
-  (#assert (#u64::eq (#atomic-load (#borrow (#get arena destroyed)) #memory-relaxed) 1u64))
-  (#assert (#u64::eq (#atomic-load (#borrow (#get arena deallocated)) #memory-relaxed) 1u64))
-  (#forget arena) (#return answer))
+#fn main () #u64
+    (#let arena Arena (#struct-literal Arena
+      ((destroyed (#atomic-init #u64 0u64)) (deallocated (#atomic-init #u64 0u64)))))
+    (#let owner PinnedNumberRc (#match (#call PinnedNumberRc::create ((allocator (#borrow arena)) (value 40u64)))
+      (#case (PinnedNumberRc::CreateResult.Created allocated) allocated)
+      (#case (PinnedNumberRc::CreateResult.Allocation-failed failure) (#block (#forget failure) (#unreachable)))))
+    (#let clone PinnedNumberRc (#call PinnedNumberRc::clone ((owner (#borrow owner)))))
+    (#let-mut moved PinnedNumberRc owner)
+    (#let unavailable PinnedNumberRc::MutResult (#call PinnedNumberRc::borrow-mut ((owner (#borrow-mut moved)))))
+    (#match unavailable
+      (#case PinnedNumberRc::MutResult.Shared ())
+      (#case (PinnedNumberRc::MutResult.Unique unexpected) (#block (#forget unexpected) (#unreachable))))
+    (#let shared (#pin-ref #u64) (#call PinnedNumberRc::borrow ((owner (#borrow clone)))))
+    (#assert (#u64::eq (#deref shared) 40u64)) (#drop shared)
+    (#call PinnedNumberRc::destroy ((owner clone)))
+    (#assert (#u64::eq (#atomic-load (#borrow (#get arena destroyed)) #memory-relaxed) 0u64))
+    (#let available PinnedNumberRc::MutResult (#call PinnedNumberRc::borrow-mut ((owner (#borrow-mut moved)))))
+    (#let exclusive (#pin-ref-mut #u64) (#match available
+      (#case (PinnedNumberRc::MutResult.Unique pin) pin)
+      (#case PinnedNumberRc::MutResult.Shared (#unreachable))))
+    (#unsafe (#pin-write exclusive 42u64)) (#drop exclusive)
+    (#let observed (#pin-ref #u64) (#call PinnedNumberRc::borrow ((owner (#borrow moved)))))
+    (#let answer #u64 (#deref observed)) (#drop observed)
+    (#call PinnedNumberRc::destroy ((owner moved)))
+    (#assert (#u64::eq (#atomic-load (#borrow (#get arena destroyed)) #memory-relaxed) 1u64))
+    (#assert (#u64::eq (#atomic-load (#borrow (#get arena deallocated)) #memory-relaxed) 1u64))
+    (#forget arena) (#return answer)

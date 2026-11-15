@@ -1,1 +1,1 @@
-(#distributed-enum ApplicationError ())
+#distributed-enum ApplicationError ()

@@ -1,5 +1,5 @@
-(#const minimum #i8 -128)
-(#const quotient #i8 (#i8::div-saturate minimum -1))
+#const minimum #i8 -128
+#const quotient #i8 (#i8::div-saturate minimum -1)
 
-(#fn main () #u64
-  (#return (#as quotient #u64)))
+#fn main () #u64
+    (#return (#as quotient #u64))

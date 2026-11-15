@@ -1,24 +1,24 @@
-(#alias linux-read-byte = ../library/linux_x86_64.lim::linux-read-byte)
-(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
+#alias linux-read-byte = ../library/linux_x86_64.lim::linux-read-byte
+#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-(#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
-  (#fn main () #i32
-    (#let-mut byte #u8 0u8)
-    (#let-mut count #i64
-      (#call linux-read-byte ((destination (#borrow-mut byte)))))
-    (#let-mut write-count #i64 1i64)
-    (#while (#bool::and (#i64::eq count 1i64) (#i64::eq write-count 1i64))
-      (#set write-count
-        (#call linux-write-byte ((source (#borrow byte)))))
-      (#if (#i64::eq write-count 1i64)
-        (#block
-          (#set count
-            (#call linux-read-byte ((destination (#borrow-mut byte)))))
-          ())
-        (#block (#set count -1i64) ())))
-    (#return
-      (#if (#bool::and (#i64::eq write-count 1i64) (#i64::ge count 0i64))
-        0
-        1)))
-  (#cfg-else
-    (#fn main () #i32 (#return 1))))
+#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
+    (#fn main () #i32
+      (#let-mut byte #u8 0u8)
+      (#let-mut count #i64
+        (#call linux-read-byte ((destination (#borrow-mut byte)))))
+      (#let-mut write-count #i64 1i64)
+      (#while (#bool::and (#i64::eq count 1i64) (#i64::eq write-count 1i64))
+        (#set write-count
+          (#call linux-write-byte ((source (#borrow byte)))))
+        (#if (#i64::eq write-count 1i64)
+          (#block
+            (#set count
+              (#call linux-read-byte ((destination (#borrow-mut byte)))))
+            ())
+          (#block (#set count -1i64) ())))
+      (#return
+        (#if (#bool::and (#i64::eq write-count 1i64) (#i64::ge count 0i64))
+          0
+          1)))
+    (#cfg-else
+      (#fn main () #i32 (#return 1)))

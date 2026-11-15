@@ -1,23 +1,23 @@
-(#alias StdReadResult = /<lim-std>/stdin.lim::StdReadResult)
-(#alias String = /<lim-std>/string.lim::String)
-(#alias String::clear = /<lim-std>/string.lim::String::clear)
-(#alias String::free = /<lim-std>/string.lim::String::free)
-(#alias String::new = /<lim-std>/string.lim::String::new)
-(#alias std-read-line = /<lim-std>/stdin.lim::std-read-line)
+#alias StdReadResult = /<lim-std>/stdin.lim::StdReadResult
+#alias String = /<lim-std>/string.lim::String
+#alias String::clear = /<lim-std>/string.lim::String::clear
+#alias String::free = /<lim-std>/string.lim::String::free
+#alias String::new = /<lim-std>/string.lim::String::new
+#alias std-read-line = /<lim-std>/stdin.lim::std-read-line
 
-(#std)
+#std
 
-(#fn main () #u64
-  (#let-mut line String (#call String::new ()))
-  (#let-mut finished #bool false)
-  (#while (#bool::eq finished false)
-    (#match (#call std-read-line ((string (#borrow-mut line))))
-      (#case (StdReadResult.StdLineRead count)
-        (#block
-          (#assert (#i64::eq (#println (#borrow line)) 0i64))
-          (#call String::clear ((string (#borrow-mut line))))
-          ()))
-      (#case StdReadResult.StdEndOfInput (#block (#set finished true) ()))
-      (#case (StdReadResult.StdReadFailed error) (#block (#set finished true) ()))))
-  (#call String::free ((string line)))
-  (#return 42u64))
+#fn main () #u64
+    (#let-mut line String (#call String::new ()))
+    (#let-mut finished #bool false)
+    (#while (#bool::eq finished false)
+      (#match (#call std-read-line ((string (#borrow-mut line))))
+        (#case (StdReadResult.StdLineRead count)
+          (#block
+            (#assert (#i64::eq (#println (#borrow line)) 0i64))
+            (#call String::clear ((string (#borrow-mut line))))
+            ()))
+        (#case StdReadResult.StdEndOfInput (#block (#set finished true) ()))
+        (#case (StdReadResult.StdReadFailed error) (#block (#set finished true) ()))))
+    (#call String::free ((string line)))
+    (#return 42u64)

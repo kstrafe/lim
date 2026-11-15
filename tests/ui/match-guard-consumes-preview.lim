@@ -1,12 +1,12 @@
-(#struct Token (#linear) ((value #u64)))
+#struct Token (#linear) ((value #u64))
 
-(#enum Choice () ((Choice.Owned Token) Choice.Empty))
-(#fn main () ()
-  (#let choice Choice (Choice.Owned (#struct-literal Token ((value 1u64)))))
-  (#match choice
-    (#case (Choice.Owned first) (#when (#block
-      (#forget first)
-      #false)) (#forget first))
-    (#case (Choice.Owned second) (#forget second))
-    (#case Choice.Empty ()))
-  (#return ()))
+#enum Choice () ((Choice.Owned Token) Choice.Empty)
+#fn main () ()
+    (#let choice Choice (Choice.Owned (#struct-literal Token ((value 1u64)))))
+    (#match choice
+      (#case (Choice.Owned first) (#when (#block
+        (#forget first)
+        #false)) (#forget first))
+      (#case (Choice.Owned second) (#forget second))
+      (#case Choice.Empty ()))
+    (#return ())

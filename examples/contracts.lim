@@ -1,22 +1,22 @@
 // Explicit validation, a constrained field, and an API requirement.
-(#fn below-100 ((value #u64)) #bool
-  (#return (#u64::lt value 100u64)))
+#fn below-100 ((value #u64)) #bool
+    (#return (#u64::lt value 100u64))
 
-(#type Small (#where (value #u64) (#call below-100 ((value value)))))
-(#struct Request () ((count Small) (tag #u64)))
+#type Small (#where (value #u64) (#call below-100 ((value value))))
+#struct Request () ((count Small) (tag #u64))
 
-(#fn send ((request (#ref Request))) #u64
-  (#return (#get request count)))
+#fn send ((request (#ref Request))) #u64
+    (#return (#get request count))
 
-(#fn submit ((value #u64)) #u64
-  (#requires (#call below-100 ((value value))))
-  (#let request Request (#struct-literal Request ((count value) (tag 0u64))))
-  (#let response #u64 (#call send ((request (#borrow request)))))
-  (#forget request)
-  (#return response))
+#fn submit ((value #u64)) #u64
+    (#requires (#call below-100 ((value value))))
+    (#let request Request (#struct-literal Request ((count value) (tag 0u64))))
+    (#let response #u64 (#call send ((request (#borrow request)))))
+    (#forget request)
+    (#return response)
 
-(#fn main () #u64
-  (#let input #u64 42u64)
-  (#return (#if-valid (#call below-100 ((value input)))
-    (#call submit ((value input)))
-    1u64)))
+#fn main () #u64
+    (#let input #u64 42u64)
+    (#return (#if-valid (#call below-100 ((value input)))
+      (#call submit ((value input)))
+      1u64))

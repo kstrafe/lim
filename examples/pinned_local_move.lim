@@ -1,50 +1,50 @@
 // Linear local pin loads transfer loans; pin writes explicitly restore storage.
-(#struct Owner () ((number #u64)))
-(#struct View (#linear) ((item (#ref #u64))))
+#struct Owner () ((number #u64))
+#struct View (#linear) ((item (#ref #u64)))
 
-(#struct Resource (#linear) ((number #u64)))
+#struct Resource (#linear) ((number #u64))
 
 
-(#fn choose-view ((input (#ref #u64)) (alternative (#ref #u64)) (first #bool)) View
-  (#return
-    (#if first
-      (#block
-        (#let-mut holder View (#struct-literal View ((item input))))
-        (#unsafe (#pin-read (#pin-borrow-mut holder))))
-      (#block
-        (#let-mut other View (#struct-literal View ((item alternative))))
-        (#unsafe (#pin-read (#pin-borrow-mut other)))))))
+#fn choose-view ((input (#ref #u64)) (alternative (#ref #u64)) (first #bool)) View
+    (#return
+      (#if first
+        (#block
+          (#let-mut holder View (#struct-literal View ((item input))))
+          (#unsafe (#pin-read (#pin-borrow-mut holder))))
+        (#block
+          (#let-mut other View (#struct-literal View ((item alternative))))
+          (#unsafe (#pin-read (#pin-borrow-mut other))))))
 
-(#fn replace-local () #u64
-  (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
-  (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
-  (#let first Resource (#unsafe (#pin-read target)))
-  (#forget first)
-  (#unsafe (#pin-write target (#struct-literal Resource ((number 42u64)))))
-  (#let second Resource (#unsafe (#pin-read target)))
-  (#drop target)
-  (#let result #u64 (#get second number))
-  (#forget second)
-  (#return result))
+#fn replace-local () #u64
+    (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+    (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
+    (#let first Resource (#unsafe (#pin-read target)))
+    (#forget first)
+    (#unsafe (#pin-write target (#struct-literal Resource ((number 42u64)))))
+    (#let second Resource (#unsafe (#pin-read target)))
+    (#drop target)
+    (#let result #u64 (#get second number))
+    (#forget second)
+    (#return result)
 
-(#fn main () #u64
-  (#let-mut owner Owner (#struct-literal Owner ((number 40u64))))
-  (#let parent (#ref-mut Owner) (#borrow-mut owner))
-  (#let-mut holder View
-    (#struct-literal View ((item (#borrow (#get parent number))))))
-  (#let target (#pin-ref-mut View) (#pin-borrow-mut holder))
-  (#let loaded View (#unsafe (#pin-read target)))
-  (#drop target)
-  (#let value #u64 (#deref (#get loaded item)))
-  (#forget loaded)
-  // The consumed holder no longer suspends this parent reference.
-  (#drop parent)
-  (#let alternative #u64 2u64)
-  (#let selected View
-    (#call choose-view
-      ((input (#borrow value)) (alternative (#borrow alternative)) (first true))))
-  (#let result #u64 (#u64::add-wrap (#deref (#get selected item)) alternative))
-  (#forget selected)
-  (#forget owner)
-  (#assert (#u64::eq result (#call replace-local ())))
-  (#return result))
+#fn main () #u64
+    (#let-mut owner Owner (#struct-literal Owner ((number 40u64))))
+    (#let parent (#ref-mut Owner) (#borrow-mut owner))
+    (#let-mut holder View
+      (#struct-literal View ((item (#borrow (#get parent number))))))
+    (#let target (#pin-ref-mut View) (#pin-borrow-mut holder))
+    (#let loaded View (#unsafe (#pin-read target)))
+    (#drop target)
+    (#let value #u64 (#deref (#get loaded item)))
+    (#forget loaded)
+    // The consumed holder no longer suspends this parent reference.
+    (#drop parent)
+    (#let alternative #u64 2u64)
+    (#let selected View
+      (#call choose-view
+        ((input (#borrow value)) (alternative (#borrow alternative)) (first true))))
+    (#let result #u64 (#u64::add-wrap (#deref (#get selected item)) alternative))
+    (#forget selected)
+    (#forget owner)
+    (#assert (#u64::eq result (#call replace-local ())))
+    (#return result)

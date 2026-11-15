@@ -1,2 +1,2 @@
-(#unsafe-impl #send missing)
-(#fn main () #u64 (#return 0u64))
+#unsafe-impl #send missing
+#fn main () #u64 (#return 0u64)

@@ -1,4 +1,4 @@
-(#fn main () #u64
-  (#return
-    (#loop
-      (#break 42))))
+#fn main () #u64
+    (#return
+      (#loop
+        (#break 42)))

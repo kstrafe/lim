@@ -1,5 +1,5 @@
-(#fn saturate ((value #i8)) #i8
-  (#return (#i8::sub-saturate value)))
+#fn saturate ((value #i8)) #i8
+    (#return (#i8::sub-saturate value))
 
-(#fn main () #u64
-  (#return (#as (#call saturate ((value -128))) #u64)))
+#fn main () #u64
+    (#return (#as (#call saturate ((value -128))) #u64))

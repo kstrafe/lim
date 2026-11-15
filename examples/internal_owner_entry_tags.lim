@@ -1,31 +1,31 @@
-(#enum Value () (Value.Empty (Value.Full #u64)))
-(#struct Link () ((value Value) (view (#pin-ref #u64))))
+#enum Value () (Value.Empty (Value.Full #u64))
+#struct Link () ((value Value) (view (#pin-ref #u64)))
 
-(#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-  (#match (#pin-borrow (#get target value))
-    (#case-pin (Value.Full view) (#pin-set-field target view view))
-    (#case-pin Value.Empty ()))
-  (#return target))
+#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+    (#match (#pin-borrow (#get target value))
+      (#case-pin (Value.Full view) (#pin-set-field target view view))
+      (#case-pin Value.Empty ()))
+    (#return target)
 
-(#fn initialize-or-touch ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-  //; A later Value.Full tag is not evidence that the owner was Value.Full at entry.
-  (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
-    (#block
-      (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64)))
-      (#match (#pin-borrow-mut (#get target value))
-        (#case-pin-mut (Value.Full payload) (#unsafe (#pin-write payload 42u64)))
-        (#case-pin-mut Value.Empty ()))) ())
-  (#return target))
+#fn initialize-or-touch ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+    //; A later Value.Full tag is not evidence that the owner was Value.Full at entry.
+    (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
+      (#block
+        (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64)))
+        (#match (#pin-borrow-mut (#get target value))
+          (#case-pin-mut (Value.Full payload) (#unsafe (#pin-write payload 42u64)))
+          (#case-pin-mut Value.Empty ()))) ())
+    (#return target)
 
-(#fn main () #u64
-  (#let outside #u64 0u64)
-  (#let-mut link Link (#struct-literal Link
-    ((value Value.Empty) (view (#pin-borrow outside)))))
-  (#let installed (#pin-ref-mut Link)
-    (#call initialize-or-touch ((target (#pin-borrow-mut link)))))
-  (#let updated (#pin-ref-mut Link)
-    (#call install ((target installed))))
-  (#let answer #u64 (#deref (#get updated view)))
-  (#pin-set-field updated view (#pin-borrow outside))
-  (#drop updated) (#forget link)
-  (#return answer))
+#fn main () #u64
+    (#let outside #u64 0u64)
+    (#let-mut link Link (#struct-literal Link
+      ((value Value.Empty) (view (#pin-borrow outside)))))
+    (#let installed (#pin-ref-mut Link)
+      (#call initialize-or-touch ((target (#pin-borrow-mut link)))))
+    (#let updated (#pin-ref-mut Link)
+      (#call install ((target installed))))
+    (#let answer #u64 (#deref (#get updated view)))
+    (#pin-set-field updated view (#pin-borrow outside))
+    (#drop updated) (#forget link)
+    (#return answer)

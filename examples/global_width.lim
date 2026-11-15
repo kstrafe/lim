@@ -1,22 +1,18 @@
-(
-  #let
-  wRAPPED
-  #u8
-  (#u8::add-wrap  255 1)
-)
+#let
+    wRAPPED
+    #u8
+    (#u8::add-wrap  255 1)
 
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    main
+    ()
+    #u64
     (
-      #if
-      (#u8::eq  wRAPPED 0)
-      42
-      0
+      #return
+      (
+        #if
+        (#u8::eq  wRAPPED 0)
+        42
+        0
+      )
     )
-  )
-)

@@ -1,61 +1,61 @@
-(#alias linux-exit = ../library/linux_x86_64.lim::linux-exit)
-(#alias linux-exit-group = ../library/linux_x86_64.lim::linux-exit-group)
-(#alias linux-fork = ../library/linux_x86_64.lim::linux-fork)
-(#alias linux-getpgid = ../library/linux_x86_64.lim::linux-getpgid)
-(#alias linux-getpid = ../library/linux_x86_64.lim::linux-getpid)
-(#alias linux-getsid = ../library/linux_x86_64.lim::linux-getsid)
-(#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap)
-(#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap)
-(#alias linux-setpgid = ../library/linux_x86_64.lim::linux-setpgid)
-(#alias linux-setsid = ../library/linux_x86_64.lim::linux-setsid)
-(#alias linux-waitid = ../library/linux_x86_64.lim::linux-waitid)
-(#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte)
+#alias linux-exit = ../library/linux_x86_64.lim::linux-exit
+#alias linux-exit-group = ../library/linux_x86_64.lim::linux-exit-group
+#alias linux-fork = ../library/linux_x86_64.lim::linux-fork
+#alias linux-getpgid = ../library/linux_x86_64.lim::linux-getpgid
+#alias linux-getpid = ../library/linux_x86_64.lim::linux-getpid
+#alias linux-getsid = ../library/linux_x86_64.lim::linux-getsid
+#alias linux-mmap = ../library/linux_x86_64.lim::linux-mmap
+#alias linux-munmap = ../library/linux_x86_64.lim::linux-munmap
+#alias linux-setpgid = ../library/linux_x86_64.lim::linux-setpgid
+#alias linux-setsid = ../library/linux_x86_64.lim::linux-setsid
+#alias linux-waitid = ../library/linux_x86_64.lim::linux-waitid
+#alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
 // SAFETY: run only in the isolated, single-threaded fork child; this routine
 // changes process-group state and exits without returning to its caller.
-(#unsafe-fn child-work ((iteration #u32)) ()
-  (#let pid #i64 (#call linux-getpid ()))
-  (#if (#u32::eq iteration 0u32)
-    (#block
-      (#assert (#i64::eq (#call linux-setsid ()) pid))
-      (#assert (#i64::eq (#call linux-getsid ((pid 0i64))) pid))
-      (#assert (#i64::eq (#call linux-setsid ()) -1i64))
-      (#unsafe (#unsafe-call linux-exit ((status 37i32)))))
-    (#block
-      (#assert (#i64::eq (#call linux-setpgid ((pid 0i32) (group -1i32))) -22i64))
-      (#assert (#i64::eq (#call linux-setpgid ((pid 0i32) (group 0i32))) 0i64))
-      (#assert (#i64::eq (#call linux-getpgid ((pid 0i64))) pid))
-      (#call linux-exit-group ((status 38i32)))))
-  (#return (#unreachable)))
+#unsafe-fn child-work ((iteration #u32)) ()
+    (#let pid #i64 (#call linux-getpid ()))
+    (#if (#u32::eq iteration 0u32)
+      (#block
+        (#assert (#i64::eq (#call linux-setsid ()) pid))
+        (#assert (#i64::eq (#call linux-getsid ((pid 0i64))) pid))
+        (#assert (#i64::eq (#call linux-setsid ()) -1i64))
+        (#unsafe (#unsafe-call linux-exit ((status 37i32)))))
+      (#block
+        (#assert (#i64::eq (#call linux-setpgid ((pid 0i32) (group -1i32))) -22i64))
+        (#assert (#i64::eq (#call linux-setpgid ((pid 0i32) (group 0i32))) 0i64))
+        (#assert (#i64::eq (#call linux-getpgid ((pid 0i64))) pid))
+        (#call linux-exit-group ((status 38i32)))))
+    (#return (#unreachable))
 
-(#fn main () #u64
-  (#let info (#ptr-mut #u8)
-    (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
-  (#let usage (#ptr-mut #i64)
-    (#unsafe (#asm (#ptr-mut #i64) ((rdi info)) "lea rax, [rdi+128]")))
-  (#for-range (iteration #u32) 0u32 2u32
-    (#let child #i64 (#unsafe (#unsafe-call linux-fork ())))
-    (#assert (#i64::ge child 0i64))
-    (#if (#i64::eq child 0i64)
-      (#unsafe (#unsafe-call child-work ((iteration iteration)))) ())
-    // P_PID, WEXITED | WNOWAIT: inspect the exit while retaining the child
-    // in a waitable state, then reap it with a second waitid call.
-    (#let observed #i64 (#unsafe (#unsafe-call linux-waitid ((id-type 1i32) (id (#as child #u32)) (info info) (options 16777220i32) (usage usage)))))
-    (#let signal #u32 (#unsafe (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi]")))
-    (#let code #u32 (#unsafe (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi+8]")))
-    (#let reported-pid #u32 (#unsafe (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi+16]")))
-    (#let status #u32 (#unsafe (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi+24]")))
-    (#let reaped #i64 (#unsafe (#unsafe-call linux-waitid ((id-type 1i32) (id (#as child #u32)) (info info) (options 4i32) (usage usage)))))
-    (#assert (#i64::eq observed 0i64))
-    (#assert (#i64::eq reaped 0i64))
-    (#assert (#u32::eq signal 17u32))
-    (#assert (#u32::eq code 1u32))
-    (#assert (#u32::eq reported-pid (#as child #u32)))
-    (#assert (#u32::eq status (#u32::add-wrap 37u32 iteration)))
-    (#assert (#i64::eq (#unsafe (#unsafe-call linux-waitid ((id-type 1i32) (id (#as child #u32)) (info info) (options 5i32) (usage usage)))) -10i64)))
-  (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address info) (length 4096usize)))) 0i64))
-  (#let letter #u8 87u8)
-  (#let newline #u8 10u8)
-  (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
-  (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
-  (#return 42u64))
+#fn main () #u64
+    (#let info (#ptr-mut #u8)
+      (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
+    (#let usage (#ptr-mut #i64)
+      (#unsafe (#asm (#ptr-mut #i64) ((rdi info)) "lea rax, [rdi+128]")))
+    (#for-range (iteration #u32) 0u32 2u32
+      (#let child #i64 (#unsafe (#unsafe-call linux-fork ())))
+      (#assert (#i64::ge child 0i64))
+      (#if (#i64::eq child 0i64)
+        (#unsafe (#unsafe-call child-work ((iteration iteration)))) ())
+      // P_PID, WEXITED | WNOWAIT: inspect the exit while retaining the child
+      // in a waitable state, then reap it with a second waitid call.
+      (#let observed #i64 (#unsafe (#unsafe-call linux-waitid ((id-type 1i32) (id (#as child #u32)) (info info) (options 16777220i32) (usage usage)))))
+      (#let signal #u32 (#unsafe (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi]")))
+      (#let code #u32 (#unsafe (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi+8]")))
+      (#let reported-pid #u32 (#unsafe (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi+16]")))
+      (#let status #u32 (#unsafe (#asm #u32 ((rdi info)) "mov eax, DWORD PTR [rdi+24]")))
+      (#let reaped #i64 (#unsafe (#unsafe-call linux-waitid ((id-type 1i32) (id (#as child #u32)) (info info) (options 4i32) (usage usage)))))
+      (#assert (#i64::eq observed 0i64))
+      (#assert (#i64::eq reaped 0i64))
+      (#assert (#u32::eq signal 17u32))
+      (#assert (#u32::eq code 1u32))
+      (#assert (#u32::eq reported-pid (#as child #u32)))
+      (#assert (#u32::eq status (#u32::add-wrap 37u32 iteration)))
+      (#assert (#i64::eq (#unsafe (#unsafe-call linux-waitid ((id-type 1i32) (id (#as child #u32)) (info info) (options 5i32) (usage usage)))) -10i64)))
+    (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address info) (length 4096usize)))) 0i64))
+    (#let letter #u8 87u8)
+    (#let newline #u8 10u8)
+    (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
+    (#assert (#i64::eq (#call linux-write-byte ((source (#borrow newline)))) 1i64))
+    (#return 42u64)

@@ -1,7 +1,7 @@
-(#fn main () #u64
-  (#let-mut values (#array (#array #u64 2) 2)
-    (#array (#array (#array #u64 2) 2)
-      (#array (#array #u64 2) 10 20)
-      (#array (#array #u64 2) 30 40)))
-  (#set-index values 1 (#array (#array #u64 2) 50 60))
-  (#return (#index (#index values 1) 0)))
+#fn main () #u64
+    (#let-mut values (#array (#array #u64 2) 2)
+      (#array (#array (#array #u64 2) 2)
+        (#array (#array #u64 2) 10 20)
+        (#array (#array #u64 2) 30 40)))
+    (#set-index values 1 (#array (#array #u64 2) 50 60))
+    (#return (#index (#index values 1) 0))

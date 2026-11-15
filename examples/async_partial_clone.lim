@@ -1,63 +1,63 @@
 // Move and restore one part while a sibling is borrowed, then clone the whole.
 // Cloning snapshots values without relocating the original borrowed part.
-(#struct Part (#linear) ((value #u64)))
+#struct Part (#linear) ((value #u64))
 
-(#struct Parts (#linear) ((first Part) (second Part)))
+#struct Parts (#linear) ((first Part) (second Part))
 
-(#fn Parts::clone ((original Parts)) Parts
-  (#let (Parts first second) Parts original)
-  (#let value #u64 (#u64::add-wrap (#get first value) 1u64))
-  (#forget first)
-  (#return (#struct-literal Parts ((first (#struct-literal Part ((value value)))) (second second)))))
-(#enum Step (#linear) (Step.Start Step.Resume))
+#fn Parts::clone ((original Parts)) Parts
+    (#let (Parts first second) Parts original)
+    (#let value #u64 (#u64::add-wrap (#get first value) 1u64))
+    (#forget first)
+    (#return (#struct-literal Parts ((first (#struct-literal Part ((value value)))) (second second))))
+#enum Step (#linear) (Step.Start Step.Resume)
 
-(#enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ())))
-(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
-  (#return
-    (#match task
-      (#case Step.Start
-        (StepPoll.Pending Step.Resume))
-      (#case Step.Resume
-        (StepPoll.Ready ())))))
-(#generate
-  #async-fn-pinned
-  ((protocol WorkAwait) (waker #u64) (function
-  (#fn work () Parts
-    (#let-mut original Parts (#struct-literal Parts
-      ((first (#struct-literal Part ((value 20u64))))
-       (second (#struct-literal Part ((value 22u64)))))))
-    (#let view (#ref Part) (#borrow (#get original second)))
-    (#let moved Part (#get original first))
-    (#let ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
-    (#forget moved)
-    (#set-field original first (#struct-literal Part ((value 22u64))))
-    (#let duplicate Parts (#clone original))
-    (#assert (#u64::eq (#get view value) 22u64))
-    (#drop view) (#forget original) (#return duplicate)))))
-(#fn main () #u64
-  (#let waker #u64 0u64)
-  (#let-mut frame Work::Frame (#call work ()))
-  (#let
-    first
-    Work::Poll
-    (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
-  (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
-  (#let second Work::Poll (#call Work::poll ((task pending) (waker (#borrow waker)))))
-  (#let
-    result
-    #u64
-    (#match second
-      (#case (Work::Poll.Ready duplicate)
-        (#block
-          (#let
-            value
-            #u64
-            (#u64::add-wrap (#get (#get duplicate first) value) (#get (#get duplicate second) value)))
-          (#forget duplicate)
-          value))
-      (#case (Work::Poll.Pending unexpected)
-        (#block
-          (#forget unexpected)
-          (#unreachable)))))
-  (#forget frame)
-  (#return result))
+#enum StepPoll () ((StepPoll.Pending Step) (StepPoll.Ready ()))
+#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+    (#return
+      (#match task
+        (#case Step.Start
+          (StepPoll.Pending Step.Resume))
+        (#case Step.Resume
+          (StepPoll.Ready ()))))
+#generate
+    #async-fn-pinned
+    ((protocol WorkAwait) (waker #u64) (function
+    (#fn work () Parts
+      (#let-mut original Parts (#struct-literal Parts
+        ((first (#struct-literal Part ((value 20u64))))
+         (second (#struct-literal Part ((value 22u64)))))))
+      (#let view (#ref Part) (#borrow (#get original second)))
+      (#let moved Part (#get original first))
+      (#let ready () (#await () Step StepPoll.Pending StepPoll.Ready step-poll Step.Start))
+      (#forget moved)
+      (#set-field original first (#struct-literal Part ((value 22u64))))
+      (#let duplicate Parts (#clone original))
+      (#assert (#u64::eq (#get view value) 22u64))
+      (#drop view) (#forget original) (#return duplicate))))
+#fn main () #u64
+    (#let waker #u64 0u64)
+    (#let-mut frame Work::Frame (#call work ()))
+    (#let
+      first
+      Work::Poll
+      (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
+    (#let-else (Work::Poll.Pending pending) Work::Poll first (#unreachable))
+    (#let second Work::Poll (#call Work::poll ((task pending) (waker (#borrow waker)))))
+    (#let
+      result
+      #u64
+      (#match second
+        (#case (Work::Poll.Ready duplicate)
+          (#block
+            (#let
+              value
+              #u64
+              (#u64::add-wrap (#get (#get duplicate first) value) (#get (#get duplicate second) value)))
+            (#forget duplicate)
+            value))
+        (#case (Work::Poll.Pending unexpected)
+          (#block
+            (#forget unexpected)
+            (#unreachable)))))
+    (#forget frame)
+    (#return result)

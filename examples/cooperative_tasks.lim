@@ -1,23 +1,23 @@
-(#alias lim-gen-executor = ../library/tasks.lim::#executor)
-(#alias lim-gen-task = ../library/tasks.lim::#task)
+#alias lim-gen-executor = ../library/tasks.lim::#executor
+#alias lim-gen-task = ../library/tasks.lim::#task
 
-(#generate lim-gen-task (CountTask CountPoll CountPoll.CountPending CountPoll.CountReady) #u64
-  ((CountTask.Counting #u64)))
+#generate lim-gen-task (CountTask CountPoll CountPoll.CountPending CountPoll.CountReady) #u64
+    ((CountTask.Counting #u64))
 
-(#fn count-poll ((task CountTask)) CountPoll
-  (#return
-    (#match task
-      (#case (CountTask.Counting remaining)
-        (#if (#u64::eq (#clone remaining) 0u64)
-          (#block (#forget remaining) (CountPoll.CountReady 21u64))
-          (CountPoll.CountPending (CountTask.Counting (#u64::sub-wrap remaining 1u64))))))))
+#fn count-poll ((task CountTask)) CountPoll
+    (#return
+      (#match task
+        (#case (CountTask.Counting remaining)
+          (#if (#u64::eq (#clone remaining) 0u64)
+            (#block (#forget remaining) (CountPoll.CountReady 21u64))
+            (CountPoll.CountPending (CountTask.Counting (#u64::sub-wrap remaining 1u64)))))))
 
-(#generate lim-gen-executor run-counts Counts
-  ((first CountTask CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 first-input)
-   (second CountTask CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 second-input)))
+#generate lim-gen-executor run-counts Counts
+    ((first CountTask CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 first-input)
+     (second CountTask CountPoll CountPoll.CountPending CountPoll.CountReady count-poll #u64 second-input))
 
-(#fn main () #u64
-  (#let results Counts
-    (#call run-counts
-      ((first-input (CountTask.Counting 2u64)) (second-input (CountTask.Counting 3u64)))))
-  (#return (#u64::add-wrap (#get results first) (#get results second))))
+#fn main () #u64
+    (#let results Counts
+      (#call run-counts
+        ((first-input (CountTask.Counting 2u64)) (second-input (CountTask.Counting 3u64)))))
+    (#return (#u64::add-wrap (#get results first) (#get results second)))

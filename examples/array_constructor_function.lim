@@ -1,8 +1,8 @@
-(#fn make () (#array #u64 3)
-  (#return (#array (#array #u64 3) 10 20 37)))
+#fn make () (#array #u64 3)
+    (#return (#array (#array #u64 3) 10 20 37))
 
-(#fn consume ((values (#array #u64 3))) #u64
-  (#return (#index values 2)))
+#fn consume ((values (#array #u64 3))) #u64
+    (#return (#index values 2))
 
-(#fn main () #u64
-  (#return (#call consume ((values (#call make ()))))))
+#fn main () #u64
+    (#return (#call consume ((values (#call make ())))))

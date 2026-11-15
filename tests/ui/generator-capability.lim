@@ -1,1 +1,1 @@
-(#capability order #u64 ((missing (#u64 #u64) #bool)))
+#capability order #u64 ((missing (#u64 #u64) #bool))

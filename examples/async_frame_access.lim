@@ -1,27 +1,27 @@
 // Compile with --cfg async-lowering=graph.
 // Access is explicit, source-named, and only available after completion or
 // cleanup. Replacement changes the same stationary frame, not a new future.
-(#generate
-  #async-fn-pinned
-  ((protocol WorkAwait) (waker #u64)
-  (access ((amount AmountAccess)))
-  (function (#fn work ((amount #u64)) #u64
-    (#return amount)))))
-(#fn main () #u64
-  (#let waker #u64 0u64)
-  (#let-mut frame Work::Frame (#call work ((amount 40u64))))
-  (#let
-    result
-    #u64
-    (#match (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
-      (#case (Work::Poll.Ready value)
-        value)
-      (#case (Work::Poll.Pending unexpected)
-        (#block
-          (#forget unexpected)
-          (#unreachable)))))
-  (#assert (#u64::eq result 40u64))
-  (#call AmountAccess::replace ((task (#pin-borrow-mut frame)) (value 42u64)))
-  (#let restored #u64 (#call AmountAccess::read ((task (#pin-borrow frame)))))
-  (#forget frame)
-  (#return restored))
+#generate
+    #async-fn-pinned
+    ((protocol WorkAwait) (waker #u64)
+    (access ((amount AmountAccess)))
+    (function (#fn work ((amount #u64)) #u64
+      (#return amount))))
+#fn main () #u64
+    (#let waker #u64 0u64)
+    (#let-mut frame Work::Frame (#call work ((amount 40u64))))
+    (#let
+      result
+      #u64
+      (#match (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
+        (#case (Work::Poll.Ready value)
+          value)
+        (#case (Work::Poll.Pending unexpected)
+          (#block
+            (#forget unexpected)
+            (#unreachable)))))
+    (#assert (#u64::eq result 40u64))
+    (#call AmountAccess::replace ((task (#pin-borrow-mut frame)) (value 42u64)))
+    (#let restored #u64 (#call AmountAccess::read ((task (#pin-borrow frame)))))
+    (#forget frame)
+    (#return restored)

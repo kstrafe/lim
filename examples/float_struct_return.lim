@@ -1,52 +1,46 @@
-(
-  #struct
-  Point ()
-  (
-    (x #f64)
-    (y #f32)
-  )
-)
-
-(
-  #fn
-  make
-  ()
-  Point
-  (
-    #return
-    (#struct-literal Point ((x 1.5) (y 2.5)))
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#struct
+    Point ()
     (
-      #if
-      (#bool::and
-        (#f64::gt
-          (
-            #get
-            (#call make ())
-            x
-          )
-          1.0
-        )
-        (#f32::gt
-          (
-            #get
-            (#call make ())
-            y
-          )
-          2.0
-        )
-      )
-      42
-      0
+      (x #f64)
+      (y #f32)
     )
-  )
-)
+
+#fn
+    make
+    ()
+    Point
+    (
+      #return
+      (#struct-literal Point ((x 1.5) (y 2.5)))
+    )
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (
+        #if
+        (#bool::and
+          (#f64::gt
+            (
+              #get
+              (#call make ())
+              x
+            )
+            1.0
+          )
+          (#f32::gt
+            (
+              #get
+              (#call make ())
+              y
+            )
+            2.0
+          )
+        )
+        42
+        0
+      )
+    )

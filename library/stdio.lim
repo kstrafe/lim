@@ -1,208 +1,207 @@
-(#alias String = ./string.lim::String)
-(#alias String::data-pointer = ./string.lim::String::data-pointer)
-(#alias String::len = ./string.lim::String::len)
+#alias String = ./string.lim::String
+#alias String::data-pointer = ./string.lim::String::data-pointer
+#alias String::len = ./string.lim::String::len
 
 // UTF-8 stdout IO. Errors are returned as negative errno values; success is
 // 0i64. Printing borrows text, never consumes it or adds a heap allocation.
 
-(
-  #cfg-if
-  (
-    #cfg-and
-    (#cfg-is #os linux)
-    (#cfg-is #arch x86_64)
-  )
-  // SAFETY: the caller retains readable storage for length bytes throughout the
-  // call. Partial writes and EINTR are retried; zero progress becomes -EIO.
-  (
-    #unsafe-fn
-    std-write-all
-    ((pointer (#ptr-mut #u8)) (length #usize))
-    #i64
+#cfg-if
     (
-      #let-mut
-      offset
-      #usize
-      (#literal #usize 0)
+      #cfg-and
+      (#cfg-is #os linux)
+      (#cfg-is #arch x86_64)
     )
+    // SAFETY: the caller retains readable storage for length bytes throughout the
+    // call. Partial writes and EINTR are retried; zero progress becomes -EIO.
     (
-      #let-mut
-      error
+      #unsafe-fn
+      std-write-all
+      ((pointer (#ptr-mut #u8)) (length #usize))
       #i64
-      (#literal #i64 0)
-    )
-    (
-      #while
       (
-        #bool::and
-        (#usize::lt offset length)
-        (
-          #i64::eq
-          error
-          (#literal #i64 0)
-        )
-      )
-      (
-        #let
-        remaining
+        #let-mut
+        offset
         #usize
-        (#usize::sub-wrap length offset)
+        (#literal #usize 0)
       )
       (
-        #let
-        written
+        #let-mut
+        error
         #i64
+        (#literal #i64 0)
+      )
+      (
+        #while
         (
-          #unsafe
+          #bool::and
+          (#usize::lt offset length)
           (
-            #linux-syscall
-            #i64
-            (#literal #usize 1)
+            #i64::eq
+            error
+            (#literal #i64 0)
+          )
+        )
+        (
+          #let
+          remaining
+          #usize
+          (#usize::sub-wrap length offset)
+        )
+        (
+          #let
+          written
+          #i64
+          (
+            #unsafe
             (
-              (#literal #i64 1)
-              (#ptr-offset pointer offset)
-              remaining
+              #linux-syscall
+              #i64
+              (#literal #usize 1)
+              (
+                (#literal #i64 1)
+                (#ptr-offset pointer offset)
+                remaining
+              )
             )
           )
         )
-      )
-      (
-        #if
         (
-          #i64::gt
-          written
-          (#literal #i64 0)
-        )
-        (
-          #block
+          #if
           (
-            #let
-            count
-            #usize
-            (#as written #usize)
+            #i64::gt
+            written
+            (#literal #i64 0)
+          )
+          (
+            #block
+            (
+              #let
+              count
+              #usize
+              (#as written #usize)
+            )
+            (
+              #if
+              (#usize::le count remaining)
+              (
+                #block
+                (
+                  #set
+                  offset
+                  (#usize::add-wrap offset count)
+                )
+                ()
+              )
+              (
+                #block
+                (
+                  #set
+                  error
+                  (#literal #i64 -5)
+                )
+                ()
+              )
+            )
+            ()
           )
           (
             #if
-            (#usize::le count remaining)
             (
-              #block
-              (
-                #set
-                offset
-                (#usize::add-wrap offset count)
-              )
-              ()
+              #i64::eq
+              written
+              (#literal #i64 -4)
             )
+            ()
             (
               #block
               (
                 #set
                 error
-                (#literal #i64 -5)
+                (
+                  #if
+                  (
+                    #i64::eq
+                    written
+                    (#literal #i64 0)
+                  )
+                  (#literal #i64 -5)
+                  written
+                )
               )
               ()
             )
           )
-          ()
-        )
-        (
-          #if
-          (
-            #i64::eq
-            written
-            (#literal #i64 -4)
-          )
-          ()
-          (
-            #block
-            (
-              #set
-              error
-              (
-                #if
-                (
-                  #i64::eq
-                  written
-                  (#literal #i64 0)
-                )
-                (#literal #i64 -5)
-                written
-              )
-            )
-            ()
-          )
         )
       )
-    )
-    (#return error)  )
-  (
-    #fn
-    std-print
-    ((text (#ref String)))
-    #i64
-    // String::data-pointer is unsafe: text's shared borrow keeps both the
-    // owner and its allocation live and immutable until the write completes.
-    (
-      #return
-      (
-        #unsafe
-        (
-          #unsafe-call
-          std-write-all
-          ((pointer (#unsafe-call String::data-pointer ((string text))))
-       (length (#call String::len ((string text)))))        )      )    )  )
-  (
-    #fn
-    std-println
-    ((text (#ref String)))
-    #i64
-    (
-      #let
-      result
-      #i64
-      (
-        #call
-        std-print
-        ((text text))      )    )
-    (
-      #let-mut
-      newline
-      #u8
-      (#literal #u8 10)
-    )
-    (
-      #return
-      (
-        #if
-        (
-          #i64::eq
-          result
-          (#literal #i64 0)
-        )
-        (
-          #unsafe
-          (
-            #unsafe-call
-            std-write-all
-            ((pointer (#addr-of-mut newline)) (length 1usize))          )        )
-        result      )    )  )
-  (
-    #cfg-else
+      (#return error)  )
     (
       #fn
       std-print
       ((text (#ref String)))
       #i64
+      // String::data-pointer is unsafe: text's shared borrow keeps both the
+      // owner and its allocation live and immutable until the write completes.
       (
         #return
-        (#literal #i64 -38)
-      )    )
+        (
+          #unsafe
+          (
+            #unsafe-call
+            std-write-all
+            ((pointer (#unsafe-call String::data-pointer ((string text))))
+         (length (#call String::len ((string text)))))        )      )    )  )
     (
       #fn
       std-println
       ((text (#ref String)))
       #i64
       (
+        #let
+        result
+        #i64
+        (
+          #call
+          std-print
+          ((text text))      )    )
+      (
+        #let-mut
+        newline
+        #u8
+        (#literal #u8 10)
+      )
+      (
         #return
-        (#literal #i64 -38)
-      )    )  ))
+        (
+          #if
+          (
+            #i64::eq
+            result
+            (#literal #i64 0)
+          )
+          (
+            #unsafe
+            (
+              #unsafe-call
+              std-write-all
+              ((pointer (#addr-of-mut newline)) (length 1usize))          )        )
+          result      )    )  )
+    (
+      #cfg-else
+      (
+        #fn
+        std-print
+        ((text (#ref String)))
+        #i64
+        (
+          #return
+          (#literal #i64 -38)
+        )    )
+      (
+        #fn
+        std-println
+        ((text (#ref String)))
+        #i64
+        (
+          #return
+          (#literal #i64 -38)
+        )    )  )

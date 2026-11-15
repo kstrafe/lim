@@ -1,19 +1,15 @@
-(
-  #fn
-  noop
-  ()
-  ()
-  (
-    #return
+#fn
+    noop
     ()
-  )
-)
+    ()
+    (
+      #return
+      ()
+    )
 
-(
-  #fn
-  main
-  ()
-  #u64
-  (#call noop ())
-  (#return 42)
-)
+#fn
+    main
+    ()
+    #u64
+    (#call noop ())
+    (#return 42)

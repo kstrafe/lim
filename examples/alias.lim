@@ -1,25 +1,21 @@
-(#type UserId #u64)
+#type UserId #u64
 
-(
-  #fn
-  add_one
-  (
-    (id UserId)
-  )
-  UserId
-  (
-    #return
-    (#u64::add-wrap  id 1)
-  )
-)
+#fn
+    add_one
+    (
+      (id UserId)
+    )
+    UserId
+    (
+      #return
+      (#u64::add-wrap  id 1)
+    )
 
-(
-  #fn
-  main
-  ()
-  UserId
-  (
-    #return
-    (#call add_one ((id 41)))
-  )
-)
+#fn
+    main
+    ()
+    UserId
+    (
+      #return
+      (#call add_one ((id 41)))
+    )

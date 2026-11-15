@@ -1,5 +1,5 @@
-(#fn multiply ((left #u128) (right #u128)) #u128
-  (#return (#u128::mul-wrap left right)))
+#fn multiply ((left #u128) (right #u128)) #u128
+    (#return (#u128::mul-wrap left right))
 
-(#fn main () #u64
-  (#return (#as (#call multiply ((left 6u128) (right 7u128))) #u64)))
+#fn main () #u64
+    (#return (#as (#call multiply ((left 6u128) (right 7u128))) #u64))

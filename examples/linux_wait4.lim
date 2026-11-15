@@ -1,30 +1,30 @@
-(#alias lINUX-SYS-EXIT = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-EXIT)
-(#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
-(#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
-(#alias linux-fork = ../library/linux_x86_64.lim::linux-fork)
-(#alias linux-wait4 = ../library/linux_x86_64.lim::linux-wait4)
+#alias lINUX-SYS-EXIT = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-EXIT
+#alias lINUX-SYS-MMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP
+#alias lINUX-SYS-MUNMAP = ../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP
+#alias linux-fork = ../library/linux_x86_64.lim::linux-fork
+#alias linux-wait4 = ../library/linux_x86_64.lim::linux-wait4
 
-(#fn main () #u64
-  (#let status-memory (#ptr-mut #i32)
-    (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
-      (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let child-pid #i64 (#unsafe (#unsafe-call linux-fork ())))
-  (#let child-path #i64
-    (#if (#i64::eq child-pid 0i64)
-      (#unsafe (#linux-syscall #i64 lINUX-SYS-EXIT (37usize)))
-      0i64))
-  (#let waited-pid #i64
-    (#if (#i64::gt child-pid 0i64)
-      (#unsafe (#unsafe-call linux-wait4 ((pid child-pid) (status status-memory) (options 0usize) (usage (#ptr-null (#ptr-mut #i64))))))
-      -1i64))
-  (#let wait-status #i32 (#unsafe (#ptr-read status-memory)))
-  (#let memory-unmapped #i64
-    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP
-      (status-memory 4096usize))))
-  (#let wait-ok #bool
-    (#bool::and (#i64::gt child-pid 0i64)
-      (#bool::and (#i64::eq child-path 0i64)
-        (#bool::and (#i64::eq waited-pid child-pid)
-          (#i32::eq wait-status 9472i32)))))
-  (#return
-    (#if (#bool::and wait-ok (#i64::eq memory-unmapped 0i64)) 42u64 1u64)))
+#fn main () #u64
+    (#let status-memory (#ptr-mut #i32)
+      (#unsafe (#linux-syscall (#ptr-mut #i32) lINUX-SYS-MMAP
+        (0usize 4096usize 3usize 34usize -1i64 0usize))))
+    (#let child-pid #i64 (#unsafe (#unsafe-call linux-fork ())))
+    (#let child-path #i64
+      (#if (#i64::eq child-pid 0i64)
+        (#unsafe (#linux-syscall #i64 lINUX-SYS-EXIT (37usize)))
+        0i64))
+    (#let waited-pid #i64
+      (#if (#i64::gt child-pid 0i64)
+        (#unsafe (#unsafe-call linux-wait4 ((pid child-pid) (status status-memory) (options 0usize) (usage (#ptr-null (#ptr-mut #i64))))))
+        -1i64))
+    (#let wait-status #i32 (#unsafe (#ptr-read status-memory)))
+    (#let memory-unmapped #i64
+      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP
+        (status-memory 4096usize))))
+    (#let wait-ok #bool
+      (#bool::and (#i64::gt child-pid 0i64)
+        (#bool::and (#i64::eq child-path 0i64)
+          (#bool::and (#i64::eq waited-pid child-pid)
+            (#i32::eq wait-status 9472i32)))))
+    (#return
+      (#if (#bool::and wait-ok (#i64::eq memory-unmapped 0i64)) 42u64 1u64))

@@ -1,10 +1,10 @@
-(#enum Boxed () ((Boxed.Wrapped (#tuple #u64 #u64)) Boxed.Empty))
+#enum Boxed () ((Boxed.Wrapped (#tuple #u64 #u64)) Boxed.Empty)
 
-(#fn sum ((value Boxed)) #u64
-  (#return
-    (#match value
-      (#case (Boxed.Wrapped (#tuple left right)) (#u64::add-wrap left right))
-      (#case Boxed.Empty 0))))
+#fn sum ((value Boxed)) #u64
+    (#return
+      (#match value
+        (#case (Boxed.Wrapped (#tuple left right)) (#u64::add-wrap left right))
+        (#case Boxed.Empty 0)))
 
-(#fn main () #u64
-  (#return (#call sum ((value (Boxed.Wrapped (#tuple (#tuple #u64 #u64) 10 22)))))))
+#fn main () #u64
+    (#return (#call sum ((value (Boxed.Wrapped (#tuple (#tuple #u64 #u64) 10 22))))))

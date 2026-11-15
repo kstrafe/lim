@@ -1,20 +1,18 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let-mut
-    values
-    (#array #u64 3)
-    (#array 1 2 3)
-  )
-  (#set-index values 1 40)
-  (
-    #return
-    (#u64::add-wrap
-      (#index values 0)
-      (#index values 1)
+#fn
+    main
+    ()
+    #u64
+    (
+      #let-mut
+      values
+      (#array #u64 3)
+      (#array 1 2 3)
     )
-  )
-)
+    (#set-index values 1 40)
+    (
+      #return
+      (#u64::add-wrap
+        (#index values 0)
+        (#index values 1)
+      )
+    )

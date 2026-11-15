@@ -1,4 +1,4 @@
-(#fn classify ((value #u8)) #u64
-  (#return (#match value
-    (#case (#range 0u8 126u8) 0u64)
-    (#case (#range 128u8 255u8) 1u64))))
+#fn classify ((value #u8)) #u64
+    (#return (#match value
+      (#case (#range 0u8 126u8) 0u64)
+      (#case (#range 128u8 255u8) 1u64)))

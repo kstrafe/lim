@@ -1,17 +1,15 @@
-(#let vALUE #u128 42)
+#let vALUE #u128 42
 
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    main
+    ()
+    #u64
     (
-      #if
-      (#u128::eq  vALUE 42)
-      42
-      0
+      #return
+      (
+        #if
+        (#u128::eq  vALUE 42)
+        42
+        0
+      )
     )
-  )
-)

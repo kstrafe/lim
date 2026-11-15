@@ -1,10 +1,10 @@
-(#fn values () (#array #u64 7)
-  (#return (#array (#array #u64 7)
-    1u64 2u64 3u64 4u64 5u64 6u64 42u64)))
+#fn values () (#array #u64 7)
+    (#return (#array (#array #u64 7)
+      1u64 2u64 3u64 4u64 5u64 6u64 42u64))
 
-(#fn main () #u64
-  (#return (#if-let
-    (#array first second third fourth fifth sixth last)
-    (#call values ())
-    last
-    0u64)))
+#fn main () #u64
+    (#return (#if-let
+      (#array first second third fourth fifth sixth last)
+      (#call values ())
+      last
+      0u64))

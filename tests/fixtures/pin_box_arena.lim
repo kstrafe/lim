@@ -1,78 +1,78 @@
-(#alias lINUX-SYS-MMAP = ../../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP)
-(#alias lINUX-SYS-MUNMAP = ../../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP)
-(#alias lim-gen-pin-box = ../../library/pin_box.lim::#pin-box)
+#alias lINUX-SYS-MMAP = ../../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MMAP
+#alias lINUX-SYS-MUNMAP = ../../library/linux_x86_64_syscall_numbers.lim::lINUX-SYS-MUNMAP
+#alias lim-gen-pin-box = ../../library/pin_box.lim::#pin-box
 
 
-(#struct Arena () ((identity #u64) (fail #bool)))
-(#enum ArenaError () (ArenaError.OutOfMemory))
-(#type Arena::Allocator::State Arena)
-(#type Arena::Allocator::Error ArenaError)
-(#enum Arena::Allocator::Allocation ()
-  ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8))
-   (Arena::Allocator::Allocation.AllocationFailed ArenaError)))
-(#generate lim-gen-pin-box ((type #u64) (allocator Arena::Allocator) (name PinU64Box) (destroy destroy-u64)))
+#struct Arena () ((identity #u64) (fail #bool))
+#enum ArenaError () (ArenaError.OutOfMemory)
+#type Arena::Allocator::State Arena
+#type Arena::Allocator::Error ArenaError
+#enum Arena::Allocator::Allocation ()
+    ((Arena::Allocator::Allocation.Allocated (#ptr-mut #u8))
+     (Arena::Allocator::Allocation.AllocationFailed ArenaError))
+#generate lim-gen-pin-box ((type #u64) (allocator Arena::Allocator) (name PinU64Box) (destroy destroy-u64))
 
-(#fn Arena::Allocator::allocate
-  ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
-  (#let result Arena::Allocator::Allocation
-    (#if (#get allocator fail)
-      (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory)
-      (#block
-        (#let pointer (#ptr-mut #u8)
-          (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
-            (0usize layout 3usize 34usize -1i64 0usize))))
-        (#if (#usize::ge (#ptr-address pointer) 18446744073709547520usize)
-          (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory)
-          (Arena::Allocator::Allocation.Allocated pointer)))))
-  (#return result))
-
-(#unsafe-fn Arena::Allocator::deallocate
-  ((allocator (#ref Arena)) (pointer (#ptr-mut #u8)) (layout #usize) (alignment #usize)) ()
-  (#let status #i64
-    (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (pointer layout))))
-  (#assert (#i64::eq status 0i64))
-  (#return ()))
-
-(#fn destroy-u64 ((allocator (#ref Arena)) (pin (#pin-ref-mut #u64))) ()
-  (#forget pin)
-  (#return ()))
-
-(#fn forward-owner ((owner PinU64Box)) PinU64Box
-  (#return owner))
-
-(#fn main () #u64
-  (#let failed-arena Arena (#struct-literal Arena ((identity 0u64) (fail true))))
-  (#let failed PinU64Box::CreateResult
-    (#call PinU64Box::create ((allocator (#borrow failed-arena)) (value 99u64))))
-  (#let failure-was-preserved #bool
-    (#match failed
-      (#case (PinU64Box::CreateResult.Created owner)
+#fn Arena::Allocator::allocate
+    ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
+    (#let result Arena::Allocator::Allocation
+      (#if (#get allocator fail)
+        (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory)
         (#block
-          (#call PinU64Box::destroy ((owner owner)))
-          false))
-      (#case (PinU64Box::CreateResult.Allocation-failed failure)
-        (#block
-          (#let (#tuple error original) (#tuple ArenaError #u64) failure)
-          (#forget error)
-          (#if (#u64::eq original 99u64) true false)))))
-  (#let arena Arena (#struct-literal Arena ((identity 1u64) (fail false))))
-  (#let created PinU64Box::CreateResult
-    (#call PinU64Box::create ((allocator (#borrow arena)) (value 42u64))))
-  (#return
-    (#match created
-      (#case (PinU64Box::CreateResult.Created owner)
-        (#block
-          (#let value-reference (#pin-ref #u64)
-            (#call PinU64Box::borrow ((owner (#borrow owner)))))
-          (#let moved-owner PinU64Box (#call forward-owner ((owner owner))))
-          (#let value #u64 (#unsafe (#pin-read value-reference)))
-          (#drop value-reference)
-          (#call PinU64Box::destroy ((owner moved-owner)))
-          (#if failure-was-preserved
-            (#if (#u64::eq value 42u64) 42u64 1u64)
-            1u64)))
-      (#case (PinU64Box::CreateResult.Allocation-failed failure)
-        (#block
-          (#let (#tuple error value) (#tuple ArenaError #u64) failure)
-          (#forget value)
-          (#match error (#case ArenaError.OutOfMemory 0u64)))))))
+          (#let pointer (#ptr-mut #u8)
+            (#unsafe (#linux-syscall (#ptr-mut #u8) lINUX-SYS-MMAP
+              (0usize layout 3usize 34usize -1i64 0usize))))
+          (#if (#usize::ge (#ptr-address pointer) 18446744073709547520usize)
+            (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory)
+            (Arena::Allocator::Allocation.Allocated pointer)))))
+    (#return result)
+
+#unsafe-fn Arena::Allocator::deallocate
+    ((allocator (#ref Arena)) (pointer (#ptr-mut #u8)) (layout #usize) (alignment #usize)) ()
+    (#let status #i64
+      (#unsafe (#linux-syscall #i64 lINUX-SYS-MUNMAP (pointer layout))))
+    (#assert (#i64::eq status 0i64))
+    (#return ())
+
+#fn destroy-u64 ((allocator (#ref Arena)) (pin (#pin-ref-mut #u64))) ()
+    (#forget pin)
+    (#return ())
+
+#fn forward-owner ((owner PinU64Box)) PinU64Box
+    (#return owner)
+
+#fn main () #u64
+    (#let failed-arena Arena (#struct-literal Arena ((identity 0u64) (fail true))))
+    (#let failed PinU64Box::CreateResult
+      (#call PinU64Box::create ((allocator (#borrow failed-arena)) (value 99u64))))
+    (#let failure-was-preserved #bool
+      (#match failed
+        (#case (PinU64Box::CreateResult.Created owner)
+          (#block
+            (#call PinU64Box::destroy ((owner owner)))
+            false))
+        (#case (PinU64Box::CreateResult.Allocation-failed failure)
+          (#block
+            (#let (#tuple error original) (#tuple ArenaError #u64) failure)
+            (#forget error)
+            (#if (#u64::eq original 99u64) true false)))))
+    (#let arena Arena (#struct-literal Arena ((identity 1u64) (fail false))))
+    (#let created PinU64Box::CreateResult
+      (#call PinU64Box::create ((allocator (#borrow arena)) (value 42u64))))
+    (#return
+      (#match created
+        (#case (PinU64Box::CreateResult.Created owner)
+          (#block
+            (#let value-reference (#pin-ref #u64)
+              (#call PinU64Box::borrow ((owner (#borrow owner)))))
+            (#let moved-owner PinU64Box (#call forward-owner ((owner owner))))
+            (#let value #u64 (#unsafe (#pin-read value-reference)))
+            (#drop value-reference)
+            (#call PinU64Box::destroy ((owner moved-owner)))
+            (#if failure-was-preserved
+              (#if (#u64::eq value 42u64) 42u64 1u64)
+              1u64)))
+        (#case (PinU64Box::CreateResult.Allocation-failed failure)
+          (#block
+            (#let (#tuple error value) (#tuple ArenaError #u64) failure)
+            (#forget value)
+            (#match error (#case ArenaError.OutOfMemory 0u64))))))

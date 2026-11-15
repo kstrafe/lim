@@ -1,70 +1,70 @@
-(#struct Resource (#linear) ((number #u64)))
+#struct Resource (#linear) ((number #u64))
 
-(#struct Container () ((item Resource) (other Resource)))
-(#struct Views () ((left (#ref Resource)) (right (#ref Resource))))
-(#struct Nested () ((views Views)))
-(#struct Outer () ((nested Nested)))
-(#struct ReferenceTable () ((refs (#array (#ref Resource) 2))))
+#struct Container () ((item Resource) (other Resource))
+#struct Views () ((left (#ref Resource)) (right (#ref Resource)))
+#struct Nested () ((views Views))
+#struct Outer () ((nested Nested))
+#struct ReferenceTable () ((refs (#array (#ref Resource) 2)))
 
-(#fn load ((outer (#ref Outer))) Nested
-  (#return (#get outer nested)))
+#fn load ((outer (#ref Outer))) Nested
+    (#return (#get outer nested))
 
-(#fn forward ((outer (#ref Outer))) Views
-  (#let nested Nested (#call load ((outer outer))))
-  (#return (#get nested views)))
+#fn forward ((outer (#ref Outer))) Views
+    (#let nested Nested (#call load ((outer outer))))
+    (#return (#get nested views))
 
-(#fn load-table ((table (#ref ReferenceTable))) (#array (#ref Resource) 2)
-  (#return (#get table refs)))
+#fn load-table ((table (#ref ReferenceTable))) (#array (#ref Resource) 2)
+    (#return (#get table refs))
 
-(#fn select-second ((table (#ref ReferenceTable))) (#ref Resource)
-  (#let refs (#array (#ref Resource) 2) (#call load-table ((table table))))
-  (#return (#index refs 1usize)))
+#fn select-second ((table (#ref ReferenceTable))) (#ref Resource)
+    (#let refs (#array (#ref Resource) 2) (#call load-table ((table table))))
+    (#return (#index refs 1usize))
 
-(#fn read-left ((views Views)) #u64
-  (#return (#get (#get views left) number)))
+#fn read-left ((views Views)) #u64
+    (#return (#get (#get views left) number))
 
-(#fn choose-value ((first (#ref Resource)) (second (#ref Resource)) (selected #bool)) #u64
-  (#return
-    (#call read-left
-      ((views (#struct-literal Views
-        ((left (#if selected first second)) (right second))))))))
-
-(#fn read-repeated ((values (#array (#ref Resource) 2))) #u64
-  (#return (#get (#index values 1usize) number)))
-
-(#fn main () #u64
-  (#let-mut owner Container
-    (#struct-literal Container
-      ((item (#struct-literal Resource ((number 19u64))))
-       (other (#struct-literal Resource ((number 23u64)))))))
-  (#let owner-view (#ref-mut Container) (#borrow-mut owner))
-  (#let outer Outer
-    (#struct-literal Outer
-      ((nested (#struct-literal Nested
+#fn choose-value ((first (#ref Resource)) (second (#ref Resource)) (selected #bool)) #u64
+    (#return
+      (#call read-left
         ((views (#struct-literal Views
-          ((left (#borrow (#get owner-view item)))
-           (right (#borrow (#get owner-view other))))))))))))
-  (#let view (#ref Outer) (#borrow outer))
-  (#let loaded Views (#call forward ((outer view))))
-  (#let table ReferenceTable
-    (#struct-literal ReferenceTable
-      ((refs (#array-of (#array (#ref Resource) 2)
-        (#get loaded left) (#get loaded right))))))
-  (#let second (#ref Resource)
-    (#call select-second ((table (#borrow table)))))
-  (#let repeated-value #u64
-    (#call read-repeated
-      ((values (#array-repeat (#if #true (#get loaded left) second))))))
-  (#let result #u64
-    (#u64::add-wrap
-      (#call choose-value
-        ((first (#get loaded left)) (second second)
-         (selected (#u64::eq repeated-value 19u64))))
-      (#get second number)))
-  (#forget table)
-  (#drop view)
-  (#forget outer)
-  (#forget loaded)
-  (#drop owner-view)
-  (#forget owner)
-  (#return result))
+          ((left (#if selected first second)) (right second)))))))
+
+#fn read-repeated ((values (#array (#ref Resource) 2))) #u64
+    (#return (#get (#index values 1usize) number))
+
+#fn main () #u64
+    (#let-mut owner Container
+      (#struct-literal Container
+        ((item (#struct-literal Resource ((number 19u64))))
+         (other (#struct-literal Resource ((number 23u64)))))))
+    (#let owner-view (#ref-mut Container) (#borrow-mut owner))
+    (#let outer Outer
+      (#struct-literal Outer
+        ((nested (#struct-literal Nested
+          ((views (#struct-literal Views
+            ((left (#borrow (#get owner-view item)))
+             (right (#borrow (#get owner-view other))))))))))))
+    (#let view (#ref Outer) (#borrow outer))
+    (#let loaded Views (#call forward ((outer view))))
+    (#let table ReferenceTable
+      (#struct-literal ReferenceTable
+        ((refs (#array-of (#array (#ref Resource) 2)
+          (#get loaded left) (#get loaded right))))))
+    (#let second (#ref Resource)
+      (#call select-second ((table (#borrow table)))))
+    (#let repeated-value #u64
+      (#call read-repeated
+        ((values (#array-repeat (#if #true (#get loaded left) second))))))
+    (#let result #u64
+      (#u64::add-wrap
+        (#call choose-value
+          ((first (#get loaded left)) (second second)
+           (selected (#u64::eq repeated-value 19u64))))
+        (#get second number)))
+    (#forget table)
+    (#drop view)
+    (#forget outer)
+    (#forget loaded)
+    (#drop owner-view)
+    (#forget owner)
+    (#return result)

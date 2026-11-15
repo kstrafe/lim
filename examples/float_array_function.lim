@@ -1,48 +1,42 @@
-(
-  #fn
-  sum
-  (
+#fn
+    sum
     (
-      values
-      (#array #f32 2)
+      (
+        values
+        (#array #f32 2)
+      )
     )
-  )
-  #f32
-  (
-    #return
-    (#index values 1)
-  )
-)
-
-(
-  #fn
-  make
-  ()
-  (#array #f32 2)
-  (
-    #return
-    (#array 1.5 2.5)
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let
-    value
     #f32
-    (#call sum ((values (#call make ()))))
-  )
-  (
-    #return
     (
-      #if
-      (#f32::gt  value 2.0)
-      42
-      0
+      #return
+      (#index values 1)
     )
-  )
-)
+
+#fn
+    make
+    ()
+    (#array #f32 2)
+    (
+      #return
+      (#array 1.5 2.5)
+    )
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #let
+      value
+      #f32
+      (#call sum ((values (#call make ()))))
+    )
+    (
+      #return
+      (
+        #if
+        (#f32::gt  value 2.0)
+        42
+        0
+      )
+    )

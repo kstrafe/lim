@@ -1,24 +1,22 @@
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let
-    value
-    #u8
-    (#u8::add-wrap
-      (#as 255 #u8)
-      1
-    )
-  )
-  (
-    #return
+#fn
+    main
+    ()
+    #u64
     (
-      #if
-      (#u8::eq  value 0)
-      42
-      0
+      #let
+      value
+      #u8
+      (#u8::add-wrap
+        (#as 255 #u8)
+        1
+      )
     )
-  )
-)
+    (
+      #return
+      (
+        #if
+        (#u8::eq  value 0)
+        42
+        0
+      )
+    )

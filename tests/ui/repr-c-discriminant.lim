@@ -1,1 +1,1 @@
-(#enum Code (#repr-c) ((Code.TooLarge 2147483648)))
+#enum Code (#repr-c) ((Code.TooLarge 2147483648))

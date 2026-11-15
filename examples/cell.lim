@@ -1,16 +1,16 @@
-(#alias lim-gen-cell = ../library/cell.lim::#cell)
+#alias lim-gen-cell = ../library/cell.lim::#cell
 
 // The generated type and its operations are concrete, named Lim declarations.
-(#generate lim-gen-cell #u32 CellU32 CellU32::create CellU32::get CellU32::set)
+#generate lim-gen-cell #u32 CellU32 CellU32::create CellU32::get CellU32::set
 
-(#fn advance ((counter (#ref CellU32))) ()
-  (#let current #u32 (#call CellU32::get ((cell (#clone counter)))))
-  (#call CellU32::set ((cell counter) (value (#u32::add-wrap current 2u32))))
-  (#return ()))
+#fn advance ((counter (#ref CellU32))) ()
+    (#let current #u32 (#call CellU32::get ((cell (#clone counter)))))
+    (#call CellU32::set ((cell counter) (value (#u32::add-wrap current 2u32))))
+    (#return ())
 
-(#fn main () #u64
-  (#let counter CellU32 (#call CellU32::create ((value 40u32))))
-  (#call advance ((counter (#borrow counter))))
-  (#let result #u32 (#call CellU32::get ((cell (#borrow counter)))))
-  (#forget counter)
-  (#return (#as result #u64)))
+#fn main () #u64
+    (#let counter CellU32 (#call CellU32::create ((value 40u32))))
+    (#call advance ((counter (#borrow counter))))
+    (#let result #u32 (#call CellU32::get ((cell (#borrow counter)))))
+    (#forget counter)
+    (#return (#as result #u64))

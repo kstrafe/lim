@@ -1,13 +1,13 @@
-(#struct Owner () ((value #u64)))
-(#fn observe ((target (#ref-mut Owner))) #u64
-  (#return (#get target value)))
-(#fn main () #u64
-  (#let-mut owner Owner (#struct-literal Owner ((value 42u64))))
-  (#let parent (#ref-mut Owner) (#borrow-mut owner))
-  (#let child (#ref-mut #u64) (#borrow-mut (#get parent value)))
-  (#let observed #u64 (#call observe ((target parent))))
-  (#let child-value #u64 (#deref child))
-  (#forget child)
-  (#drop parent)
-  (#forget owner)
-  (#return observed))
+#struct Owner () ((value #u64))
+#fn observe ((target (#ref-mut Owner))) #u64
+    (#return (#get target value))
+#fn main () #u64
+    (#let-mut owner Owner (#struct-literal Owner ((value 42u64))))
+    (#let parent (#ref-mut Owner) (#borrow-mut owner))
+    (#let child (#ref-mut #u64) (#borrow-mut (#get parent value)))
+    (#let observed #u64 (#call observe ((target parent))))
+    (#let child-value #u64 (#deref child))
+    (#forget child)
+    (#drop parent)
+    (#forget owner)
+    (#return observed)

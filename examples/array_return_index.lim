@@ -1,25 +1,21 @@
-(
-  #fn
-  make
-  ()
-  (#array #u64 3)
-  (
-    #return
-    (#array 10 20 30)
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    make
+    ()
+    (#array #u64 3)
     (
-      #index
-      (#call make ())
-      1
+      #return
+      (#array 10 20 30)
     )
-  )
-)
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (
+        #index
+        (#call make ())
+        1
+      )
+    )

@@ -1,2 +1,2 @@
-(#fn main () #u64
-  (#return (#match true (#case true 1u64) (#case false false))))
+#fn main () #u64
+    (#return (#match true (#case true 1u64) (#case false false)))

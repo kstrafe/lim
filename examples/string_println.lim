@@ -1,109 +1,108 @@
-(#alias String = /<lim-std>/string.lim::String)
-(#alias String::free = /<lim-std>/string.lim::String::free)
-(#alias String::from-chars = /<lim-std>/string.lim::String::from-chars)
-(#alias String::push-char = /<lim-std>/string.lim::String::push-char)
-(#alias String::push-string = /<lim-std>/string.lim::String::push-string)
-(#alias StringCreateResult = /<lim-std>/string.lim::StringCreateResult)
-(#alias StringStatus = /<lim-std>/string.lim::StringStatus)
+#alias String = /<lim-std>/string.lim::String
+#alias String::free = /<lim-std>/string.lim::String::free
+#alias String::from-chars = /<lim-std>/string.lim::String::from-chars
+#alias String::push-char = /<lim-std>/string.lim::String::push-char
+#alias String::push-string = /<lim-std>/string.lim::String::push-string
+#alias StringCreateResult = /<lim-std>/string.lim::StringCreateResult
+#alias StringStatus = /<lim-std>/string.lim::StringStatus
 
-(#std)
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let
-    greeting
-    (#array #char 5)
-    "Hello"
-  )
-  (
-    #let
-    suffix
-    (#array #char 9)
-    ", world 🙂"
-  )
-  (
-    #let-mut
-    message
-    String
+#std
+#fn
+    main
+    ()
+    #u64
     (
-      #match
-      (
-        #call
-        String::from-chars
-        ((text (#borrow-slice greeting)))      )
-      (
-        #case
-        (StringCreateResult.StringCreated created-message)
-        created-message
-      )
-      (
-        #case
-        (StringCreateResult.StringCreateFailed error)
-        (#panic)
-      )    )  )
-  (
-    #let
-    tail
-    String
-    (
-      #match
-      (
-        #call
-        String::from-chars
-        ((text (#borrow-slice suffix)))      )
-      (
-        #case
-        (StringCreateResult.StringCreated created-tail)
-        created-tail
-      )
-      (
-        #case
-        (StringCreateResult.StringCreateFailed error)
-        (#panic)
-      )    )  )
-  (
-    #assert
-    (
-      #match
-      (
-        #call
-        String::push-string
-        ((string (#borrow-mut message)) (text (#borrow tail)))      )
-      (#case StringStatus.StringOk true)
-      (#case _ false)    )  )
-  (
-    #assert
-    (
-      #match
-      (
-        #call
-        String::push-char
-        ((string (#borrow-mut message)) (value #\!))      )
-      (#case StringStatus.StringOk true)
-      (#case _ false)    )  )
-  (
-    #assert
-    (
-      #i64::eq
-      (
-        #println
-        (#borrow message)
-      )
-      (#literal #i64 0)
+      #let
+      greeting
+      (#array #char 5)
+      "Hello"
     )
-  )
-  (
-    #call
-    String::free
-    ((string tail))  )
-  (
-    #call
-    String::free
-    ((string message))  )
-  (
-    #return
-    (#literal #u64 42)
-  ))
+    (
+      #let
+      suffix
+      (#array #char 9)
+      ", world 🙂"
+    )
+    (
+      #let-mut
+      message
+      String
+      (
+        #match
+        (
+          #call
+          String::from-chars
+          ((text (#borrow-slice greeting)))      )
+        (
+          #case
+          (StringCreateResult.StringCreated created-message)
+          created-message
+        )
+        (
+          #case
+          (StringCreateResult.StringCreateFailed error)
+          (#panic)
+        )    )  )
+    (
+      #let
+      tail
+      String
+      (
+        #match
+        (
+          #call
+          String::from-chars
+          ((text (#borrow-slice suffix)))      )
+        (
+          #case
+          (StringCreateResult.StringCreated created-tail)
+          created-tail
+        )
+        (
+          #case
+          (StringCreateResult.StringCreateFailed error)
+          (#panic)
+        )    )  )
+    (
+      #assert
+      (
+        #match
+        (
+          #call
+          String::push-string
+          ((string (#borrow-mut message)) (text (#borrow tail)))      )
+        (#case StringStatus.StringOk true)
+        (#case _ false)    )  )
+    (
+      #assert
+      (
+        #match
+        (
+          #call
+          String::push-char
+          ((string (#borrow-mut message)) (value #\!))      )
+        (#case StringStatus.StringOk true)
+        (#case _ false)    )  )
+    (
+      #assert
+      (
+        #i64::eq
+        (
+          #println
+          (#borrow message)
+        )
+        (#literal #i64 0)
+      )
+    )
+    (
+      #call
+      String::free
+      ((string tail))  )
+    (
+      #call
+      String::free
+      ((string message))  )
+    (
+      #return
+      (#literal #u64 42)
+    )

@@ -1,4 +1,4 @@
-(#enum Inner () (Inner.Ready))
-(#enum Outer () ((Outer.Nested Inner) Outer.Stop))
-(#fn main ((value Outer)) #u64
-  (#return (#match value (#case (Outer.Nested Inner.Ready) false) (#case Outer.Stop 0u64))))
+#enum Inner () (Inner.Ready)
+#enum Outer () ((Outer.Nested Inner) Outer.Stop)
+#fn main ((value Outer)) #u64
+    (#return (#match value (#case (Outer.Nested Inner.Ready) false) (#case Outer.Stop 0u64)))

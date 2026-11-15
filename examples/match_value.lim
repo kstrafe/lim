@@ -1,27 +1,23 @@
-(
-  #enum
-  Maybe ()
-  (
-    (Maybe.Some #u64)
-    Maybe.None
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#enum
+    Maybe ()
     (
-      #match
-      (Maybe.Some 42)
-      (#case
-        (Maybe.Some value)
-        value
-      )
-      (#case Maybe.None 0)
+      (Maybe.Some #u64)
+      Maybe.None
     )
-  )
-)
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (
+        #match
+        (Maybe.Some 42)
+        (#case
+          (Maybe.Some value)
+          value
+        )
+        (#case Maybe.None 0)
+      )
+    )

@@ -1,5 +1,5 @@
-(#enum Outcome () ((Outcome.Success #u64) Outcome.Failure))
-(#fn main () #u64
-  (#let-else (Outcome.Success answer) 42u64
-    (#else (#return 0u64)))
-  (#return answer))
+#enum Outcome () ((Outcome.Success #u64) Outcome.Failure)
+#fn main () #u64
+    (#let-else (Outcome.Success answer) 42u64
+      (#else (#return 0u64)))
+    (#return answer)

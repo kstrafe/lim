@@ -1,25 +1,21 @@
-(
-  #fn
-  increment
-  (
-    (#mut value #u64)
-  )
-  #u64
-  (
-    #set
-    value
-    (#u64::add-wrap  value 1)
-  )
-  (#return value)
-)
+#fn
+    increment
+    (
+      (#mut value #u64)
+    )
+    #u64
+    (
+      #set
+      value
+      (#u64::add-wrap  value 1)
+    )
+    (#return value)
 
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
-    (#call increment ((value 41)))
-  )
-)
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (#call increment ((value 41)))
+    )

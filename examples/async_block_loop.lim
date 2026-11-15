@@ -1,35 +1,35 @@
 // The labeled loop owns block-local state across suspension.
-(#enum Step () ((Step.Start #u64) (Step.Resume #u64)))
-(#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64)))
-(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
-  (#return (#match task
-    (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
-    (#case (Step.Resume value) (StepPoll.StepReady value)))))
+#enum Step () ((Step.Start #u64) (Step.Resume #u64))
+#enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
+#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+    (#return (#match task
+      (#case (Step.Start value) (StepPoll.StepPending (Step.Resume value)))
+      (#case (Step.Resume value) (StepPoll.StepReady value))))
 
-(#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
-  (#fn work () #u64
-    (#let result #u64
-      (#block
-        (#let-mut index #u64 0u64)
-        (#let-mut total #u64 40u64)
-        (#label outer
-          (#while (#u64::lt index 2u64)
-            (#let value #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start 1u64)))
-            (#set total (#u64::add-wrap total value))
-            (#set index (#u64::add-wrap index 1u64))
-            (#continue-to outer)))
-        total))
-    // The inner scope has ended; this is an independent declaration.
-    (#let index #u64 0u64)
-    (#return (#u64::add-wrap result index))))))
+#generate #async-fn ( (protocol WorkAwait) (waker #u64) (function
+    (#fn work () #u64
+      (#let result #u64
+        (#block
+          (#let-mut index #u64 0u64)
+          (#let-mut total #u64 40u64)
+          (#label outer
+            (#while (#u64::lt index 2u64)
+              (#let value #u64 (#await #u64 Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Start 1u64)))
+              (#set total (#u64::add-wrap total value))
+              (#set index (#u64::add-wrap index 1u64))
+              (#continue-to outer)))
+          total))
+      // The inner scope has ended; this is an independent declaration.
+      (#let index #u64 0u64)
+      (#return (#u64::add-wrap result index)))))
 
-(#fn main () #u64
-  (#let waker #u64 0u64)
-  (#let-mut task Work::Task (#call work ()))
-  (#for-range (attempt #u64) 0u64 4u64
-    (#let outcome Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
-    (#match outcome
-      (#case (Work::Poll.Pending next) (#block (#set task next) ()))
-      (#case (Work::Poll.Ready value) (#block (#return value)))))
-  (#forget task)
-  (#return (#unreachable)))
+#fn main () #u64
+    (#let waker #u64 0u64)
+    (#let-mut task Work::Task (#call work ()))
+    (#for-range (attempt #u64) 0u64 4u64
+      (#let outcome Work::Poll (#call Work::poll ((task task) (waker (#borrow waker)))))
+      (#match outcome
+        (#case (Work::Poll.Pending next) (#block (#set task next) ()))
+        (#case (Work::Poll.Ready value) (#block (#return value)))))
+    (#forget task)
+    (#return (#unreachable))

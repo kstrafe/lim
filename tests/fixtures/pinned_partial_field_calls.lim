@@ -1,35 +1,35 @@
 // A retained field reference restores its empty referent across ordinary calls.
 // Pinning remains permanent after the initial whole pin handle is forgotten.
 // This is not a suspendable frame or a partial-storage implementation.
-(#struct Token (#linear) ((value #u64)))
+#struct Token (#linear) ((value #u64))
 
-(#struct Owner () ((kept #u64) (item Token)))
-(#fn consume-item ((item (#pin-ref-mut Token))) ()
-  (#let old Token (#unsafe (#pin-read item)))
-  (#forget old)
-  (#return ()))
-(#fn restore-item ((item (#pin-ref-mut Token))) ()
-  (#unsafe (#pin-write item (#struct-literal Token ((value 2u64)))))
-  (#return ()))
-(#fn inspect ((target (#pin-ref Owner))) #u64
-  (#return (#u64::add-wrap (#get target kept) (#get (#get target item) value))))
-(#fn main () #u64
-  (#let-mut owner Owner
-    (#struct-literal Owner ((kept 40u64) (item (#struct-literal Token ((value 1u64)))))))
-  (#let slot (#pin-ref-mut Owner) (#pin-borrow-mut owner))
-  (#forget slot)
-  (#let kept (#ref #u64) (#borrow (#get owner kept)))
-  (#let item (#pin-ref-mut Token) (#pin-borrow-mut (#get owner item)))
-  (#call consume-item ((item item)))
-  (#call restore-item ((item item)))
-  (#forget item)
-  (#let whole (#pin-ref Owner) (#pin-shared owner))
-  (#let selected (#pin-ref #u64) (#pin-borrow (#get whole kept)))
-  (#let equal #bool
-    (#usize::eq (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
-  (#forget selected)
-  (#let answer #u64 (#call inspect ((target whole))))
-  (#forget whole)
-  (#forget kept)
-  (#forget owner)
-  (#return (#if equal answer 0u64)))
+#struct Owner () ((kept #u64) (item Token))
+#fn consume-item ((item (#pin-ref-mut Token))) ()
+    (#let old Token (#unsafe (#pin-read item)))
+    (#forget old)
+    (#return ())
+#fn restore-item ((item (#pin-ref-mut Token))) ()
+    (#unsafe (#pin-write item (#struct-literal Token ((value 2u64)))))
+    (#return ())
+#fn inspect ((target (#pin-ref Owner))) #u64
+    (#return (#u64::add-wrap (#get target kept) (#get (#get target item) value)))
+#fn main () #u64
+    (#let-mut owner Owner
+      (#struct-literal Owner ((kept 40u64) (item (#struct-literal Token ((value 1u64)))))))
+    (#let slot (#pin-ref-mut Owner) (#pin-borrow-mut owner))
+    (#forget slot)
+    (#let kept (#ref #u64) (#borrow (#get owner kept)))
+    (#let item (#pin-ref-mut Token) (#pin-borrow-mut (#get owner item)))
+    (#call consume-item ((item item)))
+    (#call restore-item ((item item)))
+    (#forget item)
+    (#let whole (#pin-ref Owner) (#pin-shared owner))
+    (#let selected (#pin-ref #u64) (#pin-borrow (#get whole kept)))
+    (#let equal #bool
+      (#usize::eq (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
+    (#forget selected)
+    (#let answer #u64 (#call inspect ((target whole))))
+    (#forget whole)
+    (#forget kept)
+    (#forget owner)
+    (#return (#if equal answer 0u64))

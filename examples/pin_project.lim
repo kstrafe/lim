@@ -1,18 +1,18 @@
-(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)
+#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project
 
-(#std)
-(#enum Task () ((Task.Work #u64) Task.Idle))
-(#generate lim-gen-enum-project
-  ((enum Task) (variant Task.Work) (payload #u64) (mode #pin-ref-mut) (name WorkProjection)))
+#std
+#enum Task () ((Task.Work #u64) Task.Idle)
+#generate lim-gen-enum-project
+    ((enum Task) (variant Task.Work) (payload #u64) (mode #pin-ref-mut) (name WorkProjection))
 
-(#fn main () #u64
-  (#let-mut task Task (#enum-literal Task.Work 42u64))
-  (#let-else (WorkProjection.Some frame)
-    (#call WorkProjection::project ((source (#pin-borrow-mut task))))
-    (#else
-      (#forget task)
-      (#return 0u64)))
-  (#let answer #u64 (#unsafe (#pin-read frame)))
-  (#forget frame)
-  (#forget task)
-  (#return answer))
+#fn main () #u64
+    (#let-mut task Task (#enum-literal Task.Work 42u64))
+    (#let-else (WorkProjection.Some frame)
+      (#call WorkProjection::project ((source (#pin-borrow-mut task))))
+      (#else
+        (#forget task)
+        (#return 0u64)))
+    (#let answer #u64 (#unsafe (#pin-read frame)))
+    (#forget frame)
+    (#forget task)
+    (#return answer)

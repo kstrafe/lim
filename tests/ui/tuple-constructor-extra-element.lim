@@ -1,2 +1,2 @@
-(#fn main () (#tuple #u64 #bool)
-  (#return (#tuple 1u64 true false)))
+#fn main () (#tuple #u64 #bool)
+    (#return (#tuple 1u64 true false))

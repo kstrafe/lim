@@ -1,44 +1,38 @@
-(
-  #enum
-  Maybe ()
-  (
-    (Maybe.Some #u64)
-    Maybe.None
-  )
-)
-
-(
-  #fn
-  make
-  ()
-  Maybe
-  (
-    #return
-    (Maybe.Some 42)
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let
-    value
-    Maybe
-    (#call make ())
-  )
-  (
-    #return
+#enum
+    Maybe ()
     (
-      #match
-      value
-      (#case
-        (Maybe.Some payload)
-        payload
-      )
-      (#case Maybe.None 7)
+      (Maybe.Some #u64)
+      Maybe.None
     )
-  )
-)
+
+#fn
+    make
+    ()
+    Maybe
+    (
+      #return
+      (Maybe.Some 42)
+    )
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #let
+      value
+      Maybe
+      (#call make ())
+    )
+    (
+      #return
+      (
+        #match
+        value
+        (#case
+          (Maybe.Some payload)
+          payload
+        )
+        (#case Maybe.None 7)
+      )
+    )

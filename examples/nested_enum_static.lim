@@ -1,8 +1,8 @@
-(#enum Boxed () ((Boxed.Wrapped (#tuple #u64 #u64)) Boxed.Empty))
-(#static value Boxed (Boxed.Wrapped (#tuple (#tuple #u64 #u64) 10 22)))
+#enum Boxed () ((Boxed.Wrapped (#tuple #u64 #u64)) Boxed.Empty)
+#static value Boxed (Boxed.Wrapped (#tuple (#tuple #u64 #u64) 10 22))
 
-(#fn main () #u64
-  (#return
-    (#match (#unsafe value)
-      (#case (Boxed.Wrapped (#tuple left right)) (#u64::add-wrap left right))
-      (#case Boxed.Empty 0))))
+#fn main () #u64
+    (#return
+      (#match (#unsafe value)
+        (#case (Boxed.Wrapped (#tuple left right)) (#u64::add-wrap left right))
+        (#case Boxed.Empty 0)))

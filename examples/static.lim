@@ -1,12 +1,10 @@
-(#static buildId #u64 7)
+#static buildId #u64 7
 
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
-    (#u64::add-wrap  (#unsafe buildId) 35)
-  )
-)
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (#u64::add-wrap  (#unsafe buildId) 35)
+    )

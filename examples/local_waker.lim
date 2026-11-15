@@ -1,45 +1,45 @@
-(#alias lim-gen-cell = ../library/cell.lim::#cell)
-(#alias lim-gen-local-waker = ../library/local_waker.lim::#local-waker)
+#alias lim-gen-cell = ../library/cell.lim::#cell
+#alias lim-gen-local-waker = ../library/local_waker.lim::#local-waker
 
-(#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set)
+#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set
 
-(#struct WakeCounter () ((count CellU64)))
-(#struct WakeMetadata (#linear) ((amount #u64)))
+#struct WakeCounter () ((count CellU64))
+#struct WakeMetadata (#linear) ((amount #u64))
 
 
-(#fn counter-notify
-  ((executor (#ref WakeCounter)) (metadata (#ref WakeMetadata))) ()
-  (#let cell (#ref CellU64) (#borrow (#get executor count)))
-  (#call CellU64::set ((cell (#clone cell)) (value (#u64::add-wrap (#call CellU64::get ((cell cell)))
-      (#get metadata amount)))))
-  (#return ()))
+#fn counter-notify
+    ((executor (#ref WakeCounter)) (metadata (#ref WakeMetadata))) ()
+    (#let cell (#ref CellU64) (#borrow (#get executor count)))
+    (#call CellU64::set ((cell (#clone cell)) (value (#u64::add-wrap (#call CellU64::get ((cell cell)))
+        (#get metadata amount)))))
+    (#return ())
 
-(#fn metadata-clone ((metadata (#ref WakeMetadata))) WakeMetadata
-  (#return (#struct-literal WakeMetadata
-    ((amount (#get metadata amount))))))
+#fn metadata-clone ((metadata (#ref WakeMetadata))) WakeMetadata
+    (#return (#struct-literal WakeMetadata
+      ((amount (#get metadata amount)))))
 
-(#fn metadata-destroy
-  ((executor (#ref WakeCounter)) (metadata WakeMetadata)) ()
-  (#forget metadata)
-  (#return ()))
+#fn metadata-destroy
+    ((executor (#ref WakeCounter)) (metadata WakeMetadata)) ()
+    (#forget metadata)
+    (#return ())
 
-(#generate lim-gen-local-waker
-  (CounterWaker counter-waker-create counter-waker-wake
-    counter-waker-wake-by-ref counter-waker-clone counter-waker-destroy)
-  (WakeCounter WakeMetadata)
-  (counter-notify metadata-clone metadata-destroy))
+#generate lim-gen-local-waker
+    (CounterWaker counter-waker-create counter-waker-wake
+      counter-waker-wake-by-ref counter-waker-clone counter-waker-destroy)
+    (WakeCounter WakeMetadata)
+    (counter-notify metadata-clone metadata-destroy)
 
-(#fn main () #u64
-  (#let counter WakeCounter (#struct-literal WakeCounter ((count
-    (#call CellU64::create ((value 0u64)))))))
-  (#let waker CounterWaker (#call counter-waker-create ((executor (#borrow counter)) (metadata (#struct-literal WakeMetadata ((amount 21u64)))))))
-  (#call counter-waker-wake-by-ref ((waker (#borrow waker))))
-  (#let copy CounterWaker (#call counter-waker-clone
-    ((waker (#borrow waker)))))
-  (#call counter-waker-wake ((waker copy)))
-  (#call counter-waker-destroy ((waker waker)))
-  (#let counter-ref (#ref WakeCounter) (#borrow counter))
-  (#let count #u64 (#call CellU64::get ((cell (#borrow (#get counter-ref count))))))
-  (#drop counter-ref)
-  (#forget counter)
-  (#return count))
+#fn main () #u64
+    (#let counter WakeCounter (#struct-literal WakeCounter ((count
+      (#call CellU64::create ((value 0u64)))))))
+    (#let waker CounterWaker (#call counter-waker-create ((executor (#borrow counter)) (metadata (#struct-literal WakeMetadata ((amount 21u64)))))))
+    (#call counter-waker-wake-by-ref ((waker (#borrow waker))))
+    (#let copy CounterWaker (#call counter-waker-clone
+      ((waker (#borrow waker)))))
+    (#call counter-waker-wake ((waker copy)))
+    (#call counter-waker-destroy ((waker waker)))
+    (#let counter-ref (#ref WakeCounter) (#borrow counter))
+    (#let count #u64 (#call CellU64::get ((cell (#borrow (#get counter-ref count))))))
+    (#drop counter-ref)
+    (#forget counter)
+    (#return count)

@@ -1,10 +1,10 @@
-(#enum Maybe () ((Maybe.Some #u64) Maybe.None))
+#enum Maybe () ((Maybe.Some #u64) Maybe.None)
 
-(#fn classify ((value Maybe)) #u64
-  (#return
-    (#match value
-      (#case (Maybe.Some 42) 1)
-      (#case Maybe.None 0))))
+#fn classify ((value Maybe)) #u64
+    (#return
+      (#match value
+        (#case (Maybe.Some 42) 1)
+        (#case Maybe.None 0)))
 
-(#fn main () #u64
-  (#return (#call classify ((value (Maybe.Some 42))))))
+#fn main () #u64
+    (#return (#call classify ((value (Maybe.Some 42)))))

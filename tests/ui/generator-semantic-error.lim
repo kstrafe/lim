@@ -1,2 +1,2 @@
-(#gn bad (name) `((#fn ,name () #u64 (#return false))))
-(#generate bad generated)
+#gn bad (name) `((#fn ,name () #u64 (#return false)))
+#generate bad generated

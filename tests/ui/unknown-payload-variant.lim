@@ -1,4 +1,4 @@
-(#enum Value () ((Value.Number #u64)))
-(#fn main () #u64
-  (#let value Value (Value.Number 1u64))
-  (#return (#get-payload value MissingVariant 0)))
+#enum Value () ((Value.Number #u64))
+#fn main () #u64
+    (#let value Value (Value.Number 1u64))
+    (#return (#get-payload value MissingVariant 0))

@@ -1,33 +1,29 @@
-(#generate #optional ((type #u64) (name Maybe?)))
+#generate #optional ((type #u64) (name Maybe?))
 
-(
-  #fn
-  identity
-  (
-    (value Maybe?)
-  )
-  Maybe?
-  (#return value)
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let
-    value
-    Maybe?
-    (#call identity ((value (#call Maybe?::construct ((value 42))))))
-  )
-  (
-    #return
+#fn
+    identity
     (
-      #if
-      (#call Maybe?::is-some ((value (#clone value))))
-      (#call Maybe?::unwrap-or ((value value) (fallback 0)))
-      0
+      (value Maybe?)
     )
-  )
-)
+    Maybe?
+    (#return value)
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #let
+      value
+      Maybe?
+      (#call identity ((value (#call Maybe?::construct ((value 42))))))
+    )
+    (
+      #return
+      (
+        #if
+        (#call Maybe?::is-some ((value (#clone value))))
+        (#call Maybe?::unwrap-or ((value value) (fallback 0)))
+        0
+      )
+    )

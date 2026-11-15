@@ -1,51 +1,47 @@
-(
-  #struct
-  Point ()
-  (
-    (x #f64)
-    (y #f32)
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #let
-    point
-    Point
-    (#struct-literal Point ((x 1.5) (y 2.5)))
-  )
-  (
-    #let
-    x
-    #f64
-    (#get point x)
-  )
-  (
-    #let
-    values
-    (#array #f32 2)
-    (#array 1.5 2.5)
-  )
-  (
-    #let
-    y
-    #f32
-    (#index values 1)
-  )
-  (
-    #return
+#struct
+    Point ()
     (
-      #if
-      (#bool::and
-        (#f64::gt  x 1.0)
-        (#f32::gt  y 2.0)
-      )
-      42
-      0
+      (x #f64)
+      (y #f32)
     )
-  )
-)
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #let
+      point
+      Point
+      (#struct-literal Point ((x 1.5) (y 2.5)))
+    )
+    (
+      #let
+      x
+      #f64
+      (#get point x)
+    )
+    (
+      #let
+      values
+      (#array #f32 2)
+      (#array 1.5 2.5)
+    )
+    (
+      #let
+      y
+      #f32
+      (#index values 1)
+    )
+    (
+      #return
+      (
+        #if
+        (#bool::and
+          (#f64::gt  x 1.0)
+          (#f32::gt  y 2.0)
+        )
+        42
+        0
+      )
+    )

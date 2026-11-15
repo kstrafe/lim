@@ -1,35 +1,31 @@
-(
-  #fn
-  blend
-  (
-    (small #f32)
-    (large #f64)
-  )
-  #f64
-  (
-    #return
-    (#f64::add
-      (#as small #f64)
-      large
-    )
-  )
-)
-
-(
-  #fn
-  main
-  ()
-  #u64
-  (
-    #return
+#fn
+    blend
     (
-      #if
-      (#f64::gt
-        (#call blend ((small 1.5) (large 2.5)))
-        4.0
-      )
-      42
-      0
+      (small #f32)
+      (large #f64)
     )
-  )
-)
+    #f64
+    (
+      #return
+      (#f64::add
+        (#as small #f64)
+        large
+      )
+    )
+
+#fn
+    main
+    ()
+    #u64
+    (
+      #return
+      (
+        #if
+        (#f64::gt
+          (#call blend ((small 1.5) (large 2.5)))
+          4.0
+        )
+        42
+        0
+      )
+    )
