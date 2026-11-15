@@ -65,8 +65,9 @@ See [explicit error propagation](docs/error-propagation.md),
 
 ## Read and try Lim
 
-Open the [single-page tutorial and reference](docs/reference.html) for a complete,
-searchable handbook. It works offline with no JavaScript or external resources.
+Open the [Lim homepage and handbook](docs/index.html) for the design introduction,
+tutorial and complete searchable reference. It works offline with no JavaScript
+or external resources.
 The separate [browser playground](docs/playground.html) uses a WebAssembly build
 of the real compiler. See [build and serve instructions](docs/webassembly.md).
 

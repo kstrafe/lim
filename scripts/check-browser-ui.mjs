@@ -6,14 +6,17 @@ import { createServer } from 'node:http';
 import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, extname, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const profile = await mkdtemp(resolve(tmpdir(), 'lim-browser-ui-'));
 const types = { '.html': 'text/html', '.mjs': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm' };
 const server = createServer(async (request, response) => {
-  const path = resolve(root, '.' + decodeURIComponent(new URL(request.url, 'http://localhost').pathname));
-  if (!path.startsWith(root + sep)) { response.writeHead(403).end(); return; }
+  // Match published hosting: docs at /, repository examples at /examples/.
+  const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
+  const directory = pathname.startsWith('/examples/') ? root : resolve(root, 'docs');
+  const path = resolve(directory, '.' + (pathname === '/' ? '/index.html' : pathname));
+  if (!path.startsWith(directory + sep)) { response.writeHead(403).end(); return; }
   try { const bytes = await readFile(path); response.writeHead(200, { 'Content-Type': types[extname(path)] || 'application/octet-stream' }).end(bytes); }
   catch { response.writeHead(404).end(); }
 });
@@ -55,7 +58,7 @@ try {
     while (Date.now() < end) { if (await evaluate(expression)) return; await new Promise(resolve => setTimeout(resolve, 40)); }
     throw new Error(`Timed out: ${expression}; errors: ${JSON.stringify(pageErrors)}; page: ${await evaluate('document.body.innerText.slice(-2500)')}`);
   }
-  await send('Page.navigate', { url: base + '/docs/playground.html' });
+  await send('Page.navigate', { url: base + '/playground.html' });
   await until('document.readyState === "complete" && document.querySelector("#run") && typeof Worker === "function"');
   async function choose(name) { await evaluate(`document.querySelector('#example').value=${JSON.stringify(name)};document.querySelector('#example').dispatchEvent(new Event('change'))`); }
   async function click(button) { await evaluate(`document.querySelector('#${button}').click()`); }
@@ -84,18 +87,25 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'playground overflows on mobile');
   console.log('Checking manual and mobile layout');
-  await send('Page.navigate', { url: base + '/docs/reference.html' });
+  await send('Page.navigate', { url: base + '/' });
   await until('document.querySelector("#language-reference") && document.querySelector("#browser-abi")');
   assert.equal(await evaluate('document.scripts.length'), 0);
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'manual overflows on mobile');
   assert.equal(await evaluate('document.querySelectorAll("details, [hidden]").length'), 0, 'reference content must stay findable');
   assert.equal(await evaluate('performance.getEntriesByType("resource").filter(r => ["script", "css", "img", "link"].includes(r.initiatorType)).length'), 0);
+  assert.deepEqual(await evaluate('["introduction", "tutorial", "language-reference"].map(id => document.getElementById(id)).map((node, i, nodes) => i === 0 || !!(nodes[i - 1].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING))'), [true, true, true]);
+  assert.equal(await evaluate('["language", "safety", "start"].every(id => !!document.getElementById(id))'), true);
+  assert.equal((await fetch(base + '/examples/print_numbers.lim')).status, 200, 'published example links must resolve');
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await evaluate('scrollTo(0,0)');
   const manualShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   await writeFile('/tmp/lim-reference-preview.png', Buffer.from(manualShot.data, 'base64'));
   assert.equal(await evaluate('window.find("#preserves",false,false,true)'), true, 'browser Find must reach contract text');
-  console.log('Browser UI: run, diagnostics, check-only, contracts, cancellation, deadline, mobile layout and script-free manual passed.');
+  await send('Page.navigate', { url: pathToFileURL(resolve(root, 'docs/index.html')).href });
+  await until('location.protocol === "file:" && document.readyState === "complete" && document.querySelector("#language-reference")');
+  assert.equal(await evaluate('window.find("#preserves",false,false,true)'), true, 'offline homepage must support browser Find');
+  assert.equal(await evaluate('document.scripts.length + performance.getEntriesByType("resource").length'), 0, 'offline manual must be self-contained');
+  console.log('Browser UI: run, diagnostics, check-only, contracts, cancellation, deadline, mobile layout, published homepage and offline Find passed.');
 } finally {
   socket?.close();
   try { process.kill(-browser.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }

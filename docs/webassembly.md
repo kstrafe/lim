@@ -5,7 +5,7 @@ the Rust compiler built for `wasm32-unknown-unknown`, then emits a second,
 standalone WebAssembly module for the example. The worker instantiates that
 module and calls its exported `main` function. Source is not sent to a server.
 
-The [handbook](reference.html) is a separate, self-contained HTML document with
+The [homepage and handbook](index.html) is a self-contained HTML document with
 no JavaScript or external resources. Reading it does not download the compiler.
 The playground loads the compiler artifact only after an action is requested.
 
@@ -19,7 +19,7 @@ registry are required.
 bash scripts/limited-run.sh nix develop -c bash scripts/build-playground.sh
 python3 -m http.server 8000
 # Open http://localhost:8000/docs/playground.html
-# Read http://localhost:8000/docs/reference.html
+# Read http://localhost:8000/docs/
 ```
 
 Serve the repository root so links to examples also work. The HTML handbook can
@@ -30,7 +30,13 @@ restrict local module workers and fetching WebAssembly from `file:` URLs.
 needs this file alongside the HTML, CSS and `.mjs` files. The release profile is
 `wasm`; the build script copies the resulting artifact into `docs/`.
 
-Rebuild the handbook after changing its Markdown sources or styling:
+`docs/index.html` is the website homepage: design introduction, tutorial and
+full reference. A static host can serve `docs/`
+at `/`, with the repository's examples mounted at `/examples/`.
+
+Rebuild the handbook after changing its Markdown sources or styling.
+The check verifies synchronization, every internal anchor, and the absence of
+scripts or fetched resources:
 
 ```sh
 bash scripts/limited-run.sh nix develop -c python3 scripts/build-reference.py

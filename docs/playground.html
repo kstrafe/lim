@@ -8,7 +8,7 @@
 </head>
 <body class="playground">
 <a class="skip-link" href="#main">Skip to editor</a>
-<header class="topbar"><a class="brand" href="reference.html">lim<span>/ playground</span></a><nav aria-label="Page navigation"><a href="reference.html#tutorial">Tutorial</a><a href="reference.html#language-reference">Reference</a><a href="reference.html#browser-compiler">Build notes</a></nav></header>
+<header class="topbar"><a class="brand" href="index.html">lim<span>/ playground</span></a><nav aria-label="Page navigation"><a href="index.html#tutorial">Tutorial</a><a href="index.html#language-reference">Reference</a><a href="index.html#browser-compiler">Build notes</a></nav></header>
 <main id="main" class="playground-main">
 <p class="eyebrow">Learn by changing the code</p>
 <h1>A small program.<br>A real compiler.</h1>
@@ -30,9 +30,9 @@
 }</textarea></section>
 <section class="result-panel" aria-labelledby="result-heading"><h2 id="result-heading">Result <span id="status" role="status" aria-live="polite">Ready</span></h2><pre id="output" aria-live="polite">Choose Compile &amp; run or Check only.</pre><a id="download" class="text-action" download="program.wasm" hidden>Download program.wasm ↓</a></section>
 </div>
-<noscript><p>This separate playground needs JavaScript to load WebAssembly. The <a href="reference.html">complete tutorial and reference</a> works without it.</p></noscript>
-<section class="scope-note"><h2>What runs here</h2><p>Scalar <code>#u64</code>, <code>#i64</code>, <code>#usize</code>, <code>#isize</code>, <code>#bool</code> and <code>()</code>; safe functions and named calls; wrapping arithmetic, comparisons and bit operations; local mutation; branches, blocks and loops; predicate contracts. The normal checker runs before code generation.</p><p><strong>Check only</strong> also checks self-contained examples with arrays, references, structs and other language features. Runnable output currently excludes memory access, globals, aggregates, matching, saturating arithmetic, floats, narrow integers, labeled/value loops, host I/O and external functions. File imports are unavailable. <code>#usize</code> values retain Lim’s 64-bit scalar semantics here.</p><p>This is an experimental teaching backend. The <a href="reference.html">full language reference</a> also describes the broader native compiler.</p></section>
-</main><footer class="page-footer">Lim · explicit types, visible contracts, ordinary trees. <a href="reference.html">Read the handbook →</a></footer>
+<noscript><p>This separate playground needs JavaScript to load WebAssembly. The <a href="index.html">complete tutorial and reference</a> works without it.</p></noscript>
+<section class="scope-note"><h2>What runs here</h2><p>Scalar <code>#u64</code>, <code>#i64</code>, <code>#usize</code>, <code>#isize</code>, <code>#bool</code> and <code>()</code>; safe functions and named calls; wrapping arithmetic, comparisons and bit operations; local mutation; branches, blocks and loops; predicate contracts. The normal checker runs before code generation.</p><p><strong>Check only</strong> also checks self-contained examples with arrays, references, structs and other language features. Runnable output currently excludes memory access, globals, aggregates, matching, saturating arithmetic, floats, narrow integers, labeled/value loops, host I/O and external functions. File imports are unavailable. <code>#usize</code> values retain Lim’s 64-bit scalar semantics here.</p><p>This is an experimental teaching backend. The <a href="index.html">full language reference</a> also describes the broader native compiler.</p></section>
+</main><footer class="page-footer">Lim · explicit types, visible contracts, ordinary trees. <a href="index.html">Read the handbook →</a></footer>
 <template id="example-answer">// Change either argument, then run again.
 #fn subtract {
   #params = { left = #u64; right = #u64; };

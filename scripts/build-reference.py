@@ -10,7 +10,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / 'docs'
-SOURCES = ['tutorial.md', 'language.md', 'program-verification.md', 'compiler-limits.md', 'webassembly.md']
+SOURCES = ['introduction.md', 'tutorial.md', 'language.md', 'program-verification.md', 'compiler-limits.md', 'webassembly.md']
+TARGETS = ['index.html']
 
 
 def slug(text):
@@ -71,9 +72,9 @@ def manuscript():
                         return f'[{label}](#{anchors.get((name, fragment), fragment)})'
                     if file in SOURCES:
                         return f'[{label}](#{anchors.get((file, fragment), fragment) if fragment else roots[file]})'
-                    if file == 'reference.html' and fragment:
+                    if file in TARGETS and fragment:
                         return f'[{label}](#{fragment})'
-                    if file == 'reference.html':
+                    if file in TARGETS:
                         return f'[{label}](#main)'
                     return match.group(0)
                 line = re.sub(r'\[([^]\n]+)\]\(([^)\s]+)\)', link, line)
@@ -129,14 +130,16 @@ def main():
     parser.add_argument('--check', action='store_true', help='fail if the committed HTML is stale')
     args = parser.parse_args()
     output = build()
-    target = DOCS / 'reference.html'
     if args.check:
-        if not target.exists() or target.read_text() != output:
-            sys.exit('docs/reference.html is stale; run scripts/build-reference.py')
-        print('Reference is current; all anchors resolve; no scripts or external resources.')
+        stale = [name for name in TARGETS if not (DOCS / name).exists() or (DOCS / name).read_text() != output]
+        if stale:
+            sys.exit(f'{", ".join("docs/" + name for name in stale)} is stale; run scripts/build-reference.py')
+        print('Homepage is current; all anchors resolve; no scripts or external resources.')
     else:
-        target.write_text(output)
-        print(f'Wrote {target.relative_to(ROOT)} ({len(output.encode()):,} bytes)')
+        for name in TARGETS:
+            target = DOCS / name
+            target.write_text(output)
+            print(f'Wrote {target.relative_to(ROOT)} ({len(output.encode()):,} bytes)')
 
 
 if __name__ == '__main__':

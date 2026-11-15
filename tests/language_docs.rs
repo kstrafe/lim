@@ -1,6 +1,42 @@
 use std::{fs, process::Command};
 
 #[test]
+fn homepage_introduces_lim_before_the_tutorial_and_full_reference() {
+    let homepage = include_str!("../docs/index.html");
+    let sections = [
+        "introduction",
+        "tutorial",
+        "language-reference",
+        "verification-notes",
+        "browser-compiler",
+    ];
+    let positions: Vec<_> = sections
+        .iter()
+        .map(|id| {
+            homepage
+                .find(&format!("id=\"{id}\""))
+                .unwrap_or_else(|| panic!("missing section {id}"))
+        })
+        .collect();
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    for id in [
+        "language",
+        "safety",
+        "start",
+        "contracts-tutorial",
+        "fixed-array-apis",
+        "browser-abi",
+    ] {
+        assert!(
+            homepage.contains(&format!("id=\"{id}\"")),
+            "missing handbook navigation anchor {id}"
+        );
+    }
+    assert!(!homepage.contains("<script"));
+    assert!(!homepage.contains("<details"));
+}
+
+#[test]
 fn builtin_reference_is_sorted_and_covers_parser_forms() {
     assert!(
         include_str!("../src/lib.rs").contains("#![doc = include_str!(\"../docs/language.md\")]"),
@@ -240,6 +276,7 @@ fn documented_programs_compile_and_run() {
         ("README", include_str!("../README.md")),
         ("language", include_str!("../docs/language.md")),
         ("tutorial", include_str!("../docs/tutorial.md")),
+        ("introduction", include_str!("../docs/introduction.md")),
         ("allocator", include_str!("../docs/allocator.md")),
         ("soundness", include_str!("../docs/soundness-audit.md")),
     ] {
