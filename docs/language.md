@@ -8,8 +8,9 @@ with intentionally undefined placeholders; these are parsed, not type-checked.
 The documentation tests cover this reference, README, allocator notes, and
 the soundness audit, and reject unclassified Lim fences.
 
-Lim is a compiled, statically typed Lisp.  Its syntax is made of
-S-expressions, but its type and evaluation rules are deliberately explicit.
+Lim is a compiled, statically typed Lisp.  Its syntax lowers to
+S-expression trees, with bare declarations at source-file roots. Its type and
+evaluation rules are deliberately explicit.
 The compiler currently targets Linux x86-64 System V. It emits inspectable
 assembly, then encodes and links ELF binaries internally, including supported
 ELF objects and shared-library calls. Unsupported assembly or object features
@@ -72,7 +73,10 @@ and its [typed operator families](#typed-operator-families-alphabetical).
 ### Surface notation
 
 Surface forms lower to the same explicit S-expression representation used by
-generators and the checker. Canonical parenthesized forms remain supported.
+generators and the checker. Every source-file root starts with a bare
+declaration head: the reader supplies its outer list. Explicit root wrappers,
+such as `(#fn main {...})`, and doubled-list wrappers are rejected. Parentheses
+remain valid inside declarations and in quoted generator syntax trees.
 The executable [surface example](../examples/surface_syntax.lim) combines
 generated arrays, contracts, infix expressions and local indentation lists.
 
@@ -143,13 +147,17 @@ generated arrays, contracts, infix expressions and local indentation lists.
   affect scope. Use spaces for indentation. `::`, embedded `left:right`, and
   prefixed `:label` remain ordinary identifier text; a standalone colon or
   a single trailing colon starts a group.
-- At module scope, `#fn`, `#unsafe-fn`, `#static`, `#const` and `#generate`
-  accept an unparenthesized name and record. Its closing brace ends the form.
+- Every module declaration uses a bare head, including `#alias`, `#struct`,
+  `#enum`, `#gn`, `#generate` and `#std`. A newline or EOF ends its logical
+  form unless an explicit delimiter or indented continuation remains open.
+  A semicolon at root depth also ends a declaration; use it to separate roots
+  on one physical line. Nested bodies retain their own colon and semicolon
+  boundaries. A function's closing `}` needs no trailing semicolon.
   Static and constant records require `#type` and `#value`.
 
 The formatter retains authored layout in forms using this notation and removes
-trailing horizontal whitespace. Its canonical S-expression formatting remains
-available for fully delimited sources. Reader nesting limits also bound trees
+trailing horizontal whitespace. Source formatting emits bare roots; the separate
+syntax-tree formatter handles canonical AST data. Reader nesting limits also bound trees
 created by flat infix chains. Surface syntax does not infer contracts or change
 the exact identity of comparison evidence.
 
@@ -2111,7 +2119,7 @@ errors, never silently weakened guarantees. See
 ### Functions
 
 Functions are always free-standing; Lim has no methods or `impl` blocks.
-The canonical form is:
+A function may retain an explicit positional signature and body payload:
 
 ```lisp library
 (#fn add ((left #u32) (right #u32)) #u32
