@@ -409,13 +409,13 @@ mod tests {
     #[test]
     fn refinement_type_predicates_keep_runtime_call_roles() {
         for source in [
-            "(#type Refined (#where (value #u64) (#call valid ((input value|)))))",
-            "(#fn work ((value (#where (item #u64) (valid ((input item|)))))) #u64 (#return value))",
-            "(#struct Refined () ((field (#where (item #u64) (valid ((input item|)))))))",
+            "#type Refined (#where (value #u64) (#call valid ((input value|))))\n",
+            "#fn work ((value (#where (item #u64) (valid ((input item|)))))) #u64 (#return value)\n",
+            "#struct Refined () ((field (#where (item #u64) (valid ((input item|))))))\n",
         ] {
             assert_eq!(locate(source), ("valid".into(), Some("input".into())), "{source}");
         }
-        let source = "(#type Refined (valid ((input item))))";
+        let source = "#type Refined (valid ((input item)))\n";
         assert!(call(source, source.find("item").unwrap()).is_none());
     }
 
@@ -428,9 +428,9 @@ mod tests {
             assert_eq!(locate(&source), (name.to_owned(), Some("value".into())));
         }
         for source in [
-            "(#type ((value 1)))",
-            "(#alias ((value 1)))",
-            "(#fn ((value 1)))",
+            "#type ((value 1))\n",
+            "#alias ((value 1))\n",
+            "#fn ((value 1))\n",
         ] {
             assert!(
                 call(source, source.find('1').unwrap()).is_none(),
@@ -475,7 +475,7 @@ mod tests {
             "(#bool::and true false|)",
             "(#u64::add-wrap 1 2)|",
             "'(#u64::add-wrap 1 2|)",
-            "(#generate generator ((value (#u64::add-wrap 1 2|))))",
+            "#generate generator ((value (#u64::add-wrap 1 2|)))\n",
         ] {
             let byte = source.find('|').unwrap();
             let source = source.replacen('|', "", 1);
@@ -489,11 +489,11 @@ mod tests {
             "(#call choose|",
             "(#call choose (|",
             "(#call choose ((right|",
-            "(#fn main () #u64 (#return (#call choose ((right 2|",
+            "#fn main () #u64 (#return (#call choose ((right 2|",
             "choose { right = |",
             "choose { right|",
             "choose { right = 2|",
-            "(#fn main () #u64 (#return : choose : : right |",
+            "#fn main () #u64 (#return : choose : : right |",
         ] {
             let (callee, _) = locate(source);
             assert_eq!(callee, "choose", "{source}");
@@ -505,8 +505,8 @@ mod tests {
         for source in [
             "'(#call choose ((right 2|)))",
             "`(#call choose ((right 2|)))",
-            "(#generate generator ((value (#call choose ((right 2|))))))",
-            "(#gn generator () (#call choose ((right 2|))))",
+            "#generate generator ((value (#call choose ((right 2|)))))\n",
+            "#gn generator () (#call choose ((right 2|)))\n",
             "\"(#call choose ((right 2|)))\"",
             "// (#call choose ((right 2|)))",
             "(#call choose ((right 2)))|",
@@ -516,7 +516,7 @@ mod tests {
             assert!(call(&source, byte).is_none(), "{source}");
         }
         assert_eq!(
-            locate("(#generate generator ((value (#fn work () #u64 (#return (#call choose ((right 2|))))))))"),
+            locate("#generate generator ((value (#fn work () #u64 (#return (#call choose ((right 2|)))))))\n"),
             ("choose".into(), Some("right".into()))
         );
     }

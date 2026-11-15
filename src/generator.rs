@@ -173,7 +173,7 @@ fn declared_lim_function_signatures(
 #[cfg(test)]
 #[test]
 fn capability_signature_scan_does_not_parse_function_bodies() {
-    let source = "(#fn answer ((value #u64)) #u64 (#not-a-builtin value))";
+    let source = "#fn answer ((value #u64)) #u64 (#not-a-builtin value)\n";
     let signatures = declared_lim_function_signatures(&crate::parse(source).unwrap()).unwrap();
     assert_eq!(signatures["answer"], "[U64]->U64");
     // Skipping bodies here must not skip ordinary compilation validation.
@@ -2677,7 +2677,7 @@ mod tests {
     fn segmented_hash_preserves_generated_source_digest_format() {
         for (key, source) in [
             ("", ""),
-            ("key", "(#fn main () #u64 (#return 42u64))"),
+            ("key", "#fn main () #u64 (#return 42u64)\n"),
             ("κλειδί\0key", "λ\0source"),
         ] {
             let mut joined = key.as_bytes().to_vec();
@@ -2701,8 +2701,8 @@ mod tests {
     #[test]
     fn generator_iteration_bindings_cannot_shadow_parameters_or_outer_bindings() {
         for source in [
-            "(#gn bad (items) (#gn-for-each items items (#gn-first items))) (#generate bad (one))",
-            "(#gn bad (items) (#gn-for-each item items (#gn-for-each item items (#gn-first item)))) (#generate bad (one))",
+            "#gn bad (items) (#gn-for-each items items (#gn-first items))\n#generate bad (one)\n",
+            "#gn bad (items) (#gn-for-each item items (#gn-for-each item items (#gn-first item)))\n#generate bad (one)\n",
         ] {
             let error = expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "")
                 .unwrap_err();
@@ -2768,15 +2768,15 @@ mod tests {
     fn generated_source_formatting_preserves_syntax_and_cache_hits() {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-format-{}", std::process::id()));
-        let raw = "\n         (#fn start ((value #u64)) #u64\n(#return value))\n               (#fn other () (#array #char 3) (#return \"()\\n\"))";
+        let raw = "\n#fn start ((value #u64)) #u64\n  (#return value)\n#fn other () (#array #char 3) (#return \"()\\n\")\n";
         let formatted =
             cached_generated_source(&directory, "formatting", || Ok(raw.into())).unwrap();
         assert_eq!(
             formatted,
-            "(#fn start ((value #u64)) #u64\n  (#return value))\n\n(#fn other () (#array #char 3)\n  (#return \"()\\n\"))\n"
+            "#fn start ((value #u64)) #u64\n  (#return value)\n\n#fn other () (#array #char 3)\n  (#return \"()\\n\")\n"
         );
         let syntax = |source: &str| {
-            crate::parse(source)
+            crate::parse_source_unit(source)
                 .unwrap()
                 .into_iter()
                 .map(|parsed| parsed.expr)
@@ -2800,7 +2800,7 @@ mod tests {
             std::env::temp_dir().join(format!("lim-inspectable-cache-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         let first =
-            cached_generated_source(&directory, "key-a", || Ok("(#type Cached #u64)".into()))
+            cached_generated_source(&directory, "key-a", || Ok("#type Cached #u64\n".into()))
                 .unwrap();
         let source_path = fs::read_dir(generated_source_directory(&directory))
             .unwrap()
@@ -2812,13 +2812,13 @@ mod tests {
         let mut regenerated = false;
         let second = cached_generated_source(&directory, "key-a", || {
             regenerated = true;
-            Ok("(#type Cached #u64)".into())
+            Ok("#type Cached #u64\n".into())
         })
         .unwrap();
         assert!(regenerated, "edited but valid source must not be trusted");
         assert_eq!(fs::read_to_string(source_path).unwrap(), second);
         let different =
-            cached_generated_source(&directory, "key-b", || Ok("(#type Other #u64)".into()))
+            cached_generated_source(&directory, "key-b", || Ok("#type Other #u64\n".into()))
                 .unwrap();
         assert_eq!(first, second);
         assert_ne!(first, different);
@@ -2882,14 +2882,14 @@ mod tests {
         ));
         fs::create_dir(&directory).unwrap();
         fs::create_dir(directory.join("generated")).unwrap();
-        let header = "(#generated-context ((producer \"expected\")))";
+        let header = "#generated-context ((producer \"expected\"))\n";
         let key = format!("lim-generator-cache-v15\ncontext={header}");
-        let wrong = "(#generated-context ((producer \"other\")))\n(#type Value #u64)";
+        let wrong = "#generated-context ((producer \"other\"))\n#type Value #u64\n";
         publish_generated_expansion(&directory, &key, wrong).unwrap();
         assert!(load_generated_expansion(&directory, &key)
             .unwrap()
             .is_none());
-        let right = format!("{header}\n(#type Value #u64)");
+        let right = format!("{header}\n#type Value #u64\n");
         publish_generated_expansion(&directory, &key, &right).unwrap();
         let (_, forms) = load_generated_expansion(&directory, &key).unwrap().unwrap();
         assert_eq!(forms.len(), 1);
@@ -2995,7 +2995,7 @@ mod tests {
             &directory,
             "origins",
             &["z.lim:8".into(), "a.lim:3".into(), "a.lim:3".into()],
-            || Ok("(#type Cached #u64)".into()),
+            || Ok("#type Cached #u64\n".into()),
         )
         .unwrap();
         assert!(first.starts_with("// Generated from:\n// a.lim:3\n// z.lim:8\n\n"));
@@ -3008,12 +3008,12 @@ mod tests {
         .unwrap();
         assert!(second.starts_with("// Generated from:\n// a.lim:3\n// new.lim:12\n// z.lim:8\n\n"));
         assert_eq!(
-            crate::parse(&first)
+            crate::parse_source_unit(&first)
                 .unwrap()
                 .into_iter()
                 .map(|form| form.expr)
                 .collect::<Vec<_>>(),
-            crate::parse(&second)
+            crate::parse_source_unit(&second)
                 .unwrap()
                 .into_iter()
                 .map(|form| form.expr)
@@ -3067,10 +3067,9 @@ mod tests {
 
     #[test]
     fn nested_deduplicated_generators_keep_precise_builtin_origins() {
-        let source = "(#gn inner () `((#generate #optional ((type #u64) (name Shared)))))\n\
-            (#gn outer () `((#generate inner) (#generate #optional ((type #u64) (name OuterOnly)))))\n\
-            (#gn other () `((#generate inner)))\n\
-            (#generate outer)\n(#generate other)\n(#generate other)";
+        let source = "#gn inner () `((#generate #optional ((type #u64) (name Shared))))
+#gn outer () `((#generate inner) (#generate #optional ((type #u64) (name OuterOnly))))
+#gn other () `((#generate inner))\n#generate outer\n#generate other\n#generate other\n";
         let mut origins = Origins::default();
         expand_with_origins(crate::parse(source).unwrap(), None, "", &mut origins).unwrap();
         let sites = |name: &str| {
@@ -3111,9 +3110,9 @@ mod tests {
                 let directory = directory.clone();
                 std::thread::spawn(move || {
                     let (key, source) = if index % 2 == 0 {
-                        ("shared-key", "(#type Shared #u64)")
+                        ("shared-key", "#type Shared #u64\n")
                     } else {
-                        ("other-key", "(#type Other #u64)")
+                        ("other-key", "#type Other #u64\n")
                     };
                     cached_generated_source(&directory, key, || Ok(source.into())).unwrap()
                 })
@@ -3123,9 +3122,9 @@ mod tests {
             assert_eq!(
                 worker.join().unwrap(),
                 if index % 2 == 0 {
-                    "(#type Shared #u64)\n"
+                    "#type Shared #u64\n"
                 } else {
-                    "(#type Other #u64)\n"
+                    "#type Other #u64\n"
                 }
             );
         }
@@ -3134,14 +3133,14 @@ mod tests {
                 Err("concurrent cache entry was not published coherently".into())
             })
             .unwrap(),
-            "(#type Shared #u64)\n"
+            "#type Shared #u64\n"
         );
         assert_eq!(
             cached_generated_source(&directory, "other-key", || {
                 Err("concurrent cache entry was not published coherently".into())
             })
             .unwrap(),
-            "(#type Other #u64)\n"
+            "#type Other #u64\n"
         );
         assert!(fs::read_dir(&directory)
             .unwrap()
@@ -3163,12 +3162,11 @@ mod tests {
             CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).unwrap();
-        let source = "(#gn-fn emit (name temporary) `((#fn ,name ((task #u64)) #u64
-              (#let ,temporary #u64 task) (#return ,temporary))))
-          (#gn child (name temporary) (#gn-call emit name temporary))
-          (#gn-fn forward (name temporary) `((#generate child ,name ,temporary)))
-          (#gn parent (name) (#gn-call forward name (#gn-gensym \"task\")))
-          (#generate parent first) (#generate parent second) (#generate parent first)";
+        let source = "#gn-fn emit (name temporary) `((#fn ,name ((task #u64)) #u64
+                (#let ,temporary #u64 task) (#return ,temporary)))
+#gn child (name temporary) (#gn-call emit name temporary)
+#gn-fn forward (name temporary) `((#generate child ,name ,temporary))
+#gn parent (name) (#gn-call forward name (#gn-gensym \"task\"))\n#generate parent first\n#generate parent second\n#generate parent first\n";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
                 crate::parse(source).unwrap(),
@@ -3212,8 +3210,8 @@ mod tests {
         );
         assert_ne!(locals[0][0], locals[1][0]);
         let reordered = source.replace(
-            "(#generate parent first) (#generate parent second)",
-            "(#generate parent second) (#generate parent first)",
+            "#generate parent first\n#generate parent second\n",
+            "#generate parent second\n#generate parent first\n",
         );
         let ((reordered, _), hits) = expand(&reordered);
         assert_eq!(hits, 4);
@@ -3239,7 +3237,7 @@ mod tests {
             CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).unwrap();
-        let source = "(#gn emit () `((#type ,(#gn-gensym \"task\") #u64))) (#generate emit)";
+        let source = "#gn emit () `((#type ,(#gn-gensym \"task\") #u64))\n#generate emit\n";
         let expand = || {
             expand_with_generated_cached_and_hits(
                 crate::parse(source).unwrap(),
@@ -3285,9 +3283,9 @@ mod tests {
 
     #[test]
     fn gensym_evaluations_and_helper_calls_share_one_invocation_counter() {
-        let source = "(#gn-fn fresh () (#gn-gensym \"task\"))
-          (#gn emit () `((#type ,(#gn-call fresh) #u64) (#type ,(#gn-call fresh) #u64)))
-          (#generate emit)";
+        let source = "#gn-fn fresh () (#gn-gensym \"task\")
+#gn emit () `((#type ,(#gn-call fresh) #u64) (#type ,(#gn-call fresh) #u64))
+#generate emit\n";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
         assert_eq!(forms.len(), 2);
@@ -3346,7 +3344,7 @@ mod tests {
     fn generated_syntax_cache_hits_and_invalidates_for_generator_dependencies() {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-cache-{}", std::process::id()));
-        let source = "(#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (#gn-fn make-alias (name) `,(#gn-call make-type name)) (#gn-fn unused (name) (#gn-list name)) (#gn alias (name) (#gn-call make-alias name)) (#gn forward (call) (#gn-list call)) (#gn spare (name) (#gn-list name)) (#generate forward (#generate alias CachedType)) (#generate alias CachedType)";
+        let source = "#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#gn-fn make-alias (name) `,(#gn-call make-type name)\n#gn-fn unused (name) (#gn-list name)\n#gn alias (name) (#gn-call make-alias name)\n#gn forward (call) (#gn-list call)\n#gn spare (name) (#gn-list name)\n#generate forward (#generate alias CachedType)\n#generate alias CachedType\n";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) =
@@ -3437,10 +3435,10 @@ mod tests {
                 Err(error) => panic!("create collection cache directory: {error}"),
             }
         };
-        let source = "(#gn error-case (variant payload)
-            `((#enum-contribute Error (,variant ,payload))))
-          (#generate error-case First #u64)
-          (#generate error-case Second #u32)";
+        let source = "#gn error-case (variant payload)
+              `((#enum-contribute Error (,variant ,payload)))
+#generate error-case First #u64
+#generate error-case Second #u32\n";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
                 crate::parse(source).unwrap(),
@@ -3464,9 +3462,9 @@ mod tests {
 
     #[test]
     fn identical_literal_list_arguments_deduplicate() {
-        let source = "(#gn alias (entries) `((#type Alias ,(#gn-first entries))))
-          (#generate alias (#u64))
-          (#generate alias (#u64))";
+        let source = "#gn alias (entries) `((#type Alias ,(#gn-first entries)))
+#generate alias (#u64)
+#generate alias (#u64)\n";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
         assert_eq!(forms.len(), 1);
@@ -3475,8 +3473,8 @@ mod tests {
 
     #[test]
     fn bare_identifiers_remain_literal_syntax() {
-        let source = "(#gn alias (entry) `((#type Alias ,entry)))
-          (#generate alias Entries)";
+        let source = "#gn alias (entry) `((#type Alias ,entry))
+#generate alias Entries\n";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
         assert!(format!("{:?}", forms[0].expr).contains("Entries"));
@@ -3496,7 +3494,7 @@ mod tests {
         ));
         let source = |operation: &str| {
             format!(
-                "(#fn less ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)) (#fn less-v2 ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)) (#capability sortable #u64 (({operation} ((#ref #u64) (#ref #u64)) #bool))) (#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (#generate emit #u64)"
+                "#fn less ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)\n#fn less-v2 ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)\n#capability sortable #u64 (({operation} ((#ref #u64) (#ref #u64)) #bool))\n#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))\n#generate emit #u64\n"
             )
         };
         let expand = |text: &str| {
@@ -3524,7 +3522,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-context-{}", std::process::id()));
         let source =
-            "(#gn make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (#generate make ContextType)";
+            "#gn make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#generate make ContextType\n";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) = expand_with_generated_cached_and_hits(

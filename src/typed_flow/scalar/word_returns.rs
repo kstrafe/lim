@@ -424,15 +424,15 @@ pub(in crate::typed_flow) fn word_and_scalar_return_guarantees(
 mod tests {
     use super::*;
 
-    const SOURCE: &str = "(#struct Holder () ((value (#ref #u64))))
-      (#struct Frame () ((state #u64) (words (#array #u64 1))))
-      (#fn make ((value (#ref #u64)) (flag #bool) (unknown #u64)) Frame
-        (#let-mut frame Frame (#struct-literal Frame ((state 0u64) (words (#array-repeat 0u64)))))
-        (#if flag (#block
-          (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
-            (#struct-literal Holder ((value value)))))
-          (#set-field frame state 1u64)) ())
-        (#return frame))";
+    const SOURCE: &str = "#struct Holder () ((value (#ref #u64)))
+#struct Frame () ((state #u64) (words (#array #u64 1)))
+#fn make ((value (#ref #u64)) (flag #bool) (unknown #u64)) Frame
+          (#let-mut frame Frame (#struct-literal Frame ((state 0u64) (words (#array-repeat 0u64)))))
+          (#if flag (#block
+            (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
+              (#struct-literal Holder ((value value)))))
+            (#set-field frame state 1u64)) ())
+          (#return frame)\n";
 
     fn guarantees(source: &str) -> Vec<WordReturnGuarantee> {
         let program = crate::parse_program(source).unwrap();
@@ -456,7 +456,7 @@ mod tests {
     #[test]
     fn borrowed_return_guarantees_describe_the_referent_not_the_handle() {
         let source = SOURCE
-            .replace("(#fn make ((value (#ref #u64)", "(#fn make ((frame (#ref-mut Frame)) (value (#ref #u64)")
+            .replace("#fn make ((value (#ref #u64)", "#fn make ((frame (#ref-mut Frame)) (value (#ref #u64)")
             .replace(") Frame\n", ") (#ref-mut Frame)\n")
             .replace("(#let-mut frame Frame (#struct-literal Frame ((state 0u64) (words (#array-repeat 0u64)))))", "(#deref-set (#borrow-mut (#get frame state)) 0u64)")
             .replace("(#set-field frame state 1u64)", "(#deref-set (#borrow-mut (#get frame state)) 1u64)");
@@ -519,8 +519,8 @@ mod tests {
                 && fact.storage.last() == Some(&Segment::Index(0))));
         let source = source
             .replace(
-                "(#struct Frame ()",
-                "(#enum Outcome () ((Outcome.Pending Frame) (Outcome.Ready #u64))) (#struct Frame ()",
+                "#struct Frame ()",
+                "#enum Outcome () ((Outcome.Pending Frame) (Outcome.Ready #u64))\n#struct Frame ()",
             )
             .replace(") Frame\n", ") Outcome\n")
             .replace(

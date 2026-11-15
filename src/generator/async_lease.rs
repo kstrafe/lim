@@ -468,8 +468,8 @@ mod tests {
 
     fn borrowed_field() -> Checked {
         Checked::new(
-            "(#struct View (#linear) ((field (#ref-mut #u64))))
-          (#fn work ((view (#ref View))) #u64 (#return (#deref (#get view field))))",
+            "#struct View (#linear) ((field (#ref-mut #u64)))
+#fn work ((view (#ref View))) #u64 (#return (#deref (#get view field)))\n",
         )
     }
 
@@ -618,9 +618,9 @@ mod tests {
     fn slice_selection_lends_only_through_effect_free_index_windows() {
         for index in ["0usize", "index"] {
             let checked = Checked::new(&format!(
-                "(#fn work ((items (#slice-mut #u64)) (index #usize)) #u64
-                  (#let answer #u64 (#deref (#slice-mut-idx items {index})))
-                  (#forget items) (#return answer))"
+                "#fn work ((items (#slice-mut #u64)) (index #usize)) #u64
+                    (#let answer #u64 (#deref (#slice-mut-idx items {index})))
+                    (#forget items) (#return answer)\n"
             ));
             let plan = checked.plan();
             assert_eq!(plan.leases.len(), 1);
@@ -629,10 +629,10 @@ mod tests {
             assert!(plan.snapshot(*plan.leases.keys().next().unwrap()).is_none());
         }
         let checked = Checked::new(
-            "(#fn choose () #usize (#return 0usize))
-             (#fn work ((items (#slice-mut #u64))) #u64
-               (#let answer #u64 (#deref (#slice-mut-idx items (#call choose ()))))
-               (#forget items) (#return answer))",
+            "#fn choose () #usize (#return 0usize)
+#fn work ((items (#slice-mut #u64))) #u64
+                 (#let answer #u64 (#deref (#slice-mut-idx items (#call choose ()))))
+                 (#forget items) (#return answer)\n",
         );
         let plan = checked.plan();
         assert!(
@@ -645,7 +645,7 @@ mod tests {
     #[test]
     fn owned_slice_transfers_cannot_be_retired_as_lending_snapshots() {
         let checked = Checked::new(
-            "(#fn work ((items (#slice-mut #u64))) (#slice-mut #u64) (#return items))",
+            "#fn work ((items (#slice-mut #u64))) (#slice-mut #u64) (#return items)\n",
         );
         let plan = checked.plan();
         let requested = (0..checked.graph.values.len()).map(ValueId).collect();
@@ -663,8 +663,8 @@ mod tests {
     fn immediate_exclusive_reads_have_exact_nonmoving_windows() {
         for ty in ["#ref-mut", "#pin-ref-mut"] {
             let checked = Checked::new(&format!(
-                "(#fn work ((view ({ty} #u64))) #u64
-                  (#let first #u64 (#deref view)) (#return (#u64::add-wrap first (#deref view))))"
+                "#fn work ((view ({ty} #u64))) #u64
+                    (#let first #u64 (#deref view)) (#return (#u64::add-wrap first (#deref view)))\n"
             ));
             let plan = checked.plan();
             assert_eq!(plan.leases.len(), 2);
@@ -687,8 +687,8 @@ mod tests {
     #[test]
     fn owned_transfers_and_shared_handles_are_not_read_leases() {
         for source in [
-            "(#fn work ((view (#ref-mut #u64))) (#ref-mut #u64) (#return view))",
-            "(#fn work ((view (#ref #u64))) #u64 (#return (#deref view)))",
+            "#fn work ((view (#ref-mut #u64))) (#ref-mut #u64) (#return view)\n",
+            "#fn work ((view (#ref #u64))) #u64 (#return (#deref view))\n",
         ] {
             let plan = Checked::new(source).plan();
             assert!(plan.leases.is_empty(), "{source}");
@@ -709,9 +709,9 @@ mod tests {
                     _ => "(#struct-literal Owned ((value (#deref view))))",
                 };
                 let checked = Checked::new(&format!(
-                    "(#struct Owned (#linear) ((value #u64)))
-                     (#fn read ((view ({ty} #u64))) {result} (#return {value}))
-                     (#fn work ((view ({ty} #u64))) {result} (#return (#call read ((view view)))))"
+                    "#struct Owned (#linear) ((value #u64))
+#fn read ((view ({ty} #u64))) {result} (#return {value})
+#fn work ((view ({ty} #u64))) {result} (#return (#call read ((view view))))\n"
                 ));
                 let plan = checked.plan();
                 assert_eq!(plan.leases.len(), 1, "{ty} {result}");
@@ -733,15 +733,15 @@ mod tests {
     fn projected_exclusive_handles_only_elide_certified_immediate_windows() {
         for projection in ["(#get owner view)", "(#get (#get owner pair) 0)"] {
             let context =
-                "(#struct Holder (#linear) ((view (#ref-mut #u64)) (pair (#tuple (#ref-mut #u64)))))
+                "#struct Holder (#linear) ((view (#ref-mut #u64)) (pair (#tuple (#ref-mut #u64))))
 
-              (#fn read ((view (#ref-mut #u64)) (amount #u64)) #u64
-                (#return (#u64::add-wrap (#deref view) amount)))
-              (#fn later () #u64 (#return 1u64))";
+#fn read ((view (#ref-mut #u64)) (amount #u64)) #u64
+                  (#return (#u64::add-wrap (#deref view) amount))
+#fn later () #u64 (#return 1u64)\n";
             let immediate = Checked::new(&format!(
-                "{context} (#fn work ((owner Holder)) #u64
-                  (#let answer #u64 (#deref {projection}))
-                  (#forget owner) (#return answer))"
+                "{context}#fn work ((owner Holder)) #u64
+                    (#let answer #u64 (#deref {projection}))
+                    (#forget owner) (#return answer)\n"
             ));
             let plan = immediate.plan();
             assert_eq!(plan.leases.len(), 1);
@@ -749,9 +749,9 @@ mod tests {
             let (_, lease) = plan.leases.iter().next().unwrap();
             assert!(!immediate.graph.places[lease.place.0].projections.is_empty());
             let effectful = Checked::new(&format!(
-                "{context} (#fn work ((owner Holder)) #u64
-                  (#let answer #u64 (#call read ((view {projection}) (amount (#call later ())))))
-                  (#forget owner) (#return answer))"
+                "{context}#fn work ((owner Holder)) #u64
+                    (#let answer #u64 (#call read ((view {projection}) (amount (#call later ())))))
+                    (#forget owner) (#return answer)\n"
             ));
             let plan = effectful.plan();
             assert!(plan.leases.is_empty());
@@ -766,12 +766,12 @@ mod tests {
     #[test]
     fn projected_snapshots_require_checked_pure_paths_and_retain_escapes() {
         let mut retained = Checked::new(
-            "(#struct Holder (#linear) ((view (#ref-mut #u64))))
-             (#fn read ((view (#ref-mut #u64)) (amount #u64)) #u64 (#return amount))
-             (#fn later () #u64 (#return 1u64))
-             (#fn work ((owner Holder)) #u64
-               (#let answer #u64 (#call read ((view (#get owner view)) (amount (#call later ())))))
-               (#forget owner) (#return answer))",
+            "#struct Holder (#linear) ((view (#ref-mut #u64)))
+#fn read ((view (#ref-mut #u64)) (amount #u64)) #u64 (#return amount)
+#fn later () #u64 (#return 1u64)
+#fn work ((owner Holder)) #u64
+                 (#let answer #u64 (#call read ((view (#get owner view)) (amount (#call later ())))))
+                 (#forget owner) (#return answer)\n",
         );
         let original = retained.plan();
         let (value, place) = original.projected_snapshots.iter().next().unwrap();
@@ -785,10 +785,10 @@ mod tests {
         assert_eq!(plan.projected_snapshot(value), Some(place));
 
         for source in [
-            "(#fn work ((view (#ref-mut (#array #u64 1)))) #u64
-               (#return (#index (#deref view) 0usize)))",
-            "(#struct Holder () ((view (#ref #u64))))
-             (#fn work ((owner Holder)) #u64 (#return (#deref (#get owner view))))",
+            "#fn work ((view (#ref-mut (#array #u64 1)))) #u64
+                 (#return (#index (#deref view) 0usize))\n",
+            "#struct Holder () ((view (#ref #u64)))
+#fn work ((owner Holder)) #u64 (#return (#deref (#get owner view)))\n",
         ] {
             let plan = Checked::new(source).plan();
             assert!(plan.projected_snapshots.is_empty(), "{source}");
@@ -798,14 +798,15 @@ mod tests {
     #[test]
     fn returned_references_and_later_operands_require_retained_storage() {
         for source in [
-            "(#fn read ((view (#ref-mut #u64))) (#ref-mut #u64) (#return view))
-             (#fn work ((view (#ref-mut #u64))) (#ref-mut #u64) (#return (#call read ((view view)))))",
-            "(#struct Source () ((leaf (#ref #u64)))) (#struct Holder () ((view (#ref #u64))))
-             (#fn read ((view (#ref-mut Source))) Holder (#return (#struct-literal Holder ((view (#get view leaf))))))
-             (#fn work ((view (#ref-mut Source))) Holder (#return (#call read ((view view)))))",
-            "(#fn read ((view (#ref-mut #u64)) (amount #u64)) #u64 (#return amount))
-             (#fn later () #u64 (#return 42u64))
-             (#fn work ((view (#ref-mut #u64))) #u64 (#return (#call read ((view view) (amount (#call later ()))))))",
+            "#fn read ((view (#ref-mut #u64))) (#ref-mut #u64) (#return view)
+#fn work ((view (#ref-mut #u64))) (#ref-mut #u64) (#return (#call read ((view view))))\n",
+            "#struct Source () ((leaf (#ref #u64)))
+#struct Holder () ((view (#ref #u64)))
+#fn read ((view (#ref-mut Source))) Holder (#return (#struct-literal Holder ((view (#get view leaf)))))
+#fn work ((view (#ref-mut Source))) Holder (#return (#call read ((view view))))\n",
+            "#fn read ((view (#ref-mut #u64)) (amount #u64)) #u64 (#return amount)
+#fn later () #u64 (#return 42u64)
+#fn work ((view (#ref-mut #u64))) #u64 (#return (#call read ((view view) (amount (#call later ())))))\n",
         ] {
             let checked = Checked::new(source);
             let plan = checked.plan();
@@ -820,8 +821,8 @@ mod tests {
     #[test]
     fn aliases_preserve_the_exclusive_handle_kind() {
         let checked = Checked::new(
-            "(#type View (#ref-mut #u64))
-          (#fn work ((view View)) #u64 (#return (#deref view)))",
+            "#type View (#ref-mut #u64)
+#fn work ((view View)) #u64 (#return (#deref view))\n",
         );
         assert_eq!(checked.plan().leases.len(), 1);
     }
@@ -829,7 +830,7 @@ mod tests {
     #[test]
     fn a_block_boundary_requires_retained_lending_storage() {
         let mut checked =
-            Checked::new("(#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view)))");
+            Checked::new("#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view))\n");
         let plan = checked.plan();
         let (value, lease) = plan.leases.iter().next().unwrap();
         let value = *value;
@@ -862,10 +863,10 @@ mod tests {
     #[test]
     fn immediate_field_paths_are_proved_but_checks_and_reference_leaves_are_not() {
         for (source, expected) in [
-            ("(#struct Value () ((amount #u64))) (#fn work ((view (#ref-mut Value))) #u64 (#return (#get view amount)))", 1),
-            ("(#fn work ((view (#ref-mut (#tuple #u64 #u64)))) #u64 (#return (#get view 1)))", 1),
-            ("(#struct Value () ((nested (#ref #u64)))) (#fn work ((view (#ref-mut Value))) (#ref #u64) (#return (#get view nested)))", 0),
-            ("(#fn work ((view (#ref-mut (#array #u64 1)))) #u64 (#return (#index (#deref view) 0usize)))", 0),
+            ("#struct Value () ((amount #u64))\n#fn work ((view (#ref-mut Value))) #u64 (#return (#get view amount))\n", 1),
+            ("#fn work ((view (#ref-mut (#tuple #u64 #u64)))) #u64 (#return (#get view 1))\n", 1),
+            ("#struct Value () ((nested (#ref #u64)))\n#fn work ((view (#ref-mut Value))) (#ref #u64) (#return (#get view nested))\n", 0),
+            ("#fn work ((view (#ref-mut (#array #u64 1)))) #u64 (#return (#index (#deref view) 0usize))\n", 0),
         ] {
             assert_eq!(Checked::new(source).plan().leases.len(), expected, "{source}");
         }
@@ -874,7 +875,7 @@ mod tests {
     #[test]
     fn an_intervening_operation_invalidates_pointer_reevaluation() {
         let mut checked =
-            Checked::new("(#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view)))");
+            Checked::new("#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view))\n");
         let plan = checked.plan();
         let (value, lease) = plan.leases.iter().next().unwrap();
         let value = *value;
@@ -912,7 +913,7 @@ mod tests {
     #[test]
     fn another_consumer_or_an_escaping_edge_invalidates_the_lease() {
         let mut checked =
-            Checked::new("(#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view)))");
+            Checked::new("#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view))\n");
         let plan = checked.plan();
         let (value, lease) = plan.leases.iter().next().unwrap();
         let value = *value;
@@ -932,7 +933,7 @@ mod tests {
         );
 
         let mut checked =
-            Checked::new("(#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view)))");
+            Checked::new("#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view))\n");
         let plan = checked.plan();
         let value = *plan.leases.keys().next().unwrap();
         checked.graph.blocks[checked.graph.entry.0].terminator =

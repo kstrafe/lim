@@ -1144,7 +1144,7 @@ mod tests {
 
     #[test]
     fn assembles_a_checked_lim_function_and_keeps_symbol_identity() {
-        let source = "(#fn main () #u64 (#return 42u64))";
+        let source = "#fn main () #u64 (#return 42u64)\n";
         let program = crate::parse_program(source).unwrap();
         let assembly = crate::generate_assembly(&program).unwrap();
         let assembled = assemble(&assembly).unwrap();

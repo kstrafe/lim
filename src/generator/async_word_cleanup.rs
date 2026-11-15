@@ -74,11 +74,11 @@ mod tests {
 
     #[test]
     fn word_cleanup_layout_resolves_aliases_and_zero_length_markers() {
-        let program = crate::parse_program("(#type Number #u64)").unwrap();
+        let program = crate::parse_program("#type Number #u64\n").unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
         let layout = Layout::new(
-            "(#enum Slot () ((Slot.Empty) (Slot.Full Number)))
-             (#struct Frame () ((pc #u32) (value Slot) (marker (#array Unmaterialized 0))))",
+            "#enum Slot () ((Slot.Empty) (Slot.Full Number))
+#struct Frame () ((pc #u32) (value Slot) (marker (#array Unmaterialized 0)))\n",
             "Frame",
             &declarations,
         )

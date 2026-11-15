@@ -144,8 +144,8 @@ mod protocol_tests {
                 };
                 let frame = if pinned { "Work::frame" } else { "Work::task" };
                 let invocation = expression(&format!(
-                    "(#generate {kind} ({frame} WorkPoll work-pending work-ready work-poll{suffix})
-                      Waker (#fn work ((owner Owner)) Result (#return (#unreachable))))"
+                    "#generate {kind} ({frame} WorkPoll work-pending work-ready work-poll{suffix})
+                        Waker (#fn work ((owner Owner)) Result (#return (#unreachable)))\n"
                 ));
                 let task = if pinned {
                     format!("(#pin-ref-mut {frame})")
@@ -153,7 +153,7 @@ mod protocol_tests {
                     frame.into()
                 };
                 let expected = expression(&format!(
-                    "(#syntax {protocol} (Result {task} work-pending work-ready work-poll))"
+                    "#syntax {protocol} (Result {task} work-pending work-ready work-poll)\n"
                 ));
                 assert_eq!(protocol_declaration(&invocation).unwrap(), expected);
             }
@@ -164,21 +164,21 @@ mod protocol_tests {
     fn malformed_protocol_metadata_is_rejected_without_lowering_a_body() {
         for (source, message) in [
             ("bad", "async invocation must be a list"),
-            ("(#generate #async-fn)", "async invocation requires names"),
+            ("#generate #async-fn\n", "async invocation requires names"),
             (
-                "(#generate #async-fn ())",
+                "#generate #async-fn ()\n",
                 "invalid async function interface metadata",
             ),
             (
-                "(#generate #async-fn (Work::task WorkPoll pending ready poll) Waker)",
+                "#generate #async-fn (Work::task WorkPoll pending ready poll) Waker\n",
                 "async invocation requires a function",
             ),
             (
-                "(#generate #async-fn (Work::task WorkPoll pending ready poll) Waker (#fn #u64 () #u64))",
+                "#generate #async-fn (Work::task WorkPoll pending ready poll) Waker (#fn #u64 () #u64)\n",
                 "function name must be a plain symbol",
             ),
             (
-                "(#generate #async-fn (Work::task WorkPoll pending ready poll) Waker (#fn work ()))",
+                "#generate #async-fn (Work::task WorkPoll pending ready poll) Waker (#fn work ())\n",
                 "async function requires a result type",
             ),
         ] {

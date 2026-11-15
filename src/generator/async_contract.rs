@@ -319,13 +319,13 @@ mod tests {
     #[test]
     fn parameter_and_nested_pattern_contracts_keep_the_exact_await_span() {
         for source in [
-            "(#fn work ((#mut counter #u64)) #u64
-              (#set counter (#await #u32 Step Pending Ready poll task)) (#return counter))",
-            "(#struct Bounds () ((z (#tuple #u8 #u16)) (a #u64)))
-              (#fn work ((bounds Bounds)) #u64
-                (#for (#let-mut (Bounds (#tuple index limit) bias) Bounds bounds)
-                  true (#set limit (#await #u8 Step Pending Ready poll task)) ())
-                (#return 0u64))",
+            "#fn work ((#mut counter #u64)) #u64
+                (#set counter (#await #u32 Step Pending Ready poll task)) (#return counter)\n",
+            "#struct Bounds () ((z (#tuple #u8 #u16)) (a #u64))
+#fn work ((bounds Bounds)) #u64
+                  (#for (#let-mut (Bounds (#tuple index limit) bias) Bounds bounds)
+                    true (#set limit (#await #u8 Step Pending Ready poll task)) ())
+                  (#return 0u64)\n",
         ] {
             let error = check_source(source).expect("explicit destination mismatch");
             assert_eq!(error.span.start, source.find("#await").unwrap());
@@ -336,31 +336,32 @@ mod tests {
 
     #[test]
     fn independent_loop_and_branch_scopes_do_not_replace_outer_types() {
-        let source = "(#fn work ((#mut value #u64)) #u64
-          (#for (#let-mut index #u8 0u8) false ()
-            (#set index (#await #u8 Step Pending Ready poll task)))
-          (#for (#let-mut index #u16 0u16) false ()
-            (#set index (#await #u16 Step Pending Ready poll task)))
-          (#if true (#block (#let branch-only #u8 0u8) branch-only) 0u8)
-          (#let-mut branch-only #u32 0u32)
-          (#set branch-only (#await #u32 Step Pending Ready poll task))
-          (#set value (#await #u64 Step Pending Ready poll task)) (#return value))";
+        let source = "#fn work ((#mut value #u64)) #u64
+            (#for (#let-mut index #u8 0u8) false ()
+              (#set index (#await #u8 Step Pending Ready poll task)))
+            (#for (#let-mut index #u16 0u16) false ()
+              (#set index (#await #u16 Step Pending Ready poll task)))
+            (#if true (#block (#let branch-only #u8 0u8) branch-only) 0u8)
+            (#let-mut branch-only #u32 0u32)
+            (#set branch-only (#await #u32 Step Pending Ready poll task))
+            (#set value (#await #u64 Step Pending Ready poll task)) (#return value)\n";
         assert!(check_source(source).is_none());
     }
 
     #[test]
     fn nested_aliases_compare_by_resolved_contracts() {
-        let source = "(#type Index #u64) (#type View (#ref Index))
-          (#fn work ((view View)) View
-            (#return (#await (#ref #u64) Step Pending Ready poll task)))";
+        let source = "#type Index #u64
+#type View (#ref Index)
+#fn work ((view View)) View
+              (#return (#await (#ref #u64) Step Pending Ready poll task))\n";
         assert!(check_source(source).is_none());
     }
 
     #[test]
     fn quoted_contracts_do_not_hide_a_real_later_mismatch() {
-        let source = "(#fn work () #u64
-          (#quote (#fn fake () #u64 (#return (#await #u32 Step Pending Ready poll task))))
-          (#let result #u64 (#await #u16 Step Pending Ready poll task)) (#return result))";
+        let source = "#fn work () #u64
+            (#quote (#fn fake () #u64 (#return (#await #u32 Step Pending Ready poll task))))
+            (#let result #u64 (#await #u16 Step Pending Ready poll task)) (#return result)\n";
         let error = check_source(source).expect("the real binding is checked");
         assert_eq!(error.span.start, source.find("#await #u16").unwrap());
         assert!(error.message.contains("binding 'result'"));

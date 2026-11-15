@@ -256,22 +256,22 @@ mod tests {
 
     fn graph(body: &str) -> Graph {
         let source = format!(
-            "(#enum Child () ((Child.Waiting #u64)))
-          (#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64)))
-          (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-            (#return (#match task (#case (Child.Waiting value) (ChildPoll.Ready value)))))
-          (#fn touch ((value #u64) (target (#ref-mut #u64))) ()
-            (#deref-set target value) (#return ()))
-          (#fn touch-before ((target (#ref-mut #u64)) (value #u64)) ()
-            (#deref-set target value) (#return ()))
-          (#fn effect () #u64 (#return 1u64))
-          (#fn inspect ((items (#slice #u64))) #u64
-            (#return (#deref (#slice-idx items 0usize))))
-          (#struct Pair () ((left #u64) (right #u64)))
-          (#fn touch-two ((left (#ref-mut #u64)) (right (#ref-mut #u64))) ()
-            (#deref-set left 20u64) (#deref-set right 22u64) (#return ()))
-          (#generate #async-fn ((protocol WorkAwait) (waker #u64)
-            (function (#fn work () #u64 {body}))))"
+            "#enum Child () ((Child.Waiting #u64))
+#enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+              (#return (#match task (#case (Child.Waiting value) (ChildPoll.Ready value))))
+#fn touch ((value #u64) (target (#ref-mut #u64))) ()
+              (#deref-set target value) (#return ())
+#fn touch-before ((target (#ref-mut #u64)) (value #u64)) ()
+              (#deref-set target value) (#return ())
+#fn effect () #u64 (#return 1u64)
+#fn inspect ((items (#slice #u64))) #u64
+              (#return (#deref (#slice-idx items 0usize)))
+#struct Pair () ((left #u64) (right #u64))
+#fn touch-two ((left (#ref-mut #u64)) (right (#ref-mut #u64))) ()
+              (#deref-set left 20u64) (#deref-set right 22u64) (#return ())
+#generate #async-fn ((protocol WorkAwait) (waker #u64)
+              (function (#fn work () #u64 {body})))\n"
         );
         let prepared = crate::prepare_program_syntax(
             &source,

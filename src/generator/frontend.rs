@@ -1571,18 +1571,18 @@ mod async_migration_tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     const CONTEXT: &str = "
-      (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
-      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-        (#return (#match task
-          (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
-          (#case (Child.Resume value) (ChildPoll.ChildReady value)))))";
+#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
+#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+          (#return (#match task
+            (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
+            (#case (Child.Resume value) (ChildPoll.ChildReady value))))\n";
 
     fn source(body: &str) -> String {
         format!(
             "{CONTEXT}
-          (#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
-            (#fn work ((seed #u64)) #u64 {body}))))"
+#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
+              (#fn work ((seed #u64)) #u64 {body})))\n"
         )
     }
 
@@ -1822,14 +1822,14 @@ mod async_migration_tests {
     fn graph_cache_separates_files_and_reuses_locations_within_each_file() {
         let scratch = Scratch::new();
         let text = format!("{CONTEXT}
-          (#struct Source (#linear) ((amount #u64)))
-          (#fn make ((amount #u64)) Source (#return (#struct-literal Source ((amount amount)))))
-          (#fn consume ((owner Source) (amount #u64)) #u64
-            (#let result #u64 (#u64::add-wrap (#get owner amount) amount)) (#forget owner) (#return result))
-          (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (function
-            (#fn work ((seed #u64)) #u64 (#return (#call consume
-              ((owner (#call make ((amount seed))))
-                 (amount (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64))))))))))");
+#struct Source (#linear) ((amount #u64))
+#fn make ((amount #u64)) Source (#return (#struct-literal Source ((amount amount))))
+#fn consume ((owner Source) (amount #u64)) #u64
+              (#let result #u64 (#u64::add-wrap (#get owner amount) amount)) (#forget owner) (#return result)
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (function
+              (#fn work ((seed #u64)) #u64 (#return (#call consume
+                ((owner (#call make ((amount seed))))
+                   (amount (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 2u64)))))))))\n");
         let count = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
         let mut bodies = Vec::new();
         for (name, padding) in [
@@ -1852,7 +1852,7 @@ mod async_migration_tests {
                 output.contains("Work::Frame::Cleanup::Source-expression-"),
                 "{output}"
             );
-            bodies.push(output[output.find("(#struct Work::Frame ").unwrap()..].to_owned());
+            bodies.push(output[output.find("#struct Work::Frame ").unwrap()..].to_owned());
         }
         assert_eq!(bodies[0], bodies[1]);
         assert_eq!(bodies[0], bodies[2]);
@@ -1877,7 +1877,7 @@ mod async_migration_tests {
     fn graph_cache_does_not_publish_fresh_output_before_complete_validation() {
         let scratch = Scratch::new();
         let text = format!(
-            "{}\n(#fn main () #u64 (#return true))",
+            "{}\n#fn main () #u64 (#return true)\n",
             source("(#return seed)")
         );
         let prepared = syntax(&text, Some(&scratch.0));
@@ -2011,12 +2011,12 @@ mod async_migration_tests {
                     "(cancel (work-cancel ((await-0 cancel-child)))) (function",
                 );
         let text =
-            format!("{text}\n(#fn cancel-child ((child Child)) () (#forget child) (#return ()))");
+            format!("{text}\n#fn cancel-child ((child Child)) () (#forget child) (#return ())\n");
         let prepared = syntax(&text, None);
         let program = expand_prepared_program(&prepared).unwrap();
         let output = &program.source_files.last().unwrap().source;
         assert!(
-            output.contains("(#fn work-cancel ((task Work::Frame::Cleanup)) ()"),
+            output.contains("#fn work-cancel ((task Work::Frame::Cleanup)) ()"),
             "{output}"
         );
         assert!(output.contains("Work::Frame::Cleanup::Await-0.Full"));
@@ -2038,14 +2038,14 @@ mod async_migration_tests {
         let scratch = Scratch::new();
         let text = format!(
             "{}
-          (#fn main () #u64
-            (#let waker #u64 0u64)
-            (#let first Work::Poll (#call Work::poll
-              ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))
-            (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-            (#return (#match (#call Work::poll ((task next) (waker (#borrow waker))))
-              (#case (Work::Poll.Ready value) value)
-              (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable))))))",
+#fn main () #u64
+              (#let waker #u64 0u64)
+              (#let first Work::Poll (#call Work::poll
+                ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))
+              (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+              (#return (#match (#call Work::poll ((task next) (waker (#borrow waker))))
+                (#case (Work::Poll.Ready value) value)
+                (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))\n",
             source(
                 "(#let answer #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))
               (#return (#u64::add-wrap answer 2u64))"
@@ -2082,14 +2082,14 @@ mod async_migration_tests {
     fn graph_route_handles_generator_produced_async_forms_and_multiple_outputs() {
         let text = format!(
             "{CONTEXT}
-          (#gn produce () `((#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
-            (#fn work ((seed #u64)) #u64
-              (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))))))))
-          (#generate produce)
-          (#generate #async-fn ((protocol SecondAwait) (waker #u64) (function
-            (#fn second ((seed #u64)) #u64
-              (#return (#await Work::Task Work::Poll.Pending Work::Poll.Ready Work::poll
-                (#call work ((seed seed)))))))))"
+#gn produce () `((#generate #async-fn ((protocol WorkAwait) (waker #u64) (function
+              (#fn work ((seed #u64)) #u64
+                (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed))))))))
+#generate produce
+#generate #async-fn ((protocol SecondAwait) (waker #u64) (function
+              (#fn second ((seed #u64)) #u64
+                (#return (#await Work::Task Work::Poll.Pending Work::Poll.Ready Work::poll
+                  (#call work ((seed seed))))))))\n"
         );
         let scratch = Scratch::new();
         let prepared = syntax(&text, Some(&scratch.0));
@@ -2107,8 +2107,8 @@ mod async_migration_tests {
             fs::read_dir(generator::generated_source_directory(&scratch.0))
                 .unwrap()
                 .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-                .filter(|source| source.contains("(#fn Work::poll ")
-                    || source.contains("(#fn Second::poll "))
+                .filter(|source| source.contains("#fn Work::poll ")
+                    || source.contains("#fn Second::poll "))
                 .count(),
             2
         );
@@ -2117,7 +2117,7 @@ mod async_migration_tests {
     #[test]
     fn graph_route_still_requires_the_completed_ordinary_program_check() {
         let text = format!(
-            "{}\n(#fn invalid-ordinary () #u64 (#return true))",
+            "{}\n#fn invalid-ordinary () #u64 (#return true)\n",
             source("(#return seed)")
         );
         let prepared = syntax(&text, None);
@@ -2131,12 +2131,12 @@ mod async_migration_tests {
     fn obsolete_per_state_cancellation_patterns_are_not_supported() {
         let text = format!(
             "{}
-          (#fn cancel-frame ((task Work::frame-state)) ()
-            (#match task
-              (#case (work-frame-start seed) (#forget seed))
-              (#case (work-frame-await-0 seed child) (#block (#forget seed) (#forget child)))
-              (#case work-frame-done ()))
-            (#return ()))",
+#fn cancel-frame ((task Work::frame-state)) ()
+              (#match task
+                (#case (work-frame-start seed) (#forget seed))
+                (#case (work-frame-await-0 seed child) (#block (#forget seed) (#forget child)))
+                (#case work-frame-done ()))
+              (#return ())\n",
             source(
                 "(#let answer #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))
               (#return (#u64::add-wrap answer seed))"
@@ -2163,7 +2163,7 @@ mod async_migration_tests {
             .source_files
             .iter()
             .any(|file| file.path.to_string_lossy().starts_with("<async graph ")));
-        let prepared = syntax("(#fn main () #u64 (#return 42u64))", None);
+        let prepared = syntax("#fn main () #u64 (#return 42u64)\n", None);
         let program = expand_prepared_program(&prepared).unwrap();
         assert!(program.generator_validation.is_none());
     }
@@ -2173,7 +2173,7 @@ mod async_migration_tests {
         let mut config = CompileConfig::default();
         config.set("async-lowering", "legacy");
         let error = prepare_program_syntax(
-            "(#fn main () #u64 (#return 42u64))",
+            "#fn main () #u64 (#return 42u64)\n",
             Path::new("."),
             None,
             &config,

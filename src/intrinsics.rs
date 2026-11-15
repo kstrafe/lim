@@ -120,7 +120,7 @@ mod tests {
                         .map(|parameter| format!("({0} {0})", parameter.name))
                         .collect::<Vec<_>>()
                         .join(" ");
-                    source.push_str(&format!("(#fn probe{count} ({parameters}) {} (#return (#call {name} ({arguments}))))\n", crate::type_source(&declaration.return_type)));
+                    source.push_str(&format!("#fn probe{count} ({parameters}) {} (#return (#call {name} ({arguments})))\n", crate::type_source(&declaration.return_type)));
                     count += 1;
                 }
             }

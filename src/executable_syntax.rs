@@ -117,7 +117,7 @@ mod tests {
 
     fn repeated_assertion() -> Program {
         let mut program =
-            crate::parse_program("(#fn main () #u64 (#assert true) (#return 42u64))").unwrap();
+            crate::parse_program("#fn main () #u64 (#assert true) (#return 42u64)\n").unwrap();
         let Item::Function(function) = &mut program.items[0] else {
             unreachable!()
         };
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn body_selection_does_not_claim_unselected_occurrences_are_materialized() {
         let mut program = repeated_assertion();
-        let other = crate::parse_program("(#fn other () #u64 (#return 0u64))").unwrap();
+        let other = crate::parse_program("#fn other () #u64 (#return 0u64)\n").unwrap();
         program.items.extend(other.items);
         let selected = HashSet::from(["other".to_owned()]);
         let detached = detach(&program, Some(&selected));

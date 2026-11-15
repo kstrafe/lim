@@ -62,12 +62,12 @@ mod tests {
             "(#get (#get owner pair) 1)"
         };
         let leaf = if whole { "Outer" } else { "#u64" };
-        let source = format!("(#struct Outer (#linear) ((pair (#tuple #u64 #u64))))
-          (#type Owner Outer)
-          (#fn work ((seed #u64)) #u64
-            (#let-mut owner Owner (#struct-literal Outer ((pair (#tuple (#tuple #u64 #u64) 7u64 seed)))))
-            (#let view (#pin-ref{} {leaf}) (#pin-borrow{} {path}))
-            (#drop view) (#forget owner) (#return seed))",
+        let source = format!("#struct Outer (#linear) ((pair (#tuple #u64 #u64)))
+#type Owner Outer
+#fn work ((seed #u64)) #u64
+              (#let-mut owner Owner (#struct-literal Outer ((pair (#tuple (#tuple #u64 #u64) 7u64 seed)))))
+              (#let view (#pin-ref{} {leaf}) (#pin-borrow{} {path}))
+              (#drop view) (#forget owner) (#return seed)\n",
             if mutable { "-mut" } else { "" }, if mutable { "-mut" } else { "" });
         let program = crate::parse_program(&source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
@@ -92,7 +92,7 @@ mod tests {
                 let (graph, place, declarations) = fixture(mutable, whole);
                 let plan = Borrow::new(&graph, &place, &declarations, mutable, true, true).unwrap();
                 let source = format!(
-                    "(#struct Outer (#linear) ((pair (#tuple #u64 #u64))))  {}",
+                    "#struct Outer (#linear) ((pair (#tuple #u64 #u64)))\n  {}",
                     plan.declaration("project", "input")
                 );
                 let program = crate::parse_program(&source).unwrap();
@@ -136,15 +136,15 @@ mod tests {
         let declaration = plan.declaration("project", "input");
         assert!(declaration.contains("(#ptr-borrow projected (#ref-ptr projected))"));
         let source = format!(
-            "(#struct View (#linear) ((value (#ref-mut #u64))))
+            "#struct View (#linear) ((value (#ref-mut #u64)))
           {declaration}
-          (#fn read-view ((view (#ref View))) #u64 (#return (#deref (#get view value))))
-          (#fn main () #u64
-            (#let-mut owner #u64 42u64)
-            (#let view View (#struct-literal View ((value (#borrow-mut owner)))))
-            (#let borrowed (#ref View) (#call project ((input (#pin-borrow view)))))
-            (#let answer #u64 (#call read-view ((view borrowed))))
-            (#forget borrowed) (#forget view) (#return answer))"
+#fn read-view ((view (#ref View))) #u64 (#return (#deref (#get view value)))
+#fn main () #u64
+              (#let-mut owner #u64 42u64)
+              (#let view View (#struct-literal View ((value (#borrow-mut owner)))))
+              (#let borrowed (#ref View) (#call project ((input (#pin-borrow view)))))
+              (#let answer #u64 (#call read-view ((view borrowed))))
+              (#forget borrowed) (#forget view) (#return answer)\n"
         );
         crate::CheckedProgram::validate(&crate::parse_program(&source).unwrap())
             .unwrap_or_else(|error| panic!("{error}\n{source}"));
@@ -155,10 +155,10 @@ mod tests {
 
     #[test]
     fn parameter_owner_projections_require_explicit_mutability_metadata() {
-        let source = "(#struct Owner (#linear) ((value #u64)))
-          (#fn work ((#mut owner Owner)) #u64
-            (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get owner value)))
-            (#drop view) (#forget owner) (#return 42u64))";
+        let source = "#struct Owner (#linear) ((value #u64))
+#fn work ((#mut owner Owner)) #u64
+              (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get owner value)))
+              (#drop view) (#forget owner) (#return 42u64)\n";
         let program = crate::parse_program(source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
         let mut graph =

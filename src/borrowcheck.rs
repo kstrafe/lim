@@ -31,14 +31,14 @@ fn returned_exclusive_children_from_owned_slots_keep_the_immediate_parent() {
         ),
     ] {
         let source = format!(
-            "(#struct Holder (#linear) ((view (#ref-mut #u64))))
-          (#fn capture ((view (#ref-mut #u64))) {ty} (#return {constructor}))
-          (#fn echo ((view (#ref-mut #u64))) (#ref-mut #u64) (#return view))
-          (#fn work ((view (#ref-mut #u64))) #u64
-            (#let owner {ty} (#call capture ((view view))))
-            (#let child (#ref-mut #u64) (#call echo ((view {projection}))))
-            (#let answer #u64 (#deref child)) (#drop child)
-            (#forget owner) (#drop view) (#return answer))"
+            "#struct Holder (#linear) ((view (#ref-mut #u64)))
+#fn capture ((view (#ref-mut #u64))) {ty} (#return {constructor})
+#fn echo ((view (#ref-mut #u64))) (#ref-mut #u64) (#return view)
+#fn work ((view (#ref-mut #u64))) #u64
+              (#let owner {ty} (#call capture ((view view))))
+              (#let child (#ref-mut #u64) (#call echo ((view {projection}))))
+              (#let answer #u64 (#deref child)) (#drop child)
+              (#forget owner) (#drop view) (#return answer)\n"
         );
         crate::CheckedProgram::validate(&crate::parse_program(&source).unwrap()).unwrap();
         for invalid in ["(#deref view)", &format!("(#deref {projection})")] {
@@ -60,17 +60,17 @@ fn returned_exclusive_children_from_owned_slots_keep_the_immediate_parent() {
 #[cfg(test)]
 #[test]
 fn typed_symbol_assignment_replaces_reference_provenance() {
-    let source = "(#fn main () #u64
-      (#let-mut left #u64 1u64)
-      (#let-mut right #u64 42u64)
-      (#let-mut view (#ref #u64) (#borrow left))
-      (#let next (#ref #u64) (#borrow right))
-      (#set view next)
-      (#set left 2u64)
-      (#let result #u64 (#deref view))
-      (#drop view) (#drop next)
-      (#set right 43u64)
-      (#return result))";
+    let source = "#fn main () #u64
+        (#let-mut left #u64 1u64)
+        (#let-mut right #u64 42u64)
+        (#let-mut view (#ref #u64) (#borrow left))
+        (#let next (#ref #u64) (#borrow right))
+        (#set view next)
+        (#set left 2u64)
+        (#let result #u64 (#deref view))
+        (#drop view) (#drop next)
+        (#set right 43u64)
+        (#return result)\n";
     crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
     let invalid = source.replace("(#set left 2u64)", "(#set right 2u64)");
     let error = crate::check_types(&crate::parse_program(&invalid).unwrap()).unwrap_err();
@@ -87,14 +87,14 @@ fn typed_symbol_assignment_replaces_reference_provenance() {
     let escaped = source.replace("(#set view next)",
         "(#block (#let local #u64 3u64) (#let temporary (#ref #u64) (#borrow local)) (#set view temporary) ())");
     assert!(crate::check_types(&crate::parse_program(&escaped).unwrap()).is_err());
-    let emptied = "(#enum View () ((View.Present (#ref #u64)) View.Empty))
-      (#fn main () #u64
-        (#let-mut owner #u64 37u64)
-        (#let-mut view View (View.Present (#borrow owner)))
-        (#set view View.Empty)
-        (#set owner 42u64)
-        (#forget view)
-        (#return owner))";
+    let emptied = "#enum View () ((View.Present (#ref #u64)) View.Empty)
+#fn main () #u64
+          (#let-mut owner #u64 37u64)
+          (#let-mut view View (View.Present (#borrow owner)))
+          (#set view View.Empty)
+          (#set owner 42u64)
+          (#forget view)
+          (#return owner)\n";
     crate::check_types(&crate::parse_program(emptied).unwrap()).unwrap();
     let retained = emptied.replace("(#set view View.Empty)", "()");
     let error = crate::check_types(&crate::parse_program(&retained).unwrap()).unwrap_err();
@@ -102,9 +102,9 @@ fn typed_symbol_assignment_replaces_reference_provenance() {
         error.contains("owner") && error.contains("borrow"),
         "{error}"
     );
-    let parameter = "(#enum View () ((View.Present (#ref #u64)) View.Empty))
-      (#fn replace ((#mut view View)) ()
-        (#set view View.Empty) (#return ()))";
+    let parameter = "#enum View () ((View.Present (#ref #u64)) View.Empty)
+#fn replace ((#mut view View)) ()
+          (#set view View.Empty) (#return ())\n";
     crate::check_types(&crate::parse_program(parameter).unwrap()).unwrap();
     let borrowed_slot = parameter.replace(
         "(#set view View.Empty)",
@@ -118,15 +118,15 @@ fn typed_symbol_assignment_replaces_reference_provenance() {
 #[test]
 fn borrow_released_on_every_if_branch_allows_later_mutation() {
     let program = crate::parse_program(
-        "(#fn main () #u64
-           (#let-mut owner #u64 1u64)
-           (#let view (#ref #u64) (#borrow owner))
-           (#let released ()
-             (#if true
-               (#block (#forget view) ())
-               (#block (#forget view) ())))
-           (#set owner 2u64)
-           (#return owner))",
+        "#fn main () #u64
+             (#let-mut owner #u64 1u64)
+             (#let view (#ref #u64) (#borrow owner))
+             (#let released ()
+               (#if true
+                 (#block (#forget view) ())
+                 (#block (#forget view) ())))
+             (#set owner 2u64)
+             (#return owner)\n",
     )
     .unwrap();
     check_program(&program).unwrap_or_else(|error| panic!("{}", error.message));
@@ -137,15 +137,15 @@ fn borrow_released_on_every_if_branch_allows_later_mutation() {
 #[test]
 fn borrow_released_on_only_one_branch_still_blocks_mutation() {
     let program = crate::parse_program(
-        "(#fn main () #u64
-           (#let-mut owner #u64 1u64)
-           (#let view (#ref #u64) (#borrow owner))
-           (#let released ()
-             (#if true
-               (#block (#forget view) ())
-               ()))
-           (#set owner 2u64)
-           (#return owner))",
+        "#fn main () #u64
+             (#let-mut owner #u64 1u64)
+             (#let view (#ref #u64) (#borrow owner))
+             (#let released ()
+               (#if true
+                 (#block (#forget view) ())
+                 ()))
+             (#set owner 2u64)
+             (#return owner)\n",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -156,17 +156,17 @@ fn borrow_released_on_only_one_branch_still_blocks_mutation() {
 #[test]
 fn aggregate_reference_released_on_every_branch_allows_mutation() {
     let program = crate::parse_program(
-        "(#struct Holder () ((view (#ref #u64))))
-         (#fn main () #u64
-           (#let-mut owner #u64 1u64)
-           (#let holder Holder
-             (#struct-literal Holder ((view (#borrow owner)))))
-           (#let released ()
-             (#if true
-               (#block (#forget holder) ())
-               (#block (#forget holder) ())))
-           (#set owner 2u64)
-           (#return owner))",
+        "#struct Holder () ((view (#ref #u64)))
+#fn main () #u64
+             (#let-mut owner #u64 1u64)
+             (#let holder Holder
+               (#struct-literal Holder ((view (#borrow owner)))))
+             (#let released ()
+               (#if true
+                 (#block (#forget holder) ())
+                 (#block (#forget holder) ())))
+             (#set owner 2u64)
+             (#return owner)\n",
     )
     .unwrap();
     check_program(&program).unwrap_or_else(|error| panic!("{}", error.message));
@@ -177,12 +177,12 @@ fn aggregate_reference_released_on_every_branch_allows_mutation() {
 #[test]
 fn block_local_reference_cannot_escape_into_outer_binding() {
     let program = crate::parse_program(
-        "(#fn main () #u64
-           (#let escaped (#ref #u64)
-             (#block
-               (#let local #u64 7u64)
-               (#borrow local)))
-           (#return (#deref escaped)))",
+        "#fn main () #u64
+             (#let escaped (#ref #u64)
+               (#block
+                 (#let local #u64 7u64)
+                 (#borrow local)))
+             (#return (#deref escaped))\n",
     )
     .unwrap();
     let error = match crate::typecheck::CheckedProgram::validate(&program) {
@@ -196,12 +196,12 @@ fn block_local_reference_cannot_escape_into_outer_binding() {
 #[test]
 fn destructured_block_local_reference_cannot_escape() {
     let program = crate::parse_program(
-        "(#fn main () #u64
-           (#let escaped (#ref #u64)
-             (#block
-               (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
-               (#borrow local)))
-           (#return (#deref escaped)))",
+        "#fn main () #u64
+             (#let escaped (#ref #u64)
+               (#block
+                 (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
+                 (#borrow local)))
+             (#return (#deref escaped))\n",
     )
     .unwrap();
     assert!(check_program(&program).is_err());
@@ -212,13 +212,13 @@ fn destructured_block_local_reference_cannot_escape() {
 #[test]
 fn block_reference_alias_cannot_escape_its_owner() {
     let program = crate::parse_program(
-        "(#fn main () #u64
-           (#let escaped (#ref #u64)
-             (#block
-               (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
-               (#let alias (#ref #u64) (#borrow local))
-               alias))
-           (#return (#deref escaped)))",
+        "#fn main () #u64
+             (#let escaped (#ref #u64)
+               (#block
+                 (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
+                 (#let alias (#ref #u64) (#borrow local))
+                 alias))
+             (#return (#deref escaped))\n",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -229,13 +229,13 @@ fn block_reference_alias_cannot_escape_its_owner() {
 #[test]
 fn block_reference_to_outer_owner_can_escape() {
     let program = crate::parse_program(
-        "(#fn main () #u64
-           (#let owner #u64 42u64)
-           (#let escaped (#ref #u64)
-             (#block
-               (#let alias (#ref #u64) (#borrow owner))
-               alias))
-           (#return (#deref escaped)))",
+        "#fn main () #u64
+             (#let owner #u64 42u64)
+             (#let escaped (#ref #u64)
+               (#block
+                 (#let alias (#ref #u64) (#borrow owner))
+                 alias))
+             (#return (#deref escaped))\n",
     )
     .unwrap();
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
@@ -245,11 +245,11 @@ fn block_reference_to_outer_owner_can_escape() {
 #[test]
 fn block_local_reference_cannot_be_passed_to_a_call() {
     let program = crate::parse_program(
-        "(#fn read ((value (#ref #u64))) #u64 (#return (#deref value)))
-         (#fn main () #u64
-           (#return (#call read ((value (#block
-               (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
-               (#borrow local)))))))",
+        "#fn read ((value (#ref #u64))) #u64 (#return (#deref value))
+#fn main () #u64
+             (#return (#call read ((value (#block
+                 (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
+                 (#borrow local))))))\n",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -261,12 +261,12 @@ fn block_local_reference_cannot_be_passed_to_a_call() {
 #[test]
 fn aliased_reference_parameter_cannot_hide_block_local_escape() {
     let program = crate::parse_program(
-        "(#type WordRef (#ref #u64))
-         (#fn read ((value WordRef)) #u64 (#return (#deref value)))
-         (#fn main () #u64
-           (#return (#call read ((value (#block
-               (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
-               (#borrow local)))))))",
+        "#type WordRef (#ref #u64)
+#fn read ((value WordRef)) #u64 (#return (#deref value))
+#fn main () #u64
+             (#return (#call read ((value (#block
+                 (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
+                 (#borrow local))))))\n",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -277,12 +277,12 @@ fn aliased_reference_parameter_cannot_hide_block_local_escape() {
 #[test]
 fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
     let program = crate::parse_program(
-        "(#fn identity ((value #u64)) #u64 (#return value))
-         (#fn main () #u64
-           (#return (#call identity ((value (#block
-               (#let local #u64 42u64)
-               (#let alias (#ref #u64) (#borrow local))
-               (#deref alias)))))))",
+        "#fn identity ((value #u64)) #u64 (#return value)
+#fn main () #u64
+             (#return (#call identity ((value (#block
+                 (#let local #u64 42u64)
+                 (#let alias (#ref #u64) (#borrow local))
+                 (#deref alias))))))\n",
     )
     .unwrap();
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
@@ -292,12 +292,12 @@ fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
 #[test]
 fn matched_reference_payload_cannot_escape_local_owner() {
     let program = crate::parse_program(
-        "(#enum Holder () ((Holder.Has (#ref #u64))))
-         (#fn escape () (#ref #u64)
-           (#let owner #u64 7u64)
-           (#let holder Holder (Holder.Has (#borrow owner)))
-           (#return (#match holder
-             (#case (Holder.Has view) view))))",
+        "#enum Holder () ((Holder.Has (#ref #u64)))
+#fn escape () (#ref #u64)
+             (#let owner #u64 7u64)
+             (#let holder Holder (Holder.Has (#borrow owner)))
+             (#return (#match holder
+               (#case (Holder.Has view) view)))\n",
     )
     .unwrap();
     let borrow_error = check_program(&program).unwrap_err();
@@ -313,16 +313,16 @@ fn matched_reference_payload_cannot_escape_local_owner() {
 #[test]
 fn matched_reference_payload_from_parameter_can_return() {
     let program = crate::parse_program(
-        "(#enum Holder () ((Holder.Has (#ref #u64))))
-         (#fn select ((source (#ref #u64))) (#ref #u64)
-           (#let holder Holder (Holder.Has source))
-           (#return (#match holder
-             (#case (Holder.Has view) view))))
-         (#fn main () #u64
-           (#let owner #u64 42u64)
-           (#let selected (#ref #u64)
-             (#call select ((source (#borrow owner)))))
-           (#return (#deref selected)))",
+        "#enum Holder () ((Holder.Has (#ref #u64)))
+#fn select ((source (#ref #u64))) (#ref #u64)
+             (#let holder Holder (Holder.Has source))
+             (#return (#match holder
+               (#case (Holder.Has view) view)))
+#fn main () #u64
+             (#let owner #u64 42u64)
+             (#let selected (#ref #u64)
+               (#call select ((source (#borrow owner)))))
+             (#return (#deref selected))\n",
     )
     .unwrap();
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
@@ -332,14 +332,14 @@ fn matched_reference_payload_from_parameter_can_return() {
 #[test]
 fn direct_matched_payload_cannot_hide_block_local_reference() {
     let program = crate::parse_program(
-        "(#enum Holder () ((Holder.Has (#ref #u64))))
-         (#fn main () #u64
-           (#let escaped (#ref #u64)
-             (#match (Holder.Has (#block
-               (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
-               (#borrow local)))
-               (#case (Holder.Has view) view)))
-           (#return (#deref escaped)))",
+        "#enum Holder () ((Holder.Has (#ref #u64)))
+#fn main () #u64
+             (#let escaped (#ref #u64)
+               (#match (Holder.Has (#block
+                 (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
+                 (#borrow local)))
+                 (#case (Holder.Has view) view)))
+             (#return (#deref escaped))\n",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -351,16 +351,16 @@ fn direct_matched_payload_cannot_hide_block_local_reference() {
 #[test]
 fn struct_literal_cannot_hide_block_local_reference() {
     let program = crate::parse_program(
-        "(#struct Holder () ((view (#ref #u64))))
-         (#fn main () #u64
-           (#let holder Holder
-             (#struct-literal Holder
-               ((view (#block
-                 (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
-                 (#borrow local))))))
-           (#let result #u64 (#deref (#get holder view)))
-           (#forget holder)
-           (#return result))",
+        "#struct Holder () ((view (#ref #u64)))
+#fn main () #u64
+             (#let holder Holder
+               (#struct-literal Holder
+                 ((view (#block
+                   (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
+                   (#borrow local))))))
+             (#let result #u64 (#deref (#get holder view)))
+             (#forget holder)
+             (#return result)\n",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -371,18 +371,18 @@ fn struct_literal_cannot_hide_block_local_reference() {
 #[test]
 fn block_local_reference_cannot_be_stored_in_a_field() {
     let program = crate::parse_program(
-        "(#struct Holder () ((view (#ref #u64))))
-         (#fn main () #u64
-           (#let owner #u64 1u64)
-           (#let-mut holder Holder
-             (#struct-literal Holder ((view (#borrow owner)))))
-           (#set-field holder view
-             (#block
-               (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
-               (#borrow local)))
-           (#let result #u64 (#deref (#get holder view)))
-           (#forget holder)
-           (#return result))",
+        "#struct Holder () ((view (#ref #u64)))
+#fn main () #u64
+             (#let owner #u64 1u64)
+             (#let-mut holder Holder
+               (#struct-literal Holder ((view (#borrow owner)))))
+             (#set-field holder view
+               (#block
+                 (#let (#tuple local) (#tuple #u64) (#tuple 7u64))
+                 (#borrow local)))
+             (#let result #u64 (#deref (#get holder view)))
+             (#forget holder)
+             (#return result)\n",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -401,12 +401,12 @@ fn aggregate_reborrows_suspend_every_parent_until_release() {
         ("(#forget held) (#let value #u64 (#get left x))", true),
     ] {
         let source = format!(
-            "(#struct Owner () ((x #u64)))
-             (#struct Views () ((left (#ref #u64)) (right (#ref #u64))))
-             (#fn inspect ((left (#ref-mut Owner)) (right (#ref-mut Owner))) #u64
-               (#let held Views (#struct-literal Views
-                 ((left (#borrow (#get left x))) (right (#borrow (#get right x))))))
-               {access} (#return value))"
+            "#struct Owner () ((x #u64))
+#struct Views () ((left (#ref #u64)) (right (#ref #u64)))
+#fn inspect ((left (#ref-mut Owner)) (right (#ref-mut Owner))) #u64
+                 (#let held Views (#struct-literal Views
+                   ((left (#borrow (#get left x))) (right (#borrow (#get right x))))))
+                 {access} (#return value)\n"
         );
         let program = crate::parse_program(&source).unwrap();
         let result = crate::check_types(&program);
@@ -422,16 +422,16 @@ fn aggregate_reborrows_suspend_every_parent_until_release() {
 #[cfg(test)]
 #[test]
 fn releasing_one_aggregate_does_not_resume_a_shared_parent() {
-    let source = "(#struct Owner () ((x #u64) (y #u64)))
-        (#struct View () ((item (#ref #u64))))
-        (#fn inspect ((parent (#ref-mut Owner))) #u64
-          (#let first View (#struct-literal View ((item (#borrow (#get parent x))))))
-          (#let second View (#struct-literal View ((item (#borrow (#get parent y))))))
-          (#forget first)
-          (#deref-set parent (#struct-literal Owner ((x 2u64) (y 3u64))))
-          (#let value #u64 (#get parent x))
-          (#let observed #u64 (#deref (#get second item)))
-          (#forget second) (#return value))";
+    let source = "#struct Owner () ((x #u64) (y #u64))
+#struct View () ((item (#ref #u64)))
+#fn inspect ((parent (#ref-mut Owner))) #u64
+            (#let first View (#struct-literal View ((item (#borrow (#get parent x))))))
+            (#let second View (#struct-literal View ((item (#borrow (#get parent y))))))
+            (#forget first)
+            (#deref-set parent (#struct-literal Owner ((x 2u64) (y 3u64))))
+            (#let value #u64 (#get parent x))
+            (#let observed #u64 (#deref (#get second item)))
+            (#forget second) (#return value)\n";
     let program = crate::parse_program(source).unwrap();
     let error = crate::check_types(&program).unwrap_err();
     assert!(error.contains("while it is immutably borrowed"), "{error}");
@@ -440,12 +440,12 @@ fn releasing_one_aggregate_does_not_resume_a_shared_parent() {
 #[cfg(test)]
 #[test]
 fn array_constructors_retain_projected_reborrow_parents() {
-    let source = "(#struct Owner () ((x #u64)))
-        (#fn inspect ((parent (#ref-mut Owner))) #u64
-          (#let views (#array (#ref #u64) 1)
-            (#array-of (#array (#ref #u64) 1) (#borrow (#get parent x))))
-          (#let result #u64 (#deref (#index views 0usize)))
-          (#forget views) (#return result))";
+    let source = "#struct Owner () ((x #u64))
+#fn inspect ((parent (#ref-mut Owner))) #u64
+            (#let views (#array (#ref #u64) 1)
+              (#array-of (#array (#ref #u64) 1) (#borrow (#get parent x))))
+            (#let result #u64 (#deref (#index views 0usize)))
+            (#forget views) (#return result)\n";
     crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
 }
 
@@ -464,18 +464,18 @@ fn moved_and_nested_aggregate_reborrows_protect_parent_calls() {
             "(#let observed #u64 (#deref (#get (#get wrapped view) item))) (#forget wrapped)"
         };
         let source = format!(
-            "(#struct Owner () ((x #u64)))
-             (#struct View () ((item (#ref #u64))))
-             (#struct Wrapped () ((view View)))
-             (#fn overwrite ((parent (#ref-mut Owner))) ()
-               (#deref-set parent (#struct-literal Owner ((x 2u64)))) (#return ()))
-             (#fn inspect ((parent (#ref-mut Owner))) ()
-               (#let view View (#struct-literal View ((item (#borrow (#get parent x))))))
-               (#let moved View view)
-               (#let wrapped Wrapped (#struct-literal Wrapped ((view moved))))
-               {release}
-               (#call overwrite ((parent parent)))
-               {cleanup} (#return ()))"
+            "#struct Owner () ((x #u64))
+#struct View () ((item (#ref #u64)))
+#struct Wrapped () ((view View))
+#fn overwrite ((parent (#ref-mut Owner))) ()
+                 (#deref-set parent (#struct-literal Owner ((x 2u64)))) (#return ())
+#fn inspect ((parent (#ref-mut Owner))) ()
+                 (#let view View (#struct-literal View ((item (#borrow (#get parent x))))))
+                 (#let moved View view)
+                 (#let wrapped Wrapped (#struct-literal Wrapped ((view moved))))
+                 {release}
+                 (#call overwrite ((parent parent)))
+                 {cleanup} (#return ())\n"
         );
         let source = if mutable {
             source
@@ -3456,12 +3456,12 @@ fn typed_borrow_facts(
 #[cfg(test)]
 #[test]
 fn projected_reborrow_parent_comes_from_checked_binding_identity() {
-    let source = "(#struct Pair () ((left #u64) (right #u64)))
-      (#fn main () #u64
-        (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
-        (#let parent (#ref-mut Pair) (#borrow-mut pair))
-        (#let child (#ref-mut #u64) (#borrow-mut (#get parent left)))
-        (#drop child) (#drop parent) (#forget pair) (#return 0u64))";
+    let source = "#struct Pair () ((left #u64) (right #u64))
+#fn main () #u64
+          (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+          (#let parent (#ref-mut Pair) (#borrow-mut pair))
+          (#let child (#ref-mut #u64) (#borrow-mut (#get parent left)))
+          (#drop child) (#drop parent) (#forget pair) (#return 0u64)\n";
     let program = crate::parse_program(source).unwrap();
     let checked = crate::CheckedProgram::validate(&program).unwrap();
     let function = program
@@ -3494,11 +3494,11 @@ fn projected_reborrow_parent_comes_from_checked_binding_identity() {
         Some("parent")
     );
 
-    let slice_source = "(#fn main () #u64
-      (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 1u64 2u64))
-      (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values)))
-      (#let item (#ref-mut #u64) (#slice-mut-idx view 0usize))
-      (#forget item) (#forget view) (#forget values) (#return 0u64))";
+    let slice_source = "#fn main () #u64
+        (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 1u64 2u64))
+        (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values)))
+        (#let item (#ref-mut #u64) (#slice-mut-idx view 0usize))
+        (#forget item) (#forget view) (#forget values) (#return 0u64)\n";
     let slice_program = crate::parse_program(slice_source).unwrap();
     let checked = crate::CheckedProgram::validate(&slice_program).unwrap();
     let slice_function = slice_program

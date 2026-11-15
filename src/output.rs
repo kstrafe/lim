@@ -208,7 +208,7 @@ mod tests {
         let target = crate::TargetDescription::X86_64_SYSTEM_V;
         assert!(crate::link_native_binary("invalid assembly", &output, &[], &[], target).is_err());
         assert_eq!(fs::read(&output).unwrap(), b"original");
-        let program = crate::parse_program("(#fn main () #u64 (#return 42u64))").unwrap();
+        let program = crate::parse_program("#fn main () #u64 (#return 42u64)\n").unwrap();
         let assembly = crate::generate_assembly_for_target(&program, target).unwrap();
         assert!(crate::link_native_binary(
             &assembly,
@@ -234,9 +234,9 @@ mod tests {
         let temp = StagingDirectory::beside(&std::env::temp_dir().join("unused")).unwrap();
         let input = temp.0.join("input.lim");
         let imported = temp.0.join("types.lim");
-        let source = "(#alias Number = ./types.lim::Number) (#fn main () #u64 (#return 42u64))";
+        let source = "#alias Number = ./types.lim::Number\n#fn main () #u64 (#return 42u64)\n";
         fs::write(&input, source).unwrap();
-        fs::write(&imported, "(#type Number #u64)").unwrap();
+        fs::write(&imported, "#type Number #u64\n").unwrap();
         let alias = temp.0.join("alias");
         fs::hard_link(&input, &alias).unwrap();
         assert!(reject_source_output_collision(&input, &alias).is_err());
@@ -262,7 +262,7 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(&imported).unwrap(),
-            "(#type Number #u64)"
+            "#type Number #u64\n"
         );
     }
     #[test]

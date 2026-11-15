@@ -1791,7 +1791,7 @@ mod tests {
     #[test]
     fn distributed_enum_declarations_and_payloads_are_indexed() {
         let source =
-            "(#distributed-enum Error ()) (#enum-contribute Error (Error.Failure Payload))";
+            "#distributed-enum Error ()\n#enum-contribute Error (Error.Failure Payload)\n";
         let definitions = super::declarations(source);
         assert_eq!(definitions.len(), 1);
         assert_eq!(definitions[0].name, "Error");

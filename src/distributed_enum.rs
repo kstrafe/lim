@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn properties_are_not_variants_and_contributions_sort_after_declaration() {
         let forms = merged(
-            "(#enum-contribute E (E.Zulu #u64))\n(#distributed-enum E (#linear #repr-c))\n(#enum-contribute E (E.Alpha))",
+            "#enum-contribute E (E.Zulu #u64)\n#distributed-enum E (#linear #repr-c)\n#enum-contribute E (E.Alpha)\n",
         );
         let (xs, _) = enum_form(&forms);
         assert_eq!(
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn identical_variants_deduplicate_and_keep_variant_source() {
         let forms = merged(
-            "(#enum-contribute E (E.A #u64))\n(#distributed-enum E ())\n(#enum-contribute E (E.A #u64))",
+            "#enum-contribute E (E.A #u64)\n#distributed-enum E ()\n#enum-contribute E (E.A #u64)\n",
         );
         let (xs, form) = enum_form(&forms);
         let Expr::List(variants) = &xs[3] else {

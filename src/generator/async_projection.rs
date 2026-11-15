@@ -259,11 +259,12 @@ mod tests {
         crate::linearcheck::LinearTypes,
     ) {
         let source = format!(
-            "(#struct Owner (#linear) ((value #u64)))  (#type Scalar {scalar})
-          (#struct Outer () ((pair (#tuple Scalar Scalar))))
-          (#type View ({handle} Outer))
-          (#fn project ((input View)) ({handle} Scalar)
-            (#return (#{}borrow{} (#get (#get input pair) 1))))",
+            "#struct Owner (#linear) ((value #u64))
+#type Scalar {scalar}
+#struct Outer () ((pair (#tuple Scalar Scalar)))
+#type View ({handle} Outer)
+#fn project ((input View)) ({handle} Scalar)
+              (#return (#{}borrow{} (#get (#get input pair) 1)))\n",
             if handle.starts_with("#pin") {
                 "pin-"
             } else {
@@ -308,8 +309,10 @@ mod tests {
                 .declaration("generated", "input")
                 .contains("(#get (#get input pair) 1)"));
             let source = format!(
-                "(#type Scalar #u64) (#struct Outer () ((pair (#tuple Scalar Scalar))))
-              (#type View ({handle} Outer)) {}",
+                "#type Scalar #u64
+#struct Outer () ((pair (#tuple Scalar Scalar)))
+#type View ({handle} Outer)
+ {}",
                 projection.declaration("generated", "input")
             );
             let program = crate::parse_program(&source).unwrap();
@@ -336,7 +339,7 @@ mod tests {
             let generated = result.declaration("generated", "input");
             assert!(generated.contains("(#deref input)"));
             let source = format!(
-                "(#type Scalar #u64) (#struct Outer () ((pair (#tuple Scalar Scalar)))) {generated}"
+                "#type Scalar #u64\n#struct Outer () ((pair (#tuple Scalar Scalar)))\n {generated}"
             );
             let program = crate::parse_program(&source).unwrap();
             crate::CheckedProgram::validate(&program)
@@ -402,8 +405,10 @@ mod tests {
             let write = Write::new(&graph, &place, &declarations, &types).unwrap();
             assert_eq!(write.value, Type::U64);
             let source = format!(
-                "(#type Scalar #u64) (#struct Outer () ((pair (#tuple Scalar Scalar))))
-              (#type View ({handle} Outer)) {}",
+                "#type Scalar #u64
+#struct Outer () ((pair (#tuple Scalar Scalar)))
+#type View ({handle} Outer)
+ {}",
                 write.declaration("generated", "input", "value")
             );
             let program = crate::parse_program(&source).unwrap();

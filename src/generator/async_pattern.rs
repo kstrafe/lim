@@ -433,9 +433,9 @@ mod tests {
 
     #[test]
     fn borrowed_inspection_never_emits_an_owning_read_or_consumption() {
-        let source = "(#struct Payload (#linear) ((value #u64)))
-          (#enum Choice (#linear) ((Choice.Some Payload) Choice.Empty))
-          (#fn unused () () (#return ()))";
+        let source = "#struct Payload (#linear) ((value #u64))
+#enum Choice (#linear) ((Choice.Some Payload) Choice.Empty)
+#fn unused () () (#return ())\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let pattern = crate::parse("(Choice.Some (Payload 42u64))")
@@ -460,7 +460,7 @@ mod tests {
         assert!(!text.contains("(#let inspect-0 "), "{text}");
         let checked_source = format!(
             "{source}
-          (#fn inspect ((value (#pin-ref Choice))) #bool (#return {text}))"
+#fn inspect ((value (#pin-ref Choice))) #bool (#return {text})\n"
         );
         crate::CheckedProgram::validate(&crate::parse_program(&checked_source).unwrap()).unwrap();
 
@@ -483,7 +483,7 @@ mod tests {
             assert!(!text.contains(prohibited), "{text}");
         }
         let source = format!(
-            "{source}\n(#fn inspect-choice ((value (#pin-ref Choice))) #bool (#return {text}))"
+            "{source}\n#fn inspect-choice ((value (#pin-ref Choice))) #bool (#return {text})\n"
         );
         crate::CheckedProgram::validate(&crate::parse_program(&source).unwrap()).unwrap();
 
