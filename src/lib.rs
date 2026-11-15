@@ -2770,7 +2770,7 @@ mod link_location_tests {
 
     #[test]
     fn unresolved_symbol_highlights_the_call_not_its_declaration() {
-        let source = "#extern-fn  unavailable { #abi = #abi-c; #params = (); #returns = #u64; }\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#unsafe (#unsafe-call unavailable ()))) ); }\n";
+        let source = "#extern-fn  unavailable { #abi = #abi-c; #params = (); #returns = #u64; #effects = (#io #global-access); }\n#fn main { #params = (); #returns = #u64; #effects = ((#effects-of unavailable)); #body = ( (#return (#unsafe (#unsafe-call unavailable ()))) ); }\n";
         let diagnostic = locate_link_diagnostic(
             Diagnostic::new(
                 DiagnosticCode::Link,
@@ -2786,7 +2786,7 @@ mod link_location_tests {
     #[test]
     fn unsupported_asm_instruction_highlights_its_source_text() {
         let source =
-            "#fn main { #params = (); #returns = (); #body = ( (#unsafe (#asm () () \"vaddps ymm0, ymm1, ymm2\")) (#return ()) ); }\n";
+            "#fn main { #params = (); #returns = (); #effects = (#io #global-access); #body = ( (#unsafe (#asm () () \"vaddps ymm0, ymm1, ymm2\")) (#return ()) ); }\n";
         let diagnostic = locate_link_diagnostic(
             Diagnostic::new(
                 DiagnosticCode::Link,
@@ -9658,7 +9658,7 @@ mod tests {
             "second"
         );
 
-        let nested_static_source = "#fn get-value { #params = (); #returns = #u64; #body = ( (#return 1u64) ); }\n#static vALUE #u64 (#u64::add-wrap 1u64 (#call get-value ()))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#unsafe vALUE)) ); }\n";
+        let nested_static_source = "#fn get-value { #params = (); #returns = #u64; #body = ( (#return 1u64) ); }\n#static vALUE #u64 (#u64::add-wrap 1u64 (#call get-value ()))\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global vALUE)); #body = ( (#return (#unsafe vALUE)) ); }\n";
         let nested_static = compile_source_to_assembly(
             nested_static_source,
             Path::new("example.lim"),
@@ -10151,7 +10151,7 @@ mod tests {
 
     #[test]
     fn inline_assembly_is_typed_and_requires_unsafe() {
-        let source = r#"#fn main { #params = (); #returns = #i64; #body = (
+        let source = r#"#fn main { #params = (); #returns = #i64; #effects = (#io #global-access); #body = (
   (#return (#unsafe (#asm #i64 ((rax 39i64)) "syscall"))) ); }
 "#;
         let program = parse_program(source).unwrap();
@@ -10160,7 +10160,7 @@ mod tests {
         assert!(assembly.contains("    syscall\n"));
         assert!(assembly.contains("    pop rbx\n"));
 
-        let outside_unsafe = "#fn main { #params = (); #returns = #i64; #body = ( (#return (#asm #i64 ((rax 39i64)) \"syscall\")) ); }\n";
+        let outside_unsafe = "#fn main { #params = (); #returns = #i64; #effects = (#io #global-access); #body = ( (#return (#asm #i64 ((rax 39i64)) \"syscall\")) ); }\n";
         let outside_unsafe = parse_program(&outside_unsafe).unwrap();
         let error = check_types(&outside_unsafe).unwrap_err();
         assert!(
@@ -10190,12 +10190,12 @@ mod tests {
     #[test]
     fn raw_linux_syscalls_are_unsafe_and_enforce_the_register_limit() {
         let outside_unsafe =
-            parse_program("#fn main { #params = (); #returns = #i64; #body = ( (#return (#linux-syscall #i64 39usize ())) ); }\n").unwrap();
+            parse_program("#fn main { #params = (); #returns = #i64; #effects = (#io #global-access); #body = ( (#return (#linux-syscall #i64 39usize ())) ); }\n").unwrap();
         let error = check_types(&outside_unsafe).unwrap_err();
         assert!(error.contains("requires an enclosing (#unsafe ...) block"));
 
         let too_many_arguments = parse_program(
-            "#fn main { #params = (); #returns = #i64; #body = ( (#return (#unsafe (#linux-syscall #i64 39usize (0usize 0usize 0usize 0usize 0usize 0usize 0usize)))) ); }\n",
+            "#fn main { #params = (); #returns = #i64; #effects = (#io #global-access); #body = ( (#return (#unsafe (#linux-syscall #i64 39usize (0usize 0usize 0usize 0usize 0usize 0usize 0usize)))) ); }\n",
         )
         .unwrap();
         let error = check_types(&too_many_arguments).unwrap_err();
@@ -10434,7 +10434,7 @@ mod tests {
         let span = span.expect("mismatched global initializer has a structured span");
         assert_eq!(&global_source[span.start..span.end], "false");
 
-        let unsafe_source = "#static vALUE #u64 1u64\n#fn main { #params = (); #returns = #u64; #body = ( (#return vALUE) ); }\n";
+        let unsafe_source = "#static vALUE #u64 1u64\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global vALUE)); #body = ( (#return vALUE) ); }\n";
         let unsafe_program = parse_program(unsafe_source).unwrap();
         let (message, _, span, _) = typecheck::check_types_with_span(&unsafe_program).unwrap_err();
         assert!(!message.contains("source span "));
@@ -10875,7 +10875,7 @@ mod tests {
     #[test]
     fn soundness_audit_tracks_raw_pointer_borrows_through_returned_tuples() {
         let program = parse_program(
-            "#fn expose { #params = ((anchor (#ref #u64)) (pointer (#ptr #u64))); #returns = (#tuple (#ref #u64) #u64); #body = ( (#let reference (#ref #u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return (#tuple (#tuple (#ref #u64) #u64) reference 1u64)) ); }\n#fn bad { #params = (); #returns = #u64; #body = ( (#let-mut value #u64 41u64) (#let pointer (#ptr #u64) (#unsafe (#addr-of value))) (#let result (#tuple (#ref #u64) #u64) (#call expose ((anchor (#borrow value)) (pointer pointer)))) (#set value 42u64) (#return (#deref (#get result 0))) ); }\n",
+            "#fn expose { #params = ((anchor (#ref #u64)) (pointer (#ptr #u64))); #returns = (#tuple (#ref #u64) #u64); #effects = (#io #global-access); #body = ( (#let reference (#ref #u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return (#tuple (#tuple (#ref #u64) #u64) reference 1u64)) ); }\n#fn bad { #params = (); #returns = #u64; #effects = ((#effects-of expose)); #body = ( (#let-mut value #u64 41u64) (#let pointer (#ptr #u64) (#unsafe (#addr-of value))) (#let result (#tuple (#ref #u64) #u64) (#call expose ((anchor (#borrow value)) (pointer pointer)))) (#set value 42u64) (#return (#deref (#get result 0))) ); }\n",
         )
         .unwrap();
         let error = check_types(&program).unwrap_err();
@@ -10968,7 +10968,7 @@ mod tests {
         assert!(generate_assembly(&runnable).is_ok());
 
         let reference_to_global = parse_program(
-            "#struct Point () ((x #u64) (y #u64))\n#static origin Point (#struct-literal Point ((x 20) (y 22)))\n#fn origin { #params = (); #returns = (#ref Point); #body = ( (#return (#unsafe (#borrow origin))) ); }\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#get (#call origin ()) x)) ); }\n",
+            "#struct Point () ((x #u64) (y #u64))\n#static origin Point (#struct-literal Point ((x 20) (y 22)))\n#fn origin { #params = (); #returns = (#ref Point); #effects = ((#read-global origin)); #body = ( (#return (#unsafe (#borrow origin))) ); }\n#fn main { #params = (); #returns = #u64; #effects = ((#effects-of origin)); #body = ( (#return (#get (#call origin ()) x)) ); }\n",
         )
         .unwrap();
         assert!(check_types(&reference_to_global).is_ok());
@@ -11124,7 +11124,7 @@ mod tests {
         assert!(assembly.contains(".Llim_thread_entry_IncrementTask"));
 
         let api = parse_program(
-            "#fn increment { #params = ((value #u64)); #returns = #u64; #body = ( (#return (#u64::add-wrap value 1)) ); }\n#generate #thread-spawn ((task IncrementTask) (worker increment))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#match (#call IncrementTask::spawn ((value 41))) (#case (IncrementTask::SpawnResult.Ok task) (#match (#call IncrementTask::join ((task task))) (#case (IncrementTask::JoinResult.Ok value) value) (#case (IncrementTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (IncrementTask::SpawnResult.Error error) (#panic)))) ); }\n",
+            "#fn increment { #params = ((value #u64)); #returns = #u64; #body = ( (#return (#u64::add-wrap value 1)) ); }\n#generate #thread-spawn ((task IncrementTask) (worker increment))\n#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#return (#match (#call IncrementTask::spawn ((value 41))) (#case (IncrementTask::SpawnResult.Ok task) (#match (#call IncrementTask::join ((task task))) (#case (IncrementTask::JoinResult.Ok value) value) (#case (IncrementTask::JoinResult.Error (#tuple retry error)) (#panic)))) (#case (IncrementTask::SpawnResult.Error error) (#panic)))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&api).is_ok(), "{:?}", check_types(&api));
@@ -11133,7 +11133,7 @@ mod tests {
         assert!(api_assembly.contains("ud2"));
 
         let non_send_input = parse_program(
-            "#fn inspect { #params = ((pointer (#ptr #u64))); #returns = #u64; #body = ( (#return (#unsafe (#ptr-read pointer))) ); }\n#generate #thread-spawn ((task PointerTask) (worker inspect))\n",
+            "#fn inspect { #params = ((pointer (#ptr #u64))); #returns = #u64; #effects = (#io #global-access); #body = ( (#return (#unsafe (#ptr-read pointer))) ); }\n#generate #thread-spawn ((task PointerTask) (worker inspect))\n",
         )
         .unwrap();
         assert!(check_types(&non_send_input)
@@ -11169,7 +11169,7 @@ mod tests {
             .contains("cannot return reference-containing values"));
 
         let forgotten_spawn_result = parse_program(
-            "#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task WorkTask) (worker work))\n#fn main { #params = (); #returns = #u64; #body = ( (#let result WorkTask::SpawnResult (#call WorkTask::spawn ((value 1)))) (#forget result) (#return 0) ); }\n",
+            "#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task WorkTask) (worker work))\n#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#let result WorkTask::SpawnResult (#call WorkTask::spawn ((value 1)))) (#forget result) (#return 0) ); }\n",
         )
         .unwrap();
         assert!(check_types(&forgotten_spawn_result)
@@ -11177,7 +11177,7 @@ mod tests {
             .contains("cannot be dropped or forgotten; match and join them"));
 
         let forgotten_nested_spawn_result = parse_program(
-            "#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task WorkTask) (worker work))\n#fn main { #params = (); #returns = #u64; #body = ( (#let result WorkTask::SpawnResult (#call WorkTask::spawn ((value 1)))) (#forget (#tuple (#tuple WorkTask::SpawnResult #u64) result 0)) (#return 0) ); }\n",
+            "#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task WorkTask) (worker work))\n#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#let result WorkTask::SpawnResult (#call WorkTask::spawn ((value 1)))) (#forget (#tuple (#tuple WorkTask::SpawnResult #u64) result 0)) (#return 0) ); }\n",
         )
         .unwrap();
         assert!(check_types(&forgotten_nested_spawn_result)
@@ -11185,7 +11185,7 @@ mod tests {
             .contains("cannot be dropped or forgotten; match and join them"));
 
         let discarded_spawn_handle = parse_program(
-            "#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task WorkTask) (worker work))\n#fn main { #params = (); #returns = #u64; #body = ( (#let result WorkTask::SpawnResult (#call WorkTask::spawn ((value 1)))) (#return (#match result (#case _ 0))) ); }\n",
+            "#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task WorkTask) (worker work))\n#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#let result WorkTask::SpawnResult (#call WorkTask::spawn ((value 1)))) (#return (#match result (#case _ 0))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&discarded_spawn_handle)
@@ -11193,7 +11193,7 @@ mod tests {
             .contains("must explicitly handle variant 'WorkTask::SpawnResult.Ok'"));
 
         let discarded_join_error_handle = parse_program(
-            "#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task WorkTask) (worker work))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#match (#call WorkTask::spawn ((value 1))) (#case (WorkTask::SpawnResult.Ok task) (#match (#call WorkTask::join ((task task))) (#case (WorkTask::JoinResult.Ok value) value) (#case (WorkTask::JoinResult.Error (#tuple _ error)) (#panic)))) (#case (WorkTask::SpawnResult.Error error) (#panic)))) ); }\n",
+            "#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n#generate #thread-spawn ((task WorkTask) (worker work))\n#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#return (#match (#call WorkTask::spawn ((value 1))) (#case (WorkTask::SpawnResult.Ok task) (#match (#call WorkTask::join ((task task))) (#case (WorkTask::JoinResult.Ok value) value) (#case (WorkTask::JoinResult.Error (#tuple _ error)) (#panic)))) (#case (WorkTask::SpawnResult.Error error) (#panic)))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&discarded_join_error_handle)
@@ -11222,7 +11222,7 @@ mod tests {
             r#"#struct Shared () ((value #u64))
 #fn read { #params = ((value (#ref Shared))); #returns = #u64; #body = ( (#return (#get value value)) ); }
 #generate #thread-spawn ((task ReadTask) (worker read))
-#fn main { #params = (); #returns = #u64; #body = (
+#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = (
     (#let-mut shared Shared (#struct-literal Shared ((value 1))))
     (#let spawned ReadTask::SpawnResult (#call ReadTask::spawn ((value (#borrow shared)))))
     (#return
@@ -11251,7 +11251,7 @@ mod tests {
             r#"#struct Shared () ((value #u64))
 #fn read-mut { #params = ((value (#ref-mut Shared))); #returns = #u64; #body = ( (#return (#get value value)) ); }
 #generate #thread-spawn ((task MutTask) (worker read-mut))
-#fn main { #params = (); #returns = #u64; #body = (
+#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = (
     (#let-mut shared Shared (#struct-literal Shared ((value 1))))
     (#let spawned MutTask::SpawnResult (#call MutTask::spawn ((value (#borrow-mut shared)))))
     (#return
@@ -11277,7 +11277,7 @@ mod tests {
     #[test]
     fn returns_and_dereferences_references() {
         let program = parse_program(
-            "#let answer #u64 42\n#fn identity { #params = ((value (#ref #u64))); #returns = (#ref #u64); #body = ( (#return value) ); }\n#fn get-answer { #params = (); #returns = (#ref #u64); #body = ( (#return (#borrow answer)) ); }\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#deref (#call identity ((value (#call get-answer ())))))) ); }\n",
+            "#let answer #u64 42\n#fn identity { #params = ((value (#ref #u64))); #returns = (#ref #u64); #body = ( (#return value) ); }\n#fn get-answer { #params = (); #returns = (#ref #u64); #effects = ((#read-global answer)); #body = ( (#return (#borrow answer)) ); }\n#fn main { #params = (); #returns = #u64; #effects = ((#effects-of get-answer)); #body = ( (#return (#deref (#call identity ((value (#call get-answer ())))))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -11677,14 +11677,14 @@ mod tests {
             .contains("ptr-null requires an explicit raw-pointer type"));
 
         let pointer_program = parse_program(
-            "#fn main { #params = (); #returns = #u64; #body = ( (#let-mut value #u64 40) (#return (#unsafe (#block (#let p (#ptr-mut #u64) (#addr-of-mut value)) (#ptr-write p 42) (#ptr-read p)))) ); }\n",
+            "#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#let-mut value #u64 40) (#return (#unsafe (#block (#let p (#ptr-mut #u64) (#addr-of-mut value)) (#ptr-write p 42) (#ptr-read p)))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&pointer_program).is_ok());
         assert!(generate_assembly(&pointer_program).is_ok());
 
         let safe_pointer_use = parse_program(
-            "#fn bad { #params = (); #returns = #u64; #body = ( (#let value #u64 42) (#return (#ptr-read (#addr-of value))) ); }\n",
+            "#fn bad { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#let value #u64 42) (#return (#ptr-read (#addr-of value))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&safe_pointer_use)
@@ -11692,7 +11692,7 @@ mod tests {
             .contains("requires an enclosing (#unsafe ...) block"));
 
         let immutable_pointer_write = parse_program(
-            "#fn bad { #params = (); #returns = #u64; #body = ( (#let value #u64 42) (#let p (#ptr #u64) (#unsafe (#addr-of value))) (#unsafe (#ptr-write p 1)) (#return value) ); }\n",
+            "#fn bad { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#let value #u64 42) (#let p (#ptr #u64) (#unsafe (#addr-of value))) (#unsafe (#ptr-write p 1)) (#return value) ); }\n",
         )
         .unwrap();
         assert!(check_types(&immutable_pointer_write)
@@ -11700,7 +11700,7 @@ mod tests {
             .contains("mutable raw pointer"));
 
         let pointer_offset = parse_program(
-            "#fn main { #params = (); #returns = #u64; #body = ( (#let-mut value #u64 42u64) (#let pointer (#ptr-mut #u64) (#unsafe (#addr-of-mut value))) (#return (#unsafe (#ptr-read (#ptr-offset pointer 0usize)))) ); }\n",
+            "#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = ( (#let-mut value #u64 42u64) (#let pointer (#ptr-mut #u64) (#unsafe (#addr-of-mut value))) (#return (#unsafe (#ptr-read (#ptr-offset pointer 0usize)))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&pointer_offset).is_ok());
@@ -11734,7 +11734,7 @@ mod tests {
         assert_eq!(&unsafe_span_source[span.start..span.end], "#ptr-offset");
 
         let return_borrow_from_raw_pointer = parse_program(
-            "#fn expose { #params = ((anchor (#ref #u64)) (pointer (#ptr #u64))); #returns = (#ref #u64); #body = ( (#let reference (#ref #u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference) ); }\n#fn bad { #params = (); #returns = #u64; #body = ( (#let-mut value #u64 41) (#let pointer (#ptr #u64) (#unsafe (#addr-of value))) (#let reference (#ref #u64) (#call expose ((anchor (#borrow value)) (pointer pointer)))) (#set value 42) (#return (#deref reference)) ); }\n",
+            "#fn expose { #params = ((anchor (#ref #u64)) (pointer (#ptr #u64))); #returns = (#ref #u64); #effects = (#io #global-access); #body = ( (#let reference (#ref #u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference) ); }\n#fn bad { #params = (); #returns = #u64; #effects = ((#effects-of expose)); #body = ( (#let-mut value #u64 41) (#let pointer (#ptr #u64) (#unsafe (#addr-of value))) (#let reference (#ref #u64) (#call expose ((anchor (#borrow value)) (pointer pointer)))) (#set value 42) (#return (#deref reference)) ); }\n",
         )
         .unwrap();
         let error = check_types(&return_borrow_from_raw_pointer).unwrap_err();
@@ -11744,7 +11744,7 @@ mod tests {
         );
 
         let valid_return_borrow_from_raw_pointer = parse_program(
-            "#fn expose { #params = ((anchor (#ref #u64)) (pointer (#ptr #u64))); #returns = (#ref #u64); #body = ( (#let reference (#ref #u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference) ); }\n#fn main { #params = (); #returns = #u64; #body = ( (#let-mut value #u64 41) (#let pointer (#ptr #u64) (#unsafe (#addr-of value))) (#let reference (#ref #u64) (#call expose ((anchor (#borrow value)) (pointer pointer)))) (#return (#deref reference)) ); }\n",
+            "#fn expose { #params = ((anchor (#ref #u64)) (pointer (#ptr #u64))); #returns = (#ref #u64); #effects = (#io #global-access); #body = ( (#let reference (#ref #u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference) ); }\n#fn main { #params = (); #returns = #u64; #effects = ((#effects-of expose)); #body = ( (#let-mut value #u64 41) (#let pointer (#ptr #u64) (#unsafe (#addr-of value))) (#let reference (#ref #u64) (#call expose ((anchor (#borrow value)) (pointer pointer)))) (#return (#deref reference)) ); }\n",
         )
         .unwrap();
         let checked = check_types(&valid_return_borrow_from_raw_pointer);
@@ -11752,7 +11752,7 @@ mod tests {
         assert!(generate_assembly(&valid_return_borrow_from_raw_pointer).is_ok());
 
         let mutable_borrow_with_immutable_anchor = parse_program(
-            "#fn bad { #params = ((anchor (#ref #u64)) (pointer (#ptr-mut #u64))); #returns = (#ref-mut #u64); #body = ( (#return (#unsafe (#ptr-borrow-mut anchor pointer))) ); }\n",
+            "#fn bad { #params = ((anchor (#ref #u64)) (pointer (#ptr-mut #u64))); #returns = (#ref-mut #u64); #effects = (#io #global-access); #body = ( (#return (#unsafe (#ptr-borrow-mut anchor pointer))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&mutable_borrow_with_immutable_anchor)
@@ -11780,7 +11780,7 @@ mod tests {
         let valid = parse_program("#fn main { #params = (); #returns = #u64; #body = ( (#return (#u64::add-wrap 40 2)) ); }\n");
         assert!(valid.is_ok());
         let external = parse_program(
-            "#extern-fn  abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; }\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#as (#unsafe (#unsafe-call abs ((value -42)))) #u64)) ); }\n",
+            "#extern-fn  abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; #effects = (#io #global-access); }\n#fn main { #params = (); #returns = #u64; #effects = ((#effects-of abs)); #body = ( (#return (#as (#unsafe (#unsafe-call abs ((value -42)))) #u64)) ); }\n",
         )
         .unwrap();
         assert!(check_types(&external).is_ok());
@@ -11788,7 +11788,7 @@ mod tests {
         assert!(external_assembly.contains(".extern abs"));
         assert!(external_assembly.contains("call abs"));
         let unsafe_boundary = parse_program(
-            "#extern-fn  abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; }\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#as (#unsafe-call abs ((value -42))) #u64)) ); }\n",
+            "#extern-fn  abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; #effects = (#io #global-access); }\n#fn main { #params = (); #returns = #u64; #effects = ((#effects-of abs)); #body = ( (#return (#as (#unsafe-call abs ((value -42))) #u64)) ); }\n",
         )
         .unwrap();
         assert!(check_types(&unsafe_boundary)
@@ -12112,7 +12112,7 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&empty).is_ok());
-        assert!(parse_program("#extern-fn  abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; }\n").is_ok());
+        assert!(parse_program("#extern-fn  abs { #abi = #abi-c; #params = ((value #i32)); #returns = #i32; #effects = (#io #global-access); }\n").is_ok());
         let missing = parse_program(
             "#fn take { #params = ((left #u32) (right #u32)); #returns = #u32; #body = ( (#return left) ); }
 #fn main { #params = (); #returns = #u32; #body = ( (#return (#call take ((left 1u32)))) ); }\n",
@@ -12313,12 +12313,12 @@ mod tests {
     #[test]
     fn parses_and_checks_immutable_statics() {
         let program = parse_program(
-            "#static buildId #u64 7\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#u64::add-wrap  (#unsafe buildId) 35)) ); }\n",
+            "#static buildId #u64 7\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global buildId)); #body = ( (#return (#u64::add-wrap  (#unsafe buildId) 35)) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let safe_read =
-            parse_program("#static buildId #u64 7\n#fn main { #params = (); #returns = #u64; #body = ( (#return buildId) ); }\n").unwrap();
+            parse_program("#static buildId #u64 7\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global buildId)); #body = ( (#return buildId) ); }\n").unwrap();
         assert!(check_types(&safe_read)
             .unwrap_err()
             .contains("access to static 'buildId' requires"));
@@ -12328,7 +12328,7 @@ mod tests {
     #[test]
     fn lowers_aggregate_statics_for_index_and_field_reads() {
         let program = parse_program(
-            "#struct Point () ((x #u64) (y #u64))\n#static global-values (#array #u64 3) (#array (#array #u64 3) 10 20 30)\n#static origin Point (#struct-literal Point ((x 7) (y 9)))\n#static pair (#tuple #u64 #f64) (#tuple (#tuple #u64 #f64) 4 2.5)\n#enum Maybe () ((Maybe.Some #u64) Maybe.None)\n#static global-choice Maybe (Maybe.Some 12)\n#fn take { #params = ((values (#array #u64 3)) (point Point)); #returns = #u64; #body = ( (#return (#u64::add-wrap (#index values 1) (#get point y))) ); }\n#fn return-values { #params = (); #returns = (#array #u64 3); #body = ( (#return (#unsafe global-values)) ); }\n#fn read-choice { #params = ((choice Maybe)); #returns = #u64; #body = ( (#return (#match choice (#case (Maybe.Some value) value) (#case Maybe.None 0))) ); }\n#fn return-choice { #params = (); #returns = Maybe; #body = ( (#return (#unsafe global-choice)) ); }\n#fn main { #params = (); #returns = #u64; #body = ( (#let copied (#array #u64 3) (#unsafe global-values)) (#let copied-choice Maybe (#unsafe global-choice)) (#return (#u64::add-wrap (#index copied 0) (#u64::add-wrap (#index (#call return-values ()) 2) (#u64::add-wrap (#call take ((values (#unsafe global-values)) (point (#unsafe origin)))) (#u64::add-wrap (#call read-choice ((choice copied-choice))) (#call read-choice ((choice (#call return-choice ()))))))))) ); }\n",
+            "#struct Point () ((x #u64) (y #u64))\n#static global-values (#array #u64 3) (#array (#array #u64 3) 10 20 30)\n#static origin Point (#struct-literal Point ((x 7) (y 9)))\n#static pair (#tuple #u64 #f64) (#tuple (#tuple #u64 #f64) 4 2.5)\n#enum Maybe () ((Maybe.Some #u64) Maybe.None)\n#static global-choice Maybe (Maybe.Some 12)\n#fn take { #params = ((values (#array #u64 3)) (point Point)); #returns = #u64; #body = ( (#return (#u64::add-wrap (#index values 1) (#get point y))) ); }\n#fn return-values { #params = (); #returns = (#array #u64 3); #effects = ((#read-global global-values)); #body = ( (#return (#unsafe global-values)) ); }\n#fn read-choice { #params = ((choice Maybe)); #returns = #u64; #body = ( (#return (#match choice (#case (Maybe.Some value) value) (#case Maybe.None 0))) ); }\n#fn return-choice { #params = (); #returns = Maybe; #effects = ((#read-global global-choice)); #body = ( (#return (#unsafe global-choice)) ); }\n#fn main { #params = (); #returns = #u64; #effects = ((#effects-of return-choice) (#effects-of return-values) (#read-global global-choice) (#read-global global-values) (#read-global origin)); #body = ( (#let copied (#array #u64 3) (#unsafe global-values)) (#let copied-choice Maybe (#unsafe global-choice)) (#return (#u64::add-wrap (#index copied 0) (#u64::add-wrap (#index (#call return-values ()) 2) (#u64::add-wrap (#call take ((values (#unsafe global-values)) (point (#unsafe origin)))) (#u64::add-wrap (#call read-choice ((choice copied-choice))) (#call read-choice ((choice (#call return-choice ()))))))))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12719,7 +12719,7 @@ mod tests {
     #[test]
     fn normalizes_typed_global_constants() {
         let program =
-            parse_program("#let wRAPPED #u8 (#u8::add-wrap 255 1)\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#if (#u8::eq wRAPPED 0) 42 0)) ); }\n")
+            parse_program("#let wRAPPED #u8 (#u8::add-wrap 255 1)\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global wRAPPED)); #body = ( (#return (#if (#u8::eq wRAPPED 0) 42 0)) ); }\n")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
@@ -12790,7 +12790,7 @@ mod tests {
     #[test]
     fn lowers_wide_integer_globals() {
         let program = parse_program(
-            "#let vALUE #u128 42\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#if (#u128::eq  vALUE 42) 42 0)) ); }\n",
+            "#let vALUE #u128 42\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global vALUE)); #body = ( (#return (#if (#u128::eq  vALUE 42) 42 0)) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12805,7 +12805,7 @@ mod tests {
     #[test]
     fn lowers_high_unsigned_wide_global_literals() {
         let program = parse_program(
-            "#let vALUE #u128 340282366920938463463374607431768211455\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#if (#u128::eq  vALUE (#as -1 #u128)) 42 0)) ); }\n",
+            "#let vALUE #u128 340282366920938463463374607431768211455\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global vALUE)); #body = ( (#return (#if (#u128::eq  vALUE (#as -1 #u128)) 42 0)) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13053,7 +13053,7 @@ mod tests {
             async_type_environment_identity(&environment("(first #u64) (second #u64)"))
         );
         let foreign = async_type_environment(
-            &parse("(#extern-fn #abi-c foreign ((second #u64) (first #u64)) #u64)").unwrap(),
+            &parse("(#extern-fn #abi-c foreign ((second #u64) (first #u64)) #u64 (#effects (#io #global-access)))").unwrap(),
         );
         assert_eq!(
             foreign.function_parameter_order["foreign"],
@@ -13627,7 +13627,7 @@ mod tests {
     (#forget pointer)
     (#return ()) ); }
 #fn drop-u64 { #params = ((allocator (#ref Arena)) (value #u64)); #returns = (); #body = ( (#return ()) ); }
-#fn main { #params = (); #returns = #usize; #body = (
+#fn main { #params = (); #returns = #usize; #effects = ((#effects-of (VecU64::free VecU64::get VecU64::get-mut VecU64::pop VecU64::push VecU64::reserve VecU64::set))); #body = (
     (#let-mut arena Arena (#struct-literal Arena ((cursor 0u64))))
     (#let-mut vector VecU64 (#call VecU64::new ((allocator (#borrow arena)))))
     (#let reserve-result VecU64::ReserveResult
@@ -13943,7 +13943,7 @@ mod tests {
     #[test]
     fn reads_nested_static_arrays() {
         let program = parse_program(
-            "#static global-values (#array (#array #u64 2) 2) (#array (#array (#array #u64 2) 2) (#array (#array #u64 2) 10 20) (#array (#array #u64 2) 30 40))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#unsafe (#index (#index global-values 1) 0))) ); }\n",
+            "#static global-values (#array (#array #u64 2) 2) (#array (#array (#array #u64 2) 2) (#array (#array #u64 2) 10 20) (#array (#array #u64 2) 30 40))\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global global-values)); #body = ( (#return (#unsafe (#index (#index global-values 1) 0))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13963,7 +13963,7 @@ mod tests {
     #[test]
     fn reads_nested_enum_statics() {
         let program = parse_program(
-            "#enum Boxed () ((Boxed.Wrapped (#tuple #u64 #u64)) Boxed.Empty)\n#static value Boxed (Boxed.Wrapped (#tuple (#tuple #u64 #u64) 10 22))\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#match (#unsafe value) (#case (Boxed.Wrapped (#tuple left right)) (#u64::add-wrap left right)) (#case Boxed.Empty 0))) ); }\n",
+            "#enum Boxed () ((Boxed.Wrapped (#tuple #u64 #u64)) Boxed.Empty)\n#static value Boxed (Boxed.Wrapped (#tuple (#tuple #u64 #u64) 10 22))\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global value)); #body = ( (#return (#match (#unsafe value) (#case (Boxed.Wrapped (#tuple left right)) (#u64::add-wrap left right)) (#case Boxed.Empty 0))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14091,7 +14091,7 @@ mod tests {
     #[test]
     fn lowers_zero_sized_globals() {
         let program = parse_program(
-            "#let uNIT () ()\n#fn consume { #params = ((value ())); #returns = #u64; #body = ( (#return 41) ); }\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#call consume ((value uNIT)))) ); }\n",
+            "#let uNIT () ()\n#fn consume { #params = ((value ())); #returns = #u64; #body = ( (#return 41) ); }\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global uNIT)); #body = ( (#return (#call consume ((value uNIT)))) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14599,7 +14599,7 @@ mod tests {
     #[test]
     fn c_abi_rejects_by_value_aggregate_arguments_and_returns() {
         let argument = parse_program(
-            "#struct Point (#repr-c) ((x #u64))\n#extern-fn  consume-point { #abi = #abi-c; #params = ((point Point)); #returns = #u64; }\n",
+            "#struct Point (#repr-c) ((x #u64))\n#extern-fn  consume-point { #abi = #abi-c; #params = ((point Point)); #returns = #u64; #effects = (#io #global-access); }\n",
         )
         .unwrap();
         assert!(check_types(&argument).is_ok());
@@ -14608,7 +14608,7 @@ mod tests {
             .contains("directly passed scalar values"));
 
         let result = parse_program(
-            "#struct Point (#repr-c) ((x #u64))\n#extern-fn  make-point { #abi = #abi-c; #params = (); #returns = Point; }\n",
+            "#struct Point (#repr-c) ((x #u64))\n#extern-fn  make-point { #abi = #abi-c; #params = (); #returns = Point; #effects = (#io #global-access); }\n",
         )
         .unwrap();
         assert!(check_types(&result).is_ok());
@@ -15317,7 +15317,7 @@ mod tests {
     #[test]
     fn lowers_immutable_globals() {
         let program = parse_program(
-            "#let aNSWER #u64 40\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#u64::add-wrap  aNSWER 2)) ); }\n",
+            "#let aNSWER #u64 40\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global aNSWER)); #body = ( (#return (#u64::add-wrap  aNSWER 2)) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -15334,7 +15334,7 @@ mod tests {
     #[test]
     fn lowers_float_and_char_globals() {
         let program = parse_program(
-            "#let scale #f32 1.5\n#let pi #f64 3.25\n#let letter #char #\\a\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#if (#bool::and (#f32::gt scale 1.0) (#bool::and (#f64::gt pi 3.0) (#char::eq letter #\\a))) 42 0)) ); }\n",
+            "#let scale #f32 1.5\n#let pi #f64 3.25\n#let letter #char #\\a\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global letter) (#read-global pi) (#read-global scale)); #body = ( (#return (#if (#bool::and (#f32::gt scale 1.0) (#bool::and (#f64::gt pi 3.0) (#char::eq letter #\\a))) 42 0)) ); }\n",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -15357,7 +15357,7 @@ mod tests {
     #[test]
     fn lowers_static_float_arrays() {
         let program = parse_program(
-            "#static vALUES (#array #f32 2) (#array (#array #f32 2) 1.5f32 2.5f32)\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#unsafe (#if (#f32::eq (#index vALUES 1) 2.5f32) 42 0))) ); }\n",
+            "#static vALUES (#array #f32 2) (#array (#array #f32 2) 1.5f32 2.5f32)\n#fn main { #params = (); #returns = #u64; #effects = ((#read-global vALUES)); #body = ( (#return (#unsafe (#if (#f32::eq (#index vALUES 1) 2.5f32) 42 0))) ); }\n",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();

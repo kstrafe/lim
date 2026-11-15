@@ -823,7 +823,7 @@ mod checked_program_tests {
 
     #[test]
     fn typed_raw_pointer_borrow_keeps_its_anchor_origin() {
-        let source = "#fn escape { #params = (); #returns = (#ref #u64); #body = (
+        let source = "#fn escape { #params = (); #returns = (#ref #u64); #effects = (#io #global-access); #body = (
             (#let owner #u64 1u64)
             (#let pointer (#ptr #u64) (#unsafe (#addr-of owner)))
             (#let anchor (#ref #u64) (#borrow owner))
@@ -11535,7 +11535,12 @@ mod generation_planning_tests {
                 "(#slice-mut-split items 0usize)",
             ),
         ] {
-            let body = format!("#fn main {{ #params = ({parameters}); #returns = (); #body = ( {operation} (#return ()) ); }}\n");
+            let effects = if operation.contains("#ptr-read") || operation.contains("#ptr-write") {
+                "#effects = (#io #global-access); "
+            } else {
+                ""
+            };
+            let body = format!("#fn main {{ #params = ({parameters}); #returns = (); {effects}#body = ( {operation} (#return ()) ); }}\n");
             let (message, code, span, _) = plan(&body).err().unwrap();
             assert!(message.contains("deferred"), "{operation}: {message}");
             assert_eq!(code, crate::DiagnosticCode::Type);
@@ -11559,13 +11564,13 @@ mod generation_planning_tests {
     #[test]
     fn selected_unsafe_scope_is_lexical_not_function_wide() {
         plan(
-            "#fn main { #params = ((ptr (#ptr #u64))); #returns = #u64; #body = (
+            "#fn main { #params = ((ptr (#ptr #u64))); #returns = #u64; #effects = (#io #global-access); #body = (
                   (#return (#unsafe (#ptr-read ptr))) ); }
-#fn ignored { #params = ((ptr (#ptr #u64))); #returns = #u64; #body = ( (#return (#ptr-read ptr)) ); }\n",
+#fn ignored { #params = ((ptr (#ptr #u64))); #returns = #u64; #effects = (#io #global-access); #body = ( (#return (#ptr-read ptr)) ); }\n",
         )
         .unwrap();
         let (_, code, span, _) = plan(
-            "#fn main { #params = ((ptr (#ptr #u64))); #returns = #u64; #body = (
+            "#fn main { #params = ((ptr (#ptr #u64))); #returns = #u64; #effects = (#io #global-access); #body = (
                   (#let first #u64 (#unsafe (#ptr-read ptr)))
                   (#return (#ptr-read ptr)) ); }\n",
         )
@@ -12371,7 +12376,7 @@ mod typed_ownership_tests {
     #[test]
     fn raw_pointer_anchor_does_not_prove_referent_restoration() {
         let source = "#struct Resource (#linear) ((number #u64))
-#fn inspect { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))); #returns = (); #body = (
+#fn inspect { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))); #returns = (); #effects = (#io #global-access); #body = (
               (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
               (#deref-set target (#struct-literal Resource ((number 2u64))))
               (#return ()) ); }\n";
@@ -12393,10 +12398,10 @@ mod typed_ownership_tests {
     #[test]
     fn raw_pointer_anchor_marker_survives_return_summary_chains() {
         let source = "#struct Resource (#linear) ((number #u64))
-#fn raw { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))); #returns = (#ref-mut Resource); #body = (
+#fn raw { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))); #returns = (#ref-mut Resource); #effects = (#io #global-access); #body = (
               (#return (#unsafe (#ptr-borrow-mut anchor pointer))) ); }
 #fn identity { #params = ((value (#ref-mut Resource))); #returns = (#ref-mut Resource); #body = ( (#return value) ); }
-#fn inspect { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))); #returns = (); #body = (
+#fn inspect { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))); #returns = (); #effects = ((#effects-of raw)); #body = (
               (#let target (#ref-mut Resource) (#call raw ((anchor anchor) (pointer pointer))))
               (#deref-set (#call identity ((value target)))
                 (#struct-literal Resource ((number 2u64))))
@@ -12511,7 +12516,7 @@ mod typed_ownership_tests {
     fn lifetime_only_provenance_survives_aggregate_reborrowing() {
         let source = "#struct Resource () ((number #u64))
 #struct Holder () ((value (#ref-mut Resource)) (safe (#ref-mut Resource)))
-#fn inspect { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (safe (#ref-mut Resource))); #returns = (); #body = (
+#fn inspect { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (safe (#ref-mut Resource))); #returns = (); #effects = (#io #global-access); #body = (
               (#let raw (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
               (#let-mut holder Holder (#struct-literal Holder ((value raw) (safe safe))))
               (#let parent (#ref-mut Holder) (#borrow-mut holder))
@@ -12808,9 +12813,9 @@ mod typed_ownership_tests {
     #[test]
     fn static_reference_origins_survive_forwarding_calls() {
         let source = "#static vALUE #u64 1u64
-#fn obtain { #params = (); #returns = (#ref #u64); #body = ( (#return (#unsafe (#borrow vALUE))) ); }
-#fn forward { #params = (); #returns = (#ref #u64); #body = ( (#return (#call obtain ())) ); }
-#fn inspect { #params = (); #returns = (); #body = ( (#let view (#ref #u64) (#call forward ()))
+#fn obtain { #params = (); #returns = (#ref #u64); #effects = ((#read-global vALUE)); #body = ( (#return (#unsafe (#borrow vALUE))) ); }
+#fn forward { #params = (); #returns = (#ref #u64); #effects = ((#effects-of obtain)); #body = ( (#return (#call obtain ())) ); }
+#fn inspect { #params = (); #returns = (); #effects = ((#effects-of forward)); #body = ( (#let view (#ref #u64) (#call forward ()))
               (#forget view) (#return ()) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -12991,7 +12996,7 @@ mod typed_ownership_tests {
                 "(#deref-set target (#struct-literal Resource ((number 2u64))))"
             };
             let source = format!("#struct Resource (#linear) ((number #u64))
-#fn inspect {{ #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (choice #bool)); #returns = (); #body = (
+#fn inspect {{ #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (choice #bool)); #returns = (); #effects = (#io #global-access); #body = (
                   (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
                   {branch} (#return ()) ); }}\n");
             let program = crate::parse_program(&source).unwrap();
@@ -15454,7 +15459,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn owned_variant_facts_follow_nested_enum_payload_bindings() {
-        let source = "#fn touch { #params = (); #returns = (); #body = (
+        let source = "#fn touch { #params = (); #returns = (); #effects = (#io #global-access); #body = (
             (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()) ); }
 #enum Choice () (Choice.Empty (Choice.Full #u64))
 #enum Wrapper () (Wrapper.Absent (Wrapper.Wrapped Choice))
@@ -15465,7 +15470,12 @@ mod typed_ownership_tests {
                   (#block (#let snapshot Choice inner) (#forget snapshot) ()))
                 (#case Wrapper.Absent ()))
               (#return ()) ); }\n";
-        let opaque = source.replace("(#let snapshot", "(#call touch ()) (#let snapshot");
+        let opaque = source
+            .replace(
+                "#returns = (); #body",
+                "#returns = (); #effects = ((#effects-of touch)); #body",
+            )
+            .replace("(#let snapshot", "(#call touch ()) (#let snapshot");
         let overwritten = source.replace(
             "(#let snapshot Choice inner)",
             "(#let-mut changed Choice inner) (#set changed Choice.Empty) (#let snapshot Choice changed)",
@@ -15531,9 +15541,9 @@ mod typed_ownership_tests {
     fn owned_variant_facts_intersect_branches_and_invalidate_unknown_calls() {
         let source = "#enum Choice () ((Choice.Empty) (Choice.Full #u64))
 #struct Holder () ((choice Choice))
-#fn touch { #params = (); #returns = (); #body = (
+#fn touch { #params = (); #returns = (); #effects = (#io #global-access); #body = (
                 (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()) ); }
-#fn inspect { #params = ((selected #bool)); #returns = (); #body = (
+#fn inspect { #params = ((selected #bool)); #returns = (); #effects = ((#effects-of touch)); #body = (
                 (#let-mut choice Choice (Choice.Empty))
                 (#let initial Choice choice)
                 (#if selected (#block (#set choice (Choice.Full 1u64)) ())
@@ -15627,15 +15637,20 @@ mod typed_ownership_tests {
             } else {
                 ""
             };
+            let effects = if opaque {
+                "#effects = ((#effects-of touch)); "
+            } else {
+                ""
+            };
             let source = format!(
                 "#enum Choice () ((Choice.Empty) (Choice.Full (#ref #u64)))
 #fn read {{ #params = ((source (#ref Choice))); #returns = #u64; #body = (
                     (#return (#match (#deref source)
                       (#case (Choice.Empty) 0u64)
                       (#case (Choice.Full value) (#deref value)))) ); }}
-#fn touch {{ #params = ((target (#ref-mut Choice))); #returns = (); #body = (
+#fn touch {{ #params = ((target (#ref-mut Choice))); #returns = (); #effects = (#io #global-access); #body = (
                     (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()) ); }}
-#fn caller {{ #params = (); #returns = #u64; #body = (
+#fn caller {{ #params = (); #returns = #u64; {effects}#body = (
                     (#let-mut choice Choice (Choice.Empty)) {mutation}
                     (#let borrowed (#ref Choice) (#borrow choice))
                     (#let result #u64 (#call read ((source borrowed))))
@@ -16295,7 +16310,7 @@ mod typed_ownership_tests {
     fn staged_variant_exit_contracts_do_not_hide_unknown_raw_accesses() {
         let source = "#struct Resource (#linear) ((number #u64))
 #enum Outcome () ((Outcome.Ready) (Outcome.Pending))
-#fn raw { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))); #returns = Outcome; #body = (
+#fn raw { #params = ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))); #returns = Outcome; #effects = (#io #global-access); #body = (
                 (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
                 (#forget (#deref target)) (#return (Outcome.Ready)) ); }\n";
         let program = crate::parse_program(source).unwrap();
@@ -16806,11 +16821,11 @@ mod typed_ownership_tests {
                   ((left (#call forward ())) (right (#if selected (Choice.Empty) (Choice.Full source)))))) ); }
 #fn early { #params = ((selected #bool) (source (#ref #u64))); #returns = Choice; #body = (
                 (#if selected (#block (#return (Choice.Full source)) ())) (#return (Choice.Empty)) ); }
-#fn raw-write { #params = ((source (#ref #u64))); #returns = Choice; #body = (
+#fn raw-write { #params = ((source (#ref #u64))); #returns = Choice; #effects = (#io #global-access); #body = (
                 (#let-mut value Choice (Choice.Empty))
                 (#let-mut scalar #u64 0u64)
                 (#unsafe (#ptr-write (#addr-of-mut scalar) 1u64)) (#return value) ); }
-#fn syscall-write { #params = (); #returns = Choice; #body = ( (#let-mut value Choice (Choice.Empty))
+#fn syscall-write { #params = (); #returns = Choice; #effects = (#io #global-access); #body = ( (#let-mut value Choice (Choice.Empty))
                 (#let-mut scalar #u64 0u64)
                 (#unsafe (#linux-syscall () 0u64 (0u64 (#addr-of-mut scalar) 0u64))) (#return value) ); }
 #fn no-return { #params = (); #returns = Choice; #body = ( (#return (#unreachable)) ); }\n";
@@ -21921,7 +21936,7 @@ mod typed_ownership_tests {
                          {restored_output})
                        {consumed_output})) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = ((target (#ref-mut Resource)) (choose #bool)); #returns = (); #body = (
+#fn caller {{ #params = ((target (#ref-mut Resource)) (choose #bool)); #returns = (); #effects = (#io #global-access); #body = (
                      (#return (#match (#call Task::spawn ((target target) (choose choose)))
                        (#case (Task::SpawnResult.Ok task)
                          (#match (#call Task::join ((task task)))
@@ -22030,7 +22045,7 @@ mod typed_ownership_tests {
                          (#let first (#tuple Outcome Outcome) (#tuple (Outcome.Restored) (Outcome.Consumed))) first)
                        (#block (#let second (#tuple Outcome Outcome) (#tuple (Outcome.Consumed) (Outcome.Restored))) second))) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = ((target (#ref-mut Resource)) (choose #bool)); #returns = (); #body = (
+#fn caller {{ #params = ((target (#ref-mut Resource)) (choose #bool)); #returns = (); #effects = (#io #global-access); #body = (
                      (#return (#match (#call Task::spawn ((target target) (choose choose)))
                        (#case (Task::SpawnResult.Ok task)
                          (#match (#call Task::join ((task task)))
@@ -22068,7 +22083,7 @@ mod typed_ownership_tests {
                 (#let-mut output (#tuple Outcome Outcome) (#tuple (Outcome.Restored) (Outcome.Consumed)))
                 (#set output (#tuple (Outcome.Consumed) (Outcome.Restored))) (#return output) ); }
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller { #params = ((target (#ref-mut Resource))); #returns = (); #body = (
+#fn caller { #params = ((target (#ref-mut Resource))); #returns = (); #effects = (#io #global-access); #body = (
                 (#return (#match (#call Task::spawn ((target target)))
                   (#case (Task::SpawnResult.Ok task)
                     (#match (#call Task::join ((task task)))
@@ -22463,7 +22478,7 @@ mod typed_ownership_tests {
                      (#forget (#deref target))
                      (#return {constructor}) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = ((target (#ref-mut Resource)) (choose #bool) (fallback Outcome)); #returns = (); #body = (
+#fn caller {{ #params = ((target (#ref-mut Resource)) (choose #bool) (fallback Outcome)); #returns = (); #effects = (#io #global-access); #body = (
                      (#return (#match (#call Task::spawn ((target target) (choose choose) (fallback fallback)))
                        (#case (Task::SpawnResult.Ok task)
                          (#match (#call Task::join ((task task)))
@@ -22542,7 +22557,7 @@ mod typed_ownership_tests {
                   (#block (#deref-set target (#struct-literal Resource ((number 42u64))))
                     (#tuple (Outcome.Restored) (Outcome.Consumed))) fallback)) ); }
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller { #params = ((target (#ref-mut Resource)) (choose #bool) (fallback (#tuple Outcome Outcome))); #returns = (); #body = (
+#fn caller { #params = ((target (#ref-mut Resource)) (choose #bool) (fallback (#tuple Outcome Outcome))); #returns = (); #effects = (#io #global-access); #body = (
                 (#return (#match (#call Task::spawn ((target target) (choose choose) (fallback fallback)))
                   (#case (Task::SpawnResult.Ok task)
                     (#match (#call Task::join ((task task)))
@@ -22605,7 +22620,7 @@ mod typed_ownership_tests {
                        (#block (#deref-set target (#struct-literal Resource ((number 42u64)))) (Outcome.Restored))
                        (Outcome.Consumed))) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = ((target (#ref-mut Resource)) (choose #bool)); #returns = (); #body = (
+#fn caller {{ #params = ((target (#ref-mut Resource)) (choose #bool)); #returns = (); #effects = (#io #global-access); #body = (
                      (#return (#match (#call Task::spawn ((target target) (choose choose)))
                        (#case (Task::SpawnResult.Ok task)
                          (#match (#call Task::join ((task task)))
@@ -22729,7 +22744,7 @@ mod typed_ownership_tests {
                    (#block (#deref-set target (#struct-literal Holder ((value first)))) {first_output})
                    (#block (#deref-set target (#struct-literal Holder ((value second)))) {second_output}))) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = ((target (#ref-mut Holder)) (first (#ref #u64)) (second (#ref #u64)) (choose #bool)); #returns = (); #body = (
+#fn caller {{ #params = ((target (#ref-mut Holder)) (first (#ref #u64)) (second (#ref #u64)) (choose #bool)); #returns = (); #effects = (#io #global-access); #body = (
                  (#return (#match (#call Task::spawn ((target target) (first first) (second second) (choose choose)))
                    (#case (Task::SpawnResult.Ok task)
                      (#match (#call Task::join ((task task)))
@@ -22808,7 +22823,7 @@ mod typed_ownership_tests {
 #fn worker {{ #params = ((target (#ref-mut Resource))); #returns = (); #body = (
                      (#forget (#deref target)) {restore} (#return ()) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = ((target (#ref-mut Resource))); #returns = (); #body = (
+#fn caller {{ #params = ((target (#ref-mut Resource))); #returns = (); #effects = (#io #global-access); #body = (
                      (#return (#match (#call Task::spawn ((target target)))
                        (#case (Task::SpawnResult.Ok task)
                          (#match (#call Task::join ((task task)))
@@ -22854,7 +22869,7 @@ mod typed_ownership_tests {
                      (#deref-set target (#struct-literal Resource ((number 42u64))))
                      (#return ()) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = ((target (#ref-mut Resource))); #returns = (); #body = (
+#fn caller {{ #params = ((target (#ref-mut Resource))); #returns = (); #effects = (#io #global-access); #body = (
                      (#return (#match (#call Task::spawn ((target target)))
                        (#case (Task::SpawnResult.Ok task)
                          (#block {before}
@@ -22895,7 +22910,7 @@ mod typed_ownership_tests {
 #fn worker { #params = ((target (#ref-mut Resource))); #returns = (); #body = (
               (#deref-set target (#struct-literal Resource ((number 42u64)))) (#return ()) ); }
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller { #params = ((target (#ref-mut Resource))); #returns = (); #body = (
+#fn caller { #params = ((target (#ref-mut Resource))); #returns = (); #effects = (#io #global-access); #body = (
               (#return (#match (#call Task::spawn ((target target)))
                 (#case (Task::SpawnResult.Ok task)
                   (#match (#call Task::join ((task task)))
@@ -22975,7 +22990,7 @@ mod typed_ownership_tests {
             let source = format!(
                 "#fn worker {{ #params = ((target ({reference} #u64))); #returns = (); #body = ( (#return ()) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = (); #returns = (); #body = (
+#fn caller {{ #params = (); #returns = (); #effects = (#io #global-access); #body = (
                      (#let-mut owner #u64 42u64)
                      (#let outcome Task::SpawnResult (#call Task::spawn ((target ({borrow} owner)))))
                      (#return (#match outcome
@@ -23027,7 +23042,7 @@ mod typed_ownership_tests {
 #fn read {{ #params = ((input (#ref-mut #u64))); #returns = #u64; #body = ( (#return (#deref input)) ); }}
 #fn write {{ #params = ((input (#ref-mut #u64))); #returns = (); #body = ( (#deref-set input 7u64) (#return ()) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = (); #returns = (); #body = (
+#fn caller {{ #params = (); #returns = (); #effects = (#io #global-access); #body = (
                      (#let-mut owner #u64 42u64)
                      (#let alias (#ref-mut #u64) (#borrow-mut owner))
                      (#return (#match (#call Task::spawn ((target alias)))
@@ -23074,7 +23089,7 @@ mod typed_ownership_tests {
               (#forget (#deref target))
               (#deref-set target (#struct-literal Holder ((value source)))) (#return ()) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = ((target (#ref-mut Holder)) (source (#ref #u64))); #returns = (); #body = (
+#fn caller {{ #params = ((target (#ref-mut Holder)) (source (#ref #u64))); #returns = (); #effects = (#io #global-access); #body = (
               (#return (#match (#call Task::spawn ((target target) (source source)))
                 (#case (Task::SpawnResult.Ok task)
                   (#block {pending}
@@ -23129,7 +23144,7 @@ mod typed_ownership_tests {
                      (#deref-set target (#struct-literal Holder ((value source))))) ())
                  (#return ()) ); }
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller { #params = ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)); #returns = (); #body = (
+#fn caller { #params = ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)); #returns = (); #effects = (#io #global-access); #body = (
                  (#return (#match (#call Task::spawn ((target target) (source source) (choose choose)))
                    (#case (Task::SpawnResult.Ok task)
                      (#match (#call Task::join ((task task)))
@@ -23243,7 +23258,7 @@ mod typed_ownership_tests {
 #fn worker {{ #params = ((target (#ref-mut {target_type}))); #returns = (); #body = (
               (#forget (#deref target)) {write} (#return ()) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = ((target (#ref-mut {target_type}))); #returns = (); #body = (
+#fn caller {{ #params = ((target (#ref-mut {target_type}))); #returns = (); #effects = (#io #global-access); #body = (
               (#return (#match (#call Task::spawn ((target target)))
                 (#case (Task::SpawnResult.Ok task)
                   (#match (#call Task::join ((task task)))
@@ -23288,7 +23303,7 @@ mod typed_ownership_tests {
               (#return (#struct-literal Packet ((first (Decision.Ready)) (second (Decision.Failed))))) ); }
 #fn worker { #params = (); #returns = Packet; #body = ( (#return (#call factory ())) ); }
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller { #params = (); #returns = (); #body = (
+#fn caller { #params = (); #returns = (); #effects = (#io #global-access); #body = (
               (#return (#match (#call Task::spawn ())
                 (#case (Task::SpawnResult.Ok task)
                   (#match (#call Task::join ((task task)))
@@ -23384,7 +23399,7 @@ mod typed_ownership_tests {
                 "#enum Decision (#linear) ((Decision.Ready) (Decision.Failed))
 #fn worker {{ #params = {parameters}; #returns = Decision; #body = ( (#return {returned}) ); }}
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller {{ #params = {caller_parameters}; #returns = (); #body = (
+#fn caller {{ #params = {caller_parameters}; #returns = (); #effects = (#io #global-access); #body = (
                      (#return (#match (#call Task::spawn ({arguments}))
                        (#case (Task::SpawnResult.Ok task)
                          (#match (#call Task::join ((task task)))
@@ -23436,9 +23451,9 @@ mod typed_ownership_tests {
     fn staged_thread_global_clears_are_deferred_to_successful_join() {
         let source = "#enum Holder (#linear) ((Holder.Empty) (Holder.Filled (#ref #u64)))
 #static snapshot Holder (Holder.Empty)
-#fn worker { #params = (); #returns = (); #body = ( (#unsafe (#forget snapshot)) (#return ()) ); }
+#fn worker { #params = (); #returns = (); #effects = ((#write-global snapshot)); #body = ( (#unsafe (#forget snapshot)) (#return ()) ); }
 #generate #thread-spawn ((task Task) (worker worker))
-#fn caller { #params = (); #returns = (); #body = (
+#fn caller { #params = (); #returns = (); #effects = (#io #global-access); #body = (
                 (#return (#match (#call Task::spawn ())
                   (#case (Task::SpawnResult.Ok task)
                     (#match (#call Task::join ((task task)))
@@ -23709,7 +23724,7 @@ mod typed_ownership_tests {
 #fn z-worker { #params = ((owner (#ref-mut Resource))); #returns = #u64; #body = (
               (#forget (#deref owner)) (#return (#get owner number)) ); }
 #generate #thread-spawn ((task Task) (worker z-worker))
-#fn a-caller { #params = ((owner (#ref-mut Resource))); #returns = #u64; #body = (
+#fn a-caller { #params = ((owner (#ref-mut Resource))); #returns = #u64; #effects = (#io #global-access); #body = (
               (#return (#match (#call Task::spawn ((owner owner)))
                 (#case (Task::SpawnResult.Ok task)
                   (#match (#call Task::join ((task task)))
@@ -23850,7 +23865,7 @@ mod typed_ownership_tests {
               (#let result #u64 (#u64::add-wrap (#deref (#index values 0usize)) (#deref (#index values 1usize))))
               (#forget values) (#return result) ); }
 #generate #thread-spawn ((task Task) (worker worker))
-#fn main { #params = (); #returns = #u64; #body = (
+#fn main { #params = (); #returns = #u64; #effects = (#io #global-access); #body = (
               (#let left #u64 20u64) (#let right #u64 22u64)
               (#let values (#array (#ref #u64) 2)
                 (#array-of (#array (#ref #u64) 2) (#borrow left) (#borrow right)))
@@ -24050,8 +24065,8 @@ mod typed_ownership_tests {
         ] {
             let call = format!("(#unsafe-call opaque ({arguments}))");
             let source = format!(
-                "#extern-fn  opaque {{ #abi = #abi-c; #params = {parameters}; #returns = {return_type}; }}
-#fn inspect {{ #params = {caller_parameters}; #returns = {return_type}; #body = (
+                "#extern-fn  opaque {{ #abi = #abi-c; #params = {parameters}; #returns = {return_type}; #effects = (#io #global-access); }}
+#fn inspect {{ #params = {caller_parameters}; #returns = {return_type}; #effects = ((#effects-of opaque)); #body = (
                      (#return (#unsafe {call})) ); }}\n"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -24076,8 +24091,8 @@ mod typed_ownership_tests {
     #[test]
     fn staged_raw_pointer_external_boundary_does_not_restore_consumed_referents() {
         let source = "#struct Resource (#linear) ((value #u64))
-#extern-fn  touch { #abi = #abi-c; #params = ((address (#ptr-mut Resource))); #returns = (); }
-#fn inspect { #params = ((target (#ref-mut Resource)) (address (#ptr-mut Resource))); #returns = #u64; #body = (
+#extern-fn  touch { #abi = #abi-c; #params = ((address (#ptr-mut Resource))); #returns = (); #effects = (#io #global-access); }
+#fn inspect { #params = ((target (#ref-mut Resource)) (address (#ptr-mut Resource))); #returns = #u64; #effects = ((#effects-of touch)); #body = (
                 (#forget (#deref target))
                 (#unsafe (#unsafe-call touch ((address address))))
                 (#return (#get target value)) ); }\n";
@@ -24111,10 +24126,10 @@ mod typed_ownership_tests {
             ("#pin-ref", "#pin-ptr-borrow", "#pin-ref"),
         ] {
             let source = format!(
-                "#fn inspect {{ #params = ((anchor ({anchor} #u64)) (address (#ptr #u64))); #returns = #u64; #body = (
+                "#fn inspect {{ #params = ((anchor ({anchor} #u64)) (address (#ptr #u64))); #returns = #u64; #effects = (#io #global-access); #body = (
                 (#let view ({reference} #u64) (#unsafe ({borrow} anchor address)))
                 (#return (#deref view)) ); }}
-#fn forward {{ #params = ((anchor ({anchor} #u64)) (address (#ptr #u64))); #returns = #u64; #body = (
+#fn forward {{ #params = ((anchor ({anchor} #u64)) (address (#ptr #u64))); #returns = #u64; #effects = ((#effects-of inspect)); #body = (
                   (#return (#call inspect ((anchor anchor) (address address)))) ); }}\n"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -24149,7 +24164,7 @@ mod typed_ownership_tests {
 #struct Holder () ((view (#ref Resource)))
 #fn read { #params = ((holder (#ref Holder))); #returns = #u64; #body = (
               (#return (#get (#get holder view) value)) ); }
-#fn inspect { #params = ((anchor (#ref Resource)) (address (#ptr Resource))); #returns = #u64; #body = (
+#fn inspect { #params = ((anchor (#ref Resource)) (address (#ptr Resource))); #returns = #u64; #effects = (#io #global-access); #body = (
               (#let holder Holder (#struct-literal Holder
                 ((view (#unsafe (#ptr-borrow anchor address))))))
               (#return (#call read ((holder (#borrow holder))))) ); }\n";
@@ -24174,7 +24189,7 @@ mod typed_ownership_tests {
 #struct Holder () ((view (#ref-mut Resource)))
 #fn consume { #params = ((holder (#ref-mut Holder))); #returns = (); #body = (
               (#forget (#deref (#get holder view))) (#return ()) ); }
-#fn inspect { #params = ((anchor (#ref-mut Resource)) (address (#ptr-mut Resource))); #returns = (); #body = (
+#fn inspect { #params = ((anchor (#ref-mut Resource)) (address (#ptr-mut Resource))); #returns = (); #effects = (#io #global-access); #body = (
               (#let-mut holder Holder (#struct-literal Holder
                 ((view (#unsafe (#ptr-borrow-mut anchor address))))))
               (#call consume ((holder (#borrow-mut holder))))
@@ -24190,7 +24205,7 @@ mod typed_ownership_tests {
     #[test]
     fn staged_direct_mixed_pointer_borrow_reads_keep_physical_inputs() {
         let source = "#fn inspect { #params = ((anchor (#ref #u64)) (other (#ref #u64))
-                      (address (#ptr #u64)) (choose #bool)); #returns = #u64; #body = (
+                      (address (#ptr #u64)) (choose #bool)); #returns = #u64; #effects = (#io #global-access); #body = (
                 (#let view (#ref #u64) (#if choose (#unsafe (#ptr-borrow anchor address)) other))
                 (#return (#deref view)) ); }\n";
         let program = crate::parse_program(source).unwrap();
@@ -24211,10 +24226,10 @@ mod typed_ownership_tests {
     #[test]
     fn staged_direct_pointer_borrow_field_reads_use_initialized_boundary() {
         let source = "#struct Resource (#linear) ((value #u64))
-#fn inspect { #params = ((anchor (#ref Resource)) (address (#ptr Resource))); #returns = #u64; #body = (
+#fn inspect { #params = ((anchor (#ref Resource)) (address (#ptr Resource))); #returns = #u64; #effects = (#io #global-access); #body = (
               (#let view (#ref Resource) (#unsafe (#ptr-borrow anchor address)))
               (#return (#get view value)) ); }
-#fn forward { #params = ((anchor (#ref Resource)) (address (#ptr Resource))); #returns = #u64; #body = (
+#fn forward { #params = ((anchor (#ref Resource)) (address (#ptr Resource))); #returns = #u64; #effects = ((#effects-of inspect)); #body = (
               (#return (#call inspect ((anchor anchor) (address address)))) ); }\n";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
@@ -24236,7 +24251,7 @@ mod typed_ownership_tests {
         ] {
             let source = format!(
                 "#struct Resource (#linear) ((value #u64))
-#fn inspect {{ #params = ((anchor (#ref-mut Resource)) (address (#ptr-mut Resource))); #returns = (); #body = (
+#fn inspect {{ #params = ((anchor (#ref-mut Resource)) (address (#ptr-mut Resource))); #returns = (); #effects = (#io #global-access); #body = (
                   (#let view (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor address)))
                   {operation} (#drop view) (#return ()) ); }}\n"
             );
@@ -24256,7 +24271,7 @@ mod typed_ownership_tests {
     fn staged_unsafe_pointer_borrow_reads_do_not_invent_physical_places() {
         let source = "#struct Resource (#linear) ((value #u64))
 #fn read { #params = ((value (#ref Resource))); #returns = #u64; #body = ( (#return (#get value value)) ); }
-#fn inspect { #params = ((anchor (#ref Resource)) (address (#ptr Resource))); #returns = #u64; #body = (
+#fn inspect { #params = ((anchor (#ref Resource)) (address (#ptr Resource))); #returns = #u64; #effects = (#io #global-access); #body = (
                 (#return (#call read ((value (#unsafe (#ptr-borrow anchor address)))))) ); }\n";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
@@ -24320,7 +24335,7 @@ mod typed_ownership_tests {
             "#struct Resource (#linear) ((value #u64))
 #fn read {{ #params = ((value (#ref Resource))); #returns = #u64; #body = ( (#return (#get value value)) ); }}
 #fn inspect {{ #params = ((anchor (#ref Resource)) (other (#ref Resource))
-                            (address (#ptr Resource)) (choose #bool)); #returns = #u64; #body = (
+                            (address (#ptr Resource)) (choose #bool)); #returns = #u64; #effects = (#io #global-access); #body = (
                 (#let result #u64 {call}) (#forget address) (#return result) ); }}\n"
         );
         let program = crate::parse_program(&source).unwrap();
@@ -24366,7 +24381,7 @@ mod typed_ownership_tests {
             let source = format!(
                 "#struct Resource (#linear) ((value #u64))
 #fn operate {{ #params = ((value (#ref-mut Resource))); #returns = (); #body = ( {operation} (#return ()) ); }}
-#fn inspect {{ #params = ((anchor (#ref-mut Resource)) (address (#ptr-mut Resource))); #returns = (); #body = (
+#fn inspect {{ #params = ((anchor (#ref-mut Resource)) (address (#ptr-mut Resource))); #returns = (); #effects = (#io #global-access); #body = (
                     {call} (#return ()) ); }}\n"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -24395,9 +24410,9 @@ mod typed_ownership_tests {
         // The allocator example is now native. Keep the foreign boundary
         // assertions explicit instead of depending on its allocator backend.
         let source = format!(
-            "{}\n#extern-fn  malloc {{ #abi = #abi-c; #params = ((size #usize)); #returns = (#ptr-mut #u8); }}
-#extern-fn  realloc {{ #abi = #abi-c; #params = ((pointer (#ptr-mut #u8)) (size #usize)); #returns = (#ptr-mut #u8); }}
-#extern-fn  free {{ #abi = #abi-c; #params = ((pointer (#ptr-mut #u8))); #returns = (); }}\n",
+            "{}\n#extern-fn  malloc {{ #abi = #abi-c; #params = ((size #usize)); #returns = (#ptr-mut #u8); #effects = (#io #global-access); }}
+#extern-fn  realloc {{ #abi = #abi-c; #params = ((pointer (#ptr-mut #u8)) (size #usize)); #returns = (#ptr-mut #u8); #effects = (#io #global-access); }}
+#extern-fn  free {{ #abi = #abi-c; #params = ((pointer (#ptr-mut #u8))); #returns = (); #effects = (#io #global-access); }}\n",
             std::fs::read_to_string(&path).unwrap()
         );
         let program = crate::parse_program_from_path(&source, &path).unwrap();
