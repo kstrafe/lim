@@ -239,7 +239,7 @@ fn direct_selected_static_array_index_is_frozen_before_await() {
         .replace(" (external (#ref #u64))", "")
         .replace(
             "#static global #u64 40u64",
-            "(#static global (#array #u64 2) (#array-of (#array #u64 2) 10u64 40u64))",
+            "#static global (#array #u64 2) (#array-of (#array #u64 2) 10u64 40u64)",
         )
         .replace(
             "(#let-mut view",

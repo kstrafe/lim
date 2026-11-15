@@ -545,7 +545,7 @@ fn selected_array_future_keeps_the_callers_array_borrowed() {
     for mutable in [false, true] {
         let source = selected_array_elements_source(mutable).replace(
             "(#drop next)",
-            "(#drop next)\n(#set-index external 2usize 99u64)",
+            "(#drop next)\n  (#set-index external 2usize 99u64)",
         );
         assert_borrow_error(
             &source,
