@@ -42,7 +42,7 @@ fn call_arguments(open: &Open<'_>) -> Option<usize> {
 /// Close missing final delimiters and the final named value/record terminator.
 /// This intentionally does not guess at malformed syntax in the middle of a file.
 pub(crate) fn recover(source: &str) -> Option<String> {
-    if crate::parse(source).is_ok() {
+    if crate::parse_source_unit(source).is_ok() {
         return Some(source.to_owned());
     }
     let tokens = crate::lex(source).ok()?;
@@ -149,7 +149,7 @@ pub(crate) fn recover(source: &str) -> Option<String> {
         }
         stack.pop();
     }
-    crate::parse(&recovered).ok()?;
+    crate::parse_source_unit(&recovered).ok()?;
     Some(recovered)
 }
 
@@ -160,7 +160,7 @@ pub(crate) fn call(source: &str, byte: usize) -> Option<Call> {
         return None;
     }
     let recovered = recover(source)?;
-    let forms = crate::parse(&recovered).ok()?;
+    let forms = crate::parse_source_unit(&recovered).ok()?;
     let (callee, argument) = forms
         .iter()
         .find_map(|node| runtime(node, byte, &recovered))?;

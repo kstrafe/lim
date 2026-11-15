@@ -281,8 +281,9 @@ fn documented_programs_compile_and_run() {
         ("soundness", include_str!("../docs/soundness-audit.md")),
     ] {
         for (index, (mode, mut source)) in fences(document).into_iter().enumerate() {
-            lim::parse(&source).unwrap_or_else(|error| panic!("{name} fence {index}: {error}"));
             if mode == "syntax" {
+                lim::parse(&source)
+                    .unwrap_or_else(|error| panic!("{name} syntax fence {index}: {error}"));
                 continue;
             }
             if let Some(fragment) = mode.strip_prefix("fragment=") {
@@ -291,7 +292,14 @@ fn documented_programs_compile_and_run() {
                     "array" | "bindings" | "slices" => "(#return ())",
                     _ => panic!("unknown fragment prelude: {fragment}"),
                 };
-                source = format!("(#fn main () ()\n{source}\n{epilogue})");
+                source = format!(
+                    "#fn main () ()\n{}\n  {epilogue}",
+                    source
+                        .lines()
+                        .map(|line| format!("  {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                );
             }
             source = source.replace(
                 "../library/",

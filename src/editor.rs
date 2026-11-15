@@ -273,7 +273,7 @@ fn navigation_context_impl(
                     {
                         continue;
                     }
-                    if let Ok(outlines) = crate::parse(&file.source) {
+                    if let Ok(outlines) = crate::parse_source_unit(&file.source) {
                         for mut outline in outlines {
                             if matches!(&outline.expr, crate::Expr::List(parts)
                                 if matches!(parts.first(), Some(crate::Expr::Symbol(head)) if head == "#syntax"))

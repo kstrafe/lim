@@ -692,7 +692,7 @@ impl Server<'_> {
                 .document_information(doc, byte, method)
                 .unwrap_or_else(|| "null".into()));
         }
-        if let Some((span, name)) = crate::parse(&doc.text)
+        if let Some((span, name)) = crate::parse_source_unit(&doc.text)
             .ok()
             .and_then(|tree| generator_reference(&tree, byte))
         {
@@ -764,7 +764,7 @@ impl Server<'_> {
         if let Some(locations) = self.indexed_definition(doc, byte) {
             return Ok(locations);
         }
-        if let Some(name) = crate::parse(&doc.text)
+        if let Some(name) = crate::parse_source_unit(&doc.text)
             .ok()
             .and_then(|tree| case_variant_reference(&tree, byte))
         {
@@ -773,12 +773,12 @@ impl Server<'_> {
                 .unwrap_or_else(|| "null".into()));
         }
         // Explicit #call callee role has a function namespace, unlike arbitrary names.
-        let callee = crate::parse(&doc.text)
+        let callee = crate::parse_source_unit(&doc.text)
             .ok()
             .and_then(|tree| call_callee(&tree, byte));
         if self.context_file(doc).is_some() {
             let name = callee.clone().or_else(|| {
-                crate::parse(&doc.text)
+                crate::parse_source_unit(&doc.text)
                     .ok()
                     .and_then(|tree| type_reference(&tree, byte))
             });
@@ -789,7 +789,7 @@ impl Server<'_> {
             }
         }
         if callee.is_none() {
-            if let Some(name) = crate::parse(&doc.text)
+            if let Some(name) = crate::parse_source_unit(&doc.text)
                 .ok()
                 .and_then(|tree| type_reference(&tree, byte))
             {
@@ -1618,7 +1618,7 @@ fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
     None
 }
 fn declarations(source: &str) -> Vec<Declaration> {
-    crate::parse(source)
+    crate::parse_source_unit(source)
         .unwrap_or_default()
         .iter()
         .filter_map(|expr| {
@@ -1796,7 +1796,7 @@ mod tests {
         assert_eq!(definitions.len(), 1);
         assert_eq!(definitions[0].name, "Error");
         assert_eq!(definitions[0].kind, 10);
-        let forms = crate::parse(source).unwrap();
+        let forms = crate::parse_source_unit(source).unwrap();
         for name in ["Error", "Payload"] {
             assert_eq!(
                 super::type_reference(

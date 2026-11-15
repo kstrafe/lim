@@ -318,6 +318,7 @@ fn contextual_generated_source(
     let header = prepared
         .generator_origins
         .context_header(producer, definition, invocation.span);
+    let header = &header[1..header.len() - 1];
     format!("{header}\n{source}")
 }
 
@@ -403,7 +404,9 @@ fn graph_generated_owned_program(
             let normalized = normalize_builtin_generator_invocation(&invocation.expr)?;
             output.source.push_str(&format!(
                 "\n{}\n",
-                expression_source(&super::async_interfaces::protocol_declaration(&normalized)?)?
+                crate::declaration_source(&super::async_interfaces::protocol_declaration(
+                    &normalized
+                )?)?
             ));
             output.source = generator::format_generated_source(&contextual_generated_source(
                 prepared,
@@ -473,7 +476,7 @@ fn graph_generated_owned_program(
             // probe. Require identical ordinary declarations rather than use
             // unchecked replacement text or validate the whole program twice.
             let declarations = |text: &str| {
-                crate::parse(text)
+                crate::parse_source_unit(text)
                     .map(|forms| forms.into_iter().map(|form| form.expr).collect::<Vec<_>>())
             };
             if declarations(&published)? != declarations(&output.source)? {
@@ -498,7 +501,7 @@ fn graph_source_origin(prepared: &PreparedProgramSyntax, span: Span) -> String {
 // The whole-program environment is immutable throughout an expansion or
 // publication pass. Sort and serialize it once, not for every invocation.
 fn graph_source_key_context(prepared: &PreparedProgramSyntax) -> String {
-    format!("lim-inspectable-async-graph-v4\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}",
+    format!("lim-inspectable-async-graph-v5-bare-roots\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}",
         env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), prepared.graph_dependency_context,
         async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types))
 }
@@ -509,6 +512,7 @@ fn graph_source_key(
     invocation: &SpannedExpr,
 ) -> Result<String, String> {
     let header = contextual_generated_source(prepared, invocation, "");
+    let header = expression_source(&crate::parse_source_unit(&header)?.remove(0).expr)?;
     Ok(format!(
         "{context}\ninvocation={}\ncontext={}",
         expression_source(&invocation.expr)?,
@@ -582,7 +586,7 @@ pub(crate) fn prepare_program_syntax(
             .get(expression.span.source_id as usize)
             .and_then(|file| file.source.get(expression.span.start..expression.span.end))
         {
-            if let Ok(forms) = parse(source) {
+            if let Ok(forms) = crate::parse_source_unit(source) {
                 if forms.len() == 1 && standard_library::is_generator_declaration(&forms[0].expr) {
                     generator_origins
                         .standard_declarations
@@ -661,8 +665,8 @@ pub(crate) fn prepare_program_syntax(
                 if matches!(parts.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#enum-contribute" | "#syntax")))
         {
             let origin = expression.span;
-            let text = expression_source(&expression.expr)?;
-            let mut parsed = parse(&text)?;
+            let text = crate::declaration_source(&expression.expr)?;
+            let mut parsed = crate::parse_source_unit(&text)?;
             let source_id = u32::try_from(source_files.len()).map_err(|_| {
                 "too many source files while tracking enum contributions".to_owned()
             })?;
@@ -1006,12 +1010,12 @@ pub(crate) fn parse_prepared_program_items(
             .unwrap_or("")
             .trim_start();
         let is_generated_output =
-            expression.children.is_empty() && invocation_text.starts_with("(#generate ");
+            expression.children.is_empty() && invocation_text.starts_with("#generate ");
         if is_generated_output {
-            let generated_text = expression_source(&expression.expr)?;
+            let generated_text = crate::declaration_source(&expression.expr)?;
             let source_id = u32::try_from(source_files.len())
                 .map_err(|_| "too many source files while tracking generator output".to_owned())?;
-            let mut parsed = parse(&generated_text)?;
+            let mut parsed = crate::parse_source_unit(&generated_text)?;
             if parsed.len() != 1 {
                 return Err("generator output did not parse as exactly one source form".into());
             }
@@ -1103,9 +1107,9 @@ pub(crate) fn parse_prepared_program_items(
                         let generated_text = contextual_generated_source(
                             prepared,
                             &source_expression,
-                            &generated_text,
+                            &generator::format_generated_syntax(&generated_text)?,
                         );
-                        let mut generated_forms = parse(&generated_text)?;
+                        let mut generated_forms = crate::parse_source_unit(&generated_text)?;
                         generated_forms
                             .retain(|form| !crate::generator_authority::is_header(&form.expr));
                         for generated_form in &mut generated_forms {
@@ -1344,7 +1348,11 @@ fn validate_generation_requirements(
                 &prepared.async_copy_types,
             )?)
         };
-        registry.record_builtin_output(&expression.expr, &parse(&source)?)?;
+        let forms = match source {
+            std::borrow::Cow::Borrowed(source) => crate::parse_source_unit(source)?,
+            std::borrow::Cow::Owned(source) => parse(&source)?,
+        };
+        registry.record_builtin_output(&expression.expr, &forms)?;
     }
     registry
         .validate(&prepared.generation_requirements)
@@ -1527,9 +1535,9 @@ fn write_prepared_generated_sources_reusing_graph(
             continue;
         }
         let context = contextual_generated_source(prepared, expression, "");
-        let context = context.trim();
+        let context = expression_source(&crate::parse_source_unit(&context)?.remove(0).expr)?;
         let key = format!(
-            "lim-inspectable-generated-source-v8\ncompiler={}\nimplementation={}\ndependency-context={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}\ncontext={context}",
+            "lim-inspectable-generated-source-v9-bare-roots\ncompiler={}\nimplementation={}\ndependency-context={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}\ncontext={context}",
             env!("CARGO_PKG_VERSION"),
             env!("LIM_BUILD_FINGERPRINT"),
             dependency_context,
@@ -1544,8 +1552,13 @@ fn write_prepared_generated_sources_reusing_graph(
             .cloned()
             .unwrap_or_else(|| vec![location(expression.span)]);
         generator::cached_generated_source_with_origins(&generated_cache, &key, &origins, || {
-            materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types)
-                .map(|source| contextual_generated_source(prepared, expression, &source))
+            let source =
+                materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types)?;
+            Ok(contextual_generated_source(
+                prepared,
+                expression,
+                &generator::format_generated_syntax(&source)?,
+            ))
         })?;
         record_generated_artifact(prepared, expression, &generated_cache, &key)?;
     }
@@ -1600,7 +1613,7 @@ mod async_migration_tests {
         for invocation in invocations {
             // The shared environment and each invocation's explicit module
             // context must both participate in the source-cache identity.
-            let expected = format!("lim-inspectable-async-graph-v4\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}\ncontext={}",
+            let expected = format!("lim-inspectable-async-graph-v5-bare-roots\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}\ncontext={}",
                 env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), prepared.graph_dependency_context,
                 async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types), expression_source(&invocation.expr).unwrap(), contextual_generated_source(&prepared, invocation, "").trim());
             let actual = graph_source_key(&prepared, &context, invocation).unwrap();
@@ -1801,7 +1814,7 @@ mod async_migration_tests {
             .collect::<Vec<_>>();
         assert!(keys
             .iter()
-            .any(|key| key.contains("lim-inspectable-async-graph-v4")));
+            .any(|key| key.contains("lim-inspectable-async-graph-v5-bare-roots")));
         assert!(!keys.iter().any(|key| key.contains("async-capture-plan=")));
     }
 

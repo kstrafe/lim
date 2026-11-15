@@ -663,8 +663,11 @@ fn expand_with_hits_and_origins(
                 let header = context
                     .origins
                     .context_header(producer, definition, expression.span);
-                let text = format!("{header}\n{}", crate::expression_source(&syntax.expr)?);
-                let mut tree = crate::parse(&text)?.remove(1);
+                let text = format_generated_syntax(&format!(
+                    "{header}\n{}",
+                    crate::expression_source(&syntax.expr)?
+                ))?;
+                let mut tree = crate::parse_source_unit(&text)?.remove(1);
                 let id = u32::try_from(
                     context.origins.source_paths.len() + context.origins.generated_sources.len(),
                 )
@@ -1135,7 +1138,7 @@ fn expand_top(
     );
     let cache_key = format!(
         "lim-generator-cache-v15\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\ninstance={}\narguments={:?}\ncontext={header}",
-        env!("CARGO_PKG_VERSION"),
+        concat!(env!("CARGO_PKG_VERSION"), "-bare-root-v1"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
         context.capability_hash,
@@ -1238,7 +1241,7 @@ fn expand_top(
         let source = match cached_source {
             Some(source) => source,
             None => {
-                let source = format_generated_source(&format!(
+                let source = format_generated_syntax(&format!(
                     "{header}\n{}",
                     forms
                         .iter()
@@ -1571,7 +1574,9 @@ pub(crate) fn cached_generated_source(
     key: &str,
     generate: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
-    cached_generated_source_with_origins(directory, key, &[], generate)
+    cached_generated_source_with_origins(directory, key, &[], || {
+        format_generated_syntax(&generate()?)
+    })
 }
 
 pub(crate) fn cached_generated_source_with_origins(
@@ -1580,7 +1585,7 @@ pub(crate) fn cached_generated_source_with_origins(
     origins: &[String],
     generate: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
-    let formatted_key = format!("lim-generated-source-format-v1\n{key}");
+    let formatted_key = format!("lim-generated-source-format-v2-bare-roots\n{key}");
     let key = formatted_key.as_str();
     let digest = stable_hash(key.as_bytes());
     let source_directory = generated_source_directory(directory);
@@ -1602,7 +1607,7 @@ pub(crate) fn cached_generated_source_with_origins(
             read_bounded_cache_text(&digest_path),
         ) {
             if expected_digest == generated_source_digest(key, &source)
-                && crate::parse(&source)
+                && crate::parse_source_unit(&source)
                     .is_ok_and(|forms| crate::generator_authority::matches_key(key, &forms))
             {
                 crate::cache_report::record("source", &path, key, "hit");
@@ -1655,7 +1660,8 @@ pub(crate) fn cached_generated_source_with_origins(
 }
 
 pub(crate) fn cached_generated_source_path(directory: &Path, key: &str) -> PathBuf {
-    let digest = stable_hash(format!("lim-generated-source-format-v1\n{key}").as_bytes());
+    let digest =
+        stable_hash(format!("lim-generated-source-format-v2-bare-roots\n{key}").as_bytes());
     generated_source_directory(directory).join(format!("generated-{digest:032x}.lim"))
 }
 
@@ -1706,7 +1712,15 @@ fn annotate_generated_source(source: &str, origins: &[String]) -> String {
 
 /// Keep declarations at column zero and indent their bodies structurally.
 /// Templates supply syntax; their incidental whitespace is never published.
+pub(crate) fn format_generated_syntax(source: &str) -> Result<String, String> {
+    render_generated_forms(&crate::parse(source)?)
+}
+
 pub(crate) fn format_generated_source(source: &str) -> Result<String, String> {
+    render_generated_forms(&crate::parse_source_unit(source)?)
+}
+
+fn render_generated_forms(forms: &[SpannedExpr]) -> Result<String, String> {
     fn render(expression: &Expr, indent: usize) -> Result<String, String> {
         let flat = crate::expression_source(expression)?;
         let Expr::List(items) = expression else {
@@ -1748,11 +1762,13 @@ pub(crate) fn format_generated_source(source: &str) -> Result<String, String> {
     }
 
     let mut output = String::new();
-    for parsed in crate::parse(source)? {
+    for parsed in forms {
         if !output.is_empty() {
             output.push('\n');
         }
-        output.push_str(&render(&parsed.expr, 0)?);
+        crate::declaration_source(&parsed.expr)?;
+        let rendered = render(&parsed.expr, 0)?;
+        output.push_str(&rendered[1..rendered.len() - 1]);
         output.push('\n');
     }
     Ok(output)
@@ -1904,7 +1920,7 @@ fn load_generated_expansion(
     if expected_digest != generated_source_digest(key, &source) {
         return Ok(None);
     }
-    let Ok(forms) = crate::parse(&source) else {
+    let Ok(forms) = crate::parse_source_unit(&source) else {
         return Ok(None);
     };
     if !crate::generator_authority::matches_key(key, &forms) {
@@ -1967,8 +1983,8 @@ fn write_generated_expansion(
         .collect::<Result<Vec<_>, _>>()?;
     let body = source.join("\n");
     let source = match key.lines().find_map(|line| line.strip_prefix("context=")) {
-        Some(header) => format_generated_source(&format!("{header}\n{body}"))?,
-        None => format_generated_source(&body)?,
+        Some(header) => format_generated_syntax(&format!("{header}\n{body}"))?,
+        None => format_generated_syntax(&body)?,
     };
     let mut origins = origins.to_vec();
     if let Some(previous) = read_bounded_cache_text(&path) {

@@ -6,7 +6,7 @@ use crate::{Expr, Item, Type};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub(crate) fn declarations(source: &str) -> Result<Vec<Item>, String> {
-    crate::parse(source)
+    crate::parse_source_unit(source)
         .map_err(|error| error.to_string())?
         .into_iter()
         .filter(|source| {

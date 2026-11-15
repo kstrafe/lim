@@ -1134,7 +1134,28 @@ pub fn parse(source: &str) -> Result<Vec<SpannedExpr>, String> {
         .map_err(|error| error.to_string())
 }
 
-/// Format canonical Lim source using the parsed S-expression structure.
+/// Read a compilation unit with bare, implicitly grouped root declarations.
+/// Unlike [`parse`], this reads source, not standalone syntax-tree data.
+pub fn parse_source_unit(source: &str) -> Result<Vec<SpannedExpr>, String> {
+    parse_source_unit_spanned(source).map_err(|error| error.to_string())
+}
+
+fn parse_source_unit_spanned(source: &str) -> Result<Vec<SpannedExpr>, ParseError> {
+    // Preserve lex-before-parse diagnostics without retaining the token corpus.
+    let mut lexer = Lexer::new(source);
+    while lexer
+        .next_token()
+        .map_err(|error| ParseError {
+            message: error.message,
+            span: error.span,
+        })?
+        .is_some()
+    {}
+    let mut forms = source_forms::SourceForms::new(source);
+    std::iter::from_fn(|| forms.next().transpose()).collect()
+}
+
+/// Format a Lim compilation unit, preserving bare roots and nested syntax.
 pub fn format_source(source: &str) -> Result<String, String> {
     source_forms::validate_lexically(source)?;
     let mut forms = source_forms::SourceForms::new(source);
@@ -1145,7 +1166,94 @@ pub fn format_source(source: &str) -> Result<String, String> {
     let mut previous_declaration = None;
     // Keep only one token/form tree live. Source offsets still refer to the
     // complete input, including comments between adjacent top-level forms.
-    while let Some(expression) = forms.next()? {
+    while let Some(expression) = forms.next().map_err(|e| e.to_string())? {
+        while let Some(comment) = comments.get(comment_index) {
+            if comment.span.end > expression.span.start {
+                break;
+            }
+            if comment.span.start >= cursor {
+                if !output.is_empty() && !output.ends_with('\n') {
+                    output.push('\n');
+                }
+                output.push_str(&comment.text);
+                output.push('\n');
+            }
+            cursor = comment.span.end;
+            comment_index += 1;
+        }
+        if !output.is_empty() && !output.ends_with('\n') {
+            output.push('\n');
+        }
+        let declaration = matches!(&expression.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head))
+                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#gn" | "#gn-fn")));
+        if previous_declaration.is_some_and(|previous| previous || declaration)
+            && !output.ends_with("\n\n")
+        {
+            output.push('\n');
+        }
+        output.push_str(&surface_syntax::format_surface(&expression, source));
+        previous_declaration = Some(declaration);
+        cursor = expression.span.end;
+        // Nested comments were emitted by the expression renderer already.
+        while comments
+            .get(comment_index)
+            .is_some_and(|comment| comment.span.start < cursor)
+        {
+            comment_index += 1;
+        }
+        let next_start = forms
+            .next_start()
+            .map_err(|e| e.to_string())?
+            .unwrap_or(source.len());
+        while let Some(comment) = comments.get(comment_index) {
+            if comment.span.start < expression.span.end || comment.span.start >= next_start {
+                break;
+            }
+            if comment.span.line == source_line_at(source, expression.span.end) {
+                output.push(' ');
+                output.push_str(&comment.text);
+                output.push('\n');
+            } else {
+                if !output.ends_with('\n') {
+                    output.push('\n');
+                }
+                output.push_str(&comment.text);
+                output.push('\n');
+            }
+            cursor = comment.span.end;
+            comment_index += 1;
+        }
+    }
+    while let Some(comment) = comments.get(comment_index) {
+        if comment.span.start >= cursor {
+            if !output.is_empty() && !output.ends_with('\n') {
+                output.push('\n');
+            }
+            output.push_str(&comment.text);
+            output.push('\n');
+        }
+        comment_index += 1;
+    }
+    if output.is_empty() || !output.ends_with('\n') {
+        output.push('\n');
+    }
+    Ok(output)
+}
+
+/// Format standalone syntax-tree data. This does not accept a compilation unit
+/// on behalf of the compiler or relax the bare-root source grammar.
+pub fn format_syntax(source: &str) -> Result<String, String> {
+    source_forms::validate_lexically(source)?;
+    let mut forms = parse(source)?.into_iter().peekable();
+    let comments = source_comments(source);
+    let mut output = String::new();
+    let mut comment_index = 0;
+    let mut cursor = 0;
+    let mut previous_declaration = None;
+    // Keep only one token/form tree live. Source offsets still refer to the
+    // complete input, including comments between adjacent top-level forms.
+    while let Some(expression) = forms.next() {
         while let Some(comment) = comments.get(comment_index) {
             if comment.span.end > expression.span.start {
                 break;
@@ -1190,7 +1298,7 @@ pub fn format_source(source: &str) -> Result<String, String> {
         {
             comment_index += 1;
         }
-        let next_start = forms.next_start()?.unwrap_or(source.len());
+        let next_start = forms.peek().map_or(source.len(), |node| node.span.start);
         while let Some(comment) = comments.get(comment_index) {
             if comment.span.start < expression.span.end || comment.span.start >= next_start {
                 break;
@@ -1242,7 +1350,8 @@ pub fn format_project_from_path(source_path: &Path) -> Result<Vec<PathBuf>, Stri
         }
         let source = fs::read_to_string(&path)
             .map_err(|error| format!("cannot read source '{}': {error}", path.display()))?;
-        let forms = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+        let forms =
+            parse_source_unit(&source).map_err(|error| format!("{}: {error}", path.display()))?;
         let mut dependencies = Vec::new();
         for form in &forms {
             file_access::dependencies(form, &mut dependencies)
@@ -2622,7 +2731,7 @@ pub fn locate_link_diagnostic(mut diagnostic: Diagnostic, source: &str) -> Diagn
     let Some(symbol) = symbol else {
         return diagnostic;
     };
-    if let Ok(expressions) = parse(source) {
+    if let Ok(expressions) = parse_source_unit(source) {
         diagnostic.span = expressions
             .iter()
             .filter_map(|expression| source_symbol_span(expression, symbol, true))
@@ -5620,20 +5729,13 @@ fn load_imports_inner(
             ));
         }
     }
-    let mut expressions = Parser::new(&tokens)
-        .with_source(source)
-        .run()
-        .map_err(|error| {
-            let mut span = error.span;
-            span.source_id = source_id;
-            let error = attach_span_to_source_error_kind(
-                error.message,
-                span,
-                source_files,
-                "parse error: ",
-            );
-            attach_generator_source(error, source_files)
-        })?;
+    let mut expressions = parse_source_unit_spanned(source).map_err(|error| {
+        let mut span = error.span;
+        span.source_id = source_id;
+        let error =
+            attach_span_to_source_error_kind(error.message, span, source_files, "parse error: ");
+        attach_generator_source(error, source_files)
+    })?;
     for expression in &mut expressions {
         set_source_id(expression, source_id);
     }
@@ -5860,7 +5962,8 @@ pub fn collect_cfg_keys_from_path(source_path: &Path) -> Result<Vec<String>, Str
             .map(|source| Ok(source.to_owned()))
             .unwrap_or_else(|| fs::read_to_string(&path))
             .map_err(|error| format!("cannot read source '{}': {error}", path.display()))?;
-        let forms = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+        let forms =
+            parse_source_unit(&source).map_err(|error| format!("{}: {error}", path.display()))?;
         for form in &forms {
             walk(form, keys)?;
             let mut dependencies = Vec::new();
@@ -6192,6 +6295,23 @@ fn builtin_payload_helpers_source(
 
 /// Turn a built-in generator's named syntax arguments into its internal
 /// declaration order. User-defined generators continue to receive literals.
+
+/// Serialize a declaration document, not a nested syntax-tree expression.
+pub(crate) fn declaration_source(expression: &Expr) -> Result<String, String> {
+    let Expr::List(items) = expression else {
+        return Err("generated source root must be a declaration list".into());
+    };
+    if !matches!(items.first(), Some(Expr::Symbol(head)) if head.starts_with('#'))
+        && !matches!(items.first(), Some(Expr::Generate))
+    {
+        return Err("generated source root requires a declaration head".into());
+    }
+    Ok(items
+        .iter()
+        .map(expression_source)
+        .collect::<Result<Vec<_>, _>>()?
+        .join(" "))
+}
 
 pub(crate) fn expression_source(expression: &Expr) -> Result<String, String> {
     match expression {

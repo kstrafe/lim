@@ -1,7 +1,7 @@
 fn assert_formatted(source: &str, expected: &str) {
-    let formatted = lim::format_source(source).unwrap();
+    let formatted = lim::format_syntax(source).unwrap();
     assert_eq!(formatted, expected);
-    assert_eq!(lim::format_source(&formatted).unwrap(), formatted);
+    assert_eq!(lim::format_syntax(&formatted).unwrap(), formatted);
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn empty_and_comment_only_sources_have_a_final_newline() {
 
 #[test]
 fn malformed_trailing_expression_returns_error() {
-    assert!(lim::format_source("valid (unterminated").is_err());
+    assert!(lim::format_syntax("valid (unterminated").is_err());
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn lexical_parse_and_nesting_errors_match_the_ordinary_parser() {
         &too_deep,
     ] {
         assert_eq!(
-            lim::format_source(source).unwrap_err(),
+            lim::format_syntax(source).unwrap_err(),
             lim::parse(source).unwrap_err(),
             "{source}"
         );

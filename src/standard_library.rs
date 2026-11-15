@@ -25,7 +25,9 @@ pub(crate) fn is_generator_declaration(expression: &crate::Expr) -> bool {
                 include_str!("../library/utf8_view.lim"),
             ]
             .into_iter()
-            .flat_map(|source| crate::parse(source).expect("valid standard library syntax"))
+            .flat_map(|source| {
+                crate::parse_source_unit(source).expect("valid standard library syntax")
+            })
             .filter_map(|form| {
                 matches!(&form.expr, crate::Expr::List(items)
                 if matches!(items.first(), Some(crate::Expr::Symbol(head)) if head == "#gn"))

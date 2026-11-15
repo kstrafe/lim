@@ -7649,7 +7649,7 @@ impl<'a> Emitter<'a> {
             "{source}\n{cleanup}\n{word_cleanup}\n{projections}\n{access}"
         ))
         .map_err(|message| fail(self.function, message))?;
-        let source = crate::generator::format_generated_source(&source)
+        let source = crate::generator::format_generated_syntax(&source)
             .map_err(|message| fail(self.function, message))?;
         Ok(Generated {
             frame: self.frame,
@@ -7708,7 +7708,7 @@ pub(crate) fn program(
         program
             .generated_source_invocations
             .insert(source_id, generated.origin);
-        for mut source in crate::parse(&generated.source)? {
+        for mut source in crate::parse_source_unit(&generated.source)? {
             if crate::generator_authority::is_header(&source.expr) {
                 continue;
             }

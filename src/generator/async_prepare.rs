@@ -125,8 +125,8 @@ fn invocation_tree(
     if !invocation.children.is_empty() {
         return Ok(invocation.clone());
     }
-    let text = crate::expression_source(&invocation.expr)?;
-    let mut parsed = crate::parse(&text)?;
+    let text = crate::declaration_source(&invocation.expr)?;
+    let mut parsed = crate::parse_source_unit(&text)?;
     if parsed.len() != 1 {
         return Err(SourceError::new(
             "generated async invocation must contain exactly one form",

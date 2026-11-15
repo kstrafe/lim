@@ -169,7 +169,7 @@ impl Visibility {
                     ))
                 })?;
             let mut names = Vec::new();
-            for form in crate::parse(&text)? {
+            for form in crate::parse_source_unit(&text)? {
                 if let Some(entries) = export_names(&form)? {
                     for entry in entries {
                         if names.contains(&entry) {

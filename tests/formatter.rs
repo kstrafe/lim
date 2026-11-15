@@ -20,7 +20,7 @@ fn all_examples_format_idempotently_without_changing_syntax() {
                     path.display()
                 );
                 let expressions = |text: &str| {
-                    lim::parse(text)
+                    lim::parse_source_unit(text)
                         .unwrap()
                         .into_iter()
                         .map(|expression| expression.expr)

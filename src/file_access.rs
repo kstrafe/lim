@@ -697,7 +697,7 @@ pub(crate) fn resolve(
         if let Some(scope) = &file.file_scope {
             resolver.names[id] = scope.names.clone();
         }
-        let raw = crate::expand_cfg_forms(crate::parse(&file.source)?, config)?;
+        let raw = crate::expand_cfg_forms(crate::parse_source_unit(&file.source)?, config)?;
         for form in raw {
             if let Some(names) = crate::library::export_names(&form)? {
                 resolver.exports[id].extend(names);
