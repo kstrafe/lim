@@ -22,14 +22,19 @@ class MigrationError(ValueError):
     pass
 
 
+HASH_COMMENT = r'#(?!(?:[A-Za-z_!+*/%&|^<>=-]|\\))[^\n]*'
 TOKEN = re.compile(
-    r'//[^\n]*|"(?:\\.|[^"\\])*"|#\\(?:u\{[0-9a-fA-F]+\}|[^\s(){}\[\]]+|.)'
+    r'//[^\n]*|' + HASH_COMMENT + r'|"(?:\\.|[^"\\])*"|#\\(?:u\{[0-9a-fA-F]+\}|[^\s(){}\[\]]+|.)'
     r'''|[(){}\[\];]|,@|['`,]|(?:(?!//)[^\s(){}\[\];'`,"])+'''
 )
 OPEN = {"(": ")", "{": "}", "[": "]"}
 CLOSE = set(OPEN.values())
 FUNCTIONS = {"#fn", "#unsafe-fn", "#extern-fn"}
 SECTIONS = {"#params", "#returns", "#requires", "#ensures", "#preserves", "#body"}
+
+
+def is_comment(text):
+    return text.startswith("//") or re.fullmatch(HASH_COMMENT, text) is not None
 
 
 @dataclass(frozen=True)
@@ -47,7 +52,7 @@ class Migration:
         for match in TOKEN.finditer(source):
             if source[previous:match.start()].strip():
                 raise MigrationError(f"unrecognized or unterminated literal at character {previous}")
-            if not match.group().startswith("//"):
+            if not is_comment(match.group()):
                 self.tokens.append(Token(match.group(), match.start(), match.end()))
             previous = match.end()
         if source[previous:].strip():

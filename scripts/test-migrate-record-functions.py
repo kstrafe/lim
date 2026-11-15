@@ -20,7 +20,7 @@ class MigrationTests(unittest.TestCase):
         result = migration.migrate_source(source)
         self.assertEqual(migration.migrate_source(result), result, "migration must be idempotent")
         comments = lambda text: [match.group() for match in migration.TOKEN.finditer(text)
-                                 if match.group().startswith("//")]
+                                 if migration.is_comment(match.group())]
         self.assertEqual(comments(result), comments(source), "comments must survive in order")
         return result
 
@@ -83,6 +83,14 @@ class MigrationTests(unittest.TestCase):
         ]:
             with self.assertRaises(migration.MigrationError, msg=source):
                 migration.migrate_source(source)
+
+    def test_hash_comments_do_not_expose_delimiters_or_declarations(self):
+        source = '# comment } ; " (#fn ghost () #u64\n#fn main () #u64\n  # another comment ] ; (#fn fake\n  (#let marker #char #\\;)\n  (#return 42u64)\n'
+        result = self.migrate(source)
+        self.assertEqual(result.count('#body ='), 1)
+        self.assertIn('#\\;', result)
+        operators = '#+ #- #* #/ #% #& #| #^ #< #> #= #_ #fn #\\;'.split()
+        self.assertEqual([token.text for token in migration.Migration(' '.join(operators)).tokens], operators)
 
 
 if __name__ == '__main__':
