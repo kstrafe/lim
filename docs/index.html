@@ -21,6 +21,8 @@
 <li><a href="#introduction" id="toc-introduction">Meet Lim</a>
 <ul>
 <li><a href="#language" id="toc-language">Read what runs</a></li>
+<li><a href="#compile-time-generation" id="toc-compile-time-generation">Generate concrete code at compile time</a></li>
+<li><a href="#following-declarations" id="toc-following-declarations">Follow a name to its definition</a></li>
 <li><a href="#why-a-new-language" id="toc-why-a-new-language">Why a new language?</a></li>
 <li><a href="#design-reasoning" id="toc-design-reasoning">Why these design choices?</a></li>
 <li><a href="#safety" id="toc-safety">What the compiler checks</a></li>
@@ -127,10 +129,12 @@
 <header class="document-intro"><p class="eyebrow">A language for people &amp; machines · experimental</p><h1>Explicit code.<br>One place to look.</h1><p class="lead">Lim is a compiled Lisp with explicit types, visible ownership and inspectable generated code. Start with the design, learn by example, and keep the full reference beside your code.</p><p class="anchor-hint">Find a keyword with <kbd>Ctrl</kbd> + <kbd>F</kbd> / <kbd>⌘</kbd> + <kbd>F</kbd>. No JavaScript, external fonts or collapsed reference text. Save this HTML file to read offline.</p></header>
 <section id="introduction" class="level1">
 <h1>Meet Lim</h1>
-<p>Lim is an experimental, statically typed, compiled Lisp for programs that people and machines can both read. It aims to be a human-readable intermediate representation for generated code: straightforward for a generator or language model to produce, and explicit enough for a developer to inspect and change. You can also write it by hand. This page introduces the design, teaches the language, and keeps the full reference in one searchable document.</p>
+<p>Lim is an experimental, compiled <strong>Lisp with explicit, strong static types</strong>. It is meant for code that people and machines can both read. You can write it by hand, ask a language model to produce it, or generate it from other code. In each case, you should be able to open the result and follow what it does. This page explains the design, walks through examples, and keeps the full reference close at hand.</p>
 <section id="language" class="level2">
 <h2>Read what runs</h2>
-<p>Lim has explicit types, named call arguments, visible control flow, and explicit returns. Arithmetic names its type and overflow behavior. Builtins begin with <code>#</code>; your declarations use ordinary names. A small surface notation makes handwritten code lighter while reducing to the same parenthesized trees that code generators manipulate.</p>
+<p><strong>Explicitness is the guiding principle.</strong> Bindings state their types, functions return explicitly, and arithmetic names its type and overflow behavior. Ordinary function calls require named arguments: <code>left = 40</code> tells you which parameter receives the value. Builtin operations and special forms can also have positional operands, as the arithmetic and return forms below do.</p>
+<p>Before reading the example, one naming rule helps: <strong>the <code>#</code> prefix belongs to the language.</strong> Builtins, builtin types and operators use it, such as <code>#fn</code>, <code>#u64</code> and <code>#return</code>. User declarations cannot use that prefix. Adding a future builtin <code>#feature</code> therefore leaves your <code>feature</code> name available; this does not promise that every future language change is backward-compatible.</p>
+<p>A small surface notation makes handwritten code lighter: records, indentation, colon grouping and infix expressions reduce parentheses, verbosity and visual noise. This syntax sugar lowers to the same explicit parenthesized trees that code generators manipulate.</p>
 <pre class="lisp"><code>#fn add {
   #params = { left = #u64; right = #u64; };
   #returns = #u64;
@@ -143,6 +147,20 @@
   #body: #return add { left = 40; right = 2; };
 }</code></pre>
 <p>The result is the process exit status, 42. Braces contain named pairs; the colon groups the rest of its line; brackets contain typed infix arithmetic. The <a href="#tutorial">tutorial</a> develops these rules step by step.</p>
+</section>
+<section id="compile-time-generation" class="level2">
+<h2>Generate concrete code at compile time</h2>
+<p>Code generation is built into Lim. Pure compile-time generators produce concrete, specialized types and their APIs: an optional value for a particular element type, a fixed array with bounds contracts, or a task state machine. This supports complex designs without hiding their implementation behind runtime dispatch. The generated Lim source is available to inspect, search and debug. The <a href="#generators-tutorial">generator tutorial</a> starts with a small example; the <a href="#user-defined-generators">reference</a> describes the restricted generator language and its contracts.</p>
+</section>
+<section id="following-declarations" class="level2">
+<h2>Follow a name to its definition</h2>
+<p>A direct file reference names both a source file and a declaration. An explicit alias gives that exact declaration a shorter file-local spelling:</p>
+<pre class="lisp"><code>// Two ways to name the same function in math.lim:
+(#alias add = ./math.lim::add)
+(#fn answer () #u64
+  (#let first #u64 (./math.lim::add { left = 20; right = 22; }))
+  (#return (add { left = first; right = 0; })))</code></pre>
+<p>The declaration&#39;s identity is its <strong>canonical file plus declaration name</strong>. Aliases change the spelling you use, not the identity, signature or ownership rules. This gives text search and editor go-to-definition a direct route to the source. There is no nested namespace lookup, chain of implicit imports or receiver-based method dispatch to unravel. A family spelling such as <code>VecU64::sort</code> is a single declaration name; <code>::</code> within that name does not introduce a namespace. See <a href="#direct-file-references-and-aliases">direct references and aliases</a> for path resolution and visibility rules.</p>
 </section>
 <section id="why-a-new-language" class="level2">
 <h2>Why a new language?</h2>

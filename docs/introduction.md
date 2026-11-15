@@ -1,19 +1,30 @@
 # Meet Lim {#introduction}
 
-Lim is an experimental, statically typed, compiled Lisp for programs that people
-and machines can both read. It aims to be a human-readable intermediate
-representation for generated code: straightforward for a generator or language
-model to produce, and explicit enough for a developer to inspect and change.
-You can also write it by hand. This page introduces the design, teaches the
-language, and keeps the full reference in one searchable document.
+Lim is an experimental, compiled **Lisp with explicit, strong static types**.
+It is meant for code that people and machines can both read. You can write it
+by hand, ask a language model to produce it, or generate it from other code.
+In each case, you should be able to open the result and follow what it does.
+This page explains the design, walks through examples, and keeps the full
+reference close at hand.
 
 ## Read what runs {#language}
 
-Lim has explicit types, named call arguments, visible control flow, and explicit
-returns. Arithmetic names its type and overflow behavior. Builtins begin with
-`#`; your declarations use ordinary names. A small surface notation makes
-handwritten code lighter while reducing to the same parenthesized trees that
-code generators manipulate.
+**Explicitness is the guiding principle.** Bindings state their types, functions
+return explicitly, and arithmetic names its type and overflow behavior.
+Ordinary function calls require named arguments: `left = 40` tells you which
+parameter receives the value. Builtin operations and special forms can also
+have positional operands, as the arithmetic and return forms below do.
+
+Before reading the example, one naming rule helps: **the `#` prefix belongs to
+the language.** Builtins, builtin types and operators use it, such as `#fn`,
+`#u64` and `#return`. User declarations cannot use that prefix. Adding a future
+builtin `#feature` therefore leaves your `feature` name available; this does
+not promise that every future language change is backward-compatible.
+
+A small surface notation makes
+handwritten code lighter: records, indentation, colon grouping and infix
+expressions reduce parentheses, verbosity and visual noise. This syntax sugar
+lowers to the same explicit parenthesized trees that code generators manipulate.
 
 ```lisp run=42
 #fn add {
@@ -32,6 +43,39 @@ code generators manipulate.
 The result is the process exit status, 42. Braces contain named pairs; the
 colon groups the rest of its line; brackets contain typed infix arithmetic.
 The [tutorial](tutorial.md) develops these rules step by step.
+
+## Generate concrete code at compile time {#compile-time-generation}
+
+Code generation is built into Lim. Pure compile-time generators produce
+concrete, specialized types and their APIs: an optional value for a particular
+element type, a fixed array with bounds contracts, or a task state machine.
+This supports complex designs without hiding their implementation behind
+runtime dispatch. The generated Lim source is available to inspect, search
+and debug. The [generator tutorial](tutorial.md#generators-tutorial) starts
+with a small example; the [reference](language.md#user-defined-generators)
+describes the restricted generator language and its contracts.
+
+## Follow a name to its definition {#following-declarations}
+
+A direct file reference names both a source file and a declaration. An explicit
+alias gives that exact declaration a shorter file-local spelling:
+
+```lisp syntax
+// Two ways to name the same function in math.lim:
+(#alias add = ./math.lim::add)
+(#fn answer () #u64
+  (#let first #u64 (./math.lim::add { left = 20; right = 22; }))
+  (#return (add { left = first; right = 0; })))
+```
+
+The declaration's identity is its **canonical file plus declaration name**.
+Aliases change the spelling you use, not the identity, signature or ownership
+rules. This gives text search and editor go-to-definition a direct route to the
+source. There is no nested namespace lookup, chain of implicit imports or
+receiver-based method dispatch to unravel. A family spelling such as
+`VecU64::sort` is a single declaration name; `::` within that name does not
+introduce a namespace. See [direct references and aliases](language.md#direct-file-references-and-aliases)
+for path resolution and visibility rules.
 
 ## Why a new language? {#why-a-new-language}
 
