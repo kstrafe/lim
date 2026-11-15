@@ -106,7 +106,11 @@ helpers declare their own broad boundary, and dispatchers explicitly include
 the written interfaces of selected helper templates. Authored async bodies
 retain their own written permissions and are checked as source witnesses.
 
-## Bounded offline workflow for remaining fixtures
+## Bounded offline review workflow
+
+The migration used this workflow to classify and review source fixtures. Keep
+it for later fixture additions and focused rechecks; it is an offline review
+process, not a compiler compatibility path.
 
 `scripts/migrate-effects.py` is an offline structural planning tool, not part of
 the compiler. It uses only the Python standard library and the existing record
@@ -144,15 +148,15 @@ structural nesting limit of 200. Run it under the repository's process limits.
    missing declarations or modeling gaps; do not disable mandatory checking.
    Repeat cached-source cases as part of that validation.
 
-The generated-source format key is bumped for these explicit signatures so
+The generated-source format key was bumped for these explicit signatures so
 cached artifacts containing old unannotated runtime functions are rebuilt.
 The key change does not grant permissions, bypass checks, or disable caching.
 
-## Built-in coverage and remaining integration targets
+## Completed coverage and validation limits
 
 Built-in vector allocator and sort source templates reside in
 `src/lib.rs` (`generated_vec_allocator_source` and
-`generated_vec_sort_source_parts`) and are migrated in this followup. The
+`generated_vec_sort_source_parts`) and were migrated in this followup. The
 allocator-template functions declaring broad boundaries are
 `{name}::reserve-fields`, `push`, `get`, `get-mut`, `set`, `pop`, and `free`.
 `{name}::reserve` includes `(#effects-of {name}::reserve-fields)`.
@@ -166,13 +170,22 @@ permissions. They cannot be named by `#effects-of` until they have an explicit
 effect interface; use the broad grants at those call sites. Worker bodies still
 need their own declarations, including generated executor callback inclusions.
 
-Existing examples and general Rust fixture strings are not changed by this
-migration. Call sites of effectful library and generated functions need their
-own explicit declarations. The helper's generator-fragment and parameter-write
-reports are review obligations, not a claim that compiler validation has passed.
-`docs/effects-tutorial.patch` contains reviewed declaration edits against main's
-`examples/tutorial_hello.lim` and the Hello World executable fence in
-`docs/tutorial.md`. Apply it after integrating the new tutorial, then regenerate
-the handbook under the coordinator's validation guard. `docs/playground.html` and
-`scripts/check-browser*.mjs` remain with the printing worker until its handoff.
-Predicate-prerequisite inheritance is a separate task.
+At integrated baseline `99f98d63`, the migration covers shipped libraries and
+generator templates, examples, tutorial code and executable documentation
+fences, integration-test fixtures, and compiler-internal Rust unit-test fixture
+strings, including async emitter fixtures. Effectful call sites declare their
+permissions explicitly. Pure functions receive no new permissions, and
+intentional effect-negative cases retain their missing or insufficient grants.
+
+The Hello World effect declarations are already applied in
+`examples/tutorial_hello.lim` and `docs/tutorial.md`. Printing, playground, and
+browser-check script changes have also been integrated. GN named records,
+canonical `#std/` paths, and conditional records are part of the same integrated
+baseline. Separate anonymous-function and dispatch validation is outside this
+migration inventory.
+
+Validation remains target-specific. The full Cargo run has a known
+`pinned_rc_async` ABI baseline failure; completed source migration does not
+establish that every test or backend passes. The helper's generator-fragment
+and parameter-write reports remain review obligations, and affected targets
+still require serialized compiler validation.
