@@ -86,7 +86,7 @@ fn report_mirror_allocations(label: &str, source: &str, iterations: usize) {
     let mut calls = 0usize;
     let mut bytes = 0usize;
     for _ in 0..iterations {
-        let ast = lim::parse(black_box(source)).unwrap();
+        let ast = lim::parse_source_unit(black_box(source)).unwrap();
         let before = allocation_counts();
         let mut symbols = LocalSymbols::default();
         let interned = ast
@@ -305,7 +305,7 @@ fn ast_symbol_stats(nodes: &[lim::SpannedExpr]) -> (usize, usize, usize) {
 }
 
 fn report_parsed_symbols(label: &str, source: &str) {
-    let parsed = lim::parse(source).expect("benchmark syntax parses");
+    let parsed = lim::parse_source_unit(source).expect("benchmark syntax parses");
     let (duplicates, repeated_bytes, unique_bytes) = ast_symbol_stats(&parsed);
     println!(
         "{label}.ast-identifiers symbol_nodes={} duplicate_allocations_est={duplicates} repeated_text_bytes={repeated_bytes} unique_text_bytes={unique_bytes}",
@@ -334,12 +334,12 @@ fn count_ast_symbols(nodes: &[lim::SpannedExpr]) -> usize {
 
 fn generated_syntax(aliases: usize) -> String {
     (0..aliases)
-        .map(|index| format!("(#type Generated{index} #u64)\n"))
+        .map(|index| format!("#type Generated{index} #u64\n"))
         .collect()
 }
 
 fn report_generated_symbols(label: &str, source: &str) {
-    let nodes = lim::parse(source).expect("benchmark generated syntax parses");
+    let nodes = lim::parse_source_unit(source).expect("benchmark generated syntax parses");
     let (duplicates, repeated_bytes, unique_bytes) = ast_symbol_stats(&nodes);
     let occurrences = count_ast_symbols(&nodes);
     println!(
@@ -359,19 +359,19 @@ fn report_cache_decisions(label: &str, report: &str) {
 }
 
 fn benchmark_ast_interning(label: &str, source: &str, iterations: usize) {
-    let parsed = lim::parse(black_box(source)).unwrap();
+    let parsed = lim::parse_source_unit(black_box(source)).unwrap();
     let (duplicates, repeated_bytes, unique_bytes) = ast_symbol_stats(&parsed);
     println!(
         "{label}.ast-symbols duplicate_allocations_est={duplicates} repeated_text_bytes={repeated_bytes} unique_text_bytes={unique_bytes}"
     );
     report_allocations(&format!("{label}.alloc-current-parse"), iterations, || {
-        black_box(lim::parse(black_box(source)).unwrap());
+        black_box(lim::parse_source_unit(black_box(source)).unwrap());
     });
     report_allocations(
         &format!("{label}.alloc-parse-plus-intern"),
         iterations,
         || {
-            let ast = lim::parse(black_box(source)).unwrap();
+            let ast = lim::parse_source_unit(black_box(source)).unwrap();
             let mut symbols = LocalSymbols::default();
             let interned = ast
                 .iter()
@@ -386,7 +386,7 @@ fn benchmark_ast_interning(label: &str, source: &str, iterations: usize) {
         iterations,
     );
     report_parsed_symbols(label, source);
-    let parsed = lim::parse(source).unwrap();
+    let parsed = lim::parse_source_unit(source).unwrap();
     let mut symbols = LocalSymbols::default();
     for node in &parsed {
         let _ = intern_node(node, &mut symbols);
@@ -400,7 +400,7 @@ fn benchmark_ast_interning(label: &str, source: &str, iterations: usize) {
     // same operation after the allocator/hash tables have been exercised.
     for (temperature, rounds) in [("cold", 1), ("warm", iterations)] {
         measure(&format!("{label}.ast-intern-{temperature}"), rounds, || {
-            let ast = lim::parse(black_box(source)).unwrap();
+            let ast = lim::parse_source_unit(black_box(source)).unwrap();
             let mut symbols = LocalSymbols::default();
             let interned = ast
                 .iter()
@@ -410,7 +410,7 @@ fn benchmark_ast_interning(label: &str, source: &str, iterations: usize) {
         });
     }
     measure(&format!("{label}.ast-parse-current"), iterations, || {
-        black_box(lim::parse(black_box(source)).unwrap());
+        black_box(lim::parse_source_unit(black_box(source)).unwrap());
     });
 }
 
@@ -425,21 +425,21 @@ fn generated_program(functions: usize) -> String {
     let mut source = String::new();
     for index in 0..functions {
         source.push_str(&format!(
-            "(#fn work-{index} () #u64 (#return {index}u64))\n"
+            "#fn work-{index} () #u64 (#return {index}u64)\n"
         ));
     }
-    source.push_str("(#fn main () #u64 (#return 42u64))\n");
+    source.push_str("#fn main () #u64 (#return 42u64)\n");
     source
 }
 
 fn generator_program(aliases: usize) -> String {
     let mut source = String::from(
-        "(#gn aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair)))))\n(#generate aliases (",
+        "#gn aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair))))\n#generate aliases (",
     );
     for index in 0..aliases {
         source.push_str(&format!("(Generated{index} #u64) "));
     }
-    source.push_str("))\n(#fn main () #u64 (#return 42u64))\n");
+    source.push_str(")\n#fn main () #u64 (#return 42u64)\n");
     source
 }
 
@@ -533,7 +533,7 @@ fn main() {
     }
 
     let shared_path = root.join("shared.lim");
-    fs::write(&shared_path, "(#type SharedMarker #u64)\n").unwrap();
+    fs::write(&shared_path, "#type SharedMarker #u64\n").unwrap();
     for (label, source) in [("small", &small), ("large", &large)] {
         report_symbol_repetition(label, source);
         let tokens = lim::lex(source).unwrap();
@@ -552,10 +552,10 @@ fn main() {
             black_box(lim::lex(black_box(source)).unwrap());
         });
         measure(&format!("{label}.parse"), iterations, || {
-            black_box(lim::parse(black_box(source)).unwrap());
+            black_box(lim::parse_source_unit(black_box(source)).unwrap());
         });
         let project_source = format!(
-            "(#alias SharedMarker = ./shared.lim::SharedMarker)\n(#cfg-if (#cfg-is #platform linux) (#fn cfg-enabled () #u64 (#return 1u64)))\n{source}"
+            "#alias SharedMarker = ./shared.lim::SharedMarker\n#cfg-if (#cfg-is #platform linux) (#fn cfg-enabled () #u64 (#return 1u64))\n{source}"
         );
         let path = root.join(format!("{label}.lim"));
         fs::write(&path, &project_source).unwrap();
@@ -698,14 +698,14 @@ fn main() {
         }
     }
 
-    let mut chain = String::from("(#fn step-0 () #u64 (#return 42u64))\n");
+    let mut chain = String::from("#fn step-0 () #u64 (#return 42u64)\n");
     for index in 1..64 {
         chain.push_str(&format!(
-            "(#fn step-{index} () #u64 (#return (#if true (#call step-{} ()) 0u64)))\n",
+            "#fn step-{index} () #u64 (#return (#if true (#call step-{} ()) 0u64))\n",
             index - 1
         ));
     }
-    chain.push_str("(#fn main () #u64 (#return (#call step-63 ())))");
+    chain.push_str("#fn main () #u64 (#return (#call step-63 ()))\n");
     let generated = generator_program(256);
     for (name, source, expected) in [
         (
