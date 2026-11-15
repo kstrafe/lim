@@ -6882,7 +6882,7 @@ fn async_rebuilds_nested_partially_moved_structs() {
         .replace("Work::Task::Cleanup moved right spare waiting", "Work::Task::Cleanup moved right spare shell waiting")
         .replace("(#forget spare)", "(#assert (#variant-is (#borrow shell) Work::Task::Cleanup::Owner-inner-shell.Full)) (#forget shell) (#forget spare)");
     let nominal_cancel =
-        format!("{nominal_prefix}(#return (#unreachable)))))\n(#fn main () #u64{nominal_main}");
+        format!("{nominal_prefix}(#return (#unreachable)))))\n#fn main () #u64{nominal_main}");
     build_and_run_partial_storage(&nominal_cancel, 42);
 
     let parameter = source
