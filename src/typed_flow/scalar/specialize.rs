@@ -411,6 +411,7 @@ fn specialize_impl(
     // Keep one common normal exit for every state. Must-store guarantees are
     // intersected there by the ordinary solver, not chosen from one outcome.
     let mut result = FlowGraph {
+        pending_values: flow.pending_values.clone(),
         nodes: vec![
             flow.nodes[flow.exit.0].clone(),
             FlowNode {

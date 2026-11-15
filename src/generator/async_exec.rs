@@ -325,6 +325,7 @@ fn operation_schema(body: &Body, source: NodeId) -> Result<OperationSchema, Erro
         head,
         children,
         callee,
+        argument_source_order,
         ..
     } = &node.kind
     else {
@@ -380,6 +381,14 @@ fn operation_schema(body: &Body, source: NodeId) -> Result<OperationSchema, Erro
             }
             metadata.push(child);
         }
+    }
+    if let Some(order) = argument_source_order {
+        runtime.sort_by_key(|(position, _)| {
+            order
+                .iter()
+                .position(|index| position == &vec![index + 1])
+                .unwrap_or(order.len())
+        });
     }
     Ok(OperationSchema { runtime, metadata })
 }
@@ -3314,12 +3323,12 @@ mod tests {
                 .iter()
                 .map(|operand| operand.position.clone())
                 .collect::<Vec<_>>(),
-            [vec![1], vec![2]]
+            [vec![2], vec![1]]
         );
-        let first = graph.values[operation.operands[0].value.0].source.unwrap();
+        let first = graph.values[operation.operands[1].value.0].source.unwrap();
         assert!(matches!(body.nodes[first.0].kind, NodeKind::If { .. }));
         assert_eq!(
-            graph.values[operation.operands[1].value.0].source,
+            graph.values[operation.operands[0].value.0].source,
             Some(sites[0].result_value)
         );
         assert_eq!(graph.awaits[0].source_path, sites[0].source_path);

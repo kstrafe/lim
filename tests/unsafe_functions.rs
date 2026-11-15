@@ -186,7 +186,7 @@ fn nested_unsafe_named_argument_errors_highlight_the_inner_value() {
 }
 
 #[test]
-fn unsafe_named_arguments_evaluate_once_in_parameter_declaration_order() {
+fn unsafe_named_arguments_evaluate_once_in_written_order() {
     let scratch = support::Scratch::new("unsafe-call-order");
     let source = "
       (#fn next ((counter (#ref-mut #u64)) (expected #u64)) #u64
@@ -194,14 +194,14 @@ fn unsafe_named_arguments_evaluate_once_in_parameter_declaration_order() {
         (#deref-set counter (#u64::add-wrap expected 1u64))
         (#return expected))
       (#unsafe-fn combine ((left #u64) (right #u64)) #u64
-        (#assert (#u64::eq left 0u64))
-        (#assert (#u64::eq right 1u64))
+        (#assert (#u64::eq left 1u64))
+        (#assert (#u64::eq right 0u64))
         (#return 42u64))
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let result #u64 (#unsafe (#unsafe-call combine
-          ((right (#call next ((counter (#borrow-mut counter)) (expected 1u64))))
-           (left (#call next ((counter (#borrow-mut counter)) (expected 0u64))))))))
+          ((right (#call next ((counter (#borrow-mut counter)) (expected 0u64))))
+           (left (#call next ((counter (#borrow-mut counter)) (expected 1u64))))))))
         (#assert (#u64::eq counter 2u64))
         (#return result))";
     let assembly = compile(

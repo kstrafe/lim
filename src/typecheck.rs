@@ -7198,7 +7198,7 @@ fn type_contains_thread_task_value(
 }
 
 fn list_expression(
-    items: &[Expr],
+    items: &crate::ExprList,
     variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
@@ -9469,7 +9469,9 @@ fn list_expression(
                         fields.len()
                     ));
                 }
-                for (argument, field) in items[1..].iter().zip(fields) {
+                for index in items.argument_indices() {
+                    let argument = &items[index + 1];
+                    let field = &fields[index];
                     let actual = expression(
                         argument,
                         variables,
@@ -9533,7 +9535,7 @@ fn list_expression(
 
 fn user_call_expression(
     operator: &str,
-    items: &[Expr],
+    items: &crate::ExprList,
     variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
@@ -9568,11 +9570,10 @@ fn user_call_expression(
             parameter_types.len()
         ));
     }
-    for ((argument, parameter_type), parameter) in items[1..]
-        .iter()
-        .zip(&parameter_types)
-        .zip(&signature.parameter_names)
-    {
+    for index in items.argument_indices() {
+        let argument = &items[index + 1];
+        let parameter_type = &parameter_types[index];
+        let parameter = &signature.parameter_names[index];
         let actual = expression(
             argument,
             variables,

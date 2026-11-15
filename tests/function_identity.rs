@@ -96,19 +96,19 @@ fn api_generator_emission_and_reused_cache_preserve_function_identity() {
 }
 
 #[test]
-fn named_arguments_keep_declaration_evaluation_order_for_colliding_identity() {
+fn named_arguments_keep_written_evaluation_order_for_colliding_identity() {
     let scratch = support::Scratch::new("function-identity-order");
     let source = "
       (#fn next ((counter (#ref-mut #u64)) (value #u64)) #u64
         (#assert (#u64::eq (#deref counter) value))
         (#deref-set counter (#u64::add-wrap (#deref counter) 1u64)) (#return value))
       (#fn panic ((a #u64) (b #u64)) #u64
-        (#assert (#u64::eq a 0u64)) (#assert (#u64::eq b 1u64)) (#return 42u64))
+        (#assert (#u64::eq a 1u64)) (#assert (#u64::eq b 0u64)) (#return 42u64))
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let result #u64 (#call panic
-          ((b (#call next ((counter (#borrow-mut counter)) (value 1u64))))
-           (a (#call next ((counter (#borrow-mut counter)) (value 0u64)))))))
+          ((b (#call next ((counter (#borrow-mut counter)) (value 0u64))))
+           (a (#call next ((counter (#borrow-mut counter)) (value 1u64)))))))
         (#return result))";
     let path = scratch.path().join("main.lim");
     let target = lim::TargetDescription::X86_64_SYSTEM_V;

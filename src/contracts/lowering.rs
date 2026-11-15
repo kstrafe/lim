@@ -738,6 +738,7 @@ fn lower_expression(
             expression: Box::new(lower_expression(expression, ret, exits, instrumented)?),
         },
         Expr::List(xs) => {
+            let order = xs.argument_order().map(<[usize]>::to_vec);
             let mut xs = xs
                 .iter()
                 .map(|x| lower_expression(x, ret, exits, instrumented))
@@ -751,7 +752,12 @@ fn lower_expression(
             if instrumented && matches!(xs.first(),Some(Expr::Symbol(h))if h=="index-proven") {
                 xs[0] = symbol("index");
             }
-            Expr::List(xs.into())
+            let list = crate::ExprList::from(xs);
+            Expr::List(if let Some(order) = order {
+                list.with_argument_order(order)
+            } else {
+                list
+            })
         }
         _ => e.clone(),
     })

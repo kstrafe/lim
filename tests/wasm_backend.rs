@@ -55,6 +55,26 @@ fn native_engine_executes_typed_scalar_functions_and_named_calls() {
     run("(#fn choose ((ignored ()) (number #u64)) #u64 (#return number)) (#fn main () #u64 (#return (#call choose ((number 42u64) (ignored ())))))", "42");
 }
 #[test]
+fn named_values_stage_in_written_order_before_parameter_marshalling() {
+    for parameters in ["(left #u64) (right #u64)", "(right #u64) (left #u64)"] {
+        let source = format!(
+            "(#fn subtract ({parameters}) #u64
+            (#return (#u64::sub-wrap left right)))
+          (#fn main () #u64 (#let-mut step #u64 0u64)
+            (#let answer #u64 (#call subtract
+              ((right (#block (#assert (#u64::eq step 0u64)) (#set step 1u64) 2u64))
+               (left (#block (#assert (#u64::eq step 1u64)) (#set step 2u64) 44u64)))))
+            (#assert (#u64::eq step 2u64)) (#return answer))"
+        );
+        run(&source, "42");
+        run(
+            &source.replace("#call subtract", "#call #u64::sub-wrap"),
+            "42",
+        );
+    }
+}
+
+#[test]
 fn loops_keep_continue_break_and_block_depth_correct() {
     run("(#fn main () #u64 (#let-mut total #u64 0u64) (#for-range (number #u64) 1u64 11u64 (#if (#u64::eq number 5u64) (#block (#continue)) ()) (#set total (#u64::add-wrap total number))) (#return total))", "50");
     run("(#fn main () #u64 (#let-mut value #u64 0u64) (#while true (#set value (#u64::add-wrap value 1u64)) (#if (#u64::eq value 42u64) (#block (#break)) ())) (#return value))", "42");

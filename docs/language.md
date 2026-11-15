@@ -35,7 +35,7 @@ User function names retain their identity in named calls, even when a name
 also spells a builtin. For example, `panic { value = reference; }` calls the
 declared user function named `panic`; `(#panic)` remains the builtin trap.
 Calls require named arguments, evaluate their expressions
-in parameter declaration order, and applies the declared function signature
+in written call-site order, and apply the declared function signature
 and ordinary eager-call ownership rules. Ordinary calls accept only safe functions,
 even inside `#unsafe`. Use `#unsafe-call` for unsafe or external functions;
 it requires an enclosing `#unsafe` block and uses the same named arguments,
@@ -101,7 +101,7 @@ generated arrays, contracts, infix expressions and local indentation lists.
   named calls, including generated scalar intrinsics. `function ((name value))`
   and `(function ((name value)))` are equivalent. Empty calls use `function {}`
   or `(function ())`. No `#call` marker is required. They use the same safe
-  call checks and parameter-order evaluation as `#call`. Unsafe calls retain
+  call checks and written-order evaluation as `#call`. Unsafe calls retain
   `#unsafe-call` and an enclosing `#unsafe`.
 - In a parenthesized semicolon list, `#let x #u64 expression; #return x;`
   groups into two forms. Existing parenthesized forms are retained. A nested
@@ -2089,11 +2089,20 @@ explicitly with `String::from-chars` when an owned result is needed; see
 that string. Only functions that can reach a trace carry caller context;
 thread spawning transfers its own owned context into the worker.
 
-Named argument expressions are evaluated in the function's parameter
-declaration order, regardless of the order of labels at the call site. `#struct-literal`
-field expressions are evaluated in the struct's field declaration order,
-regardless of their written order. The compiler checks and lowers expressions
-in these same orders; labels select destinations and do not control effects.
+Named argument expressions are evaluated exactly once in their written order
+at the call site. Labels select parameter slots without rearranging effects.
+Each expression finishes before the next begins, and the callee starts only
+after every argument is ready. A non-returning earlier argument prevents later
+arguments and the callee from running. The checker accounts for moves, loans
+and evidence changes in that sequence; requirements apply at the actual call.
+`#struct-literal` field values also execute in written order, while declaration
+order continues to determine representation and positional patterns. Aliases,
+direct file calls, callable scalar intrinsics, generated code and async
+suspension follow the same rule for supported forms.
+
+**Compatibility:** earlier experimental compilers evaluated named arguments and
+struct initializers in declaration order. Effectful reordered values can now
+behave differently. Name/arity validation remains static, before execution.
 
 Generic function declarations and angle-bracket calls are rejected.  Use a
 generator to emit a concrete function for each required type combination.
@@ -2748,7 +2757,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#borrow-slice-mut` | `(#borrow-slice-mut mutable-array-place)` or `(#borrow-slice-mut mutable-array-place start end)` | `(#let view (#slice-mut #u64) (#borrow-slice-mut values 1usize 3usize))` (binding) | Exclusively borrows a full array or checked half-open range. Constant disjoint ranges can coexist; dynamic bounds conservatively overlap. |
 | `#break` | `(#break)` or `(#break value)` | `(#loop (#break 42u64))` (expression in a function) | Exits the innermost loop, optionally supplying its expression value. |
 | `#break-to` | `(#break-to label)` or `(#break-to label value)` | `(#break-to outer 42u64)` (labeled loop body) | Exits a named enclosing loop, optionally with a loop value. |
-| `#call` | `(#call function ((name value) (...)))` | `(#call add ((left 20u64) (right 22u64)))` (expression) | Calls only a statically named safe function, even inside `#unsafe`; every argument is named and checked against its signature, with expressions evaluated in parameter declaration order. |
+| `#call` | `(#call function ((name value) (...)))` | `(#call add ((left 20u64) (right 22u64)))` (expression) | Calls only a statically named safe function, even inside `#unsafe`; every argument is named and checked against its signature, with values evaluated exactly once in written call-site order. |
 | `#call-graph` | `(#call-graph)` | `(#let trace (#slice #char) (#call-graph))` (function body) | Returns a borrowed character slice describing the actual caller chain, such as `main:8 -> work:5 -> report:2`. Each number is the executing line in that function, not its declaration or the parent's call line. Uses bounded, checked stack storage; the slice cannot escape its function. |
 | `#capability` | `(#capability name Type ((operation (Args...) Result)...))` | `(#capability ordered #u64 ((less ((#ref #u64) (#ref #u64)) #bool)))` (declaration) | Declares a generator-time signature contract that a concrete type may satisfy. |
 | `#case` | `(#case pattern body)` or `(#case pattern (#when guard) body)` | `(#case (Some x) x)` (inside `#match`) | Introduces one explicit match arm. |

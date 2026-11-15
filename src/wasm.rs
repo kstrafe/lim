@@ -512,9 +512,20 @@ impl<'a> Emitter<'a> {
                 self.close();
             }
             NodeKind::Form { children, numeric: Some(operation), .. } => self.numeric(id, operation, &children[1..])?,
-            NodeKind::Form { children, callee: Some(callee), .. } => {
-                // The checked children are already in parameter declaration order.
-                for argument in &children[1..] { self.expression(*argument)?; }
+            NodeKind::Form { children, callee: Some(callee), argument_source_order, .. } => {
+                let mut slots = vec![None; children.len() - 1];
+                for index in 0..slots.len() {
+                    let index = argument_source_order.as_ref().map_or(index, |order| order[index]);
+                    let argument = children[index + 1];
+                    self.expression(argument)?;
+                    let kind = self.kind(argument)?;
+                    if kind.scalar() {
+                        let slot = self.temporary(kind);
+                        self.indexed(0x21, slot);
+                        slots[index] = Some(slot);
+                    }
+                }
+                for slot in slots.into_iter().flatten() { self.indexed(0x20, slot); }
                 let index = self.functions.get(callee).copied().ok_or_else(|| self.error(id, "unsupported WebAssembly callee"))?;
                 self.indexed(0x10, index);
             }
@@ -592,8 +603,17 @@ impl<'a> Emitter<'a> {
             self.code.push(0x7d);
             return Ok(());
         }
-        self.expression(args[0])?;
-        self.expression(args[1])?;
+        let reverse = matches!(&self.body.nodes[id.0].kind, NodeKind::Form { argument_source_order: Some(order), .. } if order == &[1, 0]);
+        if reverse {
+            self.expression(args[1])?;
+            let right = self.temporary(v);
+            self.indexed(0x21, right);
+            self.expression(args[0])?;
+            self.indexed(0x20, right);
+        } else {
+            self.expression(args[0])?;
+            self.expression(args[1])?;
+        }
         if matches!(op.operation, Op::ShiftLeft | Op::ShiftRight) {
             let right = self.temporary(v);
             self.indexed(0x22, right);

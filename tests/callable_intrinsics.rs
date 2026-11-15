@@ -52,7 +52,7 @@ fn scalar_intrinsics_have_normal_named_calls_and_typed_results() {
 }
 
 #[test]
-fn intrinsic_arguments_execute_once_in_parameter_order() {
+fn intrinsic_arguments_execute_once_in_written_order() {
     let source = r#"(#fn next ((counter (#ref-mut #u64)) (expected #u64)) #u64
       (#assert (#u64::eq (#deref counter) expected))
       (#deref-set counter (#u64::add-wrap expected 1u64))
@@ -60,8 +60,8 @@ fn intrinsic_arguments_execute_once_in_parameter_order() {
       (#fn main () #u64
         (#let-mut counter #u64 0u64)
         (#let result #u64 (#call #u64::add-wrap
-          ((right (#call next ((counter (#borrow-mut counter)) (expected 1u64))))
-           (left (#call next ((counter (#borrow-mut counter)) (expected 0u64)))))))
+          ((right (#call next ((counter (#borrow-mut counter)) (expected 0u64))))
+           (left (#call next ((counter (#borrow-mut counter)) (expected 1u64)))))))
         (#assert (#u64::eq counter 2u64)) (#return result))"#;
     assert_eq!(execute(source, false), 42);
 }

@@ -349,6 +349,34 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
         } else {
             projected
         };
+        let reads_handle = matches!(node.action, FlowAction::Read { value, .. }
+            if !reads_through_reference(body, value) && matches!(body.nodes[value.0].ty,
+                Some(Type::Reference { .. } | Type::PinnedReference { .. } | Type::Slice(_) | Type::MutableSlice(_))));
+        if !reads_handle {
+            for held in pending_value_loans(body, flow, origins, event, node.action.value()) {
+                let conflicts = match access {
+                    AccessKind::Read | AccessKind::Clone => held.mutable,
+                    AccessKind::Borrow { mutable } => held.mutable || mutable,
+                    AccessKind::Move | AccessKind::Write | AccessKind::Release => true,
+                };
+                let overlaps = if access_origins.is_empty() {
+                    access_places
+                        .iter()
+                        .any(|place| held.referent_place().overlaps(place))
+                } else {
+                    access_origins
+                        .iter()
+                        .any(|origin| call_referents_overlap(origin, &held))
+                };
+                if conflicts && overlaps {
+                    return Err(BorrowConflict {
+                        message: "cannot access storage while an earlier evaluated operand retains a conflicting borrow".into(),
+                        span: node.span,
+                        labels: held.span.into_iter().map(|span| (span, "earlier operand borrows here".into())).collect(),
+                    });
+                }
+            }
+        }
         let mut tag_sources = Vec::new();
         if let Some(receiver) = tag_receiver {
             // Reuse ordinary argument-result slot permissions. A reference
@@ -1036,6 +1064,22 @@ pub(crate) fn visible_loan_bindings(
 /// retained child reborrows; the argument's own slot and reborrow ancestors
 /// supply its permission, rather than conflicting with themselves. Independent
 /// argument aliasing and opaque/borrowed-storage lifetimes have separate checks.
+fn pending_value_loans(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    value: Option<NodeId>,
+) -> Vec<LoanOrigin> {
+    value
+        .and_then(|value| flow.pending_values.get(&value))
+        .into_iter()
+        .flatten()
+        .flat_map(|&held| origins.value_before(body, flow, event, held))
+        .filter(|origin| !origin.owned_allocation && !origin.lifetime_only)
+        .collect()
+}
+
 fn check_call_reborrow_parents(
     body: &Body,
     flow: &FlowGraph,
@@ -1061,6 +1105,7 @@ fn check_call_reborrow_parents(
             .declaration_name(crate::typed_ir::DeclarationId::Function(*callee))
             .expect("checked call declaration");
         let event = FlowNodeId(index);
+        let pending = pending_value_loans(body, flow, origins, event, Some(value));
         for argument in children.iter().skip(1) {
             // References stored inside a borrowed pointee describe its
             // contents, not additional references lent by this argument.
@@ -1075,6 +1120,17 @@ fn check_call_reborrow_parents(
                 .collect::<Vec<_>>();
             if incoming.is_empty() {
                 continue;
+            }
+            for held in &pending {
+                if incoming.iter().any(|argument| {
+                    (argument.mutable || held.mutable) && call_referents_overlap(argument, held)
+                }) {
+                    return Err(BorrowConflict {
+                        message: "call argument conflicts with a borrow retained by an earlier evaluated operand".into(),
+                        span: body.nodes[argument.0].span.or(node.span),
+                        labels: held.span.into_iter().map(|span| (span, "earlier operand borrows here".into())).collect(),
+                    });
+                }
             }
             let mut sources = Vec::new();
             call_argument_slots(body, *argument, &mut sources);
@@ -3255,6 +3311,7 @@ mod tests {
                 span: None,
             });
             let flow = FlowGraph {
+                pending_values: Default::default(),
                 variant_pruned_edges: Default::default(),
                 nodes,
                 entry: FlowNodeId(0),

@@ -1242,9 +1242,8 @@ mod tests {
                 d,
             )
             .unwrap();
-        // Sites retain original written paths, but ordinary declaration order
-        // executes first before second, exactly as non-async named calls do.
-        assert_before(&d.flows[&lowered.body_name], sites[1].call, sites[0].call);
+        // Await sites execute in written order, independently of parameter layout.
+        assert_before(&d.flows[&lowered.body_name], sites[0].call, sites[1].call);
     }
 
     #[test]
@@ -1548,8 +1547,8 @@ mod tests {
             "(#fn work () #u64
               (#let owner #u64 40u64)
               (#return (#call combine
-                ((value (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
-                 (held (#call make-held ((view (#borrow owner)))))))))",
+                ((held (#call make-held ((view (#borrow owner)))))
+                 (value (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))))))",
         );
         let program = lowered.program(&base).unwrap();
         let mut checked = crate::CheckedProgram::validate(&program).unwrap();

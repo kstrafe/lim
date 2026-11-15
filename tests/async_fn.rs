@@ -2047,7 +2047,7 @@ fn async_function_extracts_typed_awaits_from_value_expressions() {
 }
 
 #[test]
-fn async_call_arguments_are_evaluated_in_declaration_order_before_suspension() {
+fn async_call_arguments_are_evaluated_in_written_order_before_suspension() {
     let source = "(#enum Child (#linear) (Child.Waiting))
 
       (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
@@ -2081,7 +2081,39 @@ fn async_call_arguments_are_evaluated_in_declaration_order_before_suspension() {
         "first (#call mark ((counter counter))))\n              (second (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Waiting)",
         "second (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll Child.Waiting))\n              (first (#call mark ((counter counter)))");
     assert_ne!(reordered, source);
-    build_and_run_graph(&reordered, 1);
+    build_and_run_graph(&reordered, 0);
+}
+
+#[test]
+fn async_named_argument_trace_survives_pending_resume_without_repetition() {
+    let source = "(#static trace (#atomic #u64) (#atomic-init #u64 0u64))
+      (#fn mark ((digit #u64)) ()
+        (#let previous #u64 (#unsafe (#atomic-load (#borrow trace) #memory-relaxed)))
+        (#unsafe (#atomic-store (#borrow trace) (#u64::add-wrap (#u64::mul-wrap previous 10u64) digit) #memory-relaxed))
+        (#return ()))
+      (#enum Child (#linear) ((Child.Waiting #u64) (Child.Ready #u64)))
+      (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
+      (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+        (#return (#match task
+          (#case (Child.Waiting value) (#block (#call mark ((digit 2u64))) (ChildPoll.ChildPending (Child.Ready value))))
+          (#case (Child.Ready value) (#block (#call mark ((digit 3u64))) (ChildPoll.ChildReady value))))))
+      (#fn combine ((first #u64) (second #u64)) #u64
+        (#call mark ((digit 5u64))) (#return (#u64::add-wrap first second)))
+      (#generate #async-fn ((protocol work-await) (waker #u64) (function
+        (#fn work () #u64 (#return (#call combine
+          ((second (#block (#call mark ((digit 1u64)))
+             (#await #u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 2u64))))
+           (first (#block (#call mark ((digit 4u64))) 40u64)))))))))
+      (#fn main () #u64 (#let waker #u64 0u64)
+        (#let first Work::Poll (#call Work::poll ((task (#call work ())) (waker (#borrow waker)))))
+        (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+        (#assert (#u64::eq (#unsafe (#atomic-load (#borrow trace) #memory-relaxed)) 12u64))
+        (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
+          (#case (Work::Poll.Ready value) value)
+          (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#panic)))))
+        (#assert (#u64::eq (#unsafe (#atomic-load (#borrow trace) #memory-relaxed)) 12345u64))
+        (#return answer))";
+    build_and_run_graph(source, 42);
 }
 
 #[test]

@@ -805,7 +805,7 @@ mod tests {
         let rendered = context.render_compute(compute, &values).unwrap();
         assert_eq!(
             text(&rendered),
-            "(#call combine ((first stored0) (second stored1)))"
+            "(#call combine ((first stored1) (second stored0)))"
         );
         assert!(!text(&rendered).contains("effect"));
         check(&format!(
@@ -965,10 +965,10 @@ mod tests {
             .unwrap();
         assert_eq!(
             text(&rendered),
-            "(#struct-literal Pair ((left stored0) (right stored1)))"
+            "(#struct-literal Pair ((left stored1) (right stored0)))"
         );
         check(&format!(
-            "{declarations_source} (#fn again ((stored0 #u32) (stored1 #u64)) Pair (#return {}))",
+            "{declarations_source} (#fn again ((stored0 #u64) (stored1 #u32)) Pair (#return {}))",
             text(&rendered)
         ));
         let compute = operation(&graph, "Choice.Some");

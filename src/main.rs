@@ -1300,7 +1300,7 @@ mod tests {
     }
 
     #[test]
-    fn named_arguments_and_struct_fields_evaluate_in_declaration_order() {
+    fn named_arguments_and_struct_fields_evaluate_in_written_order() {
         let directory =
             env::temp_dir().join(format!("lim-evaluation-order-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
@@ -1334,7 +1334,7 @@ mod tests {
             ExitCode::SUCCESS
         );
         let status = process::status(&mut Command::new(&output)).unwrap();
-        assert_eq!(status.code(), Some(20));
+        assert_eq!(status.code(), Some(0));
         fs::remove_dir_all(directory).unwrap();
     }
 

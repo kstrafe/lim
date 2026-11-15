@@ -1092,7 +1092,7 @@ pub(crate) enum NodeKind {
         numeric: Option<NumericOperation>,
         callee: Option<FunctionId>,
         /// Declaration-order argument indices in their written order. Absent
-        /// for synthesized calls without complete source spans.
+        /// for positional forms. Independent of diagnostic source spans.
         argument_source_order: Option<Vec<usize>>,
     },
     If {
@@ -1784,7 +1784,7 @@ impl Body {
                 children,
                 numeric,
                 callee,
-                ..
+                argument_source_order,
             } => {
                 if erase_unsafe && head == "unsafe" && children.len() == 2 {
                     return self.syntax(children[1], true);
@@ -1799,7 +1799,12 @@ impl Body {
                 if let Some(callee) = callee {
                     items[0] = Expr::Function(self.callees[callee].clone());
                 }
-                Expr::List(items.into())
+                let list = crate::ExprList::from(items);
+                Expr::List(if let Some(order) = argument_source_order {
+                    list.with_argument_order(order.clone())
+                } else {
+                    list
+                })
             }
             NodeKind::If {
                 head,
@@ -2828,22 +2833,14 @@ impl Builder<'_> {
                         if let Some(callee) = callee {
                             self.body.callees.insert(callee, head.clone());
                         }
-                        let argument_source_order = callee.and_then(|_| {
-                            let arguments = &children[1..];
-                            let spans = arguments
-                                .iter()
-                                .map(|id| self.body.nodes[id.0].span)
-                                .collect::<Option<Vec<_>>>()?;
-                            if spans
-                                .iter()
-                                .any(|span| span.source_id != spans[0].source_id)
-                            {
-                                return None;
-                            }
-                            let mut order = (0..arguments.len()).collect::<Vec<_>>();
-                            order.sort_by_key(|&index| (spans[index].start, index));
-                            Some(order)
-                        });
+                        // Normalization retains syntax order explicitly. Spans
+                        // are diagnostic provenance, never execution semantics.
+                        let argument_source_order =
+                            if callee.is_some() || items.argument_order().is_some() {
+                                Some(items.argument_indices().collect())
+                            } else {
+                                None
+                            };
                         NodeKind::Form {
                             head: if callee.is_some() {
                                 "call".into()

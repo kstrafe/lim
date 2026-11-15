@@ -311,7 +311,7 @@ echo $?  # 42: the program&#39;s exit status, not printed output</code></pre>
 </section>
 <section id="functions-tutorial" class="level2">
 <h2>3. Declare and call a function</h2>
-<p>Calls name their arguments. Their written order can differ from the declaration; expressions are evaluated once, in parameter declaration order.</p>
+<p>Calls name their arguments. Their written order can differ from the declaration; expressions are evaluated once in the order you write them. Names choose the destination parameters; they do not rearrange effects. An earlier argument finishes before a later one starts, and all arguments finish before callee entry.</p>
 <pre class="lisp"><code>#fn subtract {
   #params = { left = #u64; right = #u64; };
   #returns = #u64;
@@ -482,7 +482,7 @@ Lim compilation pipeline
 <p>Lim is a compiled, statically typed Lisp. Its syntax is made of S-expressions, but its type and evaluation rules are deliberately explicit. The compiler currently targets Linux x86-64 System V. It emits inspectable assembly, then encodes and links ELF binaries internally, including supported ELF objects and shared-library calls. Unsupported assembly or object features produce a link diagnostic; the compiler does not invoke <code>as</code> or <code>ld</code>.</p>
 <p>This document describes the language implemented by this crate. Builtin forms and all sixteen scalar types use a leading <code>#</code>, such as <code>#u64</code> or <code>#bool</code>; unprefixed builtin forms and scalar types are rejected. Numeric literal suffixes keep their established spelling, such as <code>42u64</code>. User-defined type names remain ordinary identifiers and never receive a <code>#</code> prefix.</p>
 <p>Declaration spelling identifies its role. Every <code>::</code> component in a type name starts with an ASCII uppercase letter (<code>Reading</code>, <code>Work::Frame</code>). Functions, parameters, fields and variables start lowercase or with <code>_</code>; a function can have uppercase type prefixes (<code>Work::poll</code>). A dot is reserved for enum variants: <code>Work::Poll.Ready</code> is variant <code>Ready</code> of enum <code>Work::Poll</code>. These are single global identifiers, not namespace or field-access operations. The compiler enforces the same rules on generated declarations and handwritten code. Compiler-issued hygienic <code>#gn-gensym</code> names occupy a separate reserved domain; they can also name private types without colliding with public declarations.</p>
-<p>User function names retain their identity in named calls, even when a name also spells a builtin. For example, <code>panic { value = reference; }</code> calls the declared user function named <code>panic</code>; <code>(#panic)</code> remains the builtin trap. Calls require named arguments, evaluate their expressions in parameter declaration order, and applies the declared function signature and ordinary eager-call ownership rules. Ordinary calls accept only safe functions, even inside <code>#unsafe</code>. Use <code>#unsafe-call</code> for unsafe or external functions; it requires an enclosing <code>#unsafe</code> block and uses the same named arguments, evaluation order, signature checks, and ownership rules.</p>
+<p>User function names retain their identity in named calls, even when a name also spells a builtin. For example, <code>panic { value = reference; }</code> calls the declared user function named <code>panic</code>; <code>(#panic)</code> remains the builtin trap. Calls require named arguments, evaluate their expressions in written call-site order, and apply the declared function signature and ordinary eager-call ownership rules. Ordinary calls accept only safe functions, even inside <code>#unsafe</code>. Use <code>#unsafe-call</code> for unsafe or external functions; it requires an enclosing <code>#unsafe</code> block and uses the same named arguments, evaluation order, signature checks, and ownership rules.</p>
 <p>Strict scalar intrinsics also accept ordinary named calls. The compiler generates their typed signatures and lowers calls to the existing native operations. Binary parameters are <code>left</code> and <code>right</code>; unary <code>not</code> takes <code>value</code>. Integer arithmetic still requires <code>-wrap</code> or <code>-saturate</code>. Short-circuit <code>#bool::and</code> and <code>#bool::or</code> retain their direct control-flow forms. Callable subtraction is binary; direct subtraction also supports unary negation. Floating-point remainder is currently unsupported by the native backend and has no callable declaration.</p>
 <pre class="lisp"><code>(#fn main () #u64
   (#let index #usize 1usize)
@@ -517,7 +517,7 @@ Lim compilation pipeline
 }</code></pre>
 <ul>
 <li><code>{ key = form; ... }</code> is a named pair list. Keys are literal identifiers; inline values are single forms and require a final semicolon. Indented list values use <code>key:</code> as described below. Empty records use <code>{}</code>. Duplicate argument keys are checked by their consumer.</li>
-<li><code>function { name = value; }</code> and <code>(function { name = value; })</code> are ordinary named calls, including generated scalar intrinsics. <code>function ((name value))</code> and <code>(function ((name value)))</code> are equivalent. Empty calls use <code>function {}</code> or <code>(function ())</code>. No <code>#call</code> marker is required. They use the same safe call checks and parameter-order evaluation as <code>#call</code>. Unsafe calls retain <code>#unsafe-call</code> and an enclosing <code>#unsafe</code>.</li>
+<li><code>function { name = value; }</code> and <code>(function { name = value; })</code> are ordinary named calls, including generated scalar intrinsics. <code>function ((name value))</code> and <code>(function ((name value)))</code> are equivalent. Empty calls use <code>function {}</code> or <code>(function ())</code>. No <code>#call</code> marker is required. They use the same safe call checks and written-order evaluation as <code>#call</code>. Unsafe calls retain <code>#unsafe-call</code> and an enclosing <code>#unsafe</code>.</li>
 <li>In a parenthesized semicolon list, <code>#let x #u64 expression; #return x;</code> groups into two forms. Existing parenthesized forms are retained. A nested call and its argument record constitute one expression. Every group needs a terminating semicolon; newlines alone do not terminate forms.</li>
 <li><code>[#u64 #wrap; a + b * c]</code> scopes the scalar operator type and integer overflow mode. Integer arithmetic requires <code>#wrap</code> or <code>#saturate</code>; comparisons and floating arithmetic omit the mode. Operators have fixed precedence: unary, multiplication/division/remainder, addition/subtraction, shifts, bitwise AND/XOR/OR, comparisons, Boolean AND, then Boolean OR. Arithmetic associates left. Chained comparisons are rejected. Operators require token separation; <code>start-offset</code> remains one identifier.</li>
 <li>Nested square brackets group math and inherit its header. Parentheses retain ordinary Lim syntax. Calls and argument records end header inheritance: infix expressions inside them need explicit headers of their own.</li>
@@ -1179,7 +1179,8 @@ add { left = 20u32; right = 22u32; }</code></pre>
 <p>Positional call forms are rejected. Calls with no arguments use <code>function {}</code> or <code>(function ())</code> for safe functions, or <code>(#unsafe (#unsafe-call function ()))</code> for unsafe and external functions. The equivalent empty colon group <code>()</code> formats as <code>()</code>. Ordinary calls reject unsafe and external callees even inside <code>#unsafe</code>; <code>#unsafe-call</code> requires an enclosing <code>#unsafe</code> block and rejects safe callees. The explicit <code>#call</code> form remains accepted for existing canonical generator output; handwritten calls do not need it. Both forms accept <code>($ name)</code> shorthand and apply the same argument checks.</p>
 <p><code>(#call-graph)</code> returns a <code>(#slice #char)</code> containing the actual caller chain: <code>main:21 -&gt; second:17 -&gt; third:13</code>. Every number is the executing line <strong>inside that function</strong>: the call to the next function, or the final <code>#call-graph</code> expression. Repeated calls on different lines are distinguishable. No file paths are included; function names remain directly greppable.</p>
 <p>The trace uses bounded stack storage, without implicit heap allocation or global mutable state. Its view cannot outlive the current function. Copy it explicitly with <code>String::from-chars</code> when an owned result is needed; see <a href="../examples/call_graph.lim"><code>examples/call_graph.lim</code></a> for printing and freeing that string. Only functions that can reach a trace carry caller context; thread spawning transfers its own owned context into the worker.</p>
-<p>Named argument expressions are evaluated in the function&#39;s parameter declaration order, regardless of the order of labels at the call site. <code>#struct-literal</code> field expressions are evaluated in the struct&#39;s field declaration order, regardless of their written order. The compiler checks and lowers expressions in these same orders; labels select destinations and do not control effects.</p>
+<p>Named argument expressions are evaluated exactly once in their written order at the call site. Labels select parameter slots without rearranging effects. Each expression finishes before the next begins, and the callee starts only after every argument is ready. A non-returning earlier argument prevents later arguments and the callee from running. The checker accounts for moves, loans and evidence changes in that sequence; requirements apply at the actual call. <code>#struct-literal</code> field values also execute in written order, while declaration order continues to determine representation and positional patterns. Aliases, direct file calls, callable scalar intrinsics, generated code and async suspension follow the same rule for supported forms.</p>
+<p><strong>Compatibility:</strong> earlier experimental compilers evaluated named arguments and struct initializers in declaration order. Effectful reordered values can now behave differently. Name/arity validation remains static, before execution.</p>
 <p>Generic function declarations and angle-bracket calls are rejected. Use a generator to emit a concrete function for each required type combination.</p>
 <p>There are no implicit returns. Every reachable function path must use <code>#return</code>; a unit return must use <code>(#return ())</code>.</p>
 <p>Native functions declare their calling convention explicitly. <code>#abi-c</code> selects the target&#39;s C ABI; external signatures currently accept scalar values and raw pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsafe FFI boundaries and must use <code>#unsafe-call</code> inside <code>#unsafe</code>:</p>
@@ -1695,7 +1696,7 @@ printf &#39;hello from Lim\n&#39; | /tmp/lim-echo</code></pre>
 <td><code>#call</code></td>
 <td><code>(#call function ((name value) (...)))</code></td>
 <td><code>(#call add ((left 20u64) (right 22u64)))</code> (expression)</td>
-<td>Calls only a statically named safe function, even inside <code>#unsafe</code>; every argument is named and checked against its signature, with expressions evaluated in parameter declaration order.</td>
+<td>Calls only a statically named safe function, even inside <code>#unsafe</code>; every argument is named and checked against its signature, with values evaluated exactly once in written call-site order.</td>
 </tr>
 <tr>
 <td><code>#call-graph</code></td>
@@ -3547,6 +3548,11 @@ identifier    = { letter | digit | &quot;_&quot; | &quot;-&quot; | &quot;.&quot;
 <td>Reject rather than omit possible aliases</td>
 </tr>
 <tr>
+<td>Retained operand loans</td>
+<td>1,000,000 expression/retained-value relations</td>
+<td>Reject before retaining an over-budget snapshot; no partial loan proof is accepted</td>
+</tr>
+<tr>
 <td>Predicate evidence</td>
 <td>4096 facts; 200,000 local analysis steps; 16 KiB per identity; 64 MiB cumulative identity/snapshot work</td>
 <td>Reject without accepting partial evidence</td>
@@ -3656,7 +3662,7 @@ bash scripts/limited-run.sh nix develop -c python3 scripts/build-reference.py --
 </tr>
 <tr>
 <td>Safe functions and named arguments</td>
-<td>Yes; declaration-order argument evaluation</td>
+<td>Yes; written call-site argument evaluation order</td>
 <td>Yes</td>
 </tr>
 <tr>

@@ -6,10 +6,13 @@ use crate::Expr;
 
 /// Copy-on-write storage for expression list values.
 #[derive(Clone, Default)]
-pub struct ExprList(Option<Arc<Vec<Expr>>>);
+pub struct ExprList(Option<Arc<Vec<Expr>>>, Option<Arc<Vec<usize>>>);
 
 impl PartialEq for ExprList {
     fn eq(&self, other: &Self) -> bool {
+        if self.1 != other.1 {
+            return false;
+        }
         match (&self.0, &other.0) {
             (Some(left), Some(right)) if Arc::ptr_eq(left, right) => true,
             _ => self.deref() == other.deref(),
@@ -20,6 +23,32 @@ impl PartialEq for ExprList {
 impl Eq for ExprList {}
 
 impl ExprList {
+    /// Operands stay in declaration/layout order; these indices specify their
+    /// written evaluation order, excluding the head. Positional lists use identity order.
+    pub(crate) fn argument_order(&self) -> Option<&[usize]> {
+        self.1.as_deref().map(Vec::as_slice)
+    }
+
+    pub(crate) fn argument_indices(&self) -> impl DoubleEndedIterator<Item = usize> + '_ {
+        (0..self.len().saturating_sub(1))
+            .map(|index| self.argument_order().map_or(index, |order| order[index]))
+    }
+
+    pub(crate) fn with_argument_order(mut self, order: Vec<usize>) -> Self {
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            sorted,
+            (0..self.len().saturating_sub(1)).collect::<Vec<_>>()
+        );
+        self.1 = order
+            .iter()
+            .enumerate()
+            .any(|(index, &value)| index != value)
+            .then(|| Arc::new(order));
+        self
+    }
+
     /// Returns mutable values, detaching shared storage when necessary.
     /// An empty collection stays allocation-free.
     pub fn iter_mut(&mut self) -> slice::IterMut<'_, Expr> {
@@ -32,7 +61,14 @@ impl ExprList {
 
 impl std::fmt::Debug for ExprList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.deref().fmt(f)
+        if let Some(order) = self.argument_order() {
+            f.debug_struct("OrderedList")
+                .field("values", self.deref())
+                .field("order", &order)
+                .finish()
+        } else {
+            self.deref().fmt(f)
+        }
     }
 }
 
@@ -56,7 +92,7 @@ impl From<Vec<Expr>> for ExprList {
         if values.is_empty() {
             Self::default()
         } else {
-            Self(Some(Arc::new(values)))
+            Self(Some(Arc::new(values)), None)
         }
     }
 }

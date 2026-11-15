@@ -1139,9 +1139,18 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                     }
                 }
                 NodeKind::Declaration(DeclarationId::Aggregate(_)) => {
+                    let order = match &self.body.nodes[id.0].kind {
+                        NodeKind::Form {
+                            argument_source_order: Some(order),
+                            ..
+                        } => order.clone(),
+                        _ => (0..children.len() - 1).collect(),
+                    };
+                    for index in order {
+                        self.expression(children[index + 1])?;
+                    }
                     let mut offset = 0;
                     for value in &children[1..] {
-                        self.expression(*value)?;
                         let count = self.words(*value)?;
                         self.copy(self.nodes[value.0], destination + offset, count);
                         offset += count * 8;
@@ -1197,7 +1206,8 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
         let (bits, signed) =
             scalar(&ty).ok_or_else(|| unsupported(format!("numeric type {ty:?}")))?;
         let opcode = operation.operation;
-        self.expression(args[0])?;
+        let reverse = matches!(&self.body.nodes[id.0].kind, NodeKind::Form { argument_source_order: Some(order), .. } if order == &[1, 0]);
+        self.expression(args[usize::from(reverse)])?;
         if matches!(opcode, Op::LogicalAnd | Op::LogicalOr) {
             let done = self.encoder.label();
             self.load(9, self.nodes[args[0].0]);
@@ -1218,7 +1228,7 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
             return Ok(());
         }
         if args.len() == 2 {
-            self.expression(args[1])?;
+            self.expression(args[usize::from(!reverse)])?;
             self.load(11, self.nodes[args[1].0]);
         }
         self.load(9, self.nodes[args[0].0]);

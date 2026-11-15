@@ -2052,11 +2052,14 @@ fn check_call_arguments(
     function: &str,
     arguments: &[Expr],
     context: &mut Context,
+    order: Option<&[usize]>,
 ) -> Result<(), Error> {
     let previous = context.allow_local_reference;
     context.allow_local_reference = true;
     let reference_parameters = context.reference_parameters.get(function).cloned();
-    let checked = arguments.iter().enumerate().try_for_each(|(index, item)| {
+    let checked = (0..arguments.len()).try_for_each(|index| {
+        let index = order.map_or(index, |order| order[index]);
+        let item = &arguments[index];
         let _argument_site = Site::expression(item).enter();
         check_expression(item, context)?;
         if !context.typed_scope_escapes
@@ -2102,7 +2105,12 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
         Expr::Function(_) => {}
         Expr::List(items) => {
             if let Some(Expr::Function(function)) = items.first() {
-                return check_call_arguments(function, &items[1..], context);
+                return check_call_arguments(
+                    function,
+                    &items[1..],
+                    context,
+                    items.argument_order(),
+                );
             }
             if let Some(Expr::Symbol(operator)) = items.first() {
                 if matches!(operator.as_str(), "drop" | "forget") && items.len() == 2 {
@@ -2364,7 +2372,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     }
                     result?
                 } else if context.function_names.contains(operator) {
-                    check_call_arguments(operator, &items[1..], context)?;
+                    check_call_arguments(operator, &items[1..], context, items.argument_order())?;
                 } else if matches!(operator.as_str(), "pin-read" | "deref")
                     && items.len() == 2
                     && typed_local_load(expression, context).is_some()
@@ -2442,13 +2450,11 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                         }
                     }
                 } else {
-                    let arguments = if operator == "get" && items.len() >= 3 {
-                        &items[1..items.len() - 1]
-                    } else {
-                        &items[1..]
-                    };
-                    for item in arguments {
-                        check_expression(item, context)?;
+                    for index in items.argument_indices() {
+                        if operator == "get" && index + 1 == items.len() - 1 {
+                            continue;
+                        }
+                        check_expression(&items[index + 1], context)?;
                     }
                 }
             } else {

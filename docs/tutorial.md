@@ -80,7 +80,9 @@ Canonical S-expressions remain useful for generators and fully explicit code:
 ## 3. Declare and call a function {#functions-tutorial}
 
 Calls name their arguments. Their written order can differ from the declaration;
-expressions are evaluated once, in parameter declaration order.
+expressions are evaluated once in the order you write them. Names choose the
+destination parameters; they do not rearrange effects. An earlier argument
+finishes before a later one starts, and all arguments finish before callee entry.
 
 ```lisp run=42
 #fn subtract {

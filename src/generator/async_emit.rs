@@ -11024,8 +11024,8 @@ mod tests {
                     (#assert (#u64::eq count 2u64))
                     (#assert (#u64::eq value 40u64)) (#set value 99u64) (#return answer))"
             );
-            // Named argument spelling is deliberately reversed: checked
-            // declaration order evaluates amount before lending view.
+            // Named arguments run in written order: the immediate call lends
+            // view before evaluating its scalar amount.
             runtime_planned(prepare_function(&function, &main), 42);
             let bad = main.replace(
                 "(#let-else (Work::Poll.Pending next)",

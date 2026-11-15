@@ -3415,6 +3415,7 @@ fn normalize_call_expr(
                     return Err(format!("{keyword} arguments must be a named argument list"));
                 };
                 let mut arguments = HashMap::new();
+                let mut order = Vec::new();
                 for argument in argument_form.iter_mut() {
                     let Expr::List(pair) = argument else {
                         return Err(
@@ -3433,6 +3434,12 @@ fn normalize_call_expr(
                     if !parameters.contains(&name) {
                         return Err(format!("function '{function}' has no parameter '{name}'"));
                     }
+                    order.push(
+                        parameters
+                            .iter()
+                            .position(|parameter| parameter == &name)
+                            .unwrap(),
+                    );
                     normalize_call_expr(&mut pair[1], signatures)?;
                     if arguments.insert(name.clone(), pair[1].clone()).is_some() {
                         return Err(format!(
@@ -3450,7 +3457,7 @@ fn normalize_call_expr(
                         format!("{keyword} to '{function}' is missing parameter '{parameter}'")
                     })?);
                 }
-                *expression = Expr::List(lowered.into());
+                *expression = Expr::List(ExprList::from(lowered).with_argument_order(order));
                 return Ok(());
             }
             if let Some(Expr::Symbol(name)) = items.first() {
@@ -3735,6 +3742,7 @@ fn normalize_literal_expr(
                 return Err("struct-literal fields must be a list of (name value) pairs".into());
             };
             let mut values = HashMap::new();
+            let mut written_fields = Vec::new();
             for entry in entries.iter_mut() {
                 let Expr::List(pair) = entry else {
                     return Err("struct-literal fields must have the form (name value)".into());
@@ -3746,6 +3754,7 @@ fn normalize_literal_expr(
                     return Err("struct-literal field names must be symbols".into());
                 };
                 let field_name = field_name.clone();
+                written_fields.push(field_name.clone());
                 normalize_literal_expr(&mut pair[1], literals)?;
                 if values.insert(field_name.clone(), pair[1].clone()).is_some() {
                     return Err(format!(
@@ -3776,7 +3785,16 @@ fn normalize_literal_expr(
                     .iter()
                     .map(|field| values.remove(&field.name).expect("checked struct field")),
             );
-            *expression = Expr::List(lowered.into());
+            let order = written_fields
+                .iter()
+                .map(|name| {
+                    fields
+                        .iter()
+                        .position(|field| &field.name == name)
+                        .expect("checked struct field")
+                })
+                .collect();
+            *expression = Expr::List(ExprList::from(lowered).with_argument_order(order));
             return Ok(());
         }
         if let Some(Expr::Symbol(name)) = items.first() {
@@ -12741,7 +12759,7 @@ mod tests {
     }
 
     #[test]
-    fn async_environment_identity_preserves_parameter_evaluation_order() {
+    fn async_environment_identity_preserves_parameter_layout_order() {
         let environment = |parameters| {
             async_type_environment(
                 &parse(&format!(

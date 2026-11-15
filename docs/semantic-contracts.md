@@ -50,10 +50,29 @@ permissions and semantics; a self-issued header grants no access.
 
 ## Evaluation and control flow
 
-Function argument expressions execute in parameter declaration order, not label
-order at the call site. Struct field initializers execute in field declaration
-order, not source label order. Array and tuple elements execute left to right.
-Each supplied expression is evaluated once; names do not imply deferred work.
+Named argument expressions execute exactly once in their written call-site
+order. Labels resolve statically to parameter slots; declaration order determines
+the interface and ABI, not the order of effects. Each value finishes before the
+next starts, including nested calls and suspension/resume. Only after all values
+are ready does the callee begin. A non-returning value prevents later arguments
+and callee entry. Unknown, duplicate and missing labels remain static errors.
+
+Struct field initializers follow their written order too; field declaration
+order still determines representation and positional patterns. Array and tuple
+elements execute left to right. Moves and loans established by earlier values
+remain effective while later values execute. Requirements are checked against
+the actual call state after argument evaluation. Generated source follows the
+order it emits; aliases and file references do not change this rule.
+
+This is a compatibility change from earlier experimental builds, which evaluated
+named calls and struct initializers in declaration order. Programs with effectful,
+reordered named values can observe different behavior. Native x86-64, AArch64
+and WebAssembly use the same rule for their supported forms; constant evaluation
+preserves it for supported strict expressions and aggregate initializers. Compiler
+source fingerprints invalidate generator and semantic caches when these rules
+change. Trace, layout, loan and cold/warm-cache regressions live in
+`tests/written_order.rs` and `tests/call_order.rs`; async and Wasm suites check
+the same sequence across suspension and browser emission.
 
 `#if` evaluates only its selected branch. Boolean `and` and `or` short circuit.
 `#match` evaluates its scrutinee once and executes one matching arm. Patterns

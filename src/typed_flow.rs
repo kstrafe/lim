@@ -393,6 +393,22 @@ pub(crate) enum FlowAction {
     Diverge,
 }
 
+impl FlowAction {
+    pub(crate) fn value(&self) -> Option<NodeId> {
+        match self {
+            Self::Evaluate(value)
+            | Self::Read { value, .. }
+            | Self::Release { value, .. }
+            | Self::Borrow { value, .. }
+            | Self::Clone { value, .. }
+            | Self::Bind { value, .. }
+            | Self::Assign { value, .. }
+            | Self::Write { value, .. } => Some(*value),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct FlowNode {
     pub action: FlowAction,
@@ -404,6 +420,9 @@ pub(crate) struct FlowNode {
 
 #[derive(Clone, Debug)]
 pub(crate) struct FlowGraph {
+    /// Completed operands retained while another operand is being evaluated.
+    /// Keyed by checked expression identity, independently of flow arena order.
+    pub pending_values: HashMap<NodeId, Vec<NodeId>>,
     pub variant_pruned_edges: HashMap<FlowNodeId, Vec<FlowNodeId>>,
     pub nodes: Vec<FlowNode>,
     pub entry: FlowNodeId,
@@ -2315,6 +2334,9 @@ struct Builder<'a> {
     exit: FlowNodeId,
     active_scopes: Vec<Vec<BindingId>>,
     active_borrow_scopes: Vec<NodeId>,
+    pending: Vec<NodeId>,
+    pending_values: HashMap<NodeId, Vec<NodeId>>,
+    pending_relations: usize,
 }
 
 fn display_linear_place(body: &Body, place: &Place) -> String {
@@ -3775,11 +3797,18 @@ impl FlowGraph {
             exit: FlowNodeId(0),
             active_scopes: Vec::new(),
             active_borrow_scopes: Vec::new(),
+            pending: Vec::new(),
+            pending_values: HashMap::new(),
+            pending_relations: 0,
         };
         builder.exit = builder.push(FlowAction::Exit, None, vec![]);
         let first = builder.scoped_instructions(&body.instructions, builder.exit, &[])?;
         let entry = builder.push(FlowAction::Entry, None, vec![first]);
+        if builder.pending_relations > 1_000_000 {
+            return Err("retained operand analysis exceeds its 1,000,000 relation limit".into());
+        }
         let mut graph = Self {
+            pending_values: builder.pending_values,
             variant_pruned_edges: HashMap::new(),
             nodes: builder.nodes,
             entry,
@@ -19211,12 +19240,49 @@ impl Builder<'_> {
         successors: Vec<FlowNodeId>,
     ) -> FlowNodeId {
         let id = FlowNodeId(self.nodes.len());
+        if !self.pending.is_empty() {
+            if let Some(value) = action.value() {
+                if !self.pending_values.contains_key(&value) {
+                    self.pending_relations =
+                        self.pending_relations.saturating_add(self.pending.len());
+                    if self.pending_relations <= 1_000_000 {
+                        self.pending_values.insert(value, self.pending.clone());
+                    }
+                }
+            }
+        }
         self.nodes.push(FlowNode {
             action,
             successors,
             span,
         });
         id
+    }
+
+    fn operands(
+        &mut self,
+        children: &[NodeId],
+        order: Option<&[usize]>,
+        next: FlowNodeId,
+        targets: &[Target],
+    ) -> Result<FlowNodeId, String> {
+        let ordered = (0..children.len())
+            .map(|index| children[order.map_or(index, |order| order[index])])
+            .collect::<Vec<_>>();
+        let base = self.pending.len();
+        let mut entry = next;
+        for index in (0..ordered.len()).rev() {
+            self.pending.extend(
+                ordered[..index]
+                    .iter()
+                    .copied()
+                    .filter(|id| self.body.nodes[id.0].ty.is_some()),
+            );
+            let result = self.expression(ordered[index], entry, targets, None);
+            self.pending.truncate(base);
+            entry = result?;
+        }
+        Ok(entry)
     }
 
     fn scoped_instructions(
@@ -19544,12 +19610,16 @@ impl Builder<'_> {
             NodeKind::Form {
                 callee: Some(_),
                 children,
+                argument_source_order,
                 ..
             } => {
                 let mut entry = self.push(FlowAction::Evaluate(id), span, vec![next]);
-                for child in children.iter().skip(1).rev() {
-                    entry = self.expression(*child, entry, targets, None)?;
-                }
+                entry = self.operands(
+                    &children[1..],
+                    argument_source_order.as_deref(),
+                    entry,
+                    targets,
+                )?;
                 Ok(entry)
             }
             NodeKind::If {
@@ -19827,15 +19897,22 @@ impl Builder<'_> {
                 let done = self.push(action, span, vec![next]);
                 self.expression(children[1], done, targets, None)
             }
-            NodeKind::Form { children, .. } => {
+            NodeKind::Form {
+                children,
+                argument_source_order,
+                ..
+            } => {
                 let mut entry = if node.ty.is_some() {
                     self.push(FlowAction::Evaluate(id), span, vec![next])
                 } else {
                     next
                 };
-                for child in children.iter().skip(1).rev() {
-                    entry = self.expression(*child, entry, targets, None)?;
-                }
+                entry = self.operands(
+                    &children[1..],
+                    argument_source_order.as_deref(),
+                    entry,
+                    targets,
+                )?;
                 Ok(entry)
             }
             NodeKind::Syntax(children) => {
@@ -20537,6 +20614,7 @@ mod tests {
             span: None,
         };
         let mut flow = FlowGraph {
+            pending_values: Default::default(),
             variant_pruned_edges: HashMap::new(),
             entry: FlowNodeId(0),
             exit: FlowNodeId(4),
@@ -21279,6 +21357,7 @@ mod tests {
         let mut seed = 0x1234_5678u32;
         for count in [1, 2, 8, 64, 129] {
             let mut graph = FlowGraph {
+                pending_values: Default::default(),
                 variant_pruned_edges: HashMap::new(),
                 nodes: (0..count)
                     .map(|_| FlowNode {
@@ -22460,6 +22539,7 @@ mod tests {
             },
         });
         let mut graph = FlowGraph {
+            pending_values: Default::default(),
             variant_pruned_edges: HashMap::new(),
             nodes: vec![
                 FlowNode {
@@ -23333,6 +23413,7 @@ mod tests {
         });
         let place = Place::root(PlaceRoot::Local(BindingId(0)));
         let graph = FlowGraph {
+            pending_values: Default::default(),
             variant_pruned_edges: HashMap::new(),
             nodes: vec![
                 FlowNode {
@@ -25852,6 +25933,7 @@ mod tests {
             segments: vec![Segment::Index(0)],
         };
         let graph_for = |replacement: Place| FlowGraph {
+            pending_values: Default::default(),
             variant_pruned_edges: HashMap::new(),
             nodes: vec![
                 FlowNode {
@@ -25906,6 +25988,7 @@ mod tests {
     fn definite_release_fixed_point_respects_zero_iteration_path() {
         let place = Place::root(PlaceRoot::Local(BindingId(0)));
         let graph = FlowGraph {
+            pending_values: Default::default(),
             variant_pruned_edges: HashMap::new(),
             nodes: vec![
                 FlowNode {

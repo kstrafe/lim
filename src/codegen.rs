@@ -2386,7 +2386,14 @@ fn generate_function(
                 .max()
                 .unwrap_or(0),
         );
-    let argument_temp_regions = max_indirect_parameters;
+    let argument_temp_regions = max_indirect_parameters.max(
+        function
+            .body
+            .iter()
+            .map(|statement| max_argument_regions_in_statement(statement, functions))
+            .max()
+            .unwrap_or(0),
+    );
     let projection_regions = function
         .body
         .iter()
@@ -3136,6 +3143,97 @@ fn max_projection_depth_in_statement(statement: &Statement) -> usize {
             .max(max_projection_depth_in_statement(step))
             .max(nested(body)),
         Statement::Labeled { statement, .. } => max_projection_depth_in_statement(statement),
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => 0,
+    }
+}
+
+fn max_argument_regions_in_expression(
+    expression: &Expr,
+    functions: &HashMap<String, FunctionAbi>,
+) -> usize {
+    match expression {
+        Expr::List(items) => {
+            let children = items
+                .iter()
+                .map(|value| max_argument_regions_in_expression(value, functions))
+                .max()
+                .unwrap_or(0);
+            let own = match items.first() {
+                Some(Expr::Function(name)) => functions.get(name).map_or(0, |abi| {
+                    abi.indirect_parameters
+                        .iter()
+                        .filter(|indirect| **indirect)
+                        .count()
+                }),
+                _ => 0,
+            };
+            children + own
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => statements
+            .iter()
+            .map(|statement| max_argument_regions_in_statement(statement, functions))
+            .max()
+            .unwrap_or(0),
+        Expr::Labeled {
+            expression: value, ..
+        }
+        | Expr::Quote(value)
+        | Expr::QuasiQuote(value)
+        | Expr::Unquote(value)
+        | Expr::UnquoteSplicing(value) => max_argument_regions_in_expression(value, functions),
+        _ => 0,
+    }
+}
+
+fn max_argument_regions_in_statement(
+    statement: &Statement,
+    functions: &HashMap<String, FunctionAbi>,
+) -> usize {
+    let nested = |statements: &[Statement]| {
+        statements
+            .iter()
+            .map(|statement| max_argument_regions_in_statement(statement, functions))
+            .max()
+            .unwrap_or(0)
+    };
+    match statement {
+        Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. }
+        | Statement::BreakValue(value)
+        | Statement::BreakToValue { value, .. }
+        | Statement::Return(Some(value))
+        | Statement::Expr(value) => max_argument_regions_in_expression(value, functions),
+        Statement::ArrayAssign { index, value, .. } => {
+            max_argument_regions_in_expression(index, functions)
+                .max(max_argument_regions_in_expression(value, functions))
+        }
+        Statement::LetElse {
+            value, else_body, ..
+        } => max_argument_regions_in_expression(value, functions).max(nested(else_body)),
+        Statement::While { condition, body } => {
+            max_argument_regions_in_expression(condition, functions).max(nested(body))
+        }
+        Statement::Loop { body } => nested(body),
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => max_argument_regions_in_statement(init, functions)
+            .max(max_argument_regions_in_expression(condition, functions))
+            .max(max_argument_regions_in_statement(step, functions))
+            .max(nested(body)),
+        Statement::Labeled { statement, .. } => {
+            max_argument_regions_in_statement(statement, functions)
+        }
         Statement::Break
         | Statement::BreakTo(_)
         | Statement::Continue
@@ -4800,8 +4898,11 @@ fn constant_value(
                 }
                 return Ok(normalize_global_integer(value, &cast_target));
             }
+            let reverse = items.argument_order().is_some_and(|order| order == [1, 0]);
+            let first = if reverse { 2 } else { 1 };
+            let second = if reverse { 1 } else { 2 };
             let left = constant_value(
-                &items[1],
+                &items[first],
                 enums,
                 constants,
                 initializers,
@@ -4815,13 +4916,18 @@ fn constant_value(
                 return Ok(1);
             }
             let right = constant_value(
-                &items[2],
+                &items[second],
                 enums,
                 constants,
                 initializers,
                 evaluating,
                 target,
             )?;
+            let (left, right) = if reverse {
+                (right, left)
+            } else {
+                (left, right)
+            };
             let operation_type = qualifier.map(Type::from_name).or_else(|| target.cloned());
             if let Some(ty) = operation_type
                 .as_ref()
@@ -5176,8 +5282,11 @@ fn constant_float_number(
                 _ => return Err("floating-point global initializer is not constant".into()),
             };
             let operator = operator_base(operator);
+            let reverse = items.argument_order().is_some_and(|order| order == [1, 0]);
+            let first = if reverse { 2 } else { 1 };
+            let second = if reverse { 1 } else { 2 };
             let left = constant_float_number(
-                &items[1],
+                &items[first],
                 integer_constants,
                 constants,
                 initializers,
@@ -5185,13 +5294,18 @@ fn constant_float_number(
                 single_precision,
             )?;
             let right = constant_float_number(
-                &items[2],
+                &items[second],
                 integer_constants,
                 constants,
                 initializers,
                 evaluating,
                 single_precision,
             )?;
+            let (left, right) = if reverse {
+                (right, left)
+            } else {
+                (left, right)
+            };
             match operator {
                 "+" => normalize(if single_precision {
                     ((left as f32) + (right as f32)) as f64
@@ -5391,25 +5505,22 @@ fn constant_aggregate_words(
             if items.len() - 1 != fields.len() {
                 return Err("static struct initializer has the wrong field count".into());
             }
-            fields
-                .iter()
-                .zip(&items[1..])
-                .map(|(field, value)| {
-                    constant_aggregate_words(
-                        value,
-                        &field.ty,
-                        structs,
-                        enums,
-                        aliases,
-                        constants,
-                        float_constants,
-                        initializers,
-                        evaluating_constants,
-                        evaluating_float_constants,
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map(|words| words.into_iter().flatten().collect())
+            let mut words = vec![Vec::new(); fields.len()];
+            for index in items.argument_indices() {
+                words[index] = constant_aggregate_words(
+                    &items[index + 1],
+                    &fields[index].ty,
+                    structs,
+                    enums,
+                    aliases,
+                    constants,
+                    float_constants,
+                    initializers,
+                    evaluating_constants,
+                    evaluating_float_constants,
+                )?;
+            }
+            Ok(words.into_iter().flatten().collect())
         }
         Type::Named(name) if enums.contains_key(name) => {
             let Expr::List(items) = expression else {
@@ -7903,10 +8014,13 @@ impl FunctionContext<'_> {
                 if items.len() - 1 != fields.len() {
                     return Err(format!("constructor '{struct_name}' has wrong field count"));
                 }
-                for (field_value, field) in items[1..].iter().zip(fields) {
-                    let words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
-                    self.store_indirect_value_words(field_value, &field.ty, offset)?;
-                    offset += words;
+                let offsets = self.struct_field_offsets(fields)?;
+                for index in items.argument_indices() {
+                    self.store_indirect_value_words(
+                        &items[index + 1],
+                        &fields[index].ty,
+                        offset + offsets[index],
+                    )?;
                 }
                 return Ok(());
             }
@@ -8654,10 +8768,13 @@ impl FunctionContext<'_> {
                         "large struct return '{name}' has the wrong field count"
                     ));
                 }
-                let mut field_offset = offset;
-                for (item, field) in items[1..].iter().zip(&fields) {
-                    self.store_indirect_value_words(item, &field.ty, field_offset)?;
-                    field_offset += storage_word_count(&field.ty, &self.structs, &self.enums)?;
+                let offsets = self.struct_field_offsets(&fields)?;
+                for index in items.argument_indices() {
+                    self.store_indirect_value_words(
+                        &items[index + 1],
+                        &fields[index].ty,
+                        offset + offsets[index],
+                    )?;
                 }
                 Ok(())
             }
@@ -8956,9 +9073,12 @@ impl FunctionContext<'_> {
                     if items.len() - 1 != fields.len() {
                         return Err(format!("constructor '{struct_name}' has wrong field count"));
                     }
-                    for (index, (field, field_value)) in fields.iter().zip(&items[1..]).enumerate()
-                    {
-                        self.store_value_to_slots(field_value, &field.ty, &slots[index].1)?;
+                    for index in items.argument_indices() {
+                        self.store_value_to_slots(
+                            &items[index + 1],
+                            &fields[index].ty,
+                            &slots[index].1,
+                        )?;
                     }
                     return Ok(());
                 }
@@ -10260,7 +10380,7 @@ impl FunctionContext<'_> {
 
     fn list_expression(
         &mut self,
-        items: &[Expr],
+        items: &crate::ExprList,
         numeric: Option<crate::typed_body::NumericOperation>,
         callee: Option<crate::typed_ir::FunctionId>,
     ) -> Result<(), String> {
@@ -10268,7 +10388,7 @@ impl FunctionContext<'_> {
             return Ok(());
         }
         if let Some(Expr::Function(name)) = items.first() {
-            return self.call(name, &items[1..], None, callee);
+            return self.call(name, &items[1..], None, callee, items.argument_order());
         }
         let operator = match items.first() {
             Some(Expr::Symbol(name)) => name.as_str(),
@@ -10742,7 +10862,7 @@ impl FunctionContext<'_> {
                         .ok_or_else(|| {
                             format!("internal error: clone helper '{function}' has no function ID")
                         })?;
-                    self.call(&function, &items[1..], None, Some(callee))
+                    self.call(&function, &items[1..], None, Some(callee), None)
                 } else {
                     self.expression(&items[1])
                 }
@@ -11263,7 +11383,7 @@ impl FunctionContext<'_> {
                 self.output.push_str("    ud2\n");
                 Ok(())
             }
-            _ => self.call(operator, &items[1..], None, callee),
+            _ => self.call(operator, &items[1..], None, callee, items.argument_order()),
         }
     }
 
@@ -14363,20 +14483,34 @@ impl FunctionContext<'_> {
                     .ok_or_else(|| format!("unknown struct '{struct_name}'"))?
                     .clone();
                 let index = self.checked_field_index(&items[2], struct_name, &fields)?;
-                let value = constructor
-                    .get(index + 1)
-                    .ok_or_else(|| "constructor has too few fields".to_owned())?;
                 let field_type = fields[index].ty.clone();
                 let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
-                if field_words > 1 {
-                    self.push_value_words(value, &field_type, false)?;
-                    for register in VALUE_REGISTERS[..field_words].iter().rev() {
-                        self.output.push_str(&format!("    pop {register}\n"));
-                        self.stack_depth -= 1;
+                let total = fields
+                    .iter()
+                    .map(|field| value_word_count(&field.ty, &self.structs, &self.enums))
+                    .sum::<Result<usize, _>>()?;
+                let offset = fields[..index]
+                    .iter()
+                    .map(|field| value_word_count(&field.ty, &self.structs, &self.enums))
+                    .sum::<Result<usize, _>>()?;
+                self.push_struct_fields(constructor, &fields, false)?;
+                if is_float_type(&field_type) {
+                    self.output.push_str(&format!(
+                        "    movq xmm0, QWORD PTR [rsp+{}]\n",
+                        (total - offset - 1) * 8
+                    ));
+                } else {
+                    for (word, register) in VALUE_REGISTERS.iter().take(field_words).enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov {register}, QWORD PTR [rsp+{}]\n",
+                            (total - offset - word - 1) * 8
+                        ));
                     }
-                    return Ok(());
                 }
-                self.expression_as_expected(value, &field_type)
+                self.output
+                    .push_str(&format!("    add rsp, {}\n", total * 8));
+                self.stack_depth -= total;
+                Ok(())
             }
             _ => {
                 let Type::Named(struct_name) = self
@@ -14967,12 +15101,61 @@ impl FunctionContext<'_> {
         }
     }
 
+    // Strict scalar operations stage in written order, then expose the usual
+    // operand registers. Numeric roles remain left/right regardless of labels.
+    fn evaluate_binary_operands(
+        &mut self,
+        items: &crate::ExprList,
+        ty: &Type,
+    ) -> Result<(), String> {
+        let reverse = items.argument_order().is_some_and(|order| order == [1, 0]);
+        let first = if reverse { 2 } else { 1 };
+        let second = if reverse { 1 } else { 2 };
+        if is_float_type(ty) {
+            self.expression_as_float(&items[first], ty)?;
+            self.output
+                .push_str("    sub rsp, 8\n    movq QWORD PTR [rsp], xmm0\n");
+            self.stack_depth += 1;
+            self.expression_as_float(&items[second], ty)?;
+            if reverse {
+                self.output
+                    .push_str("    movaps xmm1, xmm0\n    movq xmm0, QWORD PTR [rsp]\n");
+            } else {
+                self.output.push_str("    movq xmm1, QWORD PTR [rsp]\n");
+            }
+            self.output.push_str("    add rsp, 8\n");
+            self.stack_depth -= 1;
+        } else if is_wide_integer(ty) {
+            self.expression(&items[first])?;
+            self.output.push_str("    push rdx\n    push rax\n");
+            self.stack_depth += 2;
+            self.expression(&items[second])?;
+            self.output.push_str(if reverse {
+                "    pop rcx\n    pop r8\n"
+            } else {
+                "    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n"
+            });
+            self.stack_depth -= 2;
+        } else {
+            self.expression(&items[first])?;
+            self.push_rax();
+            self.expression(&items[second])?;
+            self.output.push_str(if reverse {
+                "    pop rcx\n"
+            } else {
+                "    mov rcx, rax\n    pop rax\n"
+            });
+            self.stack_depth -= 1;
+        }
+        Ok(())
+    }
+
     fn binary_operator(
         &mut self,
         operator: &str,
         operand_type: Option<&Type>,
         mode: Option<&str>,
-        items: &[Expr],
+        items: &crate::ExprList,
     ) -> Result<(), String> {
         if items.len() != 3 {
             return Err(format!("operator '{operator}' requires two operands"));
@@ -14991,11 +15174,7 @@ impl FunctionContext<'_> {
         if integer_bit_width(operand_type.clone()).is_none() && !boolean_bitwise {
             return Err("internal error: arithmetic operand is not numeric".into());
         }
-        self.expression(&items[1])?;
-        self.push_rax();
-        self.expression(&items[2])?;
-        self.output.push_str("    mov rcx, rax\n    pop rax\n");
-        self.stack_depth -= 1;
+        self.evaluate_binary_operands(items, &operand_type)?;
         let division_by_zero = if matches!(operator, "/" | "%") {
             let trap = self.label("division_by_zero");
             let nonzero = self.label("division_nonzero");
@@ -15176,7 +15355,7 @@ impl FunctionContext<'_> {
         operator: &str,
         operand_type: &Type,
         mode: Option<&str>,
-        items: &[Expr],
+        items: &crate::ExprList,
     ) -> Result<(), String> {
         if mode == Some("saturate") && !matches!(operator, "+" | "-" | "*" | "/" | "%") {
             return Err(format!(
@@ -15189,13 +15368,7 @@ impl FunctionContext<'_> {
         ) {
             return Err(format!("128-bit operator '{operator}' is unsupported"));
         }
-        self.expression(&items[1])?;
-        self.output.push_str("    push rdx\n    push rax\n");
-        self.stack_depth += 2;
-        self.expression(&items[2])?;
-        self.output
-            .push_str("    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n");
-        self.stack_depth -= 2;
+        self.evaluate_binary_operands(items, operand_type)?;
         if mode == Some("saturate") && matches!(operator, "+" | "-") {
             let unsigned = matches!(operand_type, Type::U128);
             self.emit_wide_saturating_add_sub(operator, unsigned);
@@ -15462,29 +15635,16 @@ impl FunctionContext<'_> {
         Ok(())
     }
 
-    fn float_binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+    fn float_binary_operator(
+        &mut self,
+        operator: &str,
+        items: &crate::ExprList,
+    ) -> Result<(), String> {
         let ty = self
             .expression_type(&items[1])
             .filter(is_float_type)
             .ok_or_else(|| "internal error: checked float operand lost its type".to_owned())?;
-        self.expression_as_float(&items[1], &ty)?;
-        if matches!(ty, Type::F32) {
-            self.output
-                .push_str("    sub rsp, 8\n    movss DWORD PTR [rsp], xmm0\n");
-        } else {
-            self.output
-                .push_str("    sub rsp, 8\n    movq QWORD PTR [rsp], xmm0\n");
-        }
-        self.stack_depth += 1;
-        self.expression_as_float(&items[2], &ty)?;
-        if matches!(ty, Type::F32) {
-            self.output
-                .push_str("    movss xmm1, DWORD PTR [rsp]\n    add rsp, 8\n");
-        } else {
-            self.output
-                .push_str("    movq xmm1, QWORD PTR [rsp]\n    add rsp, 8\n");
-        }
-        self.stack_depth -= 1;
+        self.evaluate_binary_operands(items, &ty)?;
         if operator == "%" {
             return self.float_remainder(&ty);
         }
@@ -15531,7 +15691,7 @@ impl FunctionContext<'_> {
         &mut self,
         operator: &str,
         operand_type: Option<&Type>,
-        items: &[Expr],
+        items: &crate::ExprList,
     ) -> Result<(), String> {
         if items.len() != 3 {
             return Err(format!("comparison '{operator}' requires two operands"));
@@ -15546,12 +15706,8 @@ impl FunctionContext<'_> {
         if is_wide_integer(&operand_type) {
             return self.wide_comparison(operator, &operand_type, items);
         }
-        self.expression(&items[1])?;
-        self.push_rax();
-        self.expression(&items[2])?;
-        self.output
-            .push_str("    mov rcx, rax\n    pop rax\n    cmp rax, rcx\n");
-        self.stack_depth -= 1;
+        self.evaluate_binary_operands(items, &operand_type)?;
+        self.output.push_str("    cmp rax, rcx\n");
         let unsigned = is_unsigned_type(&operand_type);
         let condition = match operator {
             "<" if unsigned => "b",
@@ -15575,15 +15731,9 @@ impl FunctionContext<'_> {
         &mut self,
         operator: &str,
         operand_type: &Type,
-        items: &[Expr],
+        items: &crate::ExprList,
     ) -> Result<(), String> {
-        self.expression(&items[1])?;
-        self.output.push_str("    push rdx\n    push rax\n");
-        self.stack_depth += 2;
-        self.expression(&items[2])?;
-        self.output
-            .push_str("    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n");
-        self.stack_depth -= 2;
+        self.evaluate_binary_operands(items, operand_type)?;
         let unsigned = matches!(operand_type, Type::U128);
         let true_label = self.label("wide_cmp_true");
         let false_label = self.label("wide_cmp_false");
@@ -15638,26 +15788,9 @@ impl FunctionContext<'_> {
         &mut self,
         operator: &str,
         ty: &Type,
-        items: &[Expr],
+        items: &crate::ExprList,
     ) -> Result<(), String> {
-        self.expression_as_float(&items[1], &ty)?;
-        if matches!(ty, Type::F32) {
-            self.output
-                .push_str("    sub rsp, 8\n    movss DWORD PTR [rsp], xmm0\n");
-        } else {
-            self.output
-                .push_str("    sub rsp, 8\n    movq QWORD PTR [rsp], xmm0\n");
-        }
-        self.stack_depth += 1;
-        self.expression_as_float(&items[2], &ty)?;
-        if matches!(ty, Type::F32) {
-            self.output
-                .push_str("    movss xmm1, DWORD PTR [rsp]\n    add rsp, 8\n");
-        } else {
-            self.output
-                .push_str("    movq xmm1, QWORD PTR [rsp]\n    add rsp, 8\n");
-        }
-        self.stack_depth -= 1;
+        self.evaluate_binary_operands(items, ty)?;
         self.output.push_str(if matches!(ty, Type::F32) {
             "    ucomiss xmm1, xmm0\n"
         } else {
@@ -16051,15 +16184,16 @@ impl FunctionContext<'_> {
                         "large struct argument '{name}' has the wrong field count"
                     ));
                 }
-                let mut offset = 0;
-                for (item, field) in items[1..].iter().zip(&fields) {
-                    let field_words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
+                let offsets = self.struct_field_offsets(&fields)?;
+                for index in items.argument_indices() {
+                    let offset = offsets[index];
+                    let field_words =
+                        storage_word_count(&fields[index].ty, &self.structs, &self.enums)?;
                     self.store_value_to_slots(
-                        item,
-                        &field.ty,
+                        &items[index + 1],
+                        &fields[index].ty,
                         &slots[offset..offset + field_words],
                     )?;
-                    offset += field_words;
                 }
                 Ok(())
             }
@@ -16373,6 +16507,9 @@ impl FunctionContext<'_> {
                 .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
             let region = self.aggregate_argument_cursor;
             self.aggregate_argument_cursor += 1;
+            if region >= self.aggregate_argument_regions {
+                return Err("internal error: retained aggregate argument exceeded its reserved frame regions".into());
+            }
             let base = base + region * self.aggregate_temp_words;
             let words = storage_word_count(ty, &self.structs, &self.enums)?;
             let slots = flat_slots(base, words);
@@ -16600,7 +16737,13 @@ impl FunctionContext<'_> {
                 .expect("checked aggregate call has metadata");
             validate_checked_call_result(metadata, &abi.return_type, &self.aliases)?;
         }
-        self.call(name, &items[1..], Some(base), callee)
+        self.call(
+            name,
+            &items[1..],
+            Some(base),
+            callee,
+            items.argument_order(),
+        )
     }
 
     fn call_to_aggregate_temp(&mut self, expression: &Expr) -> Result<usize, String> {
@@ -16659,10 +16802,10 @@ impl FunctionContext<'_> {
         arguments: &[Expr],
         indirect_return_slot: Option<usize>,
         callee: Option<crate::typed_ir::FunctionId>,
+        order: Option<&[usize]>,
     ) -> Result<(), String> {
         let saved_cursor = self.aggregate_argument_cursor;
-        self.aggregate_argument_cursor = 0;
-        let result = self.call_inner(name, arguments, indirect_return_slot, callee);
+        let result = self.call_inner(name, arguments, indirect_return_slot, callee, order);
         self.aggregate_argument_cursor = saved_cursor;
         result
     }
@@ -16673,6 +16816,7 @@ impl FunctionContext<'_> {
         arguments: &[Expr],
         indirect_return_slot: Option<usize>,
         callee: Option<crate::typed_ir::FunctionId>,
+        order: Option<&[usize]>,
     ) -> Result<(), String> {
         if arguments.len() > 32 {
             return Err(format!("call to '{name}' has more than 32 arguments"));
@@ -16701,6 +16845,16 @@ impl FunctionContext<'_> {
                 }
             }
         }
+        if order.is_some() {
+            return self.call_mixed(
+                &abi.assembly_symbol,
+                arguments,
+                &abi.parameters,
+                &abi.indirect_parameters,
+                indirect_return_slot,
+                order,
+            );
+        }
         if abi.parameters.iter().all(is_float_type) {
             if let Some(ty) = abi.parameters.first() {
                 if abi.parameters.iter().all(|other| other == ty) {
@@ -16720,6 +16874,7 @@ impl FunctionContext<'_> {
                 &abi.parameters,
                 &abi.indirect_parameters,
                 indirect_return_slot,
+                None,
             );
         }
         let word_count = abi
@@ -16739,7 +16894,7 @@ impl FunctionContext<'_> {
             return Err(format!("call to '{name}' has more than 32 machine words"));
         }
         if total_words > ARGUMENT_REGISTERS.len() {
-            // Evaluate in declaration order, then rearrange evaluated words
+            // Evaluate operands, then rearrange evaluated words
             // for the ABI. Reversing argument evaluation to build the stack
             // disagrees with typed flow (and with calls that fit registers).
             return self.call_mixed(
@@ -16748,6 +16903,7 @@ impl FunctionContext<'_> {
                 &abi.parameters,
                 &abi.indirect_parameters,
                 indirect_return_slot,
+                None,
             );
         }
         for ((argument, ty), indirect) in arguments
@@ -16848,6 +17004,7 @@ impl FunctionContext<'_> {
         parameters: &[Type],
         indirect_parameters: &[bool],
         indirect_return_slot: Option<usize>,
+        order: Option<&[usize]>,
     ) -> Result<(), String> {
         let word_counts = parameters
             .iter()
@@ -16861,12 +17018,30 @@ impl FunctionContext<'_> {
             })
             .collect::<Result<Vec<_>, String>>()?;
         let total_words = word_counts.iter().sum::<usize>();
+        if total_words > 32 {
+            return Err(format!(
+                "call to '{assembly_symbol}' has more than 32 machine words"
+            ));
+        }
+        let order = order
+            .map(<[usize]>::to_vec)
+            .unwrap_or_else(|| (0..arguments.len()).collect());
+        let mut source_offsets = vec![0; arguments.len()];
+        let mut staged_words = 0;
+        for &index in &order {
+            source_offsets[index] = staged_words;
+            staged_words += word_counts[index];
+        }
         let mut integer_index = 0usize;
         let mut float_index = 0usize;
         let mut overflow_offsets = Vec::new();
-        let mut source_offset = 0usize;
-        for ((ty, indirect), words) in parameters.iter().zip(indirect_parameters).zip(&word_counts)
+        for (index, ((ty, indirect), words)) in parameters
+            .iter()
+            .zip(indirect_parameters)
+            .zip(&word_counts)
+            .enumerate()
         {
+            let source_offset = source_offsets[index];
             if !*indirect && is_float_type(ty) {
                 if float_index >= FLOAT_ARGUMENT_REGISTERS.len() {
                     overflow_offsets.push(source_offset);
@@ -16880,7 +17055,6 @@ impl FunctionContext<'_> {
                     integer_index += 1;
                 }
             }
-            source_offset += words;
         }
         let overflow_words = overflow_offsets.len();
         let needs_padding = (self.stack_depth + total_words + overflow_words) % 2 == 1;
@@ -16888,9 +17062,12 @@ impl FunctionContext<'_> {
             self.output.push_str("    sub rsp, 8\n");
             self.stack_depth += 1;
         }
-        for ((argument, ty), indirect) in arguments.iter().zip(parameters).zip(indirect_parameters)
-        {
-            self.push_call_argument(argument, ty, *indirect)?;
+        for &index in &order {
+            self.push_call_argument(
+                &arguments[index],
+                &parameters[index],
+                indirect_parameters[index],
+            )?;
         }
         for (copied_words, source_offset) in overflow_offsets.iter().rev().enumerate() {
             self.output.push_str(&format!(
@@ -16901,9 +17078,13 @@ impl FunctionContext<'_> {
         }
         let mut integer_index = 0usize;
         let mut float_index = 0usize;
-        let mut source_offset = 0usize;
-        for ((ty, indirect), words) in parameters.iter().zip(indirect_parameters).zip(&word_counts)
+        for (index, ((ty, indirect), words)) in parameters
+            .iter()
+            .zip(indirect_parameters)
+            .zip(&word_counts)
+            .enumerate()
         {
+            let source_offset = source_offsets[index];
             for word in 0..*words {
                 let offset = (overflow_words + total_words - (source_offset + word) - 1) * 8;
                 if !*indirect && is_float_type(ty) {
@@ -16930,7 +17111,6 @@ impl FunctionContext<'_> {
                     integer_index += 1;
                 }
             }
-            source_offset += words;
         }
         self.emit_indirect_return_target(indirect_return_slot);
         self.output
@@ -16943,6 +17123,58 @@ impl FunctionContext<'_> {
         if needs_padding {
             self.output.push_str("    add rsp, 8\n");
             self.stack_depth -= 1;
+        }
+        Ok(())
+    }
+
+    fn struct_field_offsets(&self, fields: &[Field]) -> Result<Vec<usize>, String> {
+        let mut offset = 0;
+        fields
+            .iter()
+            .map(|field| {
+                let start = offset;
+                offset += storage_word_count(&field.ty, &self.structs, &self.enums)?;
+                Ok(start)
+            })
+            .collect()
+    }
+
+    fn push_struct_fields(
+        &mut self,
+        items: &crate::ExprList,
+        fields: &[Field],
+        reverse: bool,
+    ) -> Result<(), String> {
+        let mut source_words = vec![Vec::new(); fields.len()];
+        let mut total = 0;
+        for index in items.argument_indices() {
+            self.push_value_words(&items[index + 1], &fields[index].ty, false)?;
+            let words = value_word_count(&fields[index].ty, &self.structs, &self.enums)?;
+            source_words[index] = (total..total + words).collect();
+            total += words;
+        }
+        let mut order = source_words.into_iter().flatten().collect::<Vec<_>>();
+        if reverse {
+            order.reverse();
+        }
+        // A second stack region lets us permute without overwriting unread
+        // words. It carries values only; ownership transfers once in the IR.
+        if order.iter().enumerate().any(|(index, &word)| index != word) {
+            for (copied, &word) in order.iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rsp+{}]\n    push rax\n",
+                    (total - word - 1 + copied) * 8
+                ));
+            }
+            for word in 0..total {
+                self.output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rsp+{}]\n    mov QWORD PTR [rsp+{}], rax\n",
+                    word * 8,
+                    (total + word) * 8
+                ));
+            }
+            self.output
+                .push_str(&format!("    add rsp, {}\n", total * 8));
         }
         Ok(())
     }
@@ -17303,14 +17535,7 @@ impl FunctionContext<'_> {
                         if items.len() - 1 != fields.len() {
                             return Err(format!("constructor '{name}' has wrong field count"));
                         }
-                        let indices: Box<dyn Iterator<Item = usize>> = if reverse {
-                            Box::new((0..fields.len()).rev())
-                        } else {
-                            Box::new(0..fields.len())
-                        };
-                        for index in indices {
-                            self.push_value_words(&items[index + 1], &fields[index].ty, reverse)?;
-                        }
+                        self.push_struct_fields(items, &fields, reverse)?;
                         return Ok(());
                     }
                 }

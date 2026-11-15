@@ -12,7 +12,7 @@ pub(crate) struct AsyncTypeEnvironment {
     pub enums: HashMap<String, HashMap<String, Vec<String>>>,
     pub aliases: HashMap<String, String>,
     pub functions: HashMap<String, HashMap<String, String>>,
-    /// Named call operands execute in parameter declaration order.
+    /// Signature order for layout, type resolution and cache identity.
     pub function_parameter_order: HashMap<String, Vec<String>>,
     pub function_results: HashMap<String, String>,
     pub struct_fields: HashMap<String, HashMap<String, String>>,

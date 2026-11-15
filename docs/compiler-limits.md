@@ -16,6 +16,7 @@ Current major bounds:
 | Generator output | 1,000,000 emitted syntax nodes | Reject oversized expansion |
 | Generated cache artifact reads | 64 MiB per artifact | Refuse invalid/oversized cache input |
 | Borrow call arguments | 1024 alternatives; 128 reference-chain links | Reject rather than omit possible aliases |
+| Retained operand loans | 1,000,000 expression/retained-value relations | Reject before retaining an over-budget snapshot; no partial loan proof is accepted |
 | Predicate evidence | 4096 facts; 200,000 local analysis steps; 16 KiB per identity; 64 MiB cumulative identity/snapshot work | Reject without accepting partial evidence |
 | Constrained types | Depth 64; 1024 expanded fixed-array elements | Reject unsupported expansion; use a whole-collection predicate |
 | Async initialization | 16,384 states per emitted function | Reject with state limit, storage width, and a restructuring suggestion |

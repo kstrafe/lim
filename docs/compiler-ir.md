@@ -113,8 +113,8 @@ targets its step; continue in a `#while` targets its condition. Transfers to
 outer labels explicitly exit the intervening scopes. `#for-range` preserves
 ordinary desugaring: start runs once and end runs at every condition check.
 
-Named function operands and keyed struct fields follow declaration order,
-not written order or hash-map iteration order. Parameter order is part of the
+Named function operands and keyed struct fields execute in written order,
+independently of declaration order and hash-map iteration order. Parameter order is part of the
 async environment cache identity, including external function declarations.
 
 Production uses the graph to reject invalid control transfers at their exact
@@ -186,7 +186,7 @@ are not implemented by this model.
 
 `async_values.rs` plans already-evaluated operands using structured checked
 bodies and actual flow edges, not arena numbering or source spans. Named calls
-follow declaration order. Completed branches and value loops retain one
+follow written evaluation order. Completed branches and value loops retain one
 selected result. Reference/slice/pointer loads are retained as values instead
 of rereading a holder that later operands may replace; lexical place roots are
 not implicitly moved. Unreachable awaits have no storage snapshot. Planning
@@ -477,11 +477,12 @@ binding IDs, source spans, numeric operation/type/overflow metadata, callee
 IDs, and structured statements (loops, assignments with projections, returns,
 breaks, and continues). Expression `if`, `match`, and individual match arms
 also have dedicated nodes with explicit child IDs; arm patterns and values keep
-their binding scopes. Named-call operands remain in declaration order; sourced
-calls also retain a separate permutation of operand indices in written order.
-That metadata records provenance, not evaluation order: arguments are evaluated
-in parameter declaration order. Calls synthesized without complete source spans
-have no written-order permutation. Syntax-only nodes such as type operands and
+their binding scopes. Named-call operands remain in parameter order and struct
+values in layout order; a separate permutation specifies written evaluation
+order. Normalization retains it in the expression list, contract lowering and
+typed body. Runtime checking, async planning and emission use this permutation;
+it is never inferred from diagnostic spans. Synthesized positional calls use
+their explicit operand order. Syntax-only nodes such as type operands and
 patterns have no runtime type.
 Numeric operations use a closed opcode enum, not an arbitrary operation string;
 their exact scalar operand type records width and signedness, and a separate

@@ -824,27 +824,8 @@ impl<'a> Builder<'a> {
             "quote" | "quasiquote" | "literal" | "size-of" | "align-of" | "offset-of" => {}
             "call" | "unsafe-call" | "struct-literal" if c.len() == 3 => {
                 let name = symbol(&c[1]).unwrap_or("");
-                let order = if matches!(head(node), "call" | "unsafe-call") {
-                    self.environment.function_parameter_order.get(name)
-                } else {
-                    self.environment.struct_field_order.get(name)
-                };
                 let fields = &c[2].children;
-                let mut ordered = Vec::new();
-                if let Some(order) = order {
-                    for key in order {
-                        ordered.extend(fields.iter().filter(|field| {
-                            field.children.first().and_then(symbol) == Some(key.as_str())
-                        }));
-                    }
-                }
-                // Preserve unknown/malformed arguments for normal validation.
                 for field in fields {
-                    if !ordered.iter().any(|known| std::ptr::eq(*known, field)) {
-                        ordered.push(field);
-                    }
-                }
-                for field in ordered {
                     if let Some(value) = field.children.get(1) {
                         let ty = if matches!(head(node), "call" | "unsafe-call") {
                             self.environment.functions.get(name)
@@ -1228,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn named_operands_follow_declarations_not_written_order() {
+    fn named_operands_follow_written_order_independently_of_layout() {
         let source = "(#struct Values () ((first #u64) (second #u64)))
           (#fn combine ((first #u64) (second #u64)) #u64 (#return first))
           (#fn work () #u64
@@ -1246,8 +1227,8 @@ mod tests {
                 .position(|node| source_text(source, node) == text)
                 .unwrap()
         });
-        assert!(indices[0] < indices[1]);
-        assert!(indices[2] < indices[3]);
+        assert!(indices[1] < indices[0]);
+        assert!(indices[3] < indices[2]);
         let live = graph.data_liveness();
         for (index, node) in graph
             .nodes
@@ -1260,12 +1241,12 @@ mod tests {
             } else {
                 indices[2]
             };
-            assert!(live[index].values.contains(&NodeId(first)));
+            assert!(!live[index].values.contains(&NodeId(first)));
         }
     }
 
     #[test]
-    fn unsafe_call_arguments_keep_declaration_order_and_inferred_result_type() {
+    fn unsafe_call_arguments_keep_written_order_and_inferred_result_type() {
         let source = "(#unsafe-fn combine ((first #u64) (second #u64)) #u64 (#return first))
           (#fn work () #u64
             (#return (#match (#unsafe (#unsafe-call combine ((second
@@ -1284,7 +1265,7 @@ mod tests {
             .iter()
             .position(|node| source_text(source, node) == "4u64")
             .unwrap();
-        assert!(first < second);
+        assert!(second < first);
         assert_eq!(
             graph.bindings[binding(&graph, "result").0]
                 .declared_type
@@ -1296,7 +1277,7 @@ mod tests {
             .iter()
             .position(|node| matches!(node.action, Action::Await { .. }))
             .unwrap();
-        assert!(graph.data_liveness()[await_index]
+        assert!(!graph.data_liveness()[await_index]
             .values
             .contains(&NodeId(first)));
     }

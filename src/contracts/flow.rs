@@ -925,6 +925,7 @@ impl Engine<'_, '_> {
         name: &str,
         expressions: &[Expr],
         s: &mut State,
+        order: Option<&[usize]>,
     ) -> Result<Value, AnalysisError> {
         let f = self
             .program()
@@ -944,11 +945,15 @@ impl Engine<'_, '_> {
         if validates {
             self.validation_depth += 1;
         }
-        let arguments = expressions
-            .iter()
-            .zip(&f.parameters)
-            .map(|(expression, parameter)| self.eval_expected(expression, &parameter.ty, s))
-            .collect::<Result<Vec<_>, _>>();
+        let arguments = (|| {
+            let mut values = vec![None; expressions.len()];
+            for index in 0..expressions.len() {
+                let index = order.map_or(index, |order| order[index]);
+                values[index] =
+                    Some(self.eval_expected(&expressions[index], &f.parameters[index].ty, s)?);
+            }
+            Ok::<_, AnalysisError>(values.into_iter().map(Option::unwrap).collect::<Vec<_>>())
+        })();
         if validates {
             self.validation_depth -= 1;
         }
@@ -1216,15 +1221,28 @@ impl Engine<'_, '_> {
             if self.spec_depth > 0 {
                 return self.spec_value_inner(e, s);
             }
-            return self.call(f, &xs[1..], s);
+            return self.call(
+                f,
+                &xs[1..],
+                s,
+                match e {
+                    Expr::List(items) => items.argument_order(),
+                    _ => None,
+                },
+            );
         }
         let h = head(e);
         if comparison_type(e).is_some() {
             let epoch = self.serial;
-            let args = xs[1..]
-                .iter()
-                .map(|argument| self.eval(argument, s))
-                .collect::<Result<Vec<_>, _>>()?;
+            let order = match e {
+                Expr::List(items) => items.argument_indices().collect::<Vec<_>>(),
+                _ => Vec::new(),
+            };
+            let mut args = vec![None; xs.len() - 1];
+            for index in order {
+                args[index] = Some(self.eval(&xs[index + 1], s)?);
+            }
+            let args = args.into_iter().map(Option::unwrap).collect::<Vec<_>>();
             let fact = self.comparison_fact(h, &args, false, epoch)?;
             let mut value = Value::plain(fact.key.clone(), Type::Bool);
             value.truth.push(fact);
@@ -1232,7 +1250,13 @@ impl Engine<'_, '_> {
         }
         if let Some(fields) = self.checked.declarations().structs.get(h).cloned() {
             let mut value = self.unknown(Type::Named(h.into()));
-            for (field, argument) in fields.iter().zip(&xs[1..]) {
+            let order = match e {
+                Expr::List(items) => items.argument_indices().collect::<Vec<_>>(),
+                _ => Vec::new(),
+            };
+            for index in order {
+                let field = &fields[index];
+                let argument = &xs[index + 1];
                 value
                     .fields
                     .insert(format!(".{}", field.name), self.eval(argument, s)?);
@@ -1364,7 +1388,7 @@ impl Engine<'_, '_> {
                             );
                             return self.spec_value_inner(&expression, s);
                         }
-                        return self.call(&hook, &xs[1..], s);
+                        return self.call(&hook, &xs[1..], s, None);
                     }
                 }
                 self.eval(&xs[1], s)
@@ -1431,7 +1455,12 @@ impl Engine<'_, '_> {
             }
             "bool.&&" | "&&" => {
                 let mut out = Value::plain(self.fresh("and"), Type::Bool);
-                for e in &xs[1..] {
+                let order = match e {
+                    Expr::List(items) => items.argument_indices().collect::<Vec<_>>(),
+                    _ => (0..xs.len().saturating_sub(1)).collect(),
+                };
+                for index in order {
+                    let e = &xs[index + 1];
                     out.truth.extend(self.eval(e, s)?.truth);
                 }
                 Ok(out)
@@ -1490,8 +1519,13 @@ impl Engine<'_, '_> {
                 if !super::summaries::observational(h) {
                     self.invalidate(s, &[], true);
                 }
-                let mut keys = Vec::new();
-                for e in &xs[1..] {
+                let mut keys = BTreeMap::new();
+                let order = match e {
+                    Expr::List(items) => items.argument_indices().collect::<Vec<_>>(),
+                    _ => Vec::new(),
+                };
+                for index in order {
+                    let e = &xs[index + 1];
                     if matches!(e,Expr::Symbol(n)if !s.values.contains_key(n)&&!matches!(n.as_str(),"true"|"false"))
                     {
                         continue;
@@ -1500,8 +1534,9 @@ impl Engine<'_, '_> {
                         continue;
                     }
                     let v = self.eval(e, s)?;
-                    keys.push(v.key);
+                    keys.insert(index, v.key);
                 }
+                let keys = keys.into_values().collect::<Vec<_>>();
                 let ty = self.expr_type(e, s).unwrap_or(Type::Unit);
                 if matches!(
                     self.resolve(&ty),

@@ -53,7 +53,7 @@ checker when it encounters a feature it cannot emit.
 | Feature | Compile & run | Check only |
 | --- | --- | --- |
 | `#u64`, `#i64`, `#usize`, `#isize`, `#bool`, `()` | Yes | Yes |
-| Safe functions and named arguments | Yes; declaration-order argument evaluation | Yes |
+| Safe functions and named arguments | Yes; written call-site argument evaluation order | Yes |
 | Local bindings, mutation, scalar blocks and branches | Yes | Yes |
 | `#while`, `#for`, `#for-range`, unit loops, `#break`, `#continue` | Yes | Yes |
 | Wrapping integer arithmetic, comparisons, bit operations | Yes | Yes |

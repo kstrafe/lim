@@ -486,7 +486,7 @@ impl Walker<'_> {
                 children,
                 numeric,
                 callee,
-                ..
+                argument_source_order,
             } => {
                 if numeric.as_ref().is_some_and(|operation| {
                     matches!(
@@ -498,8 +498,16 @@ impl Walker<'_> {
                     self.expression(children[1], held)?;
                     self.expression(children[2], held)?;
                     Ok(())
-                } else if callee.is_some() {
-                    self.operands(value, &children[1..], held)
+                } else if callee.is_some() || argument_source_order.is_some() {
+                    let operands = (0..children.len().saturating_sub(1))
+                        .map(|index| {
+                            children[argument_source_order
+                                .as_ref()
+                                .map_or(index, |order| order[index])
+                                + 1]
+                        })
+                        .collect::<Vec<_>>();
+                    self.operands(value, &operands, held)
                 } else {
                     self.form(value, &head, &children, held)
                 }
@@ -820,7 +828,7 @@ mod tests {
     }
 
     #[test]
-    fn named_calls_use_declaration_order_despite_written_order() {
+    fn named_calls_hold_only_completed_written_operands() {
         let (_, declarations) = prepare(
             "(#fn work () #u64
           (#return (#call combine ((second (#call await-a ())) (first (#call first ()))))))",
@@ -828,7 +836,7 @@ mod tests {
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
         let captures = plan(body, &declarations.flows["work"], &[site]).unwrap();
-        assert_eq!(captures[&site], [call(body, "first")]);
+        assert!(captures[&site].is_empty());
     }
 
     #[test]
@@ -842,7 +850,7 @@ mod tests {
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
         let captures = plan(body, &declarations.flows["work"], &[site]).unwrap();
-        assert_eq!(captures[&site], [call(body, "first"), call(body, "second")]);
+        assert_eq!(captures[&site], [call(body, "second")]);
         assert!(captures[&site]
             .iter()
             .all(|id| body.nodes[id.0].ty.is_some()));
@@ -858,8 +866,8 @@ mod tests {
           (#fn use-values ((owned Token) (borrowed Holder) (number #u64)) #u64
             (#forget owned) (#forget borrowed) (#return number))
           (#fn work ((view (#ref #u64))) #u64
-            (#return (#call use-values ((number (#call await-a ()))
-              (borrowed (#call holder ((view view)))) (owned (#call token ()))))))",
+            (#return (#call use-values ((owned (#call token ()))
+              (borrowed (#call holder ((view view)))) (number (#call await-a ()))))))",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");

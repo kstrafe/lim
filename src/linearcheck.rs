@@ -1323,7 +1323,8 @@ fn check_expr(
                     check_expr(arg, bindings, moved, globals, true, types)?;
                 }
             } else {
-                for arg in items.iter().skip(1) {
+                for index in items.argument_indices() {
+                    let arg = &items[index + 1];
                     check_expr(arg, bindings, moved, globals, false, types)?;
                 }
             }
