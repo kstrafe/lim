@@ -264,3 +264,29 @@ fn bare_library_exports_remain_literal_and_generated_exports_cannot_grant_author
     assert!(error.contains("#export must be literal"), "{error}");
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn unprefixed_bare_heads_report_the_missing_prefix_at_the_written_head() {
+    for head in ["fn", "alias", "struct", "generate"] {
+        let error = lim::parse_source_unit(&format!("{head} main")).unwrap_err();
+        assert!(error.contains("must use its '#' prefix"), "{error}");
+        assert!(!error.contains("outer parentheses"), "{error}");
+    }
+    let dir = scratch();
+    let source = "fn main () #u64 (#return 42u64)";
+    let error = lim::compile_source_to_assembly(
+        source,
+        &dir.join("main.lim"),
+        &CompileConfig::default(),
+        &dir.join("cache"),
+        TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, DiagnosticCode::Parse);
+    let span = error.span.unwrap();
+    assert_eq!(&source[span.start..span.end], "fn");
+    assert_eq!((span.line, span.column), (1, 1));
+    let wrapped = lim::parse_source_unit("(fn main () #u64 (#return 42u64))").unwrap_err();
+    assert!(wrapped.contains("bare root"), "{wrapped}");
+    fs::remove_dir_all(dir).unwrap();
+}

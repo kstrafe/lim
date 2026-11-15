@@ -49,6 +49,14 @@ impl<'a> SourceForms<'a> {
                 None => return Ok(None),
             },
         };
+        if let TokenKind::Symbol(name) = &first.kind {
+            if !name.starts_with('#') {
+                return Err(crate::ParseError {
+                    message: format!("top-level declaration head '{name}' must use its '#' prefix"),
+                    span: first.span,
+                });
+            }
+        }
         if !matches!(&first.kind, TokenKind::Symbol(name) if name.starts_with('#'))
             && first.kind != TokenKind::Generate
         {
