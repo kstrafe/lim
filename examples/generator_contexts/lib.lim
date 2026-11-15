@@ -10,7 +10,7 @@
 
 // @private-base is qualified in this library's definition context. The callback
 // argument is already qualified in the consumer's context before expansion.
-#gn make-reader (name callback)
+#gn make-reader { name; callback; }
     `((#fn ,name () #u64
         (#effects ((#effects-of ,callback)))
         (#let base #u64 (#call @private-base ()))

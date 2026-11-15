@@ -42,15 +42,15 @@
 
 // Pipeline.Only these immutable, borrow-checked sources are supported. Arbitrary reader
 // callbacks could mutate interior storage after validation, breaking invariants.
-#gn #utf8-view (config)
+#gn #utf8-view { config; }
     (#gn-if (#gn-equal (#gn-get config owner) (#ref String))
-      (#gn-call utf8-view-emit (#gn-get config name) (#ref String)
-        Utf8Source::string-len Utf8Source::string-byte)
+      (#gn-call utf8-view-emit { name = (#gn-get config name); owner-type = (#ref String);
+        owner-len = Utf8Source::string-len; owner-byte = Utf8Source::string-byte; })
       (#gn-if (#gn-equal (#gn-get config owner) (#slice #u8))
-        (#gn-call utf8-view-emit (#gn-get config name) (#slice #u8)
-          Utf8Source::slice-len Utf8Source::slice-byte)
+        (#gn-call utf8-view-emit { name = (#gn-get config name); owner-type = (#slice #u8);
+          owner-len = Utf8Source::slice-len; owner-byte = Utf8Source::slice-byte; })
         (#gn-error "utf8-view owner must be (#ref String) or (#slice #u8)")))
-#gn-fn utf8-view-emit (name owner-type owner-len owner-byte)
+#gn-fn utf8-view-emit { name; owner-type; owner-len; owner-byte; }
     `((#struct ,name () ((owner ,owner-type) (start #usize) (length #usize)))
       (#opaque ,name)
       (#enum ,(#gn-symbol-append name "Result") ()
@@ -172,8 +172,8 @@
         (#deref-set (#borrow-mut (#get iterator cursor)) (#usize::add-wrap index (#get decoded 1)))
         (#return (,(#gn-variant (#gn-symbol-append name "CharResult") "Char") (#get decoded 0)))))
 
-#generate #utf8-view ((name StringView) (owner (#ref String)))
-#generate #utf8-view ((name Utf8Slice) (owner (#slice #u8)))
+#generate #utf8-view { config = ((name StringView) (owner (#ref String))); }
+#generate #utf8-view { config = ((name Utf8Slice) (owner (#slice #u8))); }
 // String already guarantees UTF-8, so borrowing its complete contents is O(1).
 #fn String::view {
   #params = ((string (#ref String)));

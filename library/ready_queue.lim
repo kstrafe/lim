@@ -5,8 +5,8 @@
 //; Operations write only Copy fields through derived references. The linear
 //; queue owner remains alive and must still be explicitly consumed by its user.
 #gn #ready-queue
-    (name enqueue-result dequeue-result create enqueue dequeue
-      enqueued full item empty slots)
+    { name; enqueue-result; dequeue-result; create; enqueue; dequeue;
+      enqueued; full; item; empty; slots; }
     (#gn-if (#gn-equal (#gn-length slots) 0)
       (#gn-error "ready queue requires at least one slot ID")
       `((#enum ,enqueue-result () (,enqueued ,full))

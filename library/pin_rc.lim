@@ -7,8 +7,8 @@
 //; The allocator adapter allocates the complete reference-counted block.
 //; destroy takes ((allocator (#ref ROOT::State)) (pin (#pin-ref-mut Element))).
 
-#gn-fn pin-rc-name (name suffix) (#gn-symbol-append name suffix)
-#gn-fn pin-rc-check (option)
+#gn-fn pin-rc-name { name; suffix; } (#gn-symbol-append name suffix)
+#gn-fn pin-rc-check { option; }
     (#gn-if (#gn-equal (#gn-length option) 2)
       (#gn-if (#gn-equal
         (#gn-for-each key (type allocator name destroy)
@@ -17,42 +17,42 @@
         (#gn-error "#generate #pin-rc has an unknown named argument") ())
       (#gn-error "#generate #pin-rc requires named argument pairs"))
 
-#gn-fn pin-rc-build (element allocator name block adapter destroy checked)
+#gn-fn pin-rc-build { element; allocator; name; block; adapter; destroy; checked; }
       `((#struct ,block () ((value ,element) (strong (#atomic #usize))))
         (#opaque ,block)
-        (#generate lim-gen-allocator-for ((allocator ,allocator) (type ,block) (name ,adapter) (operations (allocate deallocate))))
-        (#struct ,name () ((allocator (#ref ,(#gn-call pin-rc-name allocator "State"))) (pointer (#pin-shared-own ,block))))
+        (#generate lim-gen-allocator-for { options = ((allocator ,allocator) (type ,block) (name ,adapter) (operations (allocate deallocate))); })
+        (#struct ,name () ((allocator (#ref ,(#gn-call pin-rc-name { name = allocator; suffix = "State"; }))) (pointer (#pin-shared-own ,block))))
         (#opaque ,name)
-        (#enum ,(#gn-call pin-rc-name name "CreateResult") (#linear)
-          ((,(#gn-variant (#gn-call pin-rc-name name "CreateResult") "Created") ,name)
-           (,(#gn-variant (#gn-call pin-rc-name name "CreateResult") "Allocation-failed")
-            (#tuple ,(#gn-call pin-rc-name allocator "Error") ,element))))
+        (#enum ,(#gn-call pin-rc-name { name = name; suffix = "CreateResult"; }) (#linear)
+          ((,(#gn-variant (#gn-call pin-rc-name { name = name; suffix = "CreateResult"; }) "Created") ,name)
+           (,(#gn-variant (#gn-call pin-rc-name { name = name; suffix = "CreateResult"; }) "Allocation-failed")
+            (#tuple ,(#gn-call pin-rc-name { name = allocator; suffix = "Error"; }) ,element))))
 
-        (#enum ,(#gn-call pin-rc-name name "MutResult") (#linear)
-          ((,(#gn-variant (#gn-call pin-rc-name name "MutResult") "Unique") (#pin-ref-mut ,element))
-           (,(#gn-variant (#gn-call pin-rc-name name "MutResult") "Shared"))))
+        (#enum ,(#gn-call pin-rc-name { name = name; suffix = "MutResult"; }) (#linear)
+          ((,(#gn-variant (#gn-call pin-rc-name { name = name; suffix = "MutResult"; }) "Unique") (#pin-ref-mut ,element))
+           (,(#gn-variant (#gn-call pin-rc-name { name = name; suffix = "MutResult"; }) "Shared"))))
 
-        (#fn ,(#gn-call pin-rc-name name "create")
-          ((allocator (#ref ,(#gn-call pin-rc-name allocator "State"))) (value ,element)) ,(#gn-call pin-rc-name name "CreateResult")
-          (#effects ((#effects-of ,(#gn-call pin-rc-name adapter "allocate"))))
-          (#let allocated ,(#gn-call pin-rc-name adapter "Allocation")
-            (#call ,(#gn-call pin-rc-name adapter "allocate")
+        (#fn ,(#gn-call pin-rc-name { name = name; suffix = "create"; })
+          ((allocator (#ref ,(#gn-call pin-rc-name { name = allocator; suffix = "State"; }))) (value ,element)) ,(#gn-call pin-rc-name { name = name; suffix = "CreateResult"; })
+          (#effects ((#effects-of ,(#gn-call pin-rc-name { name = adapter; suffix = "allocate"; }))))
+          (#let allocated ,(#gn-call pin-rc-name { name = adapter; suffix = "Allocation"; })
+            (#call ,(#gn-call pin-rc-name { name = adapter; suffix = "allocate"; })
             ((allocator allocator) (layout (#size-of ,block)) (alignment (#align-of ,block)))))
           (#return (#match allocated
-            (#case (,(#gn-variant (#gn-call pin-rc-name adapter "Allocation") "Allocated") raw)
+            (#case (,(#gn-variant (#gn-call pin-rc-name { name = adapter; suffix = "Allocation"; }) "Allocated") raw)
               (#block
                 (#let storage (#pin-own ,block) (#unsafe (#pin-own-of raw
                   (#struct-literal ,block ((value value) (strong (#atomic-init #usize 1usize)))))))
-                (,(#gn-variant (#gn-call pin-rc-name name "CreateResult") "Created")
+                (,(#gn-variant (#gn-call pin-rc-name { name = name; suffix = "CreateResult"; }) "Created")
                   (#struct-literal ,name ((allocator allocator) (pointer (#pin-share storage)))))))
-            (#case (,(#gn-variant (#gn-call pin-rc-name adapter "Allocation") "AllocationFailed") failure)
-              (,(#gn-variant (#gn-call pin-rc-name name "CreateResult") "Allocation-failed") (#tuple failure value))))))
-        (#fn ,(#gn-call pin-rc-name name "borrow") ((owner (#ref ,name))) (#pin-ref ,element)
+            (#case (,(#gn-variant (#gn-call pin-rc-name { name = adapter; suffix = "Allocation"; }) "AllocationFailed") failure)
+              (,(#gn-variant (#gn-call pin-rc-name { name = name; suffix = "CreateResult"; }) "Allocation-failed") (#tuple failure value))))))
+        (#fn ,(#gn-call pin-rc-name { name = name; suffix = "borrow"; }) ((owner (#ref ,name))) (#pin-ref ,element)
           (#effects (#global-access #io))
           (#let view (#pin-ref ,block)
             (#pin-shared-borrow (#borrow (#get owner pointer)) (#get owner allocator)))
           (#return (#pin-borrow (#get view value))))
-        (#fn ,(#gn-call pin-rc-name name "clone") ((owner (#ref ,name))) ,name
+        (#fn ,(#gn-call pin-rc-name { name = name; suffix = "clone"; }) ((owner (#ref ,name))) ,name
           (#effects (#global-access #io))
           (#let view (#pin-ref ,block) (#pin-shared-borrow (#borrow (#get owner pointer))))
           (#let count #usize (#atomic-load (#borrow (#get view strong)) #memory-relaxed))
@@ -62,7 +62,7 @@
           (#return (#struct-literal ,name
             ((allocator (#clone (#get owner allocator)))
              (pointer (#unsafe (#pin-share-clone (#borrow (#get owner pointer)))))))))
-        (#fn ,(#gn-call pin-rc-name name "borrow-mut") ((owner (#ref-mut ,name))) ,(#gn-call pin-rc-name name "MutResult")
+        (#fn ,(#gn-call pin-rc-name { name = name; suffix = "borrow-mut"; }) ((owner (#ref-mut ,name))) ,(#gn-call pin-rc-name { name = name; suffix = "MutResult"; })
           (#effects (#global-access #io))
           (#let view (#pin-ref ,block) (#pin-shared-borrow (#borrow (#get owner pointer))))
           (#let count #usize (#atomic-load (#borrow (#get view strong)) #memory-relaxed))
@@ -71,10 +71,10 @@
             (#block
               (#let exclusive (#pin-ref-mut ,block)
                 (#unsafe (#pin-shared-borrow-mut (#borrow-mut (#get owner pointer)) owner)))
-              (,(#gn-variant (#gn-call pin-rc-name name "MutResult") "Unique") (#pin-borrow-mut (#get exclusive value))))
-            (,(#gn-variant (#gn-call pin-rc-name name "MutResult") "Shared")))))
-        (#fn ,(#gn-call pin-rc-name name "destroy") ((owner ,name)) ()
-          (#effects (#global-access #io (#effects-of ,(#gn-call pin-rc-name adapter "deallocate")) (#effects-of ,destroy)))
+              (,(#gn-variant (#gn-call pin-rc-name { name = name; suffix = "MutResult"; }) "Unique") (#pin-borrow-mut (#get exclusive value))))
+            (,(#gn-variant (#gn-call pin-rc-name { name = name; suffix = "MutResult"; }) "Shared")))))
+        (#fn ,(#gn-call pin-rc-name { name = name; suffix = "destroy"; }) ((owner ,name)) ()
+          (#effects (#global-access #io (#effects-of ,(#gn-call pin-rc-name { name = adapter; suffix = "deallocate"; })) (#effects-of ,destroy)))
           (#let-mut (,name allocator pointer) ,name owner)
           (#let view (#pin-ref ,block) (#pin-shared-borrow pointer))
           (#let count #usize (#atomic-load (#borrow (#get view strong)) #memory-relaxed))
@@ -87,16 +87,16 @@
               (#call ,destroy ((allocator (#clone allocator)) (pin (#pin-borrow-mut (#get exclusive value)))))
               (#drop exclusive)
               (#let raw (#ptr-mut ,block) (#unsafe (#pin-shared-release pointer)))
-              (#unsafe (#unsafe-call ,(#gn-call pin-rc-name adapter "deallocate")
+              (#unsafe (#unsafe-call ,(#gn-call pin-rc-name { name = adapter; suffix = "deallocate"; })
                 ((allocator allocator) (pointer raw)
                  (layout (#size-of ,block)) (alignment (#align-of ,block))))))
             (#forget pointer))
           (#return ())))
 
-#gn #pin-rc (options)
+#gn #pin-rc { options; }
     (#gn-call pin-rc-build
-      (#gn-get options type) (#gn-get options allocator) (#gn-get options name)
-      (#gn-call pin-rc-name (#gn-get options name) "Allocation")
-      (#gn-call pin-rc-name (#gn-get options name) "Allocator")
-      (#gn-get options destroy)
-      (#gn-for-each option options (#gn-call pin-rc-check option)))
+      { element = (#gn-get options type); allocator = (#gn-get options allocator); name = (#gn-get options name);
+      block = (#gn-call pin-rc-name { name = (#gn-get options name); suffix = "Allocation"; });
+      adapter = (#gn-call pin-rc-name { name = (#gn-get options name); suffix = "Allocator"; });
+      destroy = (#gn-get options destroy);
+      checked = (#gn-for-each option options (#gn-call pin-rc-check { option = option; })); })

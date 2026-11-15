@@ -65,7 +65,7 @@
   );
 }
 
-#generate lim-gen-pin-box ((type Work::Frame) (allocator Arena::Allocator) (name PinnedFrameBox) (destroy destroy-frame))
+#generate lim-gen-pin-box { options = ((type Work::Frame) (allocator Arena::Allocator) (name PinnedFrameBox) (destroy destroy-frame)); }
 
 #fn destroy-frame {
   #params = ((allocator (#ref Arena)) (pin (#pin-ref-mut Work::Frame)));

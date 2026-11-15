@@ -1,12 +1,12 @@
-#gn-fn emit-function (name temporary) `((#fn ,name ((task #u64)) #u64
+#gn-fn emit-function { name; temporary; } `((#fn ,name ((task #u64)) #u64
        (#let ,temporary #u64 task)
        (#return (#u64::add-wrap task ,temporary))))
 
-#gn make-function (name) (#gn-call emit-function name (#gn-gensym "task"))
+#gn make-function { name; } (#gn-call emit-function { name = name; temporary = (#gn-gensym "task"); })
 
-#generate make-function first
-#generate make-function second
-#generate make-function first
+#generate make-function { name = first; }
+#generate make-function { name = second; }
+#generate make-function { name = first; }
 
 #fn main {
   #params = ();

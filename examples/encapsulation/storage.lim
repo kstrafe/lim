@@ -19,7 +19,7 @@
   #body = ((#return (#get counter value)));
 }
 
-#gn counter-reader (name) `((#fn ,name ((counter (#ref @Counter))) #u64
+#gn counter-reader { name; } `((#fn ,name ((counter (#ref @Counter))) #u64
         (#return (#call @counter-value ((counter counter))))))
 
 #fn counter-destroy {

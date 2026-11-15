@@ -1,148 +1,148 @@
 //; A task's poll function consumes its state and returns either a new pending
 //; state or its final result. There is no implicit cancellation or allocation.
 //; Names: (Task Poll Pending Ready). States: ordinary enum variants.
-#gn-fn task-second (values)
+#gn-fn task-second { values; }
     (#gn-first (#gn-rest values))
-#gn-fn task-third (values)
-    (#gn-call @task-second (#gn-rest values))
-#gn-fn task-fourth (values)
-    (#gn-call @task-third (#gn-rest values))
-#gn-fn task-fifth (values)
-    (#gn-call @task-fourth (#gn-rest values))
-#gn-fn task-sixth (values)
-    (#gn-call @task-fifth (#gn-rest values))
-#gn-fn task-seventh (values)
-    (#gn-call @task-sixth (#gn-rest values))
-#gn-fn task-eighth (values)
-    (#gn-call @task-seventh (#gn-rest values))
-#gn #task (names result states)
+#gn-fn task-third { values; }
+    (#gn-call @task-second { values = (#gn-rest values); })
+#gn-fn task-fourth { values; }
+    (#gn-call @task-third { values = (#gn-rest values); })
+#gn-fn task-fifth { values; }
+    (#gn-call @task-fourth { values = (#gn-rest values); })
+#gn-fn task-sixth { values; }
+    (#gn-call @task-fifth { values = (#gn-rest values); })
+#gn-fn task-seventh { values; }
+    (#gn-call @task-sixth { values = (#gn-rest values); })
+#gn-fn task-eighth { values; }
+    (#gn-call @task-seventh { values = (#gn-rest values); })
+#gn #task { names; result; states; }
     `((#enum ,(#gn-first names) (#linear) ,states)
 
       (#enum
-        ,(#gn-call @task-second names) ()
-        ((,(#gn-call @task-third names) ,(#gn-first names)) (,(#gn-call @task-fourth names) ,result))))
+        ,(#gn-call @task-second { values = names; }) ()
+        ((,(#gn-call @task-third { values = names; }) ,(#gn-first names)) (,(#gn-call @task-fourth { values = names; }) ,result))))
 //; Jobs: (name Task Poll Pending Ready poll-function Result).
 //; Capacity is precisely the number of jobs; every slot has a concrete type.
-#gn-fn executor-name (job)
+#gn-fn executor-name { job; }
     (#gn-if (#gn-equal (#gn-first job) lim-executor-waiting)
       (#gn-error "executor slot name conflicts with lim-executor-waiting")
       (#gn-first job))
-#gn-fn executor-parameter (job)
-    (#gn-if (#gn-equal (#gn-first job) (#gn-call @task-eighth job))
+#gn-fn executor-parameter { job; }
+    (#gn-if (#gn-equal (#gn-first job) (#gn-call @task-eighth { values = job; }))
       (#gn-error "executor input parameter must differ from its state binding")
-      `,(#gn-list (#gn-call @task-eighth job) (#gn-call @task-second job)))
-#gn-fn executor-field (job)
-    `(,(#gn-call @executor-name job) ,(#gn-call @task-seventh job))
-#gn-fn executor-initialize (job)
+      `,(#gn-list (#gn-call @task-eighth { values = job; }) (#gn-call @task-second { values = job; })))
+#gn-fn executor-field { job; }
+    `(,(#gn-call @executor-name { job = job; }) ,(#gn-call @task-seventh { values = job; }))
+#gn-fn executor-initialize { job; }
     `(#let-mut
-      ,(#gn-call @executor-name job)
-      ,(#gn-call @task-third job)
-      (,(#gn-call @task-fourth job) ,(#gn-call @task-eighth job)))
-#gn-fn executor-poll (job)
+      ,(#gn-call @executor-name { job = job; })
+      ,(#gn-call @task-third { values = job; })
+      (,(#gn-call @task-fourth { values = job; }) ,(#gn-call @task-eighth { values = job; })))
+#gn-fn executor-poll { job; }
     `(#set
-      ,(#gn-call @executor-name job)
-      (#match ,(#gn-call @executor-name job)
-        (#case (,(#gn-call @task-fourth job) lim-executor-task)
+      ,(#gn-call @executor-name { job = job; })
+      (#match ,(#gn-call @executor-name { job = job; })
+        (#case (,(#gn-call @task-fourth { values = job; }) lim-executor-task)
           (#block
             (#set lim-executor-waiting true)
-            (#call ,(#gn-call @task-sixth job) ((task lim-executor-task)))))
-        (#case (,(#gn-call @task-fifth job) lim-executor-value)
-          (,(#gn-call @task-fifth job) lim-executor-value))))
-#gn-fn executor-result (job)
-    `(,(#gn-call @executor-name job)
-      (#match ,(#gn-call @executor-name job)
-        (#case (,(#gn-call @task-fifth job) lim-executor-value)
+            (#call ,(#gn-call @task-sixth { values = job; }) ((task lim-executor-task)))))
+        (#case (,(#gn-call @task-fifth { values = job; }) lim-executor-value)
+          (,(#gn-call @task-fifth { values = job; }) lim-executor-value))))
+#gn-fn executor-result { job; }
+    `(,(#gn-call @executor-name { job = job; })
+      (#match ,(#gn-call @executor-name { job = job; })
+        (#case (,(#gn-call @task-fifth { values = job; }) lim-executor-value)
           lim-executor-value)
-        (#case (,(#gn-call @task-fourth job) lim-executor-task)
+        (#case (,(#gn-call @task-fourth { values = job; }) lim-executor-task)
           (#block
             (#forget lim-executor-task)
             (#unreachable)))))
-#gn #executor (run result jobs)
-    `((#struct ,result () ,(#gn-for-each job jobs (#gn-call @executor-field job)))
-      (#fn ,run ,(#gn-for-each job jobs (#gn-call @executor-parameter job)) ,result
-        (#effects ((#effects-of ,(#gn-for-each job jobs (#gn-call @task-sixth job)))))
+#gn #executor { run; result; jobs; }
+    `((#struct ,result () ,(#gn-for-each job jobs (#gn-call @executor-field { job = job; })))
+      (#fn ,run ,(#gn-for-each job jobs (#gn-call @executor-parameter { job = job; })) ,result
+        (#effects ((#effects-of ,(#gn-for-each job jobs (#gn-call @task-sixth { values = job; })))))
         ,@(#gn-for-each job jobs
-          (#gn-call @executor-initialize job))
+          (#gn-call @executor-initialize { job = job; }))
         (#let-mut lim-executor-waiting #bool true)
         (#while lim-executor-waiting
           (#set lim-executor-waiting false)
           ,@(#gn-for-each job jobs
-            (#gn-call @executor-poll job)))
+            (#gn-call @executor-poll { job = job; })))
         (#return
           (#struct-literal
             ,result
             ,(#gn-for-each job jobs
-              (#gn-call @executor-result job))))))
+              (#gn-call @executor-result { job = job; }))))))
 //; A wake-driven executor for up to four homogeneous task slots. Each job is
 //; (state-name task-parameter waker-parameter result-field slot-u32). Poll and
 //; wait functions are statically named; no function pointers are generated.
 //; The wait function must block until at least one task is ready and return a
 //; mask whose bit N identifies slot N. Wakes may coalesce in that mask.
-#gn-fn wake-executor-state-name (job)
+#gn-fn wake-executor-state-name { job; }
     (#gn-first job)
-#gn-fn wake-executor-task-parameter (job)
-    (#gn-call @task-second job)
-#gn-fn wake-executor-waker-parameter (job)
-    (#gn-call @task-third job)
-#gn-fn wake-executor-result-field (job)
-    (#gn-call @task-fourth job)
-#gn-fn wake-executor-slot (job)
-    (#gn-if (#gn-equal (#gn-call @task-fifth job) 0u32)
+#gn-fn wake-executor-task-parameter { job; }
+    (#gn-call @task-second { values = job; })
+#gn-fn wake-executor-waker-parameter { job; }
+    (#gn-call @task-third { values = job; })
+#gn-fn wake-executor-result-field { job; }
+    (#gn-call @task-fourth { values = job; })
+#gn-fn wake-executor-slot { job; }
+    (#gn-if (#gn-equal (#gn-call @task-fifth { values = job; }) 0u32)
       0u32
-      (#gn-if (#gn-equal (#gn-call @task-fifth job) 1u32)
+      (#gn-if (#gn-equal (#gn-call @task-fifth { values = job; }) 1u32)
         1u32
-        (#gn-if (#gn-equal (#gn-call @task-fifth job) 2u32)
+        (#gn-if (#gn-equal (#gn-call @task-fifth { values = job; }) 2u32)
           2u32
-          (#gn-if (#gn-equal (#gn-call @task-fifth job) 3u32)
+          (#gn-if (#gn-equal (#gn-call @task-fifth { values = job; }) 3u32)
             3u32
             (#gn-error "#generate #wake-executor task slot must be 0u32 through 3u32")))))
-#gn-fn wake-executor-slots-valid (jobs)
+#gn-fn wake-executor-slots-valid { jobs; }
     (#gn-if (#gn-equal (#gn-length jobs) 1)
-      (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-first jobs)) 0u32)
+      (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-first jobs); }) 0u32)
         valid
         invalid)
       (#gn-if (#gn-equal (#gn-length jobs) 2)
-        (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-first jobs)) 0u32)
-          (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-call @task-second jobs)) 1u32)
+        (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-first jobs); }) 0u32)
+          (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-call @task-second { values = jobs; }); }) 1u32)
             valid
             invalid)
           invalid)
         (#gn-if (#gn-equal (#gn-length jobs) 3)
-          (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-first jobs)) 0u32)
-            (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-call @task-second jobs)) 1u32)
-              (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-call @task-third jobs)) 2u32)
+          (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-first jobs); }) 0u32)
+            (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-call @task-second { values = jobs; }); }) 1u32)
+              (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-call @task-third { values = jobs; }); }) 2u32)
                 valid
                 invalid)
               invalid)
             invalid)
           (#gn-if (#gn-equal (#gn-length jobs) 4)
-            (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-first jobs)) 0u32)
-              (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-call @task-second jobs)) 1u32)
-                (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-call @task-third jobs)) 2u32)
-                  (#gn-if (#gn-equal (#gn-call @wake-executor-slot (#gn-call @task-fourth jobs)) 3u32)
+            (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-first jobs); }) 0u32)
+              (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-call @task-second { values = jobs; }); }) 1u32)
+                (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-call @task-third { values = jobs; }); }) 2u32)
+                  (#gn-if (#gn-equal (#gn-call @wake-executor-slot { job = (#gn-call @task-fourth { values = jobs; }); }) 3u32)
                     valid
                     invalid)
                   invalid)
                 invalid)
               invalid)
             invalid))))
-#gn-fn wake-executor-field (result-type job)
-    `(,(#gn-call @wake-executor-result-field job) ,result-type)
-#gn-fn wake-executor-task-parameter-form (task-type job)
-    `(,(#gn-call @wake-executor-task-parameter job) ,task-type)
-#gn-fn wake-executor-waker-parameter-form (waker-type job)
-    `(,(#gn-call @wake-executor-waker-parameter job) (#ref ,waker-type))
-#gn-fn wake-executor-initialize (task-type poll-type pending job)
+#gn-fn wake-executor-field { result-type; job; }
+    `(,(#gn-call @wake-executor-result-field { job = job; }) ,result-type)
+#gn-fn wake-executor-task-parameter-form { task-type; job; }
+    `(,(#gn-call @wake-executor-task-parameter { job = job; }) ,task-type)
+#gn-fn wake-executor-waker-parameter-form { waker-type; job; }
+    `(,(#gn-call @wake-executor-waker-parameter { job = job; }) (#ref ,waker-type))
+#gn-fn wake-executor-initialize { task-type; poll-type; pending; job; }
     `(#let-mut
-      ,(#gn-call @wake-executor-state-name job)
+      ,(#gn-call @wake-executor-state-name { job = job; })
       ,poll-type
-      (,pending ,(#gn-call @wake-executor-task-parameter job)))
-#gn-fn wake-executor-poll (poll-type pending ready result-type poll-function job)
+      (,pending ,(#gn-call @wake-executor-task-parameter { job = job; })))
+#gn-fn wake-executor-poll { poll-type; pending; ready; result-type; poll-function; job; }
     `(#set
-      ,(#gn-call @wake-executor-state-name job)
-      (#match ,(#gn-call @wake-executor-state-name job)
+      ,(#gn-call @wake-executor-state-name { job = job; })
+      (#match ,(#gn-call @wake-executor-state-name { job = job; })
         (#case (,pending lim-wake-executor-task)
-          (#if (#u32::ne (#u32::bit-and lim-wake-executor-ready-mask (#u32::shl 1u32 ,(#gn-call @wake-executor-slot job))) 0u32)
+          (#if (#u32::ne (#u32::bit-and lim-wake-executor-ready-mask (#u32::shl 1u32 ,(#gn-call @wake-executor-slot { job = job; }))) 0u32)
             (#block
               (#let
                 lim-wake-executor-next
@@ -150,7 +150,7 @@
                 (#call
                   ,poll-function
                   ((task lim-wake-executor-task)
-                    (waker ,(#gn-call @wake-executor-waker-parameter job)))))
+                    (waker ,(#gn-call @wake-executor-waker-parameter { job = job; })))))
               (#match lim-wake-executor-next
                 (#case (,pending lim-wake-executor-pending-task)
                   (#block
@@ -163,191 +163,191 @@
               (,pending lim-wake-executor-task))))
         (#case (,ready lim-wake-executor-value)
           (,ready lim-wake-executor-value))))
-#gn-fn wake-executor-result (poll-type pending ready job)
-    `(,(#gn-call @wake-executor-result-field job)
-      (#match ,(#gn-call @wake-executor-state-name job)
+#gn-fn wake-executor-result { poll-type; pending; ready; job; }
+    `(,(#gn-call @wake-executor-result-field { job = job; })
+      (#match ,(#gn-call @wake-executor-state-name { job = job; })
         (#case (,ready lim-wake-executor-value)
           lim-wake-executor-value)
         (#case (,pending lim-wake-executor-task)
           (#block
             (#forget lim-wake-executor-task)
             (#unreachable)))))
-#gn-fn wake-executor-cancel-call (cancel-function job)
-    `(#call ,cancel-function ((state ,(#gn-call @wake-executor-state-name job))))
-#gn-fn wake-executor-wait-result (outputs wait-spec cancel-function jobs)
-    `(#match (#call ,(#gn-call @task-fifth wait-spec) ((,(#gn-first (#gn-call @task-sixth wait-spec))
-            ,(#gn-first (#gn-call @task-sixth wait-spec)))))
-      (#case (,(#gn-call @task-second wait-spec) lim-wake-executor-mask)
+#gn-fn wake-executor-cancel-call { cancel-function; job; }
+    `(#call ,cancel-function ((state ,(#gn-call @wake-executor-state-name { job = job; }))))
+#gn-fn wake-executor-wait-result { outputs; wait-spec; cancel-function; jobs; }
+    `(#match (#call ,(#gn-call @task-fifth { values = wait-spec; }) ((,(#gn-first (#gn-call @task-sixth { values = wait-spec; }))
+            ,(#gn-first (#gn-call @task-sixth { values = wait-spec; })))))
+      (#case (,(#gn-call @task-second { values = wait-spec; }) lim-wake-executor-mask)
         (#block
           (#set lim-wake-executor-ready-mask lim-wake-executor-mask)
           ()))
-      (#case (,(#gn-call @task-third wait-spec) lim-wake-executor-reason)
+      (#case (,(#gn-call @task-third { values = wait-spec; }) lim-wake-executor-reason)
         (#block
-          (#set lim-wake-executor-lifecycle (,(#gn-call @task-sixth outputs) lim-wake-executor-reason))
+          (#set lim-wake-executor-lifecycle (,(#gn-call @task-sixth { values = outputs; }) lim-wake-executor-reason))
           (#set lim-wake-executor-waiting false)
           ())))
-#gn #wake-executor (run outputs task-spec wait-spec cancel-function jobs)
+#gn #wake-executor { run; outputs; task-spec; wait-spec; cancel-function; jobs; }
     (#gn-if (#gn-equal (#gn-length jobs) 0)
       (#gn-error "#generate #wake-executor requires one to four task jobs")
       (#gn-if (#gn-equal (#gn-length jobs) 1)
-        (#gn-call @wake-executor-generate run outputs task-spec wait-spec cancel-function jobs)
+        (#gn-call @wake-executor-generate { run = run; outputs = outputs; task-spec = task-spec; wait-spec = wait-spec; cancel-function = cancel-function; jobs = jobs; })
         (#gn-if (#gn-equal (#gn-length jobs) 2)
-          (#gn-call @wake-executor-generate run outputs task-spec wait-spec cancel-function jobs)
+          (#gn-call @wake-executor-generate { run = run; outputs = outputs; task-spec = task-spec; wait-spec = wait-spec; cancel-function = cancel-function; jobs = jobs; })
           (#gn-if (#gn-equal (#gn-length jobs) 3)
-            (#gn-call @wake-executor-generate run outputs task-spec wait-spec cancel-function jobs)
+            (#gn-call @wake-executor-generate { run = run; outputs = outputs; task-spec = task-spec; wait-spec = wait-spec; cancel-function = cancel-function; jobs = jobs; })
             (#gn-if (#gn-equal (#gn-length jobs) 4)
-              (#gn-call @wake-executor-generate run outputs task-spec wait-spec cancel-function jobs)
+              (#gn-call @wake-executor-generate { run = run; outputs = outputs; task-spec = task-spec; wait-spec = wait-spec; cancel-function = cancel-function; jobs = jobs; })
               (#gn-error "#generate #wake-executor supports at most four task jobs"))))))
-#gn-fn wake-executor-generate (run outputs task-spec wait-spec cancel-function jobs)
-    (#gn-if (#gn-equal (#gn-call @wake-executor-slots-valid jobs) valid)
-      `((#struct ,(#gn-first outputs) () ,(#gn-for-each job jobs (#gn-call @wake-executor-field (#gn-call @task-fifth task-spec) job)))
+#gn-fn wake-executor-generate { run; outputs; task-spec; wait-spec; cancel-function; jobs; }
+    (#gn-if (#gn-equal (#gn-call @wake-executor-slots-valid { jobs = jobs; }) valid)
+      `((#struct ,(#gn-first outputs) () ,(#gn-for-each job jobs (#gn-call @wake-executor-field { result-type = (#gn-call @task-fifth { values = task-spec; }); job = job; })))
         (#enum
-          ,(#gn-call @task-second outputs) ()
-          ((,(#gn-call @task-fifth outputs) ,(#gn-first outputs))
-            (,(#gn-call @task-seventh outputs) ,(#gn-call @task-fourth wait-spec))))
+          ,(#gn-call @task-second { values = outputs; }) ()
+          ((,(#gn-call @task-fifth { values = outputs; }) ,(#gn-first outputs))
+            (,(#gn-call @task-seventh { values = outputs; }) ,(#gn-call @task-fourth { values = wait-spec; }))))
         (#enum
-          ,(#gn-call @task-third outputs) ()
-          ((,(#gn-call @task-fourth outputs))
-            (,(#gn-call @task-sixth outputs) ,(#gn-call @task-fourth wait-spec))))
+          ,(#gn-call @task-third { values = outputs; }) ()
+          ((,(#gn-call @task-fourth { values = outputs; }))
+            (,(#gn-call @task-sixth { values = outputs; }) ,(#gn-call @task-fourth { values = wait-spec; }))))
         (#enum
           ,(#gn-first wait-spec) ()
-          ((,(#gn-call @task-second wait-spec) #u32)
-            (,(#gn-call @task-third wait-spec) ,(#gn-call @task-fourth wait-spec))))
-        (#fn ,run (,@(#gn-for-each job jobs (#gn-call @wake-executor-task-parameter-form (#gn-first task-spec) job)) ,@(#gn-for-each job jobs (#gn-call @wake-executor-waker-parameter-form (#gn-call @task-seventh task-spec) job)) ,(#gn-call @task-sixth wait-spec)) ,(#gn-call @task-second outputs)
-          (#effects ((#effects-of (,(#gn-call @task-sixth task-spec)
-                                  ,(#gn-call @task-fifth wait-spec) ,cancel-function))))
+          ((,(#gn-call @task-second { values = wait-spec; }) #u32)
+            (,(#gn-call @task-third { values = wait-spec; }) ,(#gn-call @task-fourth { values = wait-spec; }))))
+        (#fn ,run (,@(#gn-for-each job jobs (#gn-call @wake-executor-task-parameter-form { task-type = (#gn-first task-spec); job = job; })) ,@(#gn-for-each job jobs (#gn-call @wake-executor-waker-parameter-form { waker-type = (#gn-call @task-seventh { values = task-spec; }); job = job; })) ,(#gn-call @task-sixth { values = wait-spec; })) ,(#gn-call @task-second { values = outputs; })
+          (#effects ((#effects-of (,(#gn-call @task-sixth { values = task-spec; })
+                                  ,(#gn-call @task-fifth { values = wait-spec; }) ,cancel-function))))
           ,@(#gn-for-each job jobs
             (#gn-call
               wake-executor-initialize
-              (#gn-first task-spec)
-              (#gn-call @task-second task-spec)
-              (#gn-call @task-third task-spec)
-              job))
+              { task-type = (#gn-first task-spec);
+              poll-type = (#gn-call @task-second { values = task-spec; });
+              pending = (#gn-call @task-third { values = task-spec; });
+              job = job; }))
           (#let-mut lim-wake-executor-ready-mask #u32 15u32)
           (#let-mut
             lim-wake-executor-lifecycle
-            ,(#gn-call @task-third outputs)
-            ,(#gn-call @task-fourth outputs))
+            ,(#gn-call @task-third { values = outputs; })
+            ,(#gn-call @task-fourth { values = outputs; }))
           (#let-mut lim-wake-executor-waiting #bool true)
           (#while lim-wake-executor-waiting
             (#set lim-wake-executor-waiting false)
             ,@(#gn-for-each job jobs
               (#gn-call
                 wake-executor-poll
-                (#gn-call @task-second task-spec)
-                (#gn-call @task-third task-spec)
-                (#gn-call @task-fourth task-spec)
-                (#gn-call @task-fifth task-spec)
-                (#gn-call @task-sixth task-spec)
-                job))
+                { poll-type = (#gn-call @task-second { values = task-spec; });
+                pending = (#gn-call @task-third { values = task-spec; });
+                ready = (#gn-call @task-fourth { values = task-spec; });
+                result-type = (#gn-call @task-fifth { values = task-spec; });
+                poll-function = (#gn-call @task-sixth { values = task-spec; });
+                job = job; }))
             (#if lim-wake-executor-waiting
               (#block
-                ,(#gn-call @wake-executor-wait-result outputs wait-spec cancel-function jobs)
+                ,(#gn-call @wake-executor-wait-result { outputs = outputs; wait-spec = wait-spec; cancel-function = cancel-function; jobs = jobs; })
                 ())
               ()))
           (#return
             (#match lim-wake-executor-lifecycle
-              (#case ,(#gn-call @task-fourth outputs)
-                (,(#gn-call @task-fifth outputs)
+              (#case ,(#gn-call @task-fourth { values = outputs; })
+                (,(#gn-call @task-fifth { values = outputs; })
                   (#struct-literal
                     ,(#gn-first outputs)
                     ,(#gn-for-each job jobs
                       (#gn-call
                         wake-executor-result
-                        (#gn-call @task-second task-spec)
-                        (#gn-call @task-third task-spec)
-                        (#gn-call @task-fourth task-spec)
-                        job)))))
-              (#case (,(#gn-call @task-sixth outputs) lim-wake-executor-reason)
+                        { poll-type = (#gn-call @task-second { values = task-spec; });
+                        pending = (#gn-call @task-third { values = task-spec; });
+                        ready = (#gn-call @task-fourth { values = task-spec; });
+                        job = job; })))))
+              (#case (,(#gn-call @task-sixth { values = outputs; }) lim-wake-executor-reason)
                 (#block
                   ,@(#gn-for-each job jobs
-                    (#gn-call @wake-executor-cancel-call cancel-function job))
-                  (,(#gn-call @task-seventh outputs) lim-wake-executor-reason)))))))
+                    (#gn-call @wake-executor-cancel-call { cancel-function = cancel-function; job = job; }))
+                  (,(#gn-call @task-seventh { values = outputs; }) lim-wake-executor-reason)))))))
       (#gn-error "#generate #wake-executor slots must be consecutive from 0u32"))
 //; Explicit async composition. Names: (Task Poll Pending Ready poll-function).
 //; Each stage is (State (#await ChildTask Pending Ready poll) continuation).
 //; A continuation is (#then NextState start-next) or (#return).
 //; start-next takes a named `value` argument and returns the next child task.
-#gn-fn async-state (stage)
-    `(,(#gn-first stage) ,(#gn-call @task-second (#gn-call @task-second stage)))
-#gn-fn async-complete (names continuation)
+#gn-fn async-state { stage; }
+    `(,(#gn-first stage) ,(#gn-call @task-second { values = (#gn-call @task-second { values = stage; }); }))
+#gn-fn async-complete { names; continuation; }
     (#gn-if (#gn-equal (#gn-first continuation) #return)
       (#gn-if (#gn-equal (#gn-rest continuation) ())
-        `(,(#gn-call @task-fourth names) lim-async-value)
+        `(,(#gn-call @task-fourth { values = names; }) lim-async-value)
         (#gn-error "async #return continuation takes no arguments"))
       (#gn-if (#gn-equal (#gn-first continuation) #then)
-        `(,(#gn-call @task-third names)
-          (,(#gn-call @task-second continuation)
-            (#call ,(#gn-call @task-third continuation) ((value lim-async-value)))))
+        `(,(#gn-call @task-third { values = names; })
+          (,(#gn-call @task-second { values = continuation; })
+            (#call ,(#gn-call @task-third { values = continuation; }) ((value lim-async-value)))))
         (#gn-error "async continuation must be (#return) or (#then State function)")))
-#gn-fn async-poll-case (names stage)
-    (#gn-if (#gn-equal (#gn-first (#gn-call @task-second stage)) #await)
+#gn-fn async-poll-case { names; stage; }
+    (#gn-if (#gn-equal (#gn-first (#gn-call @task-second { values = stage; })) #await)
       `(#case (,(#gn-first stage) lim-async-task)
-        (#match (#call ,(#gn-call @task-fifth (#gn-call @task-second stage)) ((task lim-async-task)))
-          (#case (,(#gn-call @task-third (#gn-call @task-second stage)) lim-async-polled-task)
-            (,(#gn-call @task-third names) (,(#gn-first stage) lim-async-polled-task)))
-          (#case (,(#gn-call @task-fourth (#gn-call @task-second stage)) lim-async-value)
-            ,(#gn-call @async-complete names (#gn-call @task-third stage)))))
+        (#match (#call ,(#gn-call @task-fifth { values = (#gn-call @task-second { values = stage; }); }) ((task lim-async-task)))
+          (#case (,(#gn-call @task-third { values = (#gn-call @task-second { values = stage; }); }) lim-async-polled-task)
+            (,(#gn-call @task-third { values = names; }) (,(#gn-first stage) lim-async-polled-task)))
+          (#case (,(#gn-call @task-fourth { values = (#gn-call @task-second { values = stage; }); }) lim-async-value)
+            ,(#gn-call @async-complete { names = names; continuation = (#gn-call @task-third { values = stage; }); }))))
       (#gn-error "async stage requires (#await Task Pending Ready poll-function)"))
-#gn-fn async-stage-effects (stage)
-    `(,(#gn-call @task-fifth (#gn-call @task-second stage))
-      ,(#gn-if (#gn-equal (#gn-first (#gn-call @task-third stage)) #then)
-        (#gn-call @task-third (#gn-call @task-third stage)) ()))
-#gn #async (names result stages)
-    `((#generate #task ,names ,result ,(#gn-for-each stage stages (#gn-call @async-state stage)))
-      (#fn ,(#gn-call @task-fifth names) ((task ,(#gn-first names))) ,(#gn-call @task-second names)
-        (#effects ((#effects-of ,(#gn-for-each stage stages (#gn-call @async-stage-effects stage)))))
+#gn-fn async-stage-effects { stage; }
+    `(,(#gn-call @task-fifth { values = (#gn-call @task-second { values = stage; }); })
+      ,(#gn-if (#gn-equal (#gn-first (#gn-call @task-third { values = stage; })) #then)
+        (#gn-call @task-third { values = (#gn-call @task-third { values = stage; }); }) ()))
+#gn #async { names; result; stages; }
+    `((#generate #task { names = ,names; result = ,result; states = ,(#gn-for-each stage stages (#gn-call @async-state { stage = stage; })); })
+      (#fn ,(#gn-call @task-fifth { values = names; }) ((task ,(#gn-first names))) ,(#gn-call @task-second { values = names; })
+        (#effects ((#effects-of ,(#gn-for-each stage stages (#gn-call @async-stage-effects { stage = stage; })))))
         (#return
           (#match task
             ,@(#gn-for-each stage stages
-              (#gn-call @async-poll-case names stage))))))
+              (#gn-call @async-poll-case { names = names; stage = stage; }))))))
 //; Waker::aware explicit composition. Child polls take `task` and a shared
 //; `waker` reference. The generated parent poll forwards that exact handle;
 //; it does not create, clone, or retain wake authority on its own.
-#gn-fn async-wake-poll-case (names stage)
-    (#gn-if (#gn-equal (#gn-first (#gn-call @task-second stage)) #await)
+#gn-fn async-wake-poll-case { names; stage; }
+    (#gn-if (#gn-equal (#gn-first (#gn-call @task-second { values = stage; })) #await)
       `(#case (,(#gn-first stage) lim-async-task)
-        (#match (#call ,(#gn-call @task-fifth (#gn-call @task-second stage)) ((task lim-async-task) (waker waker)))
-          (#case (,(#gn-call @task-third (#gn-call @task-second stage)) lim-async-polled-task)
-            (,(#gn-call @task-third names) (,(#gn-first stage) lim-async-polled-task)))
-          (#case (,(#gn-call @task-fourth (#gn-call @task-second stage)) lim-async-value)
-            ,(#gn-call @async-complete names (#gn-call @task-third stage)))))
+        (#match (#call ,(#gn-call @task-fifth { values = (#gn-call @task-second { values = stage; }); }) ((task lim-async-task) (waker waker)))
+          (#case (,(#gn-call @task-third { values = (#gn-call @task-second { values = stage; }); }) lim-async-polled-task)
+            (,(#gn-call @task-third { values = names; }) (,(#gn-first stage) lim-async-polled-task)))
+          (#case (,(#gn-call @task-fourth { values = (#gn-call @task-second { values = stage; }); }) lim-async-value)
+            ,(#gn-call @async-complete { names = names; continuation = (#gn-call @task-third { values = stage; }); }))))
       (#gn-error "async stage requires (#await Task Pending Ready poll-function)"))
-#gn #async-wake (names result stages waker)
-    `((#generate #task ,names ,result ,(#gn-for-each stage stages (#gn-call @async-state stage)))
-      (#fn ,(#gn-call @task-fifth names) ((task ,(#gn-first names)) (waker (#ref ,waker))) ,(#gn-call @task-second names)
-        (#effects ((#effects-of ,(#gn-for-each stage stages (#gn-call @async-stage-effects stage)))))
+#gn #async-wake { names; result; stages; waker; }
+    `((#generate #task { names = ,names; result = ,result; states = ,(#gn-for-each stage stages (#gn-call @async-state { stage = stage; })); })
+      (#fn ,(#gn-call @task-fifth { values = names; }) ((task ,(#gn-first names)) (waker (#ref ,waker))) ,(#gn-call @task-second { values = names; })
+        (#effects ((#effects-of ,(#gn-for-each stage stages (#gn-call @async-stage-effects { stage = stage; })))))
         (#return
           (#match task
             ,@(#gn-for-each stage stages
-              (#gn-call @async-wake-poll-case names stage))))))
+              (#gn-call @async-wake-poll-case { names = names; stage = stage; }))))))
 //; Cancellation is opt-in and explicit. A state may carry one legacy payload,
 //; or an explicit list of typed fields that is passed to its handler as a
 //; concrete tuple. A handler consumes all owned state fields.
-#gn-fn task-cancel-case (entry)
+#gn-fn task-cancel-case { entry; }
     (#gn-if (#gn-equal (#gn-length entry) 2)
       `(#case (,(#gn-first entry) lim-cancel-task)
-        (#call ,(#gn-call @task-second entry) ((task lim-cancel-task))))
+        (#call ,(#gn-call @task-second { values = entry; }) ((task lim-cancel-task))))
       (#gn-if (#gn-equal (#gn-length entry) 3)
-        (#gn-if (#gn-equal (#gn-length (#gn-call @task-third entry)) 0)
+        (#gn-if (#gn-equal (#gn-length (#gn-call @task-third { values = entry; })) 0)
           `(#case ,(#gn-first entry)
-            (#call ,(#gn-call @task-second entry) ((task ()))))
-          `(#case (,(#gn-first entry) ,@(#gn-for-each field (#gn-call @task-third entry) (#gn-first field)))
+            (#call ,(#gn-call @task-second { values = entry; }) ((task ()))))
+          `(#case (,(#gn-first entry) ,@(#gn-for-each field (#gn-call @task-third { values = entry; }) (#gn-first field)))
             (#call
-              ,(#gn-call @task-second entry)
+              ,(#gn-call @task-second { values = entry; })
               ((task
                 (#tuple
-                  (#tuple ,@(#gn-for-each field (#gn-call @task-third entry)
-                             (#gn-call @task-second field)))
-                  ,@(#gn-for-each field (#gn-call @task-third entry)
+                  (#tuple ,@(#gn-for-each field (#gn-call @task-third { values = entry; })
+                             (#gn-call @task-second { values = field; })))
+                  ,@(#gn-for-each field (#gn-call @task-third { values = entry; })
                        (#gn-first field))))))))
         (#gn-error
           "task cancellation state requires (Variant handler) or (Variant handler ((field Type) ...))")))
-#gn #task-cancel (cancel task states)
+#gn #task-cancel { cancel; task; states; }
     `((#fn ,cancel ((task ,task)) ()
-        (#effects ((#effects-of ,(#gn-for-each entry states (#gn-call @task-second entry)))))
-        (#return (#match task ,@(#gn-for-each entry states (#gn-call @task-cancel-case entry))))))
+        (#effects ((#effects-of ,(#gn-for-each entry states (#gn-call @task-second { values = entry; })))))
+        (#return (#match task ,@(#gn-for-each entry states (#gn-call @task-cancel-case { entry = entry; }))))))
 //; Choice.One explicit OS worker owns this executor and its fixed set of task slots.
 //; Existing #generate #thread-spawn Send checks, errors, and mandatory joining apply.
-#gn #threaded-executor (run result jobs thread)
-    `((#generate #executor ,run ,result ,jobs) (#generate #thread-spawn ((task ,thread) (worker ,run))))
+#gn #threaded-executor { run; result; jobs; thread; }
+    `((#generate #executor { run = ,run; result = ,result; jobs = ,jobs; }) (#generate #thread-spawn ((task ,thread) (worker ,run))))

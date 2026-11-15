@@ -3,7 +3,7 @@
 #alias lim-gen-task = ../library/tasks.lim::#task
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set
+#generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }
 
 #fn print-text {
   #params = ((text (#slice #char)));
@@ -50,15 +50,15 @@
 }
 
 #generate lim-gen-local-waker
-    (LocalWaker
+    { names = (LocalWaker
       local-waker-create
       local-waker-wake
       local-waker-wake-by-ref
       local-waker-clone
-      local-waker-destroy)
-    (Executor WakeMetadata)
-    (notify clone-metadata destroy-metadata)
-#generate lim-gen-task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting #u64))
+      local-waker-destroy);
+    types = (Executor WakeMetadata);
+    callbacks = (notify clone-metadata destroy-metadata); }
+#generate lim-gen-task { names = (Step StepPoll StepPoll.StepPending StepPoll.StepReady); result = #u64; states = ((Step.Waiting #u64)); }
 
 #fn step-poll {
   #params = ((task Step) (waker (#ref LocalWaker)));

@@ -1,8 +1,8 @@
 #alias lim-gen-executor = ../library/tasks.lim::#executor
 #alias lim-gen-task = ../library/tasks.lim::#task
 
-#generate lim-gen-task (CountTask CountPoll CountPoll.CountPending CountPoll.CountReady) #u64
-  ((CountTask.Counting #u64))
+#generate lim-gen-task { names = (CountTask CountPoll CountPoll.CountPending CountPoll.CountReady); result = #u64;
+  states = ((CountTask.Counting #u64)); }
 
 #fn count-poll {
   #params = ((task CountTask));
@@ -20,9 +20,9 @@
       )));
 }
 
-#generate lim-gen-executor run-counts Counts ((first CountTask CountPoll CountPoll.CountPending
+#generate lim-gen-executor { run = run-counts; result = Counts; jobs = ((first CountTask CountPoll CountPoll.CountPending
     CountPoll.CountReady count-poll #u64 first-input) (second CountTask CountPoll
-    CountPoll.CountPending CountPoll.CountReady count-poll #u64 second-input))
+    CountPoll.CountPending CountPoll.CountReady count-poll #u64 second-input)); }
 
 #fn main {
   #params = ();

@@ -1,8 +1,8 @@
 #alias lim-gen-task = ../library/tasks.lim::#task
 #alias lim-gen-threaded-executor = ../library/tasks.lim::#threaded-executor
 
-#generate lim-gen-task (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady) #u64
-    ((NumberTask.Number #u64))
+#generate lim-gen-task { names = (NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady); result = #u64;
+    states = ((NumberTask.Number #u64)); }
 
 #fn number-poll {
   #params = ((task NumberTask));
@@ -12,9 +12,9 @@
   );
 }
 
-#generate lim-gen-threaded-executor run-worker WorkerResults
-    ((number NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady number-poll #u64 number-input))
-    Worker
+#generate lim-gen-threaded-executor { run = run-worker; result = WorkerResults;
+    jobs = ((number NumberTask NumberPoll NumberPoll.NumberPending NumberPoll.NumberReady number-poll #u64 number-input));
+    thread = Worker; }
 
 #fn main {
   #params = ();

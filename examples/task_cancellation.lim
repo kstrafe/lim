@@ -2,10 +2,10 @@
 #alias lim-gen-task = ../library/tasks.lim::#task
 #alias lim-gen-task-cancel = ../library/tasks.lim::#task-cancel
 
-#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set
+#generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }
 #struct Flag () ((released CellU64))
-#generate lim-gen-task (Held HeldPoll HeldPoll.HeldPending HeldPoll.HeldReady) #u64 ((Held.Holding
-    (#ref Flag)))
+#generate lim-gen-task { names = (Held HeldPoll HeldPoll.HeldPending HeldPoll.HeldReady); result = #u64; states = ((Held.Holding
+    (#ref Flag))); }
 
 #fn release {
   #params = ((task (#ref Flag)));
@@ -14,7 +14,7 @@
   ((#call CellU64::set ((cell (#borrow (#get task released))) (value 42u64))) (#return ()));
 }
 
-#generate lim-gen-task-cancel cancel Held ((Held.Holding release))
+#generate lim-gen-task-cancel { cancel = cancel; task = Held; states = ((Held.Holding release)); }
 
 #fn main {
   #params = ();

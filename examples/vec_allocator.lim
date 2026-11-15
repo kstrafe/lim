@@ -7,7 +7,7 @@
 
 #std
 
-#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set
+#generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }
 #struct CountingAllocator () ((identity #u64) (destructions CellU64))
 #type CountingAllocator::Allocator::State CountingAllocator
 #type CountingAllocator::Allocator::Error SystemAllocationError

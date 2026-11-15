@@ -16,9 +16,9 @@
 //; is never exposed directly. run consumes `pin PinnedFrame` and returns the
 //; chosen result; destroy consumes another pin handle and returns unit.
 
-#gn-fn pin-name (name suffix) (#gn-symbol-append name suffix)
-#gn-fn pin-second (values) (#gn-first (#gn-rest values))
-#gn-fn pin-option-check (option keys)
+#gn-fn pin-name { name; suffix; } (#gn-symbol-append name suffix)
+#gn-fn pin-second { values; } (#gn-first (#gn-rest values))
+#gn-fn pin-option-check { option; keys; }
     (#gn-if (#gn-equal (#gn-length option) 2)
       (#gn-if (#gn-equal
         (#gn-for-each key keys (#gn-if (#gn-equal (#gn-first option) key) true false))
@@ -28,125 +28,125 @@
 
 //; Field names and their concrete types are literal syntax; ordinary checking
 //; proves reads are nonmoving and writes obey the pinned-field restrictions.
-#gn-fn pin-field-read (name field function)
-    `(#fn ,function ((pin (#ref ,name))) ,(#gn-call pin-second field)
+#gn-fn pin-field-read { name; field; function; }
+    `(#fn ,function ((pin (#ref ,name))) ,(#gn-call pin-second { values = field; })
       (#return (#get (#get pin view) ,(#gn-first field))))
-#gn-fn pin-field-write (name field function)
-    `(#fn ,function ((pin (#ref-mut ,name)) (value ,(#gn-call pin-second field))) ()
+#gn-fn pin-field-write { name; field; function; }
+    `(#fn ,function ((pin (#ref-mut ,name)) (value ,(#gn-call pin-second { values = field; }))) ()
       (#pin-set-field (#get pin view) ,(#gn-first field) value)
       (#return ()))
 
-#gn-fn pin-project (element name field function mutable shared)
+#gn-fn pin-project { element; name; field; function; mutable; shared; }
     (#gn-if (#gn-equal mutable true)
-      `(#fn ,function ((pin ,name)) ,(#gn-call pin-second field)
-        (#effects ((#effects-of ,(#gn-call pin-name (#gn-call pin-second field) "from-mut"))))
+      `(#fn ,function ((pin ,name)) ,(#gn-call pin-second { values = field; })
+        (#effects ((#effects-of ,(#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "from-mut"; }))))
         (#let view (#pin-ref-mut ,element)
-          (#unsafe (#unsafe-call ,(#gn-call pin-name name "into-view") ((pin pin)))))
-        (#let projected ,(#gn-call pin-second field)
-          (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-second field) "from-mut")
+          (#unsafe (#unsafe-call ,(#gn-call pin-name { name = name; suffix = "into-view"; }) ((pin pin)))))
+        (#let projected ,(#gn-call pin-second { values = field; })
+          (#unsafe (#unsafe-call ,(#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "from-mut"; })
             ((view (#pin-borrow-mut (#get view ,(#gn-first field))))))))
         (#return projected))
-      `(#fn ,function ((pin ,name)) ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
-        (#effects ((#effects-of ,(#gn-call pin-name (#gn-call pin-name (#gn-call pin-second field) "Shared") "from-ref"))))
+      `(#fn ,function ((pin ,name)) ,(#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "Shared"; })
+        (#effects ((#effects-of ,(#gn-call pin-name { name = (#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "Shared"; }); suffix = "from-ref"; }))))
         (#let view ,(#gn-if (#gn-equal shared true) `(#pin-ref ,element) `(#pin-ref-mut ,element))
-          (#unsafe (#unsafe-call ,(#gn-call pin-name name "into-view") ((pin pin)))))
-        (#let projected ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
-          (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-name (#gn-call pin-second field) "Shared") "from-ref")
+          (#unsafe (#unsafe-call ,(#gn-call pin-name { name = name; suffix = "into-view"; }) ((pin pin)))))
+        (#let projected ,(#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "Shared"; })
+          (#unsafe (#unsafe-call ,(#gn-call pin-name { name = (#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "Shared"; }); suffix = "from-ref"; })
             ((view (#pin-borrow (#get view ,(#gn-first field))))))))
         (#return projected)))
 
-#gn-fn pin-copy-functions (element name shared)
-    `((#fn ,(#gn-call pin-name name "copy-proof") ((value (#ref ,element))) ,element
+#gn-fn pin-copy-functions { element; name; shared; }
+    `((#fn ,(#gn-call pin-name { name = name; suffix = "copy-proof"; }) ((value (#ref ,element))) ,element
         (#return (#clone (#deref value))))
-      (#fn ,(#gn-call pin-name name "read") ((pin (#ref ,name))) ,element
+      (#fn ,(#gn-call pin-name { name = name; suffix = "read"; }) ((pin (#ref ,name))) ,element
         (#return (#deref (#get pin view))))
-      (#fn ,(#gn-call pin-name shared "read") ((pin (#ref ,shared))) ,element
+      (#fn ,(#gn-call pin-name { name = shared; suffix = "read"; }) ((pin (#ref ,shared))) ,element
         (#return (#deref (#get pin view))))
-      (#fn ,(#gn-call pin-name name "write") ((pin (#ref-mut ,name)) (value ,element)) ()
+      (#fn ,(#gn-call pin-name { name = name; suffix = "write"; }) ((pin (#ref-mut ,name)) (value ,element)) ()
         (#unsafe (#pin-write (#get pin view) value)) (#return ())))
 
-#gn-fn pin-borrow-project (name field function mutable)
+#gn-fn pin-borrow-project { name; field; function; mutable; }
     (#gn-if (#gn-equal mutable true)
-      `(#fn ,function ((pin (#ref-mut ,name))) ,(#gn-call pin-second field)
-        (#effects ((#effects-of ,(#gn-call pin-name (#gn-call pin-second field) "from-mut"))))
-        (#return (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-second field) "from-mut")
+      `(#fn ,function ((pin (#ref-mut ,name))) ,(#gn-call pin-second { values = field; })
+        (#effects ((#effects-of ,(#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "from-mut"; }))))
+        (#return (#unsafe (#unsafe-call ,(#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "from-mut"; })
           ((view (#pin-borrow-mut (#get (#get pin view) ,(#gn-first field)))))))))
-      `(#fn ,function ((pin (#ref ,name))) ,(#gn-call pin-name (#gn-call pin-second field) "Shared")
-        (#effects ((#effects-of ,(#gn-call pin-name (#gn-call pin-name (#gn-call pin-second field) "Shared") "from-ref"))))
-        (#return (#unsafe (#unsafe-call ,(#gn-call pin-name (#gn-call pin-name (#gn-call pin-second field) "Shared") "from-ref")
+      `(#fn ,function ((pin (#ref ,name))) ,(#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "Shared"; })
+        (#effects ((#effects-of ,(#gn-call pin-name { name = (#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "Shared"; }); suffix = "from-ref"; }))))
+        (#return (#unsafe (#unsafe-call ,(#gn-call pin-name { name = (#gn-call pin-name { name = (#gn-call pin-second { values = field; }); suffix = "Shared"; }); suffix = "from-ref"; })
           ((view (#pin-borrow (#get (#get pin view) ,(#gn-first field))))))))))
 
-#gn-fn pin-build (element name shared fields projections copy checked)
+#gn-fn pin-build { element; name; shared; fields; projections; copy; checked; }
     `((#struct ,name (#linear) ((view (#pin-ref-mut ,element))))
       (#opaque ,name)
       (#struct ,shared (#linear) ((view (#pin-ref ,element))))
       (#opaque ,shared)
-      (#unsafe-fn ,(#gn-call pin-name name "from-mut")
+      (#unsafe-fn ,(#gn-call pin-name { name = name; suffix = "from-mut"; })
         ((view (#pin-ref-mut ,element))) ,name
         (#return (#struct-literal ,name ((view view)))))
-      (#unsafe-fn ,(#gn-call pin-name shared "from-ref")
+      (#unsafe-fn ,(#gn-call pin-name { name = shared; suffix = "from-ref"; })
         ((view (#pin-ref ,element))) ,shared
         (#return (#struct-literal ,shared ((view view)))))
-      (#unsafe-fn ,(#gn-call pin-name name "into-view") ((pin ,name)) (#pin-ref-mut ,element)
+      (#unsafe-fn ,(#gn-call pin-name { name = name; suffix = "into-view"; }) ((pin ,name)) (#pin-ref-mut ,element)
         (#let view (#pin-ref-mut ,element) (#get pin view)) (#forget pin) (#return view))
-      (#unsafe-fn ,(#gn-call pin-name shared "into-view") ((pin ,shared)) (#pin-ref ,element)
+      (#unsafe-fn ,(#gn-call pin-name { name = shared; suffix = "into-view"; }) ((pin ,shared)) (#pin-ref ,element)
         (#let view (#pin-ref ,element) (#get pin view)) (#forget pin) (#return view))
       ,@(#gn-for-each field fields
-        (#gn-call pin-field-read name field
-          (#gn-call pin-name (#gn-call pin-name name "Read") (#gn-first field))))
+        (#gn-call pin-field-read { name = name; field = field;
+          function = (#gn-call pin-name { name = (#gn-call pin-name { name = name; suffix = "Read"; }); suffix = (#gn-first field); }); }))
       ,@(#gn-for-each field fields
-        (#gn-call pin-field-read shared field
-          (#gn-call pin-name (#gn-call pin-name shared "Read") (#gn-first field))))
+        (#gn-call pin-field-read { name = shared; field = field;
+          function = (#gn-call pin-name { name = (#gn-call pin-name { name = shared; suffix = "Read"; }); suffix = (#gn-first field); }); }))
       ,@(#gn-for-each field fields
-        (#gn-call pin-field-write name field
-          (#gn-call pin-name (#gn-call pin-name name "Write") (#gn-first field))))
+        (#gn-call pin-field-write { name = name; field = field;
+          function = (#gn-call pin-name { name = (#gn-call pin-name { name = name; suffix = "Write"; }); suffix = (#gn-first field); }); }))
       ,@(#gn-for-each field projections
-        (#gn-call pin-project element name field
-          (#gn-call pin-name (#gn-call pin-name name "ProjectMut") (#gn-first field)) true false))
+        (#gn-call pin-project { element = element; name = name; field = field;
+          function = (#gn-call pin-name { name = (#gn-call pin-name { name = name; suffix = "ProjectMut"; }); suffix = (#gn-first field); }); mutable = true; shared = false; }))
       ,@(#gn-for-each field projections
-        (#gn-call pin-project element name field
-          (#gn-call pin-name (#gn-call pin-name name "Project") (#gn-first field)) false false))
+        (#gn-call pin-project { element = element; name = name; field = field;
+          function = (#gn-call pin-name { name = (#gn-call pin-name { name = name; suffix = "Project"; }); suffix = (#gn-first field); }); mutable = false; shared = false; }))
       ,@(#gn-for-each field projections
-        (#gn-call pin-project element shared field
-          (#gn-call pin-name (#gn-call pin-name shared "Project") (#gn-first field)) false true))
+        (#gn-call pin-project { element = element; name = shared; field = field;
+          function = (#gn-call pin-name { name = (#gn-call pin-name { name = shared; suffix = "Project"; }); suffix = (#gn-first field); }); mutable = false; shared = true; }))
       ,@(#gn-for-each field projections
-        (#gn-call pin-borrow-project name field
-          (#gn-call pin-name (#gn-call pin-name name "BorrowMut") (#gn-first field)) true))
+        (#gn-call pin-borrow-project { name = name; field = field;
+          function = (#gn-call pin-name { name = (#gn-call pin-name { name = name; suffix = "BorrowMut"; }); suffix = (#gn-first field); }); mutable = true; }))
       ,@(#gn-for-each field projections
-        (#gn-call pin-borrow-project name field
-          (#gn-call pin-name (#gn-call pin-name name "Borrow") (#gn-first field)) false))
+        (#gn-call pin-borrow-project { name = name; field = field;
+          function = (#gn-call pin-name { name = (#gn-call pin-name { name = name; suffix = "Borrow"; }); suffix = (#gn-first field); }); mutable = false; }))
       ,@(#gn-for-each field projections
-        (#gn-call pin-borrow-project shared field
-          (#gn-call pin-name (#gn-call pin-name shared "Borrow") (#gn-first field)) false))
+        (#gn-call pin-borrow-project { name = shared; field = field;
+          function = (#gn-call pin-name { name = (#gn-call pin-name { name = shared; suffix = "Borrow"; }); suffix = (#gn-first field); }); mutable = false; }))
       ,@(#gn-if (#gn-equal copy true)
-        (#gn-call pin-copy-functions element name shared)
+        (#gn-call pin-copy-functions { element = element; name = name; shared = shared; })
         (#gn-if (#gn-equal copy false) () (#gn-error "#generate #pin copy must be true or false"))))
 
-#gn #pin (options)
+#gn #pin { options; }
     (#gn-call pin-build
-      (#gn-get options type) (#gn-get options name)
-      (#gn-call pin-name (#gn-get options name) "Shared")
-      (#gn-get options fields ()) (#gn-get options projections ()) (#gn-get options copy false)
-      (#gn-for-each option options (#gn-call pin-option-check option (type name fields projections copy))))
+      { element = (#gn-get options type); name = (#gn-get options name);
+      shared = (#gn-call pin-name { name = (#gn-get options name); suffix = "Shared"; });
+      fields = (#gn-get options fields ()); projections = (#gn-get options projections ()); copy = (#gn-get options copy false);
+      checked = (#gn-for-each option options (#gn-call pin-option-check { option = option; keys = (type name fields projections copy); })); })
 
-#gn-fn pin-scope-build (element pin name run destroy result checked)
+#gn-fn pin-scope-build { element; pin; name; run; destroy; result; checked; }
     `((#fn ,name ((value ,element)) ,result
-      (#effects ((#effects-of ,(#gn-call pin-name pin "from-mut")) (#effects-of ,destroy) (#effects-of ,run)))
+      (#effects ((#effects-of ,(#gn-call pin-name { name = pin; suffix = "from-mut"; })) (#effects-of ,destroy) (#effects-of ,run)))
       (#let-mut storage ,element value)
       (#let handle ,pin
-        (#unsafe (#unsafe-call ,(#gn-call pin-name pin "from-mut")
+        (#unsafe (#unsafe-call ,(#gn-call pin-name { name = pin; suffix = "from-mut"; })
           ((view (#pin-borrow-mut storage))))))
       (#let output ,result (#call ,run ((pin handle))))
       (#let cleanup ,pin
-        (#unsafe (#unsafe-call ,(#gn-call pin-name pin "from-mut")
+        (#unsafe (#unsafe-call ,(#gn-call pin-name { name = pin; suffix = "from-mut"; })
           ((view (#pin-borrow-mut storage))))))
       (#call ,destroy ((pin cleanup)))
       (#forget storage)
       (#return output)))
 
-#gn #pin-scope (options)
-    (#gn-call pin-scope-build (#gn-get options type) (#gn-get options pin)
-      (#gn-get options name) (#gn-get options run) (#gn-get options destroy)
-      (#gn-get options result)
-      (#gn-for-each option options
-        (#gn-call pin-option-check option (type pin name run destroy result))))
+#gn #pin-scope { options; }
+    (#gn-call pin-scope-build { element = (#gn-get options type); pin = (#gn-get options pin);
+      name = (#gn-get options name); run = (#gn-get options run); destroy = (#gn-get options destroy);
+      result = (#gn-get options result);
+      checked = (#gn-for-each option options
+        (#gn-call pin-option-check { option = option; keys = (type pin name run destroy result); })); })

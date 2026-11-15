@@ -9,7 +9,7 @@
 // Registration consumes only literal names. It never inspects unfinished enums.
 #distributed-enum ExecutorTask ()
 
-#gn register-future (executor future variant)
+#gn register-future { executor; future; variant; }
     `(
       (#require-generated
         ,(#gn-symbol-append future "Frame")
@@ -23,7 +23,7 @@
         ,executor
         (,(#gn-variant executor variant) ,(#gn-symbol-append future "Frame"))))
 
-#generate register-future @ExecutorTask @Work Work
+#generate register-future { executor = @ExecutorTask; future = @Work; variant = Work; }
 #generate #async-fn-pinned
     ((protocol Work::Await)
      (waker #u64)
@@ -45,10 +45,10 @@
 }
 
 #generate lim-gen-pin-box
-    ((type ExecutorTask)
+    { options = ((type ExecutorTask)
      (allocator SystemAllocator::Allocator)
      (name PinnedExecutorTaskBox)
-     (destroy destroy-executor-task))
+     (destroy destroy-executor-task)); }
 
 #fn poll-executor-task {
   #params = ((pin (#pin-ref-mut ExecutorTask)) (waker (#ref #u64)));

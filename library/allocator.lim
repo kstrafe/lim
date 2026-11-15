@@ -9,7 +9,7 @@
 // Deallocate hooks must release the matching allocation. Unsafe callers retain
 // responsibility for pointer ownership and matching layouts and alignments.
 // These semantic obligations cannot be proven from the shape of the hooks.
-#gn-fn allocator-for-check (option keys)
+#gn-fn allocator-for-check { option; keys; }
     (#gn-if (#gn-equal (#gn-length option) 2)
       (#gn-if (#gn-equal
         (#gn-for-each key keys (#gn-if (#gn-equal (#gn-first option) key) true false))
@@ -17,7 +17,7 @@
         (#gn-error "#generate #allocator-for has an unknown named option") ())
       (#gn-error "#generate #allocator-for options must be (key value) pairs"))
 
-#gn-fn allocator-for-result (root value-type name allocation)
+#gn-fn allocator-for-result { root; value-type; name; allocation; }
     `(#match ,allocation
       (#case (,(#gn-variant (#gn-symbol-append root "Allocation") "Allocated") allocated-pointer)
         (#block
@@ -27,7 +27,7 @@
       (#case (,(#gn-variant (#gn-symbol-append root "Allocation") "AllocationFailed") error)
         (,(#gn-variant (#gn-symbol-append name "Allocation") "AllocationFailed") error)))
 
-#gn-fn allocator-for-allocate (root value-type name)
+#gn-fn allocator-for-allocate { root; value-type; name; }
     `(#fn ,(#gn-symbol-append name "allocate")
         ((allocator (#ref ,(#gn-symbol-append name "State"))) (layout #usize) (alignment #usize))
         ,(#gn-symbol-append name "Allocation")
@@ -35,9 +35,9 @@
         (#let allocation ,(#gn-symbol-append root "Allocation")
           (#call ,(#gn-symbol-append root "allocate")
             ((allocator allocator) (layout layout) (alignment alignment))))
-        (#return ,(#gn-call allocator-for-result root value-type name allocation)))
+        (#return ,(#gn-call allocator-for-result { root = root; value-type = value-type; name = name; allocation = allocation; })))
 
-#gn-fn allocator-for-grow (root value-type name)
+#gn-fn allocator-for-grow { root; value-type; name; }
     `(#unsafe-fn ,(#gn-symbol-append name "grow")
         ((allocator (#ref ,(#gn-symbol-append name "State"))) (pointer (#ptr-mut ,value-type))
          (old-layout #usize) (layout #usize) (alignment #usize))
@@ -49,9 +49,9 @@
           (#unsafe (#unsafe-call ,(#gn-symbol-append root "grow")
             ((allocator allocator) (pointer bytes) (old-layout old-layout)
              (layout layout) (alignment alignment)))))
-        (#return ,(#gn-call allocator-for-result root value-type name allocation)))
+        (#return ,(#gn-call allocator-for-result { root = root; value-type = value-type; name = name; allocation = allocation; })))
 
-#gn-fn allocator-for-deallocate (root value-type name)
+#gn-fn allocator-for-deallocate { root; value-type; name; }
     `(#unsafe-fn ,(#gn-symbol-append name "deallocate")
         ((allocator (#ref ,(#gn-symbol-append name "State"))) (pointer (#ptr-mut ,value-type))
          (layout #usize) (alignment #usize)) ()
@@ -62,27 +62,27 @@
           ((allocator allocator) (pointer bytes) (layout layout) (alignment alignment))))
         (#return ()))
 
-#gn-fn allocator-for-operation (root value-type name operation)
+#gn-fn allocator-for-operation { root; value-type; name; operation; }
     (#gn-if (#gn-equal operation allocate)
-      (#gn-call allocator-for-allocate root value-type name)
+      (#gn-call allocator-for-allocate { root = root; value-type = value-type; name = name; })
       (#gn-if (#gn-equal operation grow)
-        (#gn-call allocator-for-grow root value-type name)
+        (#gn-call allocator-for-grow { root = root; value-type = value-type; name = name; })
         (#gn-if (#gn-equal operation deallocate)
-          (#gn-call allocator-for-deallocate root value-type name)
+          (#gn-call allocator-for-deallocate { root = root; value-type = value-type; name = name; })
           (#gn-error "#generate #allocator-for unknown operation; expected allocate, grow or deallocate"))))
 
-#gn-fn allocator-for-build (root value-type name operations checked)
+#gn-fn allocator-for-build { root; value-type; name; operations; checked; }
     `((#type ,(#gn-symbol-append name "State") ,(#gn-symbol-append root "State"))
       (#type ,(#gn-symbol-append name "Error") ,(#gn-symbol-append root "Error"))
       (#enum ,(#gn-symbol-append name "Allocation") (#linear)
         ((,(#gn-variant (#gn-symbol-append name "Allocation") "Allocated") (#ptr-mut ,value-type))
          (,(#gn-variant (#gn-symbol-append name "Allocation") "AllocationFailed") ,(#gn-symbol-append name "Error"))))
       ,@(#gn-for-each operation operations
-        (#gn-call allocator-for-operation root value-type name operation)))
+        (#gn-call allocator-for-operation { root = root; value-type = value-type; name = name; operation = operation; })))
 
-#gn #allocator-for (options)
+#gn #allocator-for { options; }
     (#gn-call allocator-for-build
-      (#gn-get options allocator) (#gn-get options type) (#gn-get options name)
-      (#gn-get options operations)
-      (#gn-for-each option options
-        (#gn-call allocator-for-check option (allocator type name operations))))
+      { root = (#gn-get options allocator); value-type = (#gn-get options type); name = (#gn-get options name);
+      operations = (#gn-get options operations);
+      checked = (#gn-for-each option options
+        (#gn-call allocator-for-check { option = option; keys = (allocator type name operations); })); })

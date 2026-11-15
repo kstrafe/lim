@@ -2,8 +2,8 @@
 
 #std
 #enum Task () ((Task.Work #u64) Task.Idle)
-#generate lim-gen-enum-project ((enum Task) (variant Task.Work) (payload #u64) (mode #pin-ref-mut)
-  (name WorkProjection))
+#generate lim-gen-enum-project { options = ((enum Task) (variant Task.Work) (payload #u64) (mode #pin-ref-mut)
+  (name WorkProjection)); }
 
 #fn main {
   #params = ();

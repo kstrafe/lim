@@ -2,7 +2,7 @@
 #alias lim-gen-task = ../library/tasks.lim::#task
 #alias linux-write-byte = ../library/linux_x86_64.lim::linux-write-byte
 
-#generate lim-gen-cell #u64 CellU64 CellU64::create CellU64::get CellU64::set
+#generate lim-gen-cell { value-type = #u64; name = CellU64; create = CellU64::create; get = CellU64::get; set = CellU64::set; }
 
 #fn print-text {
   #params = ((text (#slice #char)));
@@ -20,8 +20,8 @@
 
 #struct Wake () ((notifications CellU64))
 
-#generate lim-gen-task (Step StepPoll StepPoll.StepPending StepPoll.StepReady) #u64 ((Step.Waiting
-    #u64))
+#generate lim-gen-task { names = (Step StepPoll StepPoll.StepPending StepPoll.StepReady); result = #u64; states = ((Step.Waiting
+    #u64)); }
 
 #fn step-poll {
   #params = ((task Step) (waker (#ref Wake)));

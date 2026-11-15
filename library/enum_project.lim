@@ -1,12 +1,12 @@
 // Fallible enum projection is ordinary safe Lim, specialized by reference mode.
-#gn-fn enum-project-case (mode)
+#gn-fn enum-project-case { mode; }
     (#gn-if (#gn-equal mode #ref) #case-ref
       (#gn-if (#gn-equal mode #ref-mut) #case-ref-mut
         (#gn-if (#gn-equal mode #pin-ref) #case-pin
           (#gn-if (#gn-equal mode #pin-ref-mut) #case-pin-mut
             (#gn-error "#generate #enum-project mode must be #ref, #ref-mut, #pin-ref or #pin-ref-mut")))))
 
-#gn-fn enum-project-build (options projected mode case)
+#gn-fn enum-project-build { options; projected; mode; case; }
     `((#enum ,(#gn-get options name) ()
         ((,(#gn-variant (#gn-get options name) "Some")
            (,mode ,(#gn-get options payload)))
@@ -19,8 +19,8 @@
             (#enum-literal ,(#gn-variant (#gn-get options name) "Some") ,projected))
           (#case _ (#enum-literal ,(#gn-variant (#gn-get options name) "None")))))))
 
-#gn #enum-project (options)
+#gn #enum-project { options; }
     (#gn-if (#gn-equal (#gn-length options) 5)
-      (#gn-call enum-project-build options (#gn-gensym "payload")
-        (#gn-get options mode) (#gn-call enum-project-case (#gn-get options mode)))
+      (#gn-call enum-project-build { options = options; projected = (#gn-gensym "payload");
+        mode = (#gn-get options mode); case = (#gn-call enum-project-case { mode = (#gn-get options mode); }); })
       (#gn-error "#generate #enum-project requires exactly enum, variant, payload, mode and name"))

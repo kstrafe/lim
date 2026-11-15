@@ -44,9 +44,9 @@
         (Step.Step-waiting (#struct-literal StepWaiting ((value 2u64) (remaining 2u64))))))
       (#return (#u64::add-wrap first second)))))
 
-#generate lim-gen-pin ((type Work::Frame) (name PinnedFrame))
-#generate lim-gen-pin-scope ((type Work::Frame) (pin PinnedFrame) (name with-pinned-frame)
-    (run drive-frame) (destroy destroy-frame) (result #u64))
+#generate lim-gen-pin { options = ((type Work::Frame) (name PinnedFrame)); }
+#generate lim-gen-pin-scope { options = ((type Work::Frame) (pin PinnedFrame) (name with-pinned-frame)
+    (run drive-frame) (destroy destroy-frame) (result #u64)); }
 
 #fn drive-frame {
   #params = ((pin PinnedFrame));

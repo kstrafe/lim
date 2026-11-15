@@ -4,7 +4,7 @@
 #alias counters@counter-reader = ./encapsulation/lib.lim::counter-reader
 // The generated file's definition context permits counters@counter-value.
 // Ordinary consumer code still cannot call that private helper directly.
-#generate counters@counter-reader read-generated-counter
+#generate counters@counter-reader { name = read-generated-counter; }
 
 #fn main {
   #params = ();

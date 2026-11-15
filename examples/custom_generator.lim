@@ -1,7 +1,7 @@
-#gn aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol "#type") (#gn-first pair)
+#gn aliases { pairs; } (#gn-for-each pair pairs (#gn-list (#gn-symbol "#type") (#gn-first pair)
     (#gn-first (#gn-rest pair))))
 
-#generate aliases ((Byte #u8) (Word #u16))
+#generate aliases { pairs = ((Byte #u8) (Word #u16)); }
 
 #fn main {
   #params = ();

@@ -27,8 +27,8 @@
 #struct NumberPayload () ((value #u64))
 #enum Choice () ((Choice.Number NumberPayload) (Choice.Other #u64))
 #struct Owner () ((choice Choice))
-#generate lim-gen-enum-project ((enum Choice) (variant Choice.Number) (payload NumberPayload)
-  (mode #pin-ref) (name NumberView))
+#generate lim-gen-enum-project { options = ((enum Choice) (variant Choice.Number) (payload NumberPayload)
+  (mode #pin-ref) (name NumberView)); }
 
 #generate #async-fn-pinned ((protocol ReadAfterAwaitAwait) (waker #u64) (function (#fn
       read-after-await ((owner Owner)) #u64 (#let-else (NumberView.Some payload) (#call
