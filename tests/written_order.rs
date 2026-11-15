@@ -235,6 +235,7 @@ fn aliases_and_direct_file_calls_keep_written_order() {
 #fn main {
   #params = ();
   #returns = #u64;
+  #effects = ((#effects-of mark));
   #body = ( (#return (subtract {
           right = mark { byte = 65u8; value = 2; };
           left = mark { byte = 66u8; value = 44; };
