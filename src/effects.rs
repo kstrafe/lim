@@ -248,7 +248,18 @@ pub(crate) fn collect(program: &Program) -> Result<BTreeMap<String, Declaration>
         let Item::Function(function) = item else {
             continue;
         };
-        let Some(source) = program.declaration_expressions.get(&function.name) else {
+        // Function and global IDs are distinct even if their source spellings
+        // coincide. The general declaration map may retain the global; select
+        // the actual function occurrence before reading signature metadata.
+        let source = program.declaration_occurrences.get(&function.name)
+            .into_iter().flatten()
+            .find(|source| match &source.expr {
+                Expr::List(parts) => matches!(parts.first().and_then(symbol),
+                    Some("fn" | "unsafe-fn" | "extern-fn")),
+                _ => false,
+            })
+            .or_else(|| program.declaration_expressions.get(&function.name));
+        let Some(source) = source else {
             continue;
         };
         let index = if function.external { 5 } else { 4 };
