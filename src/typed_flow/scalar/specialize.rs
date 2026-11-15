@@ -534,7 +534,7 @@ mod tests {
 
     const PHASE_SOURCE: &str = "#struct Holder () ((value (#ref #u64)))
 #struct Frame () ((pc #u64) (source (#ref #u64)) (words (#array #u64 1)))
-#fn work ((frame (#ref-mut Frame))) #u64
+#fn work { #params = ((frame (#ref-mut Frame))); #returns = #u64; #body = (
               (#loop (#match (#get frame pc)
                 (#case 0 (#block
                   (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
@@ -545,15 +545,15 @@ mod tests {
                   (#let answer #u64 (#deref (#get holder value)))
                   (#forget holder) (#return answer) (#unreachable)))
                 (#case _ (#block (#return 0u64) (#unreachable)))))
-              (#return 0u64)\n";
+              (#return 0u64) ); }\n";
 
     #[test]
     fn projected_assignment_epochs_follow_the_physical_referent() {
         let program = crate::parse_program(
             "#struct Frame () ((pc #u64))
-#fn work ((frame (#ref-mut Frame))) ()
+#fn work { #params = ((frame (#ref-mut Frame))); #returns = (); #body = (
                 (#let-mut alias (#ref-mut #u64) (#borrow-mut (#get frame pc)))
-                (#deref-set alias 1u64) (#return ())\n",
+                (#deref-set alias 1u64) (#return ()) ); }\n",
         )
         .unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
@@ -784,7 +784,7 @@ mod tests {
         }
         // A function with no parameters must not silently drop the marker
         // because its unused placeholder parameter has no actual argument.
-        let main_program = crate::parse_program("#fn main () #u64 (#return 0u64)\n").unwrap();
+        let main_program = crate::parse_program("#fn main { #params = (); #returns = #u64; #body = ( (#return 0u64) ); }\n").unwrap();
         let mut main_declarations =
             crate::typecheck::resolve_program_for_analysis(&main_program, false).unwrap();
         let mut main = main_declarations.bodies.remove("main").unwrap();

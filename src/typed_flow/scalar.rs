@@ -1240,18 +1240,18 @@ mod tests {
     #[test]
     fn selected_patterns_refine_fresh_parameter_reads_only() {
         let source = "#struct State () ((pc #u64))
-#fn work ((view (#ref-mut State))) #u64
+#fn work { #params = ((view (#ref-mut State))); #returns = #u64; #body = (
               (#return (#match (#get view pc)
                 (#case 1 (#match (#get view pc) (#case 0 0u64) (#case _ 42u64)))
-                (#case _ 0u64)))\n";
+                (#case _ 0u64))) ); }\n";
         assert_eq!(pruned(source), vec![0]);
         let mutated = "#struct State () ((pc #u64))
-#fn work ((view (#ref-mut State))) #u64
+#fn work { #params = ((view (#ref-mut State))); #returns = #u64; #body = (
               (#return (#match (#get view pc)
                 (#case 1 (#when (#block
                   (#deref-set view (#struct-literal State ((pc 0u64)))) true))
                   (#match (#get view pc) (#case 0 42u64) (#case 1 0u64) (#case _ 0u64)))
-                (#case _ 0u64)))\n";
+                (#case _ 0u64))) ); }\n";
         assert_eq!(
             pruned(mutated),
             vec![1],
@@ -1262,37 +1262,37 @@ mod tests {
     #[test]
     fn a_selected_alias_does_not_refine_every_possible_referent() {
         let source = "#struct State () ((pc #u64))
-#fn work ((condition #bool)) #u64
+#fn work { #params = ((condition #bool)); #returns = #u64; #body = (
               (#let left State (#struct-literal State ((pc 0u64))))
               (#let right State (#struct-literal State ((pc 1u64))))
               (#let view (#ref State) (#if condition (#borrow left) (#borrow right)))
               (#return (#match (#get view pc)
                 (#case 1 (#match (#get left pc) (#case 0 42u64) (#case 1 0u64) (#case _ 0u64)))
-                (#case _ 0u64)))\n";
+                (#case _ 0u64))) ); }\n";
         assert_eq!(pruned(source), vec![1]);
     }
 
     #[test]
     fn loop_widening_activates_later_pattern_edges_before_pruning() {
-        let source = "#fn work ((condition #bool)) #u64
+        let source = "#fn work { #params = ((condition #bool)); #returns = #u64; #body = (
             (#let-mut selector #u64 0u64)
             (#while condition (#match selector
               (#case 0 (#block (#set selector 1u64) ()))
               (#case 1 (#block (#set selector 2u64) ()))
               (#case _ ())))
             (#return (#match selector (#case 0 40u64) (#case 1 41u64)
-              (#case 2 42u64) (#case 99 0u64) (#case _ 0u64)))\n";
+              (#case 2 42u64) (#case 99 0u64) (#case _ 0u64))) ); }\n";
         assert_eq!(pruned(source), vec![99]);
     }
 
     #[test]
     fn forward_owned_fields_and_loop_writes_join_every_reaching_value() {
         let source = "#struct State () ((pc #u64))
-#fn work ((condition #bool)) #u64
+#fn work { #params = ((condition #bool)); #returns = #u64; #body = (
               (#let-mut state State (#struct-literal State ((pc 0u64))))
               (#while condition (#set state (#struct-literal State ((pc 1u64)))))
               (#return (#match (#get state pc)
-                (#case 0 40u64) (#case 1 42u64) (#case 2 41u64) (#case _ 0u64)))\n";
+                (#case 0 40u64) (#case 1 42u64) (#case 2 41u64) (#case _ 0u64))) ); }\n";
         assert_eq!(pruned(source), vec![2]);
         assert_eq!(
             pruned(&source.replace("((pc 1u64))", "((pc (#if condition 1u64 2u64)))")),
@@ -1302,27 +1302,27 @@ mod tests {
 
     #[test]
     fn guard_writes_do_not_change_the_captured_scrutinee() {
-        let source = "#fn work () #u64
+        let source = "#fn work { #params = (); #returns = #u64; #body = (
             (#let-mut selector #u64 1u64)
             (#return (#match selector
               (#case 1 (#when (#block (#set selector 0u64) false)) 0u64)
-              (#case 0 0u64) (#case _ 42u64)))\n";
+              (#case 0 0u64) (#case _ 42u64))) ); }\n";
         assert_eq!(pruned(source), vec![0]);
     }
 
     #[test]
     fn checked_call_postconditions_replace_facts_but_assembly_invalidates_them() {
         let prefix = "#struct State () ((pc #u64))
-#fn change ((target (#ref-mut State))) ()
-              (#deref-set target (#struct-literal State ((pc 0u64)))) (#return ())\n";
+#fn change { #params = ((target (#ref-mut State))); #returns = (); #body = (
+              (#deref-set target (#struct-literal State ((pc 0u64)))) (#return ()) ); }\n";
         for (write, expected) in [
             ("(#call change ((target (#borrow-mut state))))", vec![1]),
             ("(#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut state)))) \"mov QWORD PTR [rdi], 0\"))", vec![]),
         ] {
             let source = format!(
-                "{prefix}#fn work () #u64
+                "{prefix}#fn work {{ #params = (); #returns = #u64; #body = (
                 (#let-mut state State (#struct-literal State ((pc 1u64)))) {write}
-                (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64)))\n"
+                (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64))) ); }}\n"
             );
             assert_eq!(pruned(&source), expected, "{source}");
         }
@@ -1331,17 +1331,17 @@ mod tests {
     #[test]
     fn complete_scalar_mutation_footprints_preserve_only_disjoint_fields() {
         let prefix = "#struct State () ((pc #u64) (other #u64) (words (#array #u64 1)))
-#fn erase ((target (#ref-mut #u64))) () (#deref-set target 0u64) (#return ())
-#fn forward ((target (#ref-mut #u64))) ()
-              (#call erase ((target target))) (#return ())\n";
+#fn erase { #params = ((target (#ref-mut #u64))); #returns = (); #body = ( (#deref-set target 0u64) (#return ()) ); }
+#fn forward { #params = ((target (#ref-mut #u64))); #returns = (); #body = (
+              (#call erase ((target target))) (#return ()) ); }\n";
         let source = |effect: &str| {
             format!(
                 "{prefix}
-#fn work ((condition #bool)) #u64
+#fn work {{ #params = ((condition #bool)); #returns = #u64; #body = (
               (#let-mut state State (#struct-literal State
                 ((pc 1u64) (other 9u64) (words (#array-repeat 0u64)))))
               {effect}
-              (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64)))\n"
+              (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64))) ); }}\n"
             )
         };
         for effect in [
@@ -1374,20 +1374,20 @@ mod tests {
         ] {
             let source = format!(
                 "#struct State () ((pc #u64))
-#fn work () #u64
+#fn work {{ #params = (); #returns = #u64; #body = (
                   (#let-mut state State (#struct-literal State ((pc 0u64)))) {setup}
                   (#return (#match (#get view pc)
-                    (#case 0 0u64) (#case 1 42u64) (#case 2 2u64) (#case _ 3u64)))\n"
+                    (#case 0 0u64) (#case 1 42u64) (#case 2 2u64) (#case _ 3u64))) ); }}\n"
             );
             assert_eq!(pruned(&source), vec![0, 2], "{source}");
         }
         let ambiguous = "#struct State () ((pc #u64))
-#fn work ((condition #bool)) #u64
+#fn work { #params = ((condition #bool)); #returns = #u64; #body = (
               (#let-mut left State (#struct-literal State ((pc 0u64))))
               (#let-mut right State (#struct-literal State ((pc 0u64))))
               (#let view (#ref-mut State) (#if condition (#borrow-mut left) (#borrow-mut right)))
               (#deref-set view (#struct-literal State ((pc 1u64))))
-              (#return (#match (#get view pc) (#case 0 0u64) (#case 1 42u64) (#case _ 2u64)))\n";
+              (#return (#match (#get view pc) (#case 0 0u64) (#case 1 42u64) (#case _ 2u64))) ); }\n";
         assert!(
             pruned(ambiguous).is_empty(),
             "an abstract alias cannot strongly update both owners"
@@ -1399,9 +1399,9 @@ mod tests {
         for reference in ["#ref-mut", "#pin-ref-mut"] {
             let source = format!(
                 "#struct State () ((pc #u64))
-#fn work ((view ({reference} State))) #u64
+#fn work {{ #params = ((view ({reference} State))); #returns = #u64; #body = (
                   (#return (#match (#get view pc) (#case 0 0u64)
-                    (#case 1 42u64) (#case _ 2u64)))\n"
+                    (#case 1 42u64) (#case _ 2u64))) ); }}\n"
             );
             let program = crate::parse_program(&source).unwrap();
             let declarations =

@@ -531,8 +531,8 @@ mod tests {
         let imported = base.join("values.lim");
         assert!(!base.exists());
         let source =
-            "#alias value = ./values.lim::value\n#fn main () #u64 (#return (#call value ()))\n";
-        let overlays = HashMap::from([(imported, "#fn value () #u64 (#return 42u64)\n".into())]);
+            "#alias value = ./values.lim::value\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#call value ())) ); }\n";
+        let overlays = HashMap::from([(imported, "#fn value { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n".into())]);
         check_source_for_editor(source, &root, &crate::CompileConfig::default(), &overlays)
             .unwrap();
         assert!(
@@ -563,10 +563,10 @@ mod tests {
         let root = base.join("src/nested/main.lim");
         let overlays = HashMap::from([(
             base.join("modules/value.lim"),
-            "#fn value () #u64 (#return 42u64)\n".into(),
+            "#fn value { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n".into(),
         )]);
         let result = check_source_for_editor(
-            "#alias value = project::modules/value.lim::value\n#fn main () #u64 (#return (#call value ()))\n",
+            "#alias value = project::modules/value.lim::value\n#fn main { #params = (); #returns = #u64; #body = ( (#return (#call value ())) ); }\n",
             &root,
             &crate::CompileConfig::default(),
             &overlays,
@@ -581,7 +581,7 @@ mod tests {
         let base = std::env::temp_dir().join(format!("lim-editor-error-{}", std::process::id()));
         let root = base.join("main.lim");
         let imported = base.join("bad.lim");
-        let invalid = "#fn wrong () #u64 (#return true)\n";
+        let invalid = "#fn wrong { #params = (); #returns = #u64; #body = ( (#return true) ); }\n";
         let overlays = HashMap::from([(imported.clone(), invalid.into())]);
         let error = check_source_for_editor(
             "#alias wrong = ./bad.lim::wrong\n",

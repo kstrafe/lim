@@ -255,8 +255,8 @@ fn aggregate_call_abi<'a>(
 #[test]
 fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
     let program = crate::parse_program(
-        "#fn actual () #u64 (#return 42u64)
-#fn main () #u64 (#return (#call actual ()))\n",
+        "#fn actual { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }
+#fn main { #params = (); #returns = #u64; #body = ( (#return (#call actual ())) ); }\n",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
@@ -302,11 +302,11 @@ fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
 fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
     let program = crate::parse_program(
         "#struct Large () ((a #u64) (b #u64) (c #u64))
-#fn actual () Large
-             (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64))))
-#fn main () #u64
+#fn actual { #params = (); #returns = Large; #body = (
+             (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64)))) ); }
+#fn main { #params = (); #returns = #u64; #body = (
              (#let value Large (#call actual ()))
-             (#return (#get value c))\n",
+             (#return (#get value c)) ); }\n",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
@@ -1075,7 +1075,7 @@ fn monomorphize_program<'a>(
 #[cfg(test)]
 #[test]
 fn non_generic_program_does_not_copy_for_monomorphization() {
-    let program = crate::parse_program("#fn main () #u64 (#return 42u64)\n").unwrap();
+    let program = crate::parse_program("#fn main { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n").unwrap();
     let result = monomorphize_program(&program, &HashMap::new()).unwrap();
     assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
 }
@@ -5903,8 +5903,8 @@ fn validate_checked_call_result(
 #[test]
 fn checked_scalar_arguments_require_retained_types() {
     let program = crate::parse_program(
-        "#fn take ((value #u64)) #u64 (#return value)
-#fn main () #u64 (#return (#call take ((value 42u64))))\n",
+        "#fn take { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }
+#fn main { #params = (); #returns = #u64; #body = ( (#return (#call take ((value 42u64)))) ); }\n",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
@@ -5976,8 +5976,8 @@ fn checked_generated_patterns_allocate_by_identity_without_source_alpha_renaming
 #[cfg(test)]
 #[test]
 fn unsafe_wrapper_lowering_preserves_native_output() {
-    let plain = crate::parse_program("#fn main () #u64 (#return 1u64)\n").unwrap();
-    let wrapped = crate::parse_program("#fn main () #u64 (#return (#unsafe 1u64))\n").unwrap();
+    let plain = crate::parse_program("#fn main { #params = (); #returns = #u64; #body = ( (#return 1u64) ); }\n").unwrap();
+    let wrapped = crate::parse_program("#fn main { #params = (); #returns = #u64; #body = ( (#return (#unsafe 1u64)) ); }\n").unwrap();
     assert_eq!(
         generate_assembly(&plain).unwrap(),
         generate_assembly(&wrapped).unwrap()
@@ -6077,8 +6077,8 @@ fn checked_calls_require_retained_function_identity() {
     assert_eq!(checked_call_identity(None, true).unwrap(), None);
     assert_eq!(checked_call_identity(Some(&node), false).unwrap(), None);
     let program = crate::parse_program(
-        "#fn value () #u64 (#return 42u64)
-#fn main () #u64 (#return (#call value ()))\n",
+        "#fn value { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }
+#fn main { #params = (); #returns = #u64; #body = ( (#return (#call value ())) ); }\n",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();

@@ -109,10 +109,10 @@ mod tests {
     fn exclusive_reads_and_direct_calls_lend_without_moving_the_handle() {
         for ty in ["#ref-mut", "#pin-ref-mut"] {
             let (body, plan) = classify(&format!(
-                "#fn read ((view ({ty} #u64))) #u64 (#return (#deref view))
-#fn work ((view ({ty} #u64))) #u64
+                "#fn read {{ #params = ((view ({ty} #u64))); #returns = #u64; #body = ( (#return (#deref view)) ); }}
+#fn work {{ #params = ((view ({ty} #u64))); #returns = #u64; #body = (
                      (#let first #u64 (#deref view))
-                     (#return (#call read ((view view))))\n"
+                     (#return (#call read ((view view)))) ); }}\n"
             ));
             let accesses = named(&body, plan.as_ref().unwrap(), "view");
             assert_eq!(accesses.len(), 2);
@@ -132,8 +132,8 @@ mod tests {
             "(#return (#unsafe view))",
         ] {
             let (body, plan) = classify(&format!(
-                "#fn work ((choose #bool) (view (#ref-mut #u64)) (other (#ref-mut #u64)))
-                     (#ref-mut #u64) {tail}\n"
+                "#fn work {{ #params = ((choose #bool) (view (#ref-mut #u64)) (other (#ref-mut #u64))); #returns =
+                     (#ref-mut #u64); #body = ( {tail} ); }}\n"
             ));
             let accesses = named(&body, plan.as_ref().unwrap(), "view");
             assert_eq!(accesses.len(), 1);
@@ -141,8 +141,8 @@ mod tests {
         }
         let (body, plan) = classify(
             "#struct Holder () ((view (#ref-mut #u64)))
-#fn work ((view (#ref-mut #u64))) Holder
-                 (#return (#struct-literal Holder ((view view))))\n",
+#fn work { #params = ((view (#ref-mut #u64))); #returns = Holder; #body = (
+                 (#return (#struct-literal Holder ((view view)))) ); }\n",
         );
         assert!(matches!(
             named(&body, plan.as_ref().unwrap(), "view")[0],
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn copied_handles_do_not_need_exclusive_storage_classification() {
-        let (_, plan) = classify("#fn work ((view (#ref #u64))) (#ref #u64) (#return view)\n");
+        let (_, plan) = classify("#fn work { #params = ((view (#ref #u64))); #returns = (#ref #u64); #body = ( (#return view) ); }\n");
         assert!(plan.is_none());
     }
 }

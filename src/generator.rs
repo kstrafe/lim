@@ -173,7 +173,7 @@ fn declared_lim_function_signatures(
 #[cfg(test)]
 #[test]
 fn capability_signature_scan_does_not_parse_function_bodies() {
-    let source = "#fn answer ((value #u64)) #u64 (#not-a-builtin value)\n";
+    let source = "#fn answer { #params = ((value #u64)); #returns = #u64; #body = ( (#not-a-builtin value) ); }\n";
     let signatures = declared_lim_function_signatures(&crate::parse_source_unit(source).unwrap()).unwrap();
     assert_eq!(signatures["answer"], "[U64]->U64");
     // Skipping bodies here must not skip ordinary compilation validation.
@@ -2679,7 +2679,7 @@ mod tests {
     fn segmented_hash_preserves_generated_source_digest_format() {
         for (key, source) in [
             ("", ""),
-            ("key", "#fn main () #u64 (#return 42u64)\n"),
+            ("key", "#fn main { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n"),
             ("κλειδί\0key", "λ\0source"),
         ] {
             let mut joined = key.as_bytes().to_vec();
@@ -2770,12 +2770,12 @@ mod tests {
     fn generated_source_formatting_preserves_syntax_and_cache_hits() {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-format-{}", std::process::id()));
-        let raw = "\n#fn start ((value #u64)) #u64\n  (#return value)\n#fn other () (#array #char 3) (#return \"()\\n\")\n";
+        let raw = "\n#fn start { #params = ((value #u64)); #returns = #u64; #body = (\n  (#return value) ); }\n#fn other { #params = (); #returns = (#array #char 3); #body = ( (#return \"()\\n\") ); }\n";
         let formatted =
             cached_generated_source(&directory, "formatting", || Ok(raw.into())).unwrap();
         assert_eq!(
             formatted,
-            "#fn start ((value #u64)) #u64\n  (#return value)\n\n#fn other () (#array #char 3)\n  (#return \"()\\n\")\n"
+            "#fn start {\n  #params = { value = #u64; };\n  #returns = #u64;\n  #body:\n    (#return value);\n}\n\n#fn other {\n  #params = {};\n  #returns = (#array #char 3);\n  #body:\n    (#return \"()\\n\");\n}\n"
         );
         let syntax = |source: &str| {
             crate::parse_source_unit(source)
@@ -3496,7 +3496,7 @@ mod tests {
         ));
         let source = |operation: &str| {
             format!(
-                "#fn less ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)\n#fn less-v2 ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)\n#capability sortable #u64 (({operation} ((#ref #u64) (#ref #u64)) #bool))\n#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))\n#generate emit #u64\n"
+                "#fn less {{ #params = ((a (#ref #u64)) (b (#ref #u64))); #returns = #bool; #body = ( (#return true) ); }}\n#fn less-v2 {{ #params = ((a (#ref #u64)) (b (#ref #u64))); #returns = #bool; #body = ( (#return true) ); }}\n#capability sortable #u64 (({operation} ((#ref #u64) (#ref #u64)) #bool))\n#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))\n#generate emit #u64\n"
             )
         };
         let expand = |text: &str| {

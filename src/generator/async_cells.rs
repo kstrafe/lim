@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn no_reference_cells_need_no_plan() {
-        let (graph, types, lending) = prepare("#fn work ((value #u64)) #u64 (#return value)\n");
+        let (graph, types, lending) = prepare("#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n");
         assert!(Plan::new(&graph, &types, None, lending.as_ref()).is_none());
     }
 
@@ -494,15 +494,15 @@ mod tests {
     fn owned_moves_empty_bindings_but_lending_and_copying_do_not() {
         for (source, empty) in [
             (
-                "#fn work ((view (#ref-mut #u64))) (#ref-mut #u64) (#return view)\n",
+                "#fn work { #params = ((view (#ref-mut #u64))); #returns = (#ref-mut #u64); #body = ( (#return view) ); }\n",
                 true,
             ),
             (
-                "#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view))\n",
+                "#fn work { #params = ((view (#ref-mut #u64))); #returns = #u64; #body = ( (#return (#deref view)) ); }\n",
                 false,
             ),
             (
-                "#fn work ((view (#ref #u64))) (#ref #u64) (#return (#clone view))\n",
+                "#fn work { #params = ((view (#ref #u64))); #returns = (#ref #u64); #body = ( (#return (#clone view)) ); }\n",
                 false,
             ),
         ] {
@@ -522,8 +522,8 @@ mod tests {
     #[test]
     fn conditional_release_is_not_proof_of_empty_storage() {
         let (graph, types, lending) = prepare(
-            "#fn work ((view (#ref-mut #u64)) (release #bool)) ()
-                (#if release (#drop view) ()) (#return ())\n",
+            "#fn work { #params = ((view (#ref-mut #u64)) (release #bool)); #returns = (); #body = (
+                (#if release (#drop view) ()) (#return ()) ); }\n",
         );
         let plan = Plan::new(&graph, &types, None, lending.as_ref()).unwrap();
         for cells in plan.exit_empty.values() {
@@ -535,8 +535,8 @@ mod tests {
     fn primitive_field_writes_preserve_a_live_reference_holder() {
         let (graph, types, lending) = prepare(
             "#struct Holder () ((view (#ref #u64)) (count #u64))
-#fn work ((owner Holder)) ()
-                  (#let-mut holder Holder owner) (#set-field holder count 1u64) (#return ())\n",
+#fn work { #params = ((owner Holder)); #returns = (); #body = (
+                  (#let-mut holder Holder owner) (#set-field holder count 1u64) (#return ()) ); }\n",
         );
         let solver = Solver {
             graph: &graph,
@@ -565,8 +565,8 @@ mod tests {
         let context = crate::parse_program(
             "#type View (#ref-mut #u64)
 #enum ChildPoll () ((ChildPoll.Pending View) (ChildPoll.Ready #u64))
-#fn step-poll ((task View) (waker (#ref #u64))) ChildPoll
-                  (#return (ChildPoll.Pending task))\n",
+#fn step-poll { #params = ((task View) (waker (#ref #u64))); #returns = ChildPoll; #body = (
+                  (#return (ChildPoll.Pending task)) ); }\n",
         )
         .unwrap();
         for (body, dead) in [
@@ -593,7 +593,7 @@ mod tests {
             ),
         ] {
             let source = crate::parse_source_unit(&format!(
-                "#fn work ((view View) (selected #bool)) #u64 {body}\n"
+                "#fn work {{ #params = ((view View) (selected #bool)); #returns = #u64; #body = ( {body} ); }}\n"
             ))
             .unwrap()
             .remove(0);
@@ -657,8 +657,8 @@ mod tests {
         let context = crate::parse_program(
             "#enum Child (#linear) ((Child.Waiting (#ref-mut #u64)))
 #enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
-#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
-                  (#return (#match task (#case (Child.Waiting view) (ChildPoll.Pending (Child.Waiting view)))))\n",
+#fn step-poll { #params = ((task Child) (waker (#ref #u64))); #returns = ChildPoll; #body = (
+                  (#return (#match task (#case (Child.Waiting view) (ChildPoll.Pending (Child.Waiting view))))) ); }\n",
         )
         .unwrap();
         let source = crate::parse(

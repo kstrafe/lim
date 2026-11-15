@@ -320,10 +320,10 @@ mod tests {
     #[test]
     fn punctuation_is_part_of_binding_identity_not_a_projection() {
         let source = "#struct A () ((b #u64))
-#fn main () #u64
+#fn main { #params = (); #returns = #u64; #body = (
               (#let a A (#struct-literal A ((b 4u64))))
               (#let a-b #u64 8u64)
-              (#return (#u64::add-wrap a-b (#get a b)))\n";
+              (#return (#u64::add-wrap a-b (#get a b))) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -376,10 +376,10 @@ mod tests {
     fn same_spelled_fields_on_different_owners_keep_distinct_ids() {
         let source = "#struct A () ((value #u64))
 #struct B () ((value #u64))
-#fn main () #u64
+#fn main { #params = (); #returns = #u64; #body = (
               (#let a A (#struct-literal A ((value 1u64))))
               (#let b B (#struct-literal B ((value 2u64))))
-              (#return (#u64::add-wrap (#get a value) (#get b value)))\n";
+              (#return (#u64::add-wrap (#get a value) (#get b value))) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];

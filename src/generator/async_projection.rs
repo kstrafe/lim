@@ -263,8 +263,8 @@ mod tests {
 #type Scalar {scalar}
 #struct Outer () ((pair (#tuple Scalar Scalar)))
 #type View ({handle} Outer)
-#fn project ((input View)) ({handle} Scalar)
-              (#return (#{}borrow{} (#get (#get input pair) 1)))\n",
+#fn project {{ #params = ((input View)); #returns = ({handle} Scalar); #body = (
+              (#return (#{}borrow{} (#get (#get input pair) 1))) ); }}\n",
             if handle.starts_with("#pin") {
                 "pin-"
             } else {

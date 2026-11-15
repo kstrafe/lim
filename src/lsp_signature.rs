@@ -375,7 +375,7 @@ mod tests {
             source.to_owned()
         } else {
             format!(
-                "#fn probe () #u64\n{}",
+                "#fn probe {{ #params = (); #returns = #u64; #body = (\n{}",
                 source.lines()
                     .map(|line| format!("  {line}"))
                     .collect::<Vec<_>>()
@@ -427,7 +427,7 @@ mod tests {
     fn refinement_type_predicates_keep_runtime_call_roles() {
         for source in [
             "#type Refined (#where (value #u64) (#call valid ((input value|))))\n",
-            "#fn work ((value (#where (item #u64) (valid ((input item|)))))) #u64 (#return value)\n",
+            "#fn work { #params = ((value (#where (item #u64) (valid ((input item|)))))); #returns = #u64; #body = ( (#return value) ); }\n",
             "#struct Refined () ((field (#where (item #u64) (valid ((input item|))))))\n",
         ] {
             assert_eq!(locate(source), ("valid".into(), Some("input".into())), "{source}");
@@ -507,11 +507,11 @@ mod tests {
             "(#call choose|",
             "(#call choose (|",
             "(#call choose ((right|",
-            "#fn main () #u64 (#return (#call choose ((right 2|",
+            "#fn main { #params = (); #returns = #u64; #body = ( (#return (#call choose ((right 2|",
             "choose { right = |",
             "choose { right|",
             "choose { right = 2|",
-            "#fn main () #u64 (#return : choose : : right |",
+            "#fn main { #params = (); #returns = #u64; #body = ( (#return : choose : : right |",
         ] {
             let (callee, _) = locate(source);
             assert_eq!(callee, "choose", "{source}");

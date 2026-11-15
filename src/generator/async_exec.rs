@@ -2967,13 +2967,13 @@ mod tests {
     const CONTEXT: &str = "
 #enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
-#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn step-poll { #params = ((task Child) (waker (#ref #u64))); #returns = ChildPoll; #body = (
           (#return (#match task
             (#case (Child.Waiting count) (#if (#u64::eq count 0u64)
-              (ChildPoll.Ready 42u64) (ChildPoll.Pending (Child.Waiting (#u64::sub-wrap count 1u64)))))))
-#fn first () #u64 (#return 11u64)
-#fn combine ((first #u64) (second #u64)) #u64
-          (#return (#u64::add-wrap first second))\n";
+              (ChildPoll.Ready 42u64) (ChildPoll.Pending (Child.Waiting (#u64::sub-wrap count 1u64))))))) ); }
+#fn first { #params = (); #returns = #u64; #body = ( (#return 11u64) ); }
+#fn combine { #params = ((first #u64) (second #u64)); #returns = #u64; #body = (
+          (#return (#u64::add-wrap first second)) ); }\n";
 
     fn prepare(source: &str) -> (Lowered, Declarations) {
         prepare_with_context("", source)
@@ -3002,10 +3002,10 @@ mod tests {
     fn let_else_commits_the_failure_pattern_from_the_same_scrutinee() {
         let (lowered, declarations) = prepare_with_context(
             "#enum Choice () ((Choice.Some #u64) (Choice.Error #u64))\n",
-            "#fn work ((choice Choice)) #u64
+            "#fn work { #params = ((choice Choice)); #returns = #u64; #body = (
                 (#let-else (Choice.Some amount) Choice choice
                   (#else (Choice.Error error) (#return error)))
-                (#return (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting amount)))\n",
+                (#return (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting amount))) ); }\n",
         );
         let body = &declarations.bodies[&lowered.body_name];
         let sites = mapped(&lowered, &declarations);
@@ -3036,13 +3036,13 @@ mod tests {
     fn local_pin_primitives_lower_to_checked_address_borrows() {
         let (lowered, declarations) = prepare_with_context(
             "",
-            "#fn work ((seed #u64)) #u64
+            "#fn work { #params = ((seed #u64)); #returns = #u64; #body = (
                 (#let-mut local #u64 seed)
                 (#let shared (#pin-ref #u64) (#pin-shared local))
                 (#let first #u64 (#deref shared)) (#forget shared)
                 (#let exclusive (#pin-ref-mut #u64) (#pin local))
                 (#let answer #u64 (#deref exclusive)) (#forget exclusive)
-                (#return (#u64::add-wrap first answer))\n",
+                (#return (#u64::add-wrap first answer)) ); }\n",
         );
         let graph = build(&declarations.bodies[&lowered.body_name], &[]).unwrap();
         let borrows = graph
@@ -3071,12 +3071,12 @@ mod tests {
     fn ordinary_borrows_inherit_checked_pinning_and_scoped_context() {
         let (lowered, declarations) = prepare_with_context(
             "#struct Pair () ((left #u64) (right #u64))\n",
-            "#fn work ((owner (#pin-ref-mut Pair))) #u64
+            "#fn work { #params = ((owner (#pin-ref-mut Pair))); #returns = #u64; #body = (
                 (#let view (#pin-ref #u64) (#borrow (#get owner left)))
                 (#drop view)
                 (#let result #u64 (#borrow (#get owner right)
                   (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 0u64))))
-                (#return result)\n",
+                (#return result) ); }\n",
         );
         let body = &declarations.bodies[&lowered.body_name];
         let sites = mapped(&lowered, &declarations);
@@ -3101,12 +3101,12 @@ mod tests {
     fn mutable_destructure_and_immutable_match_bindings_remain_distinct() {
         let (lowered, declarations) = prepare_with_context(
             "#struct Pair () ((left #u64) (right #u64))\n#enum Choice () ((Choice.Some #u64) Choice.None)\n",
-            "#fn work ((pair Pair) (choice Choice)) #u64
+            "#fn work { #params = ((pair Pair) (choice Choice)); #returns = #u64; #body = (
                 (#let-mut (Pair left right) Pair pair)
                 (#set left (#call first ()))
                 (#return (#match choice
                   (#case (Choice.Some payload) (#u64::add-wrap payload left))
-                  (#case Choice.None right)))\n",
+                  (#case Choice.None right))) ); }\n",
         );
         let graph = build(&declarations.bodies[&lowered.body_name], &[]).unwrap();
         let commits = graph
@@ -3132,11 +3132,11 @@ mod tests {
     #[test]
     fn place_checks_precede_rhs_await_and_nested_indices_do_not_replay_prefix_checks() {
         let (lowered, declarations) = prepare(
-            "#fn work () #u64
+            "#fn work { #params = (); #returns = #u64; #body = (
             (#let-mut array (#array #u64 2) (#array-of (#array #u64 2) 1u64 2u64))
             (#set-index array (#call first ())
               (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 0u64)))
-            (#forget array) (#return 0u64)\n",
+            (#forget array) (#return 0u64) ); }\n",
         );
         let sites = mapped(&lowered, &declarations);
         let graph = build(&declarations.bodies[&lowered.body_name], &sites).unwrap();
@@ -3172,9 +3172,9 @@ mod tests {
         );
 
         let (lowered, declarations) = prepare(
-            "#fn work ((array (#array (#array #u64 2) 2))) #u64
+            "#fn work { #params = ((array (#array (#array #u64 2) 2))); #returns = #u64; #body = (
             (#let value #u64 (#index (#index array 0u64) 1u64))
-            (#forget array) (#return value)\n",
+            (#forget array) (#return value) ); }\n",
         );
         let graph = build(&declarations.bodies[&lowered.body_name], &[]).unwrap();
         let checks = graph
@@ -3196,9 +3196,9 @@ mod tests {
     fn payload_checks_are_explicit_and_missing_or_reordered_operands_are_rejected() {
         let (lowered, declarations) = prepare_with_context(
             "#enum Choice () ((Choice.Some #u64) Choice.None)\n",
-            "#fn work ((choice (#ref Choice))) #u64
+            "#fn work { #params = ((choice (#ref Choice))); #returns = #u64; #body = (
                 (#return (#call combine ((first (#get-payload choice Choice.Some 0))
-                  (second (#call first ())))))\n",
+                  (second (#call first ()))))) ); }\n",
         );
         let body = &declarations.bodies[&lowered.body_name];
         let graph = build(body, &[]).unwrap();
@@ -3237,11 +3237,11 @@ mod tests {
     #[test]
     fn checked_empty_unit_values_lower_through_if_and_block_joins() {
         for source in [
-            "#fn work ((choose #bool)) ()
-                (#return (#if choose () (#block (#call first ()) ())))\n",
-            "#fn work ((choose #bool)) ()
+            "#fn work { #params = ((choose #bool)); #returns = (); #body = (
+                (#return (#if choose () (#block (#call first ()) ()))) ); }\n",
+            "#fn work { #params = ((choose #bool)); #returns = (); #body = (
                 (#let unit () ())
-                (#return (#block (#if choose (#block ()) ()) unit))\n",
+                (#return (#block (#if choose (#block ()) ()) unit)) ); }\n",
         ] {
             let (lowered, declarations) = prepare(source);
             let body = &declarations.bodies[&lowered.body_name];
@@ -3272,10 +3272,10 @@ mod tests {
     #[test]
     fn named_operands_and_selected_joins_survive_await_without_reconstruction() {
         let (lowered, declarations) = prepare(
-            "#fn work ((choose #bool) (seed #u64)) #u64
+            "#fn work { #params = ((choose #bool) (seed #u64)); #returns = #u64; #body = (
             (#return (#call combine
               ((second (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting seed)))
-               (first (#if choose (#call first ()) 3u64)))))\n",
+               (first (#if choose (#call first ()) 3u64))))) ); }\n",
         );
         let body = &declarations.bodies[&lowered.body_name];
         let sites = mapped(&lowered, &declarations);
@@ -3338,9 +3338,9 @@ mod tests {
     #[test]
     fn unsafe_context_and_collapsed_spans_do_not_change_execution_order() {
         let (lowered, mut declarations) = prepare(
-            "#fn work ((seed #u64)) #u64
+            "#fn work { #params = ((seed #u64)); #returns = #u64; #body = (
             (#return (#unsafe (#u64::add-wrap (#call first ())
-              (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting seed)))))\n",
+              (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting seed))))) ); }\n",
         );
         let sites = mapped(&lowered, &declarations);
         let graph = build(&declarations.bodies[&lowered.body_name], &sites).unwrap();
@@ -3391,8 +3391,8 @@ mod tests {
     #[test]
     fn validation_rejects_unavailable_operands_wrong_join_arity_and_non_bool_branches() {
         let (lowered, declarations) = prepare(
-            "#fn work ((choose #bool)) #u64
-            (#return (#if choose (#call first ()) 3u64))\n",
+            "#fn work { #params = ((choose #bool)); #returns = #u64; #body = (
+            (#return (#if choose (#call first ()) 3u64)) ); }\n",
         );
         let body = &declarations.bodies[&lowered.body_name];
         let graph = build(body, &[]).unwrap();

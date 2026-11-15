@@ -167,7 +167,7 @@ mod tests {
 
     fn fixture(body: &str) -> Program {
         let mut runtime = crate::parse_program(&format!(
-            "#fn main () #u64 (#return 42u64)\n#fn witness () #u64 {body}\n"
+            "#fn main {{ #params = (); #returns = #u64; #body = ( (#return 42u64) ); }}\n#fn witness {{ #params = (); #returns = #u64; #body = ( {body} ); }}\n"
         ))
         .unwrap();
         let witness = runtime.items.pop().unwrap();
@@ -223,9 +223,9 @@ mod tests {
 
     #[test]
     fn witness_source_ids_are_rebased_without_replacing_runtime_sources() {
-        let mut runtime = crate::parse_program("#fn main () #u64 (#return 42u64)\n").unwrap();
+        let mut runtime = crate::parse_program("#fn main { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n").unwrap();
         let invocation = runtime.declaration_spans["main"];
-        let mut witness = crate::parse_program("#fn witness () #u64 (#return #true)\n").unwrap();
+        let mut witness = crate::parse_program("#fn witness { #params = (); #returns = #u64; #body = ( (#return #true) ); }\n").unwrap();
         move_source_ids(&mut witness, &[1]);
         witness
             .source_files
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn runtime_diagnostics_keep_sources_added_after_witness_creation() {
         let mut runtime = fixture("(#return 1u64)");
-        let extra_source = "#fn extra () #bool (#return 42u64)\n";
+        let extra_source = "#fn extra { #params = (); #returns = #bool; #body = ( (#return 42u64) ); }\n";
         let mut extra = crate::parse_program(extra_source).unwrap();
         move_source_ids(&mut extra, &[1]);
         runtime.items.extend(extra.items);

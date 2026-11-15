@@ -596,7 +596,7 @@ mod tests {
 
     #[test]
     fn unproved_word_entry_obligations_survive_summary_serialization() {
-        let d = declarations("#fn identity ((value (#ref #u64))) (#ref #u64) (#return value)\n");
+        let d = declarations("#fn identity { #params = ((value (#ref #u64))); #returns = (#ref #u64); #body = ( (#return value) ); }\n");
         let mut facts = d.flows["identity"].parameter_summary(&d.bodies["identity"], false);
         // A cache hit must retain the distinction between a possible loan
         // lifetime and a definitely initialized concealed word-cell value.
@@ -648,25 +648,25 @@ mod tests {
         let mut d = declarations(
             "#struct Holder () ((value (#ref #u64)))
 #enum Choice () ((Choice.Found Holder) Choice.Missing)
-#fn choose ((owner (#ref #u64)) (flag #bool)) Choice
-              (#return (#if flag (Choice.Found (#struct-literal Holder ((value owner)))) Choice.Missing))
-#fn set ((slot (#ref-mut (#ref #u64))) (value (#ref #u64))) ()
-              (#deref-set slot value) (#return ())
-#fn project ((slot (#ref-mut (#ref-mut #u64)))) (#ref-mut #u64)
-              (#return (#borrow-mut (#deref (#deref slot))))
+#fn choose { #params = ((owner (#ref #u64)) (flag #bool)); #returns = Choice; #body = (
+              (#return (#if flag (Choice.Found (#struct-literal Holder ((value owner)))) Choice.Missing)) ); }
+#fn set { #params = ((slot (#ref-mut (#ref #u64))) (value (#ref #u64))); #returns = (); #body = (
+              (#deref-set slot value) (#return ()) ); }
+#fn project { #params = ((slot (#ref-mut (#ref-mut #u64)))); #returns = (#ref-mut #u64); #body = (
+              (#return (#borrow-mut (#deref (#deref slot)))) ); }
 #struct Counter () ((pc #u64))
-#fn make () Counter (#return (#struct-literal Counter ((pc 0u64))))
-#fn bounded ((flag #bool)) Counter
+#fn make { #params = (); #returns = Counter; #body = ( (#return (#struct-literal Counter ((pc 0u64)))) ); }
+#fn bounded { #params = ((flag #bool)); #returns = Counter; #body = (
               (#if flag
                 (#block (#return (#struct-literal Counter ((pc 0u64)))) (#unreachable))
                 (#block (#return (#struct-literal Counter ((pc 1u64)))) (#unreachable)))
-              (#return (#unreachable))
-#fn unknown ((flag #bool) (pc #u64)) Counter
+              (#return (#unreachable)) ); }
+#fn unknown { #params = ((flag #bool) (pc #u64)); #returns = Counter; #body = (
               (#if flag
                 (#block (#return (#struct-literal Counter ((pc 0u64)))) (#unreachable))
                 (#block (#return (#struct-literal Counter ((pc pc)))) (#unreachable)))
-              (#return (#unreachable))
-#fn main () #u64 (#return 42u64)\n",
+              (#return (#unreachable)) ); }
+#fn main { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n",
         );
         for name in [
             "choose", "set", "project", "make", "bounded", "unknown", "main",
@@ -707,7 +707,7 @@ mod tests {
         let source = "#static shared #u64 0u64
 #struct Holder () ((value (#ref #u64)))
 #enum Choice () ((Choice.Found Holder) Choice.Missing)
-#fn main () #u64 (#return 0u64)\n";
+#fn main { #params = (); #returns = #u64; #body = ( (#return 0u64) ); }\n";
         let before = declarations(source);
         let after = declarations(&format!(
             "#static aAA #u64 1u64
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn invalid_record_tags_and_unbounded_lengths_are_rejected() {
-        let d = declarations("#fn main () #u64 (#return 0u64)\n");
+        let d = declarations("#fn main { #params = (); #returns = #u64; #body = ( (#return 0u64) ); }\n");
         assert!(bool::read(&mut Reader(&[2]), &d).is_none());
         assert!(Segment::read(&mut Reader(&[255]), &d).is_none());
         assert!(Vec::<Segment>::read(&mut Reader(&u64::MAX.to_le_bytes()), &d).is_none());
@@ -796,7 +796,7 @@ mod tests {
 
     #[test]
     fn context_is_cfg_order_independent_but_tracks_all_dependencies_and_witnesses() {
-        let mut program = crate::parse_program("#fn main () #u64 (#return 0u64)\n").unwrap();
+        let mut program = crate::parse_program("#fn main { #params = (); #returns = #u64; #body = ( (#return 0u64) ); }\n").unwrap();
         let mut a = CompileConfig::default();
         a.set("a", "1");
         a.set("b", "2");
@@ -831,7 +831,7 @@ mod tests {
         assert_ne!(before_authority, context_key(&program, &a, "target"));
         let before_witness = context_key(&program, &a, "target");
         program.generator_validation = Some(Ok(std::sync::Arc::new(
-            crate::parse_program("#fn witness () #u64 (#return 1u64)\n").unwrap(),
+            crate::parse_program("#fn witness { #params = (); #returns = #u64; #body = ( (#return 1u64) ); }\n").unwrap(),
         )));
         assert_ne!(before_witness, context_key(&program, &a, "target"));
     }

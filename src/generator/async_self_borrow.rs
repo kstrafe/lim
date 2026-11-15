@@ -523,11 +523,11 @@ mod tests {
     #[test]
     fn slice_child_dependencies_include_the_lender_and_backing_array() {
         let program = crate::parse_program(
-            "#fn work () ()
+            "#fn work { #params = (); #returns = (); #body = (
                 (#let-mut backing (#array #u64 1) (#array-of (#array #u64 1) 41u64))
                 (#let lender (#slice-mut #u64) (#slice-mut-of (#borrow-mut backing)))
                 (#let child (#slice-mut #u64) (#slice-mut-range lender 0usize 1usize))
-                (#forget child) (#forget lender) (#forget backing) (#return ())\n",
+                (#forget child) (#forget lender) (#forget backing) (#return ()) ); }\n",
         )
         .unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
@@ -574,9 +574,9 @@ mod tests {
     #[test]
     fn shared_snapshot_union_matches_all_point_specific_origins() {
         for source in [
-            "#fn work () #u64 (#return 42u64)\n",
+            "#fn work { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n",
             "#struct Holder () ((view (#ref #u64)))
-#fn work ((choose #bool) (external (#ref #u64))) #u64
+#fn work { #params = ((choose #bool) (external (#ref #u64))); #returns = #u64; #body = (
                  (#let left #u64 40u64) (#let right #u64 42u64)
                  (#let view (#ref #u64) (#if choose (#borrow left) external))
                  (#for-range (iteration #u64) 0u64 3u64
@@ -584,13 +584,13 @@ mod tests {
                    (#assert (#u64::ge (#deref loop-view) 0u64))
                    (#forget loop-view))
                  (#let holder Holder (#struct-literal Holder ((view view))))
-                 (#return (#deref (#get holder view)))\n",
-            "#fn work ((choose #bool)) #u64
+                 (#return (#deref (#get holder view))) ); }\n",
+            "#fn work { #params = ((choose #bool)); #returns = #u64; #body = (
                  (#let-mut left #u64 40u64) (#let-mut right #u64 42u64)
                  (#let-mut view (#ref-mut #u64) (#if choose (#borrow-mut left) (#borrow-mut right)))
                  (#deref-set view 41u64)
                  (#forget view)
-                 (#return (#if choose left right))\n",
+                 (#return (#if choose left right)) ); }\n",
         ] {
             let program = crate::parse_program(source).unwrap();
             let declarations =
@@ -611,7 +611,7 @@ mod tests {
     #[ignore = "manual representation-planning microbenchmark"]
     fn benchmark_shared_binding_snapshot_union() {
         use std::{hint::black_box, time::Instant};
-        let mut source = String::from("#fn work () #u64");
+        let mut source = String::from("#fn work { #params = (); #returns = #u64; #body = (");
         for index in 0..32 {
             source.push_str(&format!(
                 " (#let owner-{index} #u64 {index}u64) (#let view-{index} (#ref #u64) (#borrow owner-{index}))"
@@ -620,7 +620,7 @@ mod tests {
         for _ in 0..128 {
             source.push_str(" (#assert (#u64::ge (#deref view-0) 0u64))");
         }
-        source.push_str(" (#return (#deref view-31))");
+        source.push_str(" (#return (#deref view-31)) ); }");
         let program = crate::parse_program(&source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
         let body = &declarations.bodies["work"];
@@ -675,9 +675,9 @@ mod tests {
     #[test]
     fn slice_element_addresses_retain_the_original_parameter_holder() {
         let plan = plan(
-            "#fn work ((items (#slice-mut #u64)) (index #usize)) #u64
+            "#fn work { #params = ((items (#slice-mut #u64)) (index #usize)); #returns = #u64; #body = (
             (#let view (#ref-mut #u64) (#slice-mut-idx items index))
-            (#let answer #u64 (#deref view)) (#forget view) (#forget items) (#return answer)\n",
+            (#let answer #u64 (#deref view)) (#forget view) (#forget items) (#return answer) ); }\n",
         )
         .unwrap();
         assert!(
@@ -698,11 +698,11 @@ mod tests {
     #[test]
     fn only_internal_thin_references_lose_their_physical_lifetime() {
         let plan = plan(
-            "#fn work ((external (#ref #u64))) #u64
+            "#fn work { #params = ((external (#ref #u64))); #returns = #u64; #body = (
             (#let owner #u64 40u64)
             (#let view (#ref #u64) (#borrow owner))
             (#let outside (#ref #u64) external)
-            (#drop outside) (#drop view) (#forget owner) (#return 0u64)\n",
+            (#drop outside) (#drop view) (#forget owner) (#return 0u64) ); }\n",
         )
         .unwrap();
         assert_eq!(plan.bindings.len(), 1);
@@ -712,11 +712,11 @@ mod tests {
     #[test]
     fn selected_internal_handles_retain_all_checked_static_anchors() {
         let plan = plan(
-            "#fn work ((choose #bool)) #u64
+            "#fn work { #params = ((choose #bool)); #returns = #u64; #body = (
             (#let left #u64 40u64) (#let right #u64 50u64)
             (#let view (#ref #u64) (#if choose (#borrow left) (#borrow right)))
             (#let result #u64 (#deref view))
-            (#drop view) (#forget left) (#forget right) (#return result)\n",
+            (#drop view) (#forget left) (#forget right) (#return result) ); }\n",
         )
         .unwrap();
         assert!(plan.bindings.values().any(|places| places.len() == 2));
@@ -726,10 +726,10 @@ mod tests {
     #[test]
     fn mixed_internal_external_handles_retain_reference_parameters() {
         let plan = plan(
-            "#fn work ((external (#ref #u64)) (choose #bool)) #u64
+            "#fn work { #params = ((external (#ref #u64)) (choose #bool)); #returns = #u64; #body = (
             (#let owner #u64 40u64)
             (#let view (#ref #u64) (#if choose (#borrow owner) external))
-            (#drop view) (#forget owner) (#return 0u64)\n",
+            (#drop view) (#forget owner) (#return 0u64) ); }\n",
         )
         .unwrap();
         assert_eq!(plan.external_parameters.len(), 1);
@@ -745,10 +745,10 @@ mod tests {
     fn direct_static_alternatives_keep_global_identity_without_parameter_captures() {
         let plan = plan(
             "#static global #u64 42u64
-#fn work ((choose #bool)) #u64
+#fn work { #params = ((choose #bool)); #returns = #u64; #body = (
             (#let owner #u64 40u64)
             (#let view (#ref #u64) (#if choose (#borrow owner) (#unsafe (#borrow global))))
-            (#let answer #u64 (#deref view)) (#drop view) (#forget owner) (#return answer)\n",
+            (#let answer #u64 (#deref view)) (#drop view) (#forget owner) (#return answer) ); }\n",
         )
         .unwrap();
         assert!(plan.external_parameters.is_empty());
@@ -764,10 +764,10 @@ mod tests {
     fn aggregates_record_dependencies_for_in_place_cleanup() {
         let plan = plan(
             "#struct Held () ((view (#ref #u64)))
-#fn work () #u64
+#fn work { #params = (); #returns = #u64; #body = (
               (#let owner #u64 40u64)
               (#let held Held (#struct-literal Held ((view (#borrow owner)))))
-              (#forget held) (#forget owner) (#return 0u64)\n",
+              (#forget held) (#forget owner) (#return 0u64) ); }\n",
         )
         .unwrap();
         assert_eq!(plan.dependent_bindings.len(), 1);

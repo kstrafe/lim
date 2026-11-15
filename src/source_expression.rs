@@ -127,9 +127,9 @@ mod tests {
     #[test]
     fn normalized_declaration_inventories_share_but_program_clones_isolate_edits() {
         let source = "#enum Maybe () ((Maybe.Some #u64) Maybe.None)
-#fn extract ((value Maybe)) #u64
+#fn extract { #params = ((value Maybe)); #returns = #u64; #body = (
               (#let-else (Maybe.Some result) value (#else (#return 0u64)))
-              (#return result)\n";
+              (#return result) ); }\n";
         let original = crate::parse_program(source).unwrap();
         crate::check_types(&original).unwrap();
         let canonical = &original.declaration_expressions["extract"];

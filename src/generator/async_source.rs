@@ -1128,11 +1128,11 @@ mod tests {
     const CONTEXT: &str = "
 #enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
-#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn step-poll { #params = ((task Child) (waker (#ref #u64))); #returns = ChildPoll; #body = (
           (#return (#match task
             (#case (Child.Waiting count)
               (#if (#u64::eq count 0u64) (ChildPoll.Ready 42u64)
-                (ChildPoll.Pending (Child.Waiting (#u64::sub-wrap count 1u64)))))))\n";
+                (ChildPoll.Pending (Child.Waiting (#u64::sub-wrap count 1u64))))))) ); }\n";
 
     fn prepare(context: &str, source: &str) -> (Program, SpannedExpr, Lowered) {
         let text = format!("{context}\n{source}");
@@ -1170,10 +1170,10 @@ mod tests {
     fn original_body_maps_to_checked_call_with_explicit_types_and_spans() {
         let (base, original, lowered) = prepare(
             CONTEXT,
-            "#fn work ((seed #u64)) #u64
+            "#fn work { #params = ((seed #u64)); #returns = #u64; #body = (
                  (#let child Child (Child.Waiting seed))
                  (#let result #u64 (#await #u64 Child ChildPoll.Pending ChildPoll.Ready step-poll child))
-                 (#return result)\n",
+                 (#return result) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1201,14 +1201,14 @@ mod tests {
         let context = format!(
             "{CONTEXT}
 #enum BuilderPoll () ((BuilderPoll.BuilderPending Child) (BuilderPoll.BuilderReady Child))
-#fn build-poll ((task Child) (waker (#ref #u64))) BuilderPoll
-              (#return (BuilderPoll.BuilderReady task))\n"
+#fn build-poll {{ #params = ((task Child) (waker (#ref #u64))); #returns = BuilderPoll; #body = (
+              (#return (BuilderPoll.BuilderReady task)) ); }}\n"
         );
         let (base, _, lowered) = prepare(
             &context,
-            "#fn work () #u64
+            "#fn work { #params = (); #returns = #u64; #body = (
                  (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll
-                   (#await Child BuilderPoll.BuilderPending BuilderPoll.BuilderReady build-poll (Child.Waiting 1u64))))\n",
+                   (#await Child BuilderPoll.BuilderPending BuilderPoll.BuilderReady build-poll (Child.Waiting 1u64)))) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1226,13 +1226,13 @@ mod tests {
     fn normal_named_argument_order_is_preserved_across_awaits() {
         let context = format!(
             "{CONTEXT}
-#fn combine ((first #u64) (second #u64)) #u64 (#return (#u64::add-wrap first second))\n"
+#fn combine {{ #params = ((first #u64) (second #u64)); #returns = #u64; #body = ( (#return (#u64::add-wrap first second)) ); }}\n"
         );
         let (base, _, lowered) = prepare(
             &context,
-            "#fn work () #u64 (#return (#call combine
+            "#fn work { #params = (); #returns = #u64; #body = ( (#return (#call combine
                  ((second (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 2u64)))
-                  (first (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))))))\n",
+                  (first (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))))) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1253,9 +1253,9 @@ mod tests {
         let context = format!("{CONTEXT}#struct Token (#linear) ((value #u64))\n ");
         let (base, _, lowered) = prepare(
             &context,
-            "#fn work ((token Token)) #u64
+            "#fn work { #params = ((token Token)); #returns = #u64; #body = (
                  (#let result #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
-                 (#return result)\n",
+                 (#return result) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
@@ -1273,21 +1273,21 @@ mod tests {
         let context = "
 #enum Child (#linear) ((Child.Holding (#ref #u64)))
 #enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready (#ref #u64)))
-#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
-              (#return (#match task (#case (Child.Holding view) (ChildPoll.Ready view))))\n";
+#fn step-poll { #params = ((task Child) (waker (#ref #u64))); #returns = ChildPoll; #body = (
+              (#return (#match task (#case (Child.Holding view) (ChildPoll.Ready view)))) ); }\n";
         let (base, _, lowered) = prepare(
             context,
-            "#fn work ((view (#ref #u64))) (#ref #u64)
-                 (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Holding view)))\n",
+            "#fn work { #params = ((view (#ref #u64))); #returns = (#ref #u64); #body = (
+                 (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Holding view))) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         crate::CheckedProgram::validate(&program).unwrap();
 
         let (base, _, lowered) = prepare(
             context,
-            "#fn work () (#ref #u64)
+            "#fn work { #params = (); #returns = (#ref #u64); #body = (
                  (#let owner #u64 42u64)
-                 (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Holding (#borrow owner))))\n",
+                 (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Holding (#borrow owner)))) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
@@ -1307,7 +1307,7 @@ mod tests {
     fn arbitrary_original_transfers_remain_ordinary_control_flow() {
         let (base, _, lowered) = prepare(
             CONTEXT,
-            "#fn work ((choose #bool)) #u64
+            "#fn work { #params = ((choose #bool)); #returns = #u64; #body = (
                  (#let-mut total #u64 0u64)
                  (#label outer (#loop
                    (#match choose
@@ -1317,7 +1317,7 @@ mod tests {
                          (#if (#usize::eq index 1usize) (#block (#break-to outer) (#unreachable)) ()))
                        (#continue-to outer)))
                      (#case false (#block (#break-to outer) (#unreachable))))))
-                 (#return total)\n",
+                 (#return total) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1357,7 +1357,7 @@ mod tests {
                 "missing",
             ),
         ] {
-            let source = format!("{CONTEXT}\n#fn work () #u64 (#return {awaited})\n");
+            let source = format!("{CONTEXT}\n#fn work {{ #params = (); #returns = #u64; #body = ( (#return {awaited}) ); }}\n");
             let base = crate::parse_program(CONTEXT).unwrap();
             let original = crate::parse_source_unit(&source).unwrap().pop().unwrap();
             let error = lower(&original, Type::U64, &base).err().unwrap();
@@ -1369,9 +1369,9 @@ mod tests {
     fn source_binding_type_mismatch_uses_the_original_await_span() {
         let (base, _, lowered) = prepare(
             CONTEXT,
-            "#fn work () #u32
+            "#fn work { #params = (); #returns = #u32; #body = (
                  (#let wrong #u32 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
-                 (#return wrong)\n",
+                 (#return wrong) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
@@ -1390,9 +1390,9 @@ mod tests {
     fn driver_identity_disambiguates_collapsed_macro_source_spans() {
         let (base, mut original, _) = prepare(
             CONTEXT,
-            "#fn work () #u64
+            "#fn work { #params = (); #returns = #u64; #body = (
                  (#let first #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
-                 (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting first)))\n",
+                 (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting first))) ); }\n",
         );
         let shared = original.children[4].children[3].span;
         original.children[5].children[1].span = shared;
@@ -1442,9 +1442,9 @@ mod tests {
     fn original_type_error_cannot_be_omitted_by_an_async_rewrite() {
         let (mut base, original, _) = prepare(
             CONTEXT,
-            "#fn work () #u64
+            "#fn work { #params = (); #returns = #u64; #body = (
                 (#let wrong #u32 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
-                (#return 0u64)\n",
+                (#return 0u64) ); }\n",
         );
         // Supply a valid runtime context: source checking must still reject the
         // original body, even if a future frame rewrite omits its bad binding.
@@ -1484,7 +1484,7 @@ mod tests {
         ] {
             let (base, _, lowered) = prepare(
                 &context,
-                &format!("#fn work () #u64 (#return {expression})\n"),
+                &format!("#fn work {{ #params = (); #returns = #u64; #body = ( (#return {expression}) ); }}\n"),
             );
             assert!(crate::expression_source(&lowered.function.expr)
                 .unwrap()
@@ -1509,9 +1509,9 @@ mod tests {
     fn original_suspension_retains_evaluated_values_not_replayed_operands() {
         let (base, _, lowered) = prepare(
             CONTEXT,
-            "#fn work () #u64 (#return (#u64::add-wrap
+            "#fn work { #params = (); #returns = #u64; #body = ( (#return (#u64::add-wrap
                 (#u64::add-wrap 20u64 1u64)
-                (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))))\n",
+                (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let mut checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1538,19 +1538,19 @@ mod tests {
         let context = format!(
             "{CONTEXT}
 #struct Held (#linear) ((view (#ref #u64)))
-#fn make-held ((view (#ref #u64))) Held
-              (#return (#struct-literal Held ((view view))))
-#fn combine ((held Held) (value #u64)) #u64
+#fn make-held {{ #params = ((view (#ref #u64))); #returns = Held; #body = (
+              (#return (#struct-literal Held ((view view)))) ); }}
+#fn combine {{ #params = ((held Held) (value #u64)); #returns = #u64; #body = (
               (#let view (#ref #u64) (#get held view))
-              (#forget held) (#return (#u64::add-wrap (#deref view) value))\n"
+              (#forget held) (#return (#u64::add-wrap (#deref view) value)) ); }}\n"
         );
         let (base, _, lowered) = prepare(
             &context,
-            "#fn work () #u64
+            "#fn work { #params = (); #returns = #u64; #body = (
                 (#let owner #u64 40u64)
                 (#return (#call combine
                   ((held (#call make-held ((view (#borrow owner)))))
-                   (value (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64))))))\n",
+                   (value (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))))) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let mut checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1580,10 +1580,10 @@ mod tests {
     fn transferred_child_is_a_value_not_a_second_owned_local() {
         let (base, _, lowered) = prepare(
             CONTEXT,
-            "#fn work () #u64
+            "#fn work { #params = (); #returns = #u64; #body = (
                 (#let child Child (Child.Waiting 1u64))
                 (#let result #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll child))
-                (#return result)\n",
+                (#return result) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let mut checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1604,9 +1604,9 @@ mod tests {
     fn unreachable_await_cannot_manufacture_a_live_storage_snapshot() {
         let (base, _, lowered) = prepare(
             CONTEXT,
-            "#fn work () #u64 (#return 1u64)
+            "#fn work { #params = (); #returns = #u64; #body = ( (#return 1u64)
                 (#let result #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
-                (#return result)\n",
+                (#return result) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let mut checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -1701,9 +1701,9 @@ mod tests {
     fn polling_context_binding_is_not_a_frame_capture() {
         let (base, _, lowered) = prepare(
             CONTEXT,
-            "#fn work () #u64
+            "#fn work { #params = (); #returns = #u64; #body = (
                 (#let first #u64 (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting 1u64)))
-                (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting first)))\n",
+                (#return (#await Child ChildPoll.Pending ChildPoll.Ready step-poll (Child.Waiting first))) ); }\n",
         );
         let program = lowered.program(&base).unwrap();
         let mut checked = crate::CheckedProgram::validate(&program).unwrap();

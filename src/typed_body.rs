@@ -9,12 +9,12 @@ mod tests {
 
     #[test]
     fn emission_order_is_reconstructed_from_stable_nodes() {
-        let source = "#fn main () #u64
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
             (#let-mut total #u64 0u64)
             (#for (#let-mut i #u64 0u64) (#u64::lt i 3u64)
               (#set i (#u64::add-wrap i 1u64))
               (#set total (#u64::add-wrap total i)))
-            (#return (#if true total 0u64))\n";
+            (#return (#if true total 0u64)) ); }\n";
         let first = crate::parse_program(source).unwrap();
         let second = crate::parse_program(source).unwrap();
         let checked_first = crate::CheckedProgram::validate(&first).unwrap();
@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn emission_metadata_retains_resolved_field_declaration_ids() {
         let source = "#struct Pair () ((left #u64) (right #u64))
-#fn read ((pair Pair)) #u64 (#return (#get pair left))\n";
+#fn read { #params = ((pair Pair)); #returns = #u64; #body = ( (#return (#get pair left)) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn emission_metadata_retains_resolved_global_declaration_ids() {
         let source = "#const answer #u64 42u64
-#fn main () #u64 (#return answer)\n";
+#fn main { #params = (); #returns = #u64; #body = ( (#return answer) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn emission_metadata_retains_enum_variant_owner_and_identity() {
         let source = "#enum Maybe () ((Maybe.Some #u64) Maybe.None)
-#fn main () Maybe (#return Maybe.None)\n";
+#fn main { #params = (); #returns = Maybe; #body = ( (#return Maybe.None) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
@@ -142,11 +142,11 @@ mod tests {
     #[test]
     fn match_arms_use_the_checked_scrutinee_node_type() {
         let source = "#enum Choice () ((Choice.Value #u64) Choice.Empty)
-#fn main () #u64
+#fn main { #params = (); #returns = #u64; #body = (
               (#let choice Choice (Choice.Value 42u64))
               (#return (#match choice
                 (#case (Choice.Value payload) payload)
-                (#case Choice.Empty 0u64)))\n";
+                (#case Choice.Empty 0u64))) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -192,10 +192,10 @@ mod tests {
 
     #[test]
     fn borrowed_places_retain_binding_identity_and_checked_type() {
-        let source = "#fn main () #u64
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
             (#let u64-value #u64 42u64)
             (#let view (#ref #u64) (#borrow u64-value))
-            (#return (#deref view))\n";
+            (#return (#deref view)) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -222,10 +222,10 @@ mod tests {
     fn typed_bindings_retain_the_source_identifier_span() {
         let source = "#struct Resource (#linear) ((value #u64))
 
-#fn main () #u64
+#fn main { #params = (); #returns = #u64; #body = (
               (#let resource Resource (#struct-literal Resource ((value 1u64))))
               (#forget resource)
-              (#return 0u64)\n";
+              (#return 0u64) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let binding = checked.declarations().bodies["main"]
@@ -243,9 +243,9 @@ mod tests {
     fn typed_parameters_retain_the_source_identifier_span() {
         let source = "#struct Resource (#linear) ((value #u64))
 
-#fn consume ((token Resource)) ()
+#fn consume { #params = ((token Resource)); #returns = (); #body = (
               (#forget token)
-              (#return ())\n";
+              (#return ()) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let binding = &checked.declarations().bodies["consume"].bindings[0];
@@ -257,14 +257,14 @@ mod tests {
 
     #[test]
     fn nested_block_bindings_retain_their_source_identifier_spans() {
-        let source = "#fn main () #u64
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
             (#block (#let nested #u64 21u64) nested)
             (#if true
               (#block (#let branch #u64 22u64) branch)
               0u64)
             (#while false
               (#block (#let repeated #u64 23u64) repeated))
-            (#return 0u64)\n";
+            (#return 0u64) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let bindings = &checked.declarations().bodies["main"].bindings;
@@ -282,11 +282,11 @@ mod tests {
 
     #[test]
     fn nested_initializer_and_distinct_binding_spans_follow_lowering_order() {
-        let source = "#fn main () #u64
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
             (#let item #u64 1u64)
             (#block (#let nested-item #u64 2u64) nested-item)
             (#let outer #u64 (#block (#let inner #u64 3u64) inner))
-            (#return (#u64::add-wrap item outer))\n";
+            (#return (#u64::add-wrap item outer)) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let bindings = &checked.declarations().bodies["main"].bindings;
@@ -302,9 +302,9 @@ mod tests {
 
     #[test]
     fn colliding_calls_keep_declaration_identity_and_reject_builtin_head_drift() {
-        let source = "#fn u64-add-wrap ((left #u64) (right #u64)) #u64 (#return left)
-#fn main () #u64 (#return (#u64::add-wrap
-              (#call u64-add-wrap ((right 99u64) (left 42u64))) 0u64))\n";
+        let source = "#fn u64-add-wrap { #params = ((left #u64) (right #u64)); #returns = #u64; #body = ( (#return left) ); }
+#fn main { #params = (); #returns = #u64; #body = ( (#return (#u64::add-wrap
+              (#call u64-add-wrap ((right 99u64) (left 42u64))) 0u64)) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
@@ -368,8 +368,8 @@ mod tests {
     #[test]
     fn nodes_keep_contextual_types_numeric_modes_and_reordered_call_spans() {
         let source =
-            "#fn add ((left #u32) (right #u32)) #u32 (#return (#u32::add-saturate left right))
-#fn main () #u32 (#let x #u32 40) (#return (#call add ((right 2) (left x))))\n";
+            "#fn add { #params = ((left #u32) (right #u32)); #returns = #u32; #body = ( (#return (#u32::add-saturate left right)) ); }
+#fn main { #params = (); #returns = #u32; #body = ( (#let x #u32 40) (#return (#call add ((right 2) (left x)))) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -427,7 +427,7 @@ mod tests {
     fn generated_function_body_nodes_retain_generated_source_spans() {
         let source = "#gn make (name) `((#fn ,name () #u64 (#return 5u64)))
 #generate make generated
-#fn main () #u64 (#return (#call generated ()))\n";
+#fn main { #params = (); #returns = #u64; #body = ( (#return (#call generated ())) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["generated"];
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn lowered_instructions_retain_stable_statement_ids_and_spans() {
-        let source = "#fn main () #u64 (#let value #u64 1u64) (#return value)\n";
+        let source = "#fn main { #params = (); #returns = #u64; #body = ( (#let value #u64 1u64) (#return value) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let crate::Item::Function(function) = &program.items[0] else {
             unreachable!()
@@ -465,9 +465,9 @@ mod tests {
 
     #[test]
     fn call_argument_order_is_separate_from_parameter_order() {
-        let source = "#fn combine ((first #u64) (second #u64) (third #u64)) #u64 (#return first)
-#fn main () #u64
-              (#return (#call combine ((third 3u64) (first 1u64) (second 2u64))))\n";
+        let source = "#fn combine { #params = ((first #u64) (second #u64) (third #u64)); #returns = #u64; #body = ( (#return first) ); }
+#fn main { #params = (); #returns = #u64; #body = (
+              (#return (#call combine ((third 3u64) (first 1u64) (second 2u64)))) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -499,8 +499,8 @@ mod tests {
     #[test]
     fn call_without_arguments_has_empty_written_order() {
         let program = crate::parse_program(
-            "#fn value () #u64 (#return 42u64)
-#fn main () #u64 (#return (#call value ()))\n",
+            "#fn value { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }
+#fn main { #params = (); #returns = #u64; #body = ( (#return (#call value ())) ); }\n",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -539,10 +539,10 @@ mod tests {
             }
         }
 
-        let source = r#"#fn increment ((value #u32)) #u32 (#return (#u32::add-wrap value 1u32))
-#fn main () #u32
+        let source = r#"#fn increment { #params = ((value #u32)); #returns = #u32; #body = ( (#return (#u32::add-wrap value 1u32)) ); }
+#fn main { #params = (); #returns = #u32; #body = (
   (#let value #u32 40)
-  (#return (#call increment ((value (#u32::add-wrap value 2)))))
+  (#return (#call increment ((value (#u32::add-wrap value 2))))) ); }
 "#;
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -595,10 +595,10 @@ mod tests {
 
     #[test]
     fn emission_overlay_keeps_nonoverlapping_local_binding_ids_distinct() {
-        let source = "#fn main () #u64
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
             (#let outer-value #u64 1u64)
             (#block (#let inner-value #u64 2u64) inner-value)
-            (#return outer-value)\n";
+            (#return outer-value) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let function = program
@@ -624,10 +624,10 @@ mod tests {
     fn emission_statement_targets_distinguish_an_initializer_pattern_from_its_destination() {
         let program = crate::parse_program(
             "#enum Maybe () ((Maybe.Some #u64) Maybe.None)
-#fn main () #u64
+#fn main { #params = (); #returns = #u64; #body = (
               (#let answer #u64 (#match (Maybe.Some 41u64)
                 (#case (Maybe.Some answer) answer) (#case Maybe.None 0u64)))
-              (#return (#u64::add-wrap answer 1u64))\n",
+              (#return (#u64::add-wrap answer 1u64)) ); }\n",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -675,8 +675,8 @@ mod tests {
 
     #[test]
     fn checked_node_metadata_survives_unsafe_wrapper_lowering() {
-        let source = r#"#fn main () #u64
-  (#return (#unsafe (#u64::add-wrap 40u64 2u64)))
+        let source = r#"#fn main { #params = (); #returns = #u64; #body = (
+  (#return (#unsafe (#u64::add-wrap 40u64 2u64))) ); }
 "#;
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -725,8 +725,8 @@ mod tests {
 
     #[test]
     fn emission_bridge_rejects_reordered_literals_with_the_same_node_count() {
-        let source = "#fn main () #u64
-            (#return (#unsafe (#u64::add-wrap 40u64 2u64)))\n";
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
+            (#return (#unsafe (#u64::add-wrap 40u64 2u64))) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -758,10 +758,10 @@ mod tests {
 
     #[test]
     fn emission_bridge_rejects_symbol_identity_drift() {
-        let source = "#fn main () #u64
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
             (#let first #u64 1u64)
             (#let second #u64 2u64)
-            (#return first)\n";
+            (#return first) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -790,8 +790,8 @@ mod tests {
 
     #[test]
     fn emission_bridge_rejects_form_head_drift() {
-        let source = "#fn main () #u64
-            (#return (#u64::add-wrap 40u64 2u64))\n";
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
+            (#return (#u64::add-wrap 40u64 2u64)) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -821,8 +821,8 @@ mod tests {
     #[test]
     fn lowering_preserves_mutation_projections_and_nested_control_flow() {
         let sources = [
-            "#fn main () #u64 (#let-mut value #u64 0u64) (#while (#u64::lt value 2u64) (#set value (#u64::add-wrap value 1u64))) (#return value)\n",
-            "#struct Pair () ((a #u64) (b #u64))\n#fn main () #u64 (#let-mut value Pair (#struct-literal Pair ((a 1u64) (b 2u64)))) (#set-field value b 42u64) (#return (#get value b))\n",
+            "#fn main { #params = (); #returns = #u64; #body = ( (#let-mut value #u64 0u64) (#while (#u64::lt value 2u64) (#set value (#u64::add-wrap value 1u64))) (#return value) ); }\n",
+            "#struct Pair () ((a #u64) (b #u64))\n#fn main { #params = (); #returns = #u64; #body = ( (#let-mut value Pair (#struct-literal Pair ((a 1u64) (b 2u64)))) (#set-field value b 42u64) (#return (#get value b)) ); }\n",
         ];
         for source in sources {
             let program = crate::parse_program(source).unwrap();
@@ -843,10 +843,10 @@ mod tests {
     #[test]
     fn expression_branches_and_match_scopes_are_explicit_in_the_body_ir() {
         let source = r#"#enum Maybe () ((Maybe.Some #u64) Maybe.None)
-#fn choose ((flag #bool) (input Maybe)) #u64
+#fn choose { #params = ((flag #bool) (input Maybe)); #returns = #u64; #body = (
   (#return (#if flag
   (#match input (#case (Maybe.Some payload) payload) (#case Maybe.None 0u64))
-  1u64))
+  1u64)) ); }
 "#;
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();

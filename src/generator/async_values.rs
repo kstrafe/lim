@@ -781,13 +781,13 @@ mod tests {
     use crate::typed_ir::Declarations;
 
     const CONTEXT: &str = "
-#fn first () #u64 (#return 11u64)
-#fn second () #u64 (#return 22u64)
-#fn await-a () #u64 (#return 1u64)
-#fn await-b () #u64 (#return 2u64)
-#fn await-value ((value #u64)) #u64 (#return value)
-#fn combine ((first #u64) (second #u64)) #u64
-          (#return (#u64::add-wrap first second))\n";
+#fn first { #params = (); #returns = #u64; #body = ( (#return 11u64) ); }
+#fn second { #params = (); #returns = #u64; #body = ( (#return 22u64) ); }
+#fn await-a { #params = (); #returns = #u64; #body = ( (#return 1u64) ); }
+#fn await-b { #params = (); #returns = #u64; #body = ( (#return 2u64) ); }
+#fn await-value { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }
+#fn combine { #params = ((first #u64) (second #u64)); #returns = #u64; #body = (
+          (#return (#u64::add-wrap first second)) ); }\n";
 
     fn prepare(source: &str) -> (crate::Program, Declarations) {
         let program = crate::parse_program(&format!("{CONTEXT}\n{source}")).unwrap();
@@ -830,8 +830,8 @@ mod tests {
     #[test]
     fn named_calls_hold_only_completed_written_operands() {
         let (_, declarations) = prepare(
-            "#fn work () #u64
-            (#return (#call combine ((second (#call await-a ())) (first (#call first ())))))\n",
+            "#fn work { #params = (); #returns = #u64; #body = (
+            (#return (#call combine ((second (#call await-a ())) (first (#call first ()))))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -843,9 +843,9 @@ mod tests {
     fn constructors_and_builtins_keep_only_completed_earlier_operands() {
         let (_, declarations) = prepare(
             "#struct Pair () ((left #u64) (right #u64))
-#fn work () Pair (#return (#struct-literal Pair
+#fn work { #params = (); #returns = Pair; #body = ( (#return (#struct-literal Pair
               ((right (#u64::add-wrap (#call second ()) (#call await-a ())))
-               (left (#call first ())))))\n",
+               (left (#call first ()))))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -861,13 +861,13 @@ mod tests {
         let (_, declarations) = prepare(
             "#struct Token (#linear) ((value #u64))
 #struct Holder () ((view (#ref #u64)))
-#fn token () Token (#return (#struct-literal Token ((value 7u64))))
-#fn holder ((view (#ref #u64))) Holder (#return (#struct-literal Holder ((view view))))
-#fn use-values ((owned Token) (borrowed Holder) (number #u64)) #u64
-              (#forget owned) (#forget borrowed) (#return number)
-#fn work ((view (#ref #u64))) #u64
+#fn token { #params = (); #returns = Token; #body = ( (#return (#struct-literal Token ((value 7u64)))) ); }
+#fn holder { #params = ((view (#ref #u64))); #returns = Holder; #body = ( (#return (#struct-literal Holder ((view view)))) ); }
+#fn use-values { #params = ((owned Token) (borrowed Holder) (number #u64)); #returns = #u64; #body = (
+              (#forget owned) (#forget borrowed) (#return number) ); }
+#fn work { #params = ((view (#ref #u64))); #returns = #u64; #body = (
               (#return (#call use-values ((owned (#call token ()))
-                (borrowed (#call holder ((view view)))) (number (#call await-a ())))))\n",
+                (borrowed (#call holder ((view view)))) (number (#call await-a ()))))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -886,9 +886,9 @@ mod tests {
     #[test]
     fn nested_await_results_reach_outer_and_later_sibling_calls() {
         let (_, declarations) = prepare(
-            "#fn work () #u64 (#return (#call combine
+            "#fn work { #params = (); #returns = #u64; #body = ( (#return (#call combine
             ((first (#call await-value ((value (#call await-a ())))))
-             (second (#call await-b ())))))\n",
+             (second (#call await-b ()))))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let inner = call(body, "await-a");
@@ -903,10 +903,10 @@ mod tests {
     #[test]
     fn joined_branch_and_loop_results_replace_their_producer_operands() {
         let (_, declarations) = prepare(
-            "#fn work ((choose #bool)) #u64
+            "#fn work { #params = ((choose #bool)); #returns = #u64; #body = (
             (#return (#call combine
               ((first (#if choose (#call first ()) (#loop (#break (#call second ())))))
-               (second (#call await-a ())))))\n",
+               (second (#call await-a ()))))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -924,12 +924,12 @@ mod tests {
     fn guards_retain_the_scrutinee_but_committed_arm_bodies_do_not() {
         let (_, declarations) = prepare(
             "#enum Choice () ((Choice.Some #u64) Choice.None)
-#fn make-choice () Choice (#return (Choice.Some 4u64))
-#fn await-guard () #bool (#return true)
-#fn work () #u64 (#return (#call combine
+#fn make-choice { #params = (); #returns = Choice; #body = ( (#return (Choice.Some 4u64)) ); }
+#fn await-guard { #params = (); #returns = #bool; #body = ( (#return true) ); }
+#fn work { #params = (); #returns = #u64; #body = ( (#return (#call combine
               ((first (#call first ())) (second (#match (#call make-choice ())
                 (#case (Choice.Some value) (#when (#call await-guard ())) (#call await-a ()))
-                (#case _ (#call await-b ())))))))\n",
+                (#case _ (#call await-b ()))))))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let guard = call(body, "await-guard");
@@ -956,14 +956,14 @@ mod tests {
         prepare(&format!(
             "#struct Token {properties} ((value #u64))
 #enum Choice () ((Choice.Owned {payload}) Choice.Empty)
-#fn await-guard () #bool (#return true)
-#fn work ((choice Choice) (selected #bool)) #u64
+#fn await-guard {{ #params = (); #returns = #bool; #body = ( (#return true) ); }}
+#fn work {{ #params = ((choice Choice) (selected #bool)); #returns = #u64; #body = (
               {prefix}
               (#return (#match choice
                 (#case (Choice.Owned preview) (#when {guard})
                   (#block (#forget preview) (#call await-a ())))
                 (#case (Choice.Owned committed) (#block (#forget committed) 0u64))
-                (#case Choice.Empty 0u64)))\n"
+                (#case Choice.Empty 0u64))) ); }}\n"
         ))
     }
 
@@ -1010,13 +1010,13 @@ mod tests {
                 // annotation. Match the nested field, not the aggregate itself.
                 "#struct Token (#linear) ((value (#ref-mut #u64)))
 #enum Choice () ((Choice.Owned Token) Choice.Empty)
-#fn await-guard () #bool (#return true)
-#fn work ((choice Choice)) #u64
+#fn await-guard { #params = (); #returns = #bool; #body = ( (#return true) ); }
+#fn work { #params = ((choice Choice)); #returns = #u64; #body = (
                       (#return (#match choice
                         (#case (Choice.Owned (Token preview)) (#when (#call await-guard ()))
                           (#block (#forget preview) 1u64))
                         (#case (Choice.Owned committed) (#block (#forget committed) 0u64))
-                        (#case Choice.Empty 0u64)))\n"
+                        (#case Choice.Empty 0u64))) ); }\n"
             } else {
                 ""
             };
@@ -1086,10 +1086,10 @@ mod tests {
     fn production_scalar_previews_can_suspend() {
         let (program, declarations) = prepare(
             "#enum Choice () ((Choice.Some #u64) Choice.None)
-#fn await-guard () #bool (#return true)
-#fn work ((choice Choice)) #u64 (#return (#match choice
+#fn await-guard { #params = (); #returns = #bool; #body = ( (#return true) ); }
+#fn work { #params = ((choice Choice)); #returns = #u64; #body = ( (#return (#match choice
               (#case (Choice.Some preview) (#when (#call await-guard ())) preview)
-              (#case _ 0u64)))\n",
+              (#case _ 0u64))) ); }\n",
         );
         let types = LinearTypes::from_program(&program);
         let body = &declarations.bodies["work"];
@@ -1105,11 +1105,11 @@ mod tests {
     fn place_bases_and_projection_metadata_are_not_moved_operands() {
         let (_, declarations) = prepare(
             "#struct Pair () ((left #u64) (right #u64))
-#fn work ((pair Pair) (array (#array #u64 2))) #u64
+#fn work { #params = ((pair Pair) (array (#array #u64 2))); #returns = #u64; #body = (
               (#let pair-view (#ref Pair) (#borrow pair))
               (#let view (#ref #u64) (#borrow (#get pair-view left)))
               (#let result #u64 (#index array (#call await-a ())))
-              (#drop view) (#drop pair-view) (#forget pair) (#forget array) (#return result)\n",
+              (#drop view) (#drop pair-view) (#forget pair) (#forget array) (#return result) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -1120,8 +1120,8 @@ mod tests {
     fn reference_field_load_survives_the_later_index_await() {
         let (_, declarations) = prepare(
             "#struct Holder () ((values (#ref (#array #u64 2))))
-#fn work ((holder (#ref Holder))) #u64
-              (#return (#index (#get holder values) (#call await-a ())))\n",
+#fn work { #params = ((holder (#ref Holder))); #returns = #u64; #body = (
+              (#return (#index (#get holder values) (#call await-a ()))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -1150,9 +1150,9 @@ mod tests {
         let (_, declarations) = prepare(
             "#struct Holder ()
             ((links (#ref (#array (#ref (#array #u64 2)) 2))))
-#fn work ((holder (#ref Holder))) #u64
+#fn work { #params = ((holder (#ref Holder))); #returns = #u64; #body = (
               (#return (#u64::add-wrap (#call first ())
-                (#index (#index (#get holder links) 0usize) (#call await-a ()))))\n",
+                (#index (#index (#get holder links) 0usize) (#call await-a ())))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -1174,10 +1174,10 @@ mod tests {
     fn replacing_holder_contents_keeps_the_previously_loaded_reference() {
         let (_, declarations) = prepare(
             "#struct Holder () ((values (#ref (#array #u64 2))))
-#fn work ((holder (#ref-mut Holder)) (replacement (#ref (#array #u64 2)))) #u64
+#fn work { #params = ((holder (#ref-mut Holder)) (replacement (#ref (#array #u64 2)))); #returns = #u64; #body = (
               (#return (#index (#get holder values) (#block
                 (#deref-set holder (#struct-literal Holder ((values replacement))))
-                (#call await-a ()))))\n",
+                (#call await-a ())))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -1202,10 +1202,10 @@ mod tests {
     #[test]
     fn array_assignment_keeps_its_evaluated_index_across_rhs_suspension() {
         let (_, declarations) = prepare(
-            "#fn work () #u64
+            "#fn work { #params = (); #returns = #u64; #body = (
             (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 3u64 4u64))
             (#set-index values (#call first ()) (#call await-a ()))
-            (#forget values) (#return 0u64)\n",
+            (#forget values) (#return 0u64) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
@@ -1218,10 +1218,10 @@ mod tests {
     #[test]
     fn short_circuit_conditions_and_finished_statements_are_not_outstanding() {
         let (_, declarations) = prepare(
-            "#fn await-bool () #bool (#return true)
-#fn work ((choose #bool)) #bool
+            "#fn await-bool { #params = (); #returns = #bool; #body = ( (#return true) ); }
+#fn work { #params = ((choose #bool)); #returns = #bool; #body = (
               (#call first ())
-              (#return (#bool::and choose (#call await-bool ())))\n",
+              (#return (#bool::and choose (#call await-bool ()))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-bool");
@@ -1231,8 +1231,8 @@ mod tests {
     #[test]
     fn flow_arena_permutation_and_collapsed_spans_do_not_change_the_plan() {
         let (_, mut declarations) = prepare(
-            "#fn work () #u64
-            (#return (#call combine ((first (#call first ())) (second (#call await-a ())))))\n",
+            "#fn work { #params = (); #returns = #u64; #body = (
+            (#return (#call combine ((first (#call first ())) (second (#call await-a ()))))) ); }\n",
         );
         let body = declarations.bodies.get_mut("work").unwrap();
         let span = body.nodes.iter().find_map(|node| node.span);
@@ -1264,15 +1264,15 @@ mod tests {
     #[test]
     fn unreachable_calls_are_omitted_and_duplicate_events_are_rejected() {
         let (_, declarations) = prepare(
-            "#fn work () #u64
-            (#return 42u64) (#call await-a ()) (#return 0u64)\n",
+            "#fn work { #params = (); #returns = #u64; #body = (
+            (#return 42u64) (#call await-a ()) (#return 0u64) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
         let flow = &declarations.flows["work"];
         assert!(plan(body, flow, &[site]).unwrap().is_empty());
 
-        let (_, declarations) = prepare("#fn work () #u64 (#return (#call await-a ()))\n");
+        let (_, declarations) = prepare("#fn work { #params = (); #returns = #u64; #body = ( (#return (#call await-a ())) ); }\n");
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
         let mut flow = declarations.flows["work"].clone();
@@ -1292,8 +1292,8 @@ mod tests {
     #[test]
     fn repeated_suspending_elements_need_a_multiplicity_model() {
         let (_, declarations) = prepare(
-            "#fn work () (#array #u64 2)
-            (#return (#array-repeat (#call await-a ())))\n",
+            "#fn work { #params = (); #returns = (#array #u64 2); #body = (
+            (#return (#array-repeat (#call await-a ()))) ); }\n",
         );
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");

@@ -146,10 +146,10 @@ mod tests {
             include_str!("../tests/ui/linear.lim"),
             include_str!("../tests/ui/unsafe-pointer-op.lim"),
             include_str!("../tests/ui/unsafe-external-call.lim"),
-            "#struct Resource (#linear) ((value #u64))\n#fn use ((a Resource) (b Resource)) () (#forget a) (#forget b) (#return ())\n#fn main () () (#let a-b Resource (#struct-literal Resource ((value 1u64)))) (#call use ((b a-b) (a a-b))) (#return ())\n",
-            "#struct Resource (#linear) ((value #u64))\n#fn main () #u64 (#let a Resource (#struct-literal Resource ((value 1u64)))) (#forget a) (#let a-again Resource (#struct-literal Resource ((value 2u64)))) (#forget a-again) (#forget a-again) (#return 0u64)\n",
-            "#fn read ((p (#ptr #u64))) #u64 (#let first #u64 (#unsafe (#ptr-read p))) (#return (#ptr-read p))\n",
-            "#fn read ((p (#ptr #u64))) #u64 (#return (#match true (#case true (#ptr-read p)) (#case false 0u64)))\n",
+            "#struct Resource (#linear) ((value #u64))\n#fn use { #params = ((a Resource) (b Resource)); #returns = (); #body = ( (#forget a) (#forget b) (#return ()) ); }\n#fn main { #params = (); #returns = (); #body = ( (#let a-b Resource (#struct-literal Resource ((value 1u64)))) (#call use ((b a-b) (a a-b))) (#return ()) ); }\n",
+            "#struct Resource (#linear) ((value #u64))\n#fn main { #params = (); #returns = #u64; #body = ( (#let a Resource (#struct-literal Resource ((value 1u64)))) (#forget a) (#let a-again Resource (#struct-literal Resource ((value 2u64)))) (#forget a-again) (#forget a-again) (#return 0u64) ); }\n",
+            "#fn read { #params = ((p (#ptr #u64))); #returns = #u64; #body = ( (#let first #u64 (#unsafe (#ptr-read p))) (#return (#ptr-read p)) ); }\n",
+            "#fn read { #params = ((p (#ptr #u64))); #returns = #u64; #body = ( (#return (#match true (#case true (#ptr-read p)) (#case false 0u64))) ); }\n",
         ];
         for source in sources {
             let program = crate::parse_program(source).unwrap();

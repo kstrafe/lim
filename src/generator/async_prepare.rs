@@ -324,8 +324,8 @@ mod tests {
     const CONTEXT: &str = "
 #enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
-          (#return (#match task (#case (Child.Waiting count) (ChildPoll.ChildReady count))))\n";
+#fn step-poll { #params = ((task Child) (waker (#ref #u64))); #returns = ChildPoll; #body = (
+          (#return (#match task (#case (Child.Waiting count) (ChildPoll.ChildReady count)))) ); }\n";
 
     fn syntax(source: &str) -> PreparedProgramSyntax {
         crate::prepare_program_syntax(

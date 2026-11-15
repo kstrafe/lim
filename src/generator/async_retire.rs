@@ -736,7 +736,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         prepare(&format!(
-            "#fn work ((view (#ref-mut #u64))) ()\n{statements}\n  (#return ())\n"
+            "#fn work {{ #params = ((view (#ref-mut #u64))); #returns = (); #body = (\n{statements}\n  (#return ()) ); }}\n"
         ))
         .0
     }
@@ -758,9 +758,9 @@ mod tests {
             .join("\n");
         prepare(&format!(
             "#struct Resource (#linear) ((value #u64))
-#fn make ((value #u64)) Resource
-                 (#return (#struct-literal Resource ((value value))))
-#fn work () ()\n{statements}\n  (#return ())\n"
+#fn make {{ #params = ((value #u64)); #returns = Resource; #body = (
+                 (#return (#struct-literal Resource ((value value)))) ); }}
+#fn work {{ #params = (); #returns = (); #body = (\n{statements}\n  (#return ()) ); }}\n"
         ))
         .0
     }
@@ -789,13 +789,13 @@ mod tests {
         let (mut graph, _) = prepare(
             "#struct Resource (#linear) ((value #u64))
 #struct Envelope () ((item (#tuple Resource #u64)))
-#fn make () Envelope
+#fn make { #params = (); #returns = Envelope; #body = (
                  (#return (#struct-literal Envelope ((item
                    (#tuple (#tuple Resource #u64)
-                     (#struct-literal Resource ((value 42u64))) 0u64)))))
-#fn work () ()
+                     (#struct-literal Resource ((value 42u64))) 0u64))))) ); }
+#fn work { #params = (); #returns = (); #body = (
                  (#let duplicate Resource (#clone (#get (#get (#call make ()) item) 0)))
-                 (#forget duplicate) (#return ())\n",
+                 (#forget duplicate) (#return ()) ); }\n",
         );
         let (value, place, result) = graph
             .blocks
@@ -827,8 +827,8 @@ mod tests {
     #[test]
     fn clone_retention_index_matches_scan_for_all_exclusion_pairs() {
         let branch = prepare(
-            "#fn work ((choose #bool) (value #u64)) #u64
-                 (#return (#if choose (#clone value) (#clone (#u64::add-wrap value value))))\n",
+            "#fn work { #params = ((choose #bool) (value #u64)); #returns = #u64; #body = (
+                 (#return (#if choose (#clone value) (#clone (#u64::add-wrap value value)))) ); }\n",
         )
         .0;
         for mut graph in [clone_graph(3), scoped_graph(3), branch] {
@@ -981,12 +981,12 @@ mod tests {
 
     #[test]
     fn no_handle_values_need_no_plan() {
-        let (graph, types) = prepare("#fn work ((value #u64)) #u64 (#return value)\n");
+        let (graph, types) = prepare("#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n");
         assert!(Plan::new(&graph, &types).is_none());
         for source in [
-            "#fn work ((view (#ref-mut #u64))) #u64 (#return (#deref view))\n",
+            "#fn work { #params = ((view (#ref-mut #u64))); #returns = #u64; #body = ( (#return (#deref view)) ); }\n",
             "#struct Holder (#linear) ((view (#ref #u64)))
-#fn work ((owner Holder)) () (#forget owner) (#return ())\n",
+#fn work { #params = ((owner Holder)); #returns = (); #body = ( (#forget owner) (#return ()) ); }\n",
         ] {
             let (graph, types) = prepare(source);
             assert!(
@@ -999,7 +999,7 @@ mod tests {
     #[test]
     fn handle_roots_live_until_the_place_recipe_is_used() {
         let (graph, types) =
-            prepare("#fn work ((view (#ref #u64))) #u64 (#return (#deref view))\n");
+            prepare("#fn work { #params = ((view (#ref #u64))); #returns = #u64; #body = ( (#return (#deref view)) ); }\n");
         let mut plan = Plan::new(&graph, &types).unwrap();
         plan.validate(&graph).unwrap();
         let (block, index, root) = graph
@@ -1036,8 +1036,8 @@ mod tests {
         for ty in ["#ref-mut", "#pin-ref-mut"] {
             let (graph, types) = prepare(&format!(
                 "#type View ({ty} #u64)
-#fn echo ((view View)) View (#return view)
-#fn work ((view View)) #u64 (#return (#deref (#call echo ((view view)))))\n"
+#fn echo {{ #params = ((view View)); #returns = View; #body = ( (#return view) ); }}
+#fn work {{ #params = ((view View)); #returns = #u64; #body = ( (#return (#deref (#call echo ((view view))))) ); }}\n"
             ));
             let target = Box::new(crate::Type::U64);
             let alias = if ty == "#ref-mut" {
@@ -1096,9 +1096,9 @@ mod tests {
     #[test]
     fn exclusive_candidate_requests_cannot_retire_arbitrary_owners() {
         for source in [
-            "#fn work ((value #u64)) #u64 (#return value)\n",
+            "#fn work { #params = ((value #u64)); #returns = #u64; #body = ( (#return value) ); }\n",
             "#struct Holder (#linear) ((view (#ref-mut #u64)))
-#fn work ((value Holder)) Holder (#return value)\n",
+#fn work { #params = ((value Holder)); #returns = Holder; #body = ( (#return value) ); }\n",
         ] {
             let (graph, types) = prepare(source);
             let requested = (0..graph.values.len()).map(ValueId).collect();
@@ -1111,16 +1111,16 @@ mod tests {
     #[test]
     fn aliases_branches_and_loop_backedges_keep_required_handles_available() {
         for source in [
-            "#fn work ((view (#ref #u64))) #u64
-                  (#let alias (#ref #u64) view) (#drop view) (#return (#deref alias))\n",
-            "#fn work ((choose #bool) (left (#ref #u64)) (right (#ref #u64))) #u64
-                  (#let selected (#ref #u64) (#if choose left right)) (#return (#deref selected))\n",
-            "#fn work ((view (#ref #u64))) #u64
+            "#fn work { #params = ((view (#ref #u64))); #returns = #u64; #body = (
+                  (#let alias (#ref #u64) view) (#drop view) (#return (#deref alias)) ); }\n",
+            "#fn work { #params = ((choose #bool) (left (#ref #u64)) (right (#ref #u64))); #returns = #u64; #body = (
+                  (#let selected (#ref #u64) (#if choose left right)) (#return (#deref selected)) ); }\n",
+            "#fn work { #params = ((view (#ref #u64))); #returns = #u64; #body = (
                   (#let-mut count #u64 0u64)
                   (#while (#u64::lt count 2u64)
                       (#let observed #u64 (#deref view))
                       (#set count (#u64::add-wrap count 1u64)))
-                  (#return (#deref view))\n",
+                  (#return (#deref view)) ); }\n",
         ] {
             let (graph, types) = prepare(source);
             let plan = Plan::new(&graph, &types).unwrap();
@@ -1146,8 +1146,8 @@ mod tests {
     #[test]
     fn block_entry_cannot_fabricate_a_retired_parameter() {
         let (graph, types) = prepare(
-            "#fn work ((choose #bool) (left (#ref #u64)) (right (#ref #u64))) #u64
-              (#let selected (#ref #u64) (#if choose left right)) (#return (#deref selected))\n",
+            "#fn work { #params = ((choose #bool) (left (#ref #u64)) (right (#ref #u64))); #returns = #u64; #body = (
+              (#let selected (#ref #u64) (#if choose left right)) (#return (#deref selected)) ); }\n",
         );
         let mut plan = Plan::new(&graph, &types).unwrap();
         plan.validate(&graph).unwrap();
@@ -1176,11 +1176,11 @@ mod tests {
         let context = crate::parse_program(
             "#enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
-#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn step-poll { #params = ((task Child) (waker (#ref #u64))); #returns = ChildPoll; #body = (
               (#return (#match task (#case (Child.Waiting count)
-                (#if (#u64::eq count 0u64) (ChildPoll.Ready 42u64) (ChildPoll.Pending (Child.Waiting 0u64))))))
-#fn combine ((view (#ref #u64)) (result #u64)) #u64
-              (#return (#u64::add-wrap (#deref view) result))\n",
+                (#if (#u64::eq count 0u64) (ChildPoll.Ready 42u64) (ChildPoll.Pending (Child.Waiting 0u64)))))) ); }
+#fn combine { #params = ((view (#ref #u64)) (result #u64)); #returns = #u64; #body = (
+              (#return (#u64::add-wrap (#deref view) result)) ); }\n",
         )
         .unwrap();
         let source = crate::parse(

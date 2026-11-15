@@ -1573,10 +1573,10 @@ mod async_migration_tests {
     const CONTEXT: &str = "
 #enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll { #params = ((task Child) (waker (#ref #u64))); #returns = ChildPoll; #body = (
           (#return (#match task
             (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
-            (#case (Child.Resume value) (ChildPoll.ChildReady value))))\n";
+            (#case (Child.Resume value) (ChildPoll.ChildReady value)))) ); }\n";
 
     fn source(body: &str) -> String {
         format!(
@@ -1826,9 +1826,9 @@ mod async_migration_tests {
         let scratch = Scratch::new();
         let text = format!("{CONTEXT}
 #struct Source (#linear) ((amount #u64))
-#fn make ((amount #u64)) Source (#return (#struct-literal Source ((amount amount))))
-#fn consume ((owner Source) (amount #u64)) #u64
-              (#let result #u64 (#u64::add-wrap (#get owner amount) amount)) (#forget owner) (#return result)
+#fn make {{ #params = ((amount #u64)); #returns = Source; #body = ( (#return (#struct-literal Source ((amount amount)))) ); }}
+#fn consume {{ #params = ((owner Source) (amount #u64)); #returns = #u64; #body = (
+              (#let result #u64 (#u64::add-wrap (#get owner amount) amount)) (#forget owner) (#return result) ); }}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (function
               (#fn work ((seed #u64)) #u64 (#return (#call consume
                 ((owner (#call make ((amount seed))))
@@ -1880,7 +1880,7 @@ mod async_migration_tests {
     fn graph_cache_does_not_publish_fresh_output_before_complete_validation() {
         let scratch = Scratch::new();
         let text = format!(
-            "{}\n#fn main () #u64 (#return true)\n",
+            "{}\n#fn main {{ #params = (); #returns = #u64; #body = ( (#return true) ); }}\n",
             source("(#return seed)")
         );
         let prepared = syntax(&text, Some(&scratch.0));
@@ -2014,12 +2014,12 @@ mod async_migration_tests {
                     "(cancel (work-cancel ((await-0 cancel-child)))) (function",
                 );
         let text =
-            format!("{text}\n#fn cancel-child ((child Child)) () (#forget child) (#return ())\n");
+            format!("{text}\n#fn cancel-child {{ #params = ((child Child)); #returns = (); #body = ( (#forget child) (#return ()) ); }}\n");
         let prepared = syntax(&text, None);
         let program = expand_prepared_program(&prepared).unwrap();
         let output = &program.source_files.last().unwrap().source;
         assert!(
-            output.contains("#fn work-cancel ((task Work::Frame::Cleanup)) ()"),
+            output.contains("#fn work-cancel {\n  #params = { task = Work::Frame::Cleanup; };\n  #returns = ();"),
             "{output}"
         );
         assert!(output.contains("Work::Frame::Cleanup::Await-0.Full"));
@@ -2041,14 +2041,14 @@ mod async_migration_tests {
         let scratch = Scratch::new();
         let text = format!(
             "{}
-#fn main () #u64
+#fn main {{ #params = (); #returns = #u64; #body = (
               (#let waker #u64 0u64)
               (#let first Work::Poll (#call Work::poll
                 ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))
               (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
               (#return (#match (#call Work::poll ((task next) (waker (#borrow waker))))
                 (#case (Work::Poll.Ready value) value)
-                (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))\n",
+                (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable))))) ); }}\n",
             source(
                 "(#let answer #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))
               (#return (#u64::add-wrap answer 2u64))"
@@ -2120,7 +2120,7 @@ mod async_migration_tests {
     #[test]
     fn graph_route_still_requires_the_completed_ordinary_program_check() {
         let text = format!(
-            "{}\n#fn invalid-ordinary () #u64 (#return true)\n",
+            "{}\n#fn invalid-ordinary {{ #params = (); #returns = #u64; #body = ( (#return true) ); }}\n",
             source("(#return seed)")
         );
         let prepared = syntax(&text, None);
@@ -2134,12 +2134,12 @@ mod async_migration_tests {
     fn obsolete_per_state_cancellation_patterns_are_not_supported() {
         let text = format!(
             "{}
-#fn cancel-frame ((task Work::frame-state)) ()
+#fn cancel-frame {{ #params = ((task Work::frame-state)); #returns = (); #body = (
               (#match task
                 (#case (work-frame-start seed) (#forget seed))
                 (#case (work-frame-await-0 seed child) (#block (#forget seed) (#forget child)))
                 (#case work-frame-done ()))
-              (#return ())\n",
+              (#return ()) ); }}\n",
             source(
                 "(#let answer #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start seed)))
               (#return (#u64::add-wrap answer seed))"
@@ -2166,7 +2166,7 @@ mod async_migration_tests {
             .source_files
             .iter()
             .any(|file| file.path.to_string_lossy().starts_with("<async graph ")));
-        let prepared = syntax("#fn main () #u64 (#return 42u64)\n", None);
+        let prepared = syntax("#fn main { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n", None);
         let program = expand_prepared_program(&prepared).unwrap();
         assert!(program.generator_validation.is_none());
     }
@@ -2176,7 +2176,7 @@ mod async_migration_tests {
         let mut config = CompileConfig::default();
         config.set("async-lowering", "legacy");
         let error = prepare_program_syntax(
-            "#fn main () #u64 (#return 42u64)\n",
+            "#fn main { #params = (); #returns = #u64; #body = ( (#return 42u64) ); }\n",
             Path::new("."),
             None,
             &config,

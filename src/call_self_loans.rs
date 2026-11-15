@@ -1684,12 +1684,12 @@ mod tests {
 
     const SOURCE: &str = "
 #struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64)))
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
           (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
-          (#pin-set-field target view view) (#return target)
-#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-          (#pin-set-field target state 2u32) (#return target)
-#fn driver ((outside (#pin-ref #u64))) #u64
+          (#pin-set-field target view view) (#return target) ); }
+#fn tick { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
+          (#pin-set-field target state 2u32) (#return target) ); }
+#fn driver { #params = ((outside (#pin-ref #u64))); #returns = #u64; #body = (
           (#let-mut link Link (#struct-literal Link ((value 42u64) (state 0u32) (view outside))))
           (#let-mut running (#pin-ref-mut Link) (#pin-borrow-mut link))
           (#let installed (#pin-ref-mut Link) (#call install ((target running))))
@@ -1697,7 +1697,7 @@ mod tests {
           (#let updated (#pin-ref-mut Link) (#call tick ((target running))))
           (#set running updated)
           (#pin-set-field running view outside)
-          (#drop running) (#forget link) (#return 0u64)\n";
+          (#drop running) (#forget link) (#return 0u64) ); }\n";
 
     fn fixture(source: &str) -> Declarations {
         let program = crate::parse_program(source).unwrap();
@@ -1713,27 +1713,27 @@ mod tests {
 #enum Choice () ((Choice.Good #u64) (Choice.Bad #u64))
 #enum Address () (Address.Empty (Address.Full (#pin-ref-mut #u64)))
 #struct Frame () ((owner Choice) (address Address) (pc #u32))
-#fn select ((owner (#pin-ref-mut Choice))) (#pin-ref-mut #u64)
-              (#return (#unsafe (#pin-get-payload-unchecked-mut owner Choice.Good)))
-#fn install ((target (#pin-ref-mut Frame))) (#pin-ref-mut Frame)
+#fn select { #params = ((owner (#pin-ref-mut Choice))); #returns = (#pin-ref-mut #u64); #body = (
+              (#return (#unsafe (#pin-get-payload-unchecked-mut owner Choice.Good))) ); }
+#fn install { #params = ((target (#pin-ref-mut Frame))); #returns = (#pin-ref-mut Frame); #body = (
               (#let selected (#pin-ref-mut #u64)
                 (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target owner)) Choice.Good)))
               (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Address.Full selected)))
-              (#return target)
-#fn resume ((target (#pin-ref-mut Frame))) (#pin-ref-mut Frame)
+              (#return target) ); }
+#fn resume { #params = ((target (#pin-ref-mut Frame))); #returns = (#pin-ref-mut Frame); #body = (
               INITIALIZE
               (#unsafe (#pin-write
                 (#deref (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target address)) Address.Full)))
                 42u64))
               (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) Address.Empty))
-              (#return target)
-#fn driver () ()
+              (#return target) ); }
+#fn driver { #params = (); #returns = (); #body = (
               (#let-mut frame Frame
                 (#struct-literal Frame ((owner (Choice.Good 0u64)) (address Address.Empty) (pc 1u32))))
               (#let installed (#pin-ref-mut Frame)
                 (#call install ((target (#pin-borrow-mut frame)))))
               (#let resumed (#pin-ref-mut Frame) (#call resume ((target installed))))
-              (#drop resumed) (#forget frame) (#return ())
+              (#drop resumed) (#forget frame) (#return ()) ); }
         "#;
         for (initialize, conflicting_access) in [
             ("", None),
@@ -1841,10 +1841,10 @@ mod tests {
     #[test]
     fn parameter_contents_summary_preserves_the_selected_source_slot() {
         let source = "#struct Link () ((view (#ref #u64)))
-#fn read-link ((value (#ref Link))) #u64
-                (#return (#deref (#get (#deref value) view)))
-#fn caller ((target (#ref Link))) #u64
-                (#return (#call read-link ((value target))))\n";
+#fn read-link { #params = ((value (#ref Link))); #returns = #u64; #body = (
+                (#return (#deref (#get (#deref value) view))) ); }
+#fn caller { #params = ((target (#ref Link))); #returns = #u64; #body = (
+                (#return (#call read-link ((value target)))) ); }\n";
         let declarations = fixture(source);
         let body = &declarations.bodies["caller"];
         let flow = &declarations.flows["caller"];
@@ -1902,17 +1902,17 @@ mod tests {
     fn enum_payload_owner_observation_is_not_hidden_by_a_missing_alias() {
         let source = "#enum View () (View.NoView (View.HasView (#pin-ref-mut #u64)))
 #struct Link () ((value #u64) (view View))
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
               (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view)))
-              (#return target)
-#fn observe ((target (#pin-ref-mut Link))) #u64 (#return (#get target value))
-#fn driver () #u64
+              (#return target) ); }
+#fn observe { #params = ((target (#pin-ref-mut Link))); #returns = #u64; #body = ( (#return (#get target value)) ); }
+#fn driver { #params = (); #returns = #u64; #body = (
               (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.NoView))))
               (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
               (#let value #u64 (#call observe ((target installed))))
               (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
-              (#drop installed) (#forget link) (#return value)\n";
+              (#drop installed) (#forget link) (#return value) ); }\n";
         let declarations = fixture(source);
         let plan = call_plan(&declarations, "driver", "observe");
         assert_eq!(plan.aliases.len(), 1, "{:#?}", plan.aliases);
@@ -1957,16 +1957,16 @@ mod tests {
     fn ordinary_function_unknown_enum_tag_retains_possible_mutable_payload_aliases() {
         let source = "#enum Value () (Value.Empty (Value.Full #u64))
 #struct Link () ((value Value) (view (#pin-ref-mut #u64)))
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#let view (#pin-ref-mut #u64)
                 (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
               (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))
-              (#return target)
-#fn observe ((target (#pin-ref-mut Link))) ()
+              (#return target) ); }
+#fn observe { #params = ((target (#pin-ref-mut Link))); #returns = (); #body = (
               (#let payload (#pin-ref-mut #u64)
                 (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
-              (#drop payload) (#return ())
-#fn driver ((outside (#pin-ref-mut #u64)) (choose #bool)) ()
+              (#drop payload) (#return ()) ); }
+#fn driver { #params = ((outside (#pin-ref-mut #u64)) (choose #bool)); #returns = (); #body = (
               (#let-mut link Link (#struct-literal Link
                 ((value (#if choose (Value.Full 42u64) Value.Empty)) (view outside))))
               (#if choose
@@ -1976,7 +1976,7 @@ mod tests {
                   (#drop installed) ())
                 ())
               (#call observe ((target (#pin-borrow-mut link))))
-              (#forget link) (#return ())\n";
+              (#forget link) (#return ()) ); }\n";
         let declarations = fixture(source);
         assert!(declarations.bodies.contains_key("install"));
         assert!(declarations.bodies.contains_key("observe"));
@@ -2029,17 +2029,17 @@ mod tests {
 #struct Middle () ((inner (#pin-ref-mut Inner)))
 #struct Outer () ((middle (#pin-ref-mut Middle)))
 #struct Shell () ((outer (#pin-ref-mut Outer)))
-#fn touch-inner ((target (#pin-ref-mut Inner))) ()
+#fn touch-inner { #params = ((target (#pin-ref-mut Inner))); #returns = (); #body = (
               (#let child (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-              (#drop child) (#return ())
-#fn observe ((target (#pin-ref-mut Shell))) ()
+              (#drop child) (#return ()) ); }
+#fn observe { #params = ((target (#pin-ref-mut Shell))); #returns = (); #body = (
               (#let outer_ref (#pin-ref-mut Outer) (#get target outer))
               (#let middle_ref (#pin-ref-mut Middle) (#get (#deref outer_ref) middle))
               (#let inner_ref (#pin-ref-mut Inner) (#get (#deref middle_ref) inner))
-              (#call touch-inner ((target inner_ref))) (#return ())
-#fn relay ((target (#pin-ref-mut Shell))) ()
-              (#call observe ((target target))) (#return ())
-#fn driver () ()
+              (#call touch-inner ((target inner_ref))) (#return ()) ); }
+#fn relay { #params = ((target (#pin-ref-mut Shell))); #returns = (); #body = (
+              (#call observe ((target target))) (#return ()) ); }
+#fn driver { #params = (); #returns = (); #body = (
               (#let-mut inner Inner (#struct-literal Inner ((value 7u64) (view View.NoView))))
               (#let inner_ref (#pin-ref-mut Inner) (#pin-borrow-mut inner))
               (#let view (#pin-ref #u64) (#pin-borrow (#get inner_ref value)))
@@ -2050,7 +2050,7 @@ mod tests {
               (#let outer_ref (#pin-ref-mut Outer) (#pin-borrow-mut outer))
               (#let-mut shell Shell (#struct-literal Shell ((outer outer_ref))))
               (#let shell_ref (#pin-ref-mut Shell) (#pin-borrow-mut shell))
-              (#call relay ((target shell_ref))) (#return ())\n";
+              (#call relay ((target shell_ref))) (#return ()) ); }\n";
         let declarations = fixture(source);
         let plan = call_plan(&declarations, "driver", "relay");
         assert!(
@@ -2299,9 +2299,9 @@ mod tests {
     #[test]
     fn symbolic_nested_pointer_slots_do_not_imply_physical_self_aliases() {
         let source = "#struct Link () ((value #u64) (view (#pin-ref #u64)))
-#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link) (#return target)
-#fn driver ((input (#pin-ref-mut Link))) (#pin-ref-mut Link)
-              (#return (#call tick ((target input))))\n";
+#fn tick { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = ( (#return target) ); }
+#fn driver { #params = ((input (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
+              (#return (#call tick ((target input)))) ); }\n";
         let declarations = fixture(source);
         assert!(call_plan(&declarations, "driver", "tick")
             .aliases
@@ -2420,7 +2420,7 @@ mod tests {
             "(#let observed #u64 (#deref (#get target view))) (#forget observed)",
             "(#let observed #u64 (#call child-read ((pointer (#get target view))))) (#forget observed)",
         ] {
-            let source = format!("{}#fn child-read ((pointer (#pin-ref-mut #u64))) #u64 (#return (#deref pointer))\n",
+            let source = format!("{}#fn child-read {{ #params = ((pointer (#pin-ref-mut #u64))); #returns = #u64; #body = ( (#return (#deref pointer)) ); }}\n",
                 exclusive_source().replace("(#pin-set-field target state 2u32)", operation));
             let declarations = fixture(&source);
             call_plan(&declarations, "driver", "tick")
@@ -2432,9 +2432,9 @@ mod tests {
     fn nested_observers_retain_the_deepest_access_span_at_the_caller_argument() {
         let source = format!(
             "{}
-#fn observe ((pointer (#pin-ref #u64))) #u64 (#return (#deref pointer))
-#fn forward ((target (#pin-ref-mut Link))) #u64
-              (#return (#call observe ((pointer (#pin-borrow (#get target value))))))\n",
+#fn observe {{ #params = ((pointer (#pin-ref #u64))); #returns = #u64; #body = ( (#return (#deref pointer)) ); }}
+#fn forward {{ #params = ((target (#pin-ref-mut Link))); #returns = #u64; #body = (
+              (#return (#call observe ((pointer (#pin-borrow (#get target value)))))) ); }}\n",
             exclusive_source().replace(
                 "(#pin-set-field target state 2u32)",
                 "(#let observed #u64 (#call forward ((target target)))) (#forget observed)"
@@ -2481,8 +2481,8 @@ mod tests {
             );
             let source = exclusive_source()
                 .replace(
-                    "#fn tick ((target (#pin-ref-mut Link)))",
-                    "#fn tick ((target (#pin-ref-mut Link)) (outside (#pin-ref-mut #u64)))",
+                    "#fn tick { #params = ((target (#pin-ref-mut Link)));",
+                    "#fn tick { #params = ((target (#pin-ref-mut Link)) (outside (#pin-ref-mut #u64)));",
                 )
                 .replace(
                     "(#call tick ((target running)))",
@@ -2499,13 +2499,13 @@ mod tests {
     #[test]
     fn repeated_nested_observers_deduplicate_without_erasing_the_access_slot() {
         let mut source = String::from(
-            "#fn level0 ((pointer (#pin-ref #u64))) #u64 (#return (#deref pointer))\n",
+            "#fn level0 { #params = ((pointer (#pin-ref #u64))); #returns = #u64; #body = ( (#return (#deref pointer)) ); }\n",
         );
         for level in 1..=20 {
             source.push_str(&format!(
-                "#fn level{level} ((pointer (#pin-ref #u64))) #u64
+                "#fn level{level} {{ #params = ((pointer (#pin-ref #u64))); #returns = #u64; #body = (
                 (#let ignored #u64 (#call level{} ((pointer pointer))))
-                (#return (#call level{} ((pointer pointer))))\n",
+                (#return (#call level{} ((pointer pointer)))) ); }}\n",
                 level - 1,
                 level - 1
             ));
@@ -2552,23 +2552,23 @@ mod tests {
 
     const PAYLOAD_ENTRY_SOURCE: &str = "#enum Value () (Value.Empty (Value.Full #u64))
 #struct Link () ((value Value) (view (#pin-ref #u64)))
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#let view (#pin-ref #u64)
                 (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Value.Full)))
-              (#pin-set-field target view view) (#return target)
-#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+              (#pin-set-field target view view) (#return target) ); }
+#fn tick { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
                 (#block
                   (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64)))
                   (#unsafe (#pin-write
                     (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)) 42u64))) ())
-              (#return target)
-#fn driver ((outside (#pin-ref #u64))) ()
+              (#return target) ); }
+#fn driver { #params = ((outside (#pin-ref #u64))); #returns = (); #body = (
               (#let-mut link Link (#struct-literal Link ((value (Value.Full 42u64)) (view outside))))
               (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
               (#let updated (#pin-ref-mut Link) (#call tick ((target installed))))
               (#pin-set-field updated view outside)
-              (#drop updated) (#forget link) (#return ())\n";
+              (#drop updated) (#forget link) (#return ()) ); }\n";
 
     #[test]
     fn entry_payload_constraints_survive_reinitializing_the_current_constructor() {
@@ -2589,26 +2589,26 @@ mod tests {
 
     const STORAGE_ENTRY_SOURCE: &str = "#enum View () (View.NoView (View.HasView (#pin-ref #u64)))
 #struct Link () ((value #u64) (view View))
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
-              (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view))) (#return target)
-#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+              (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view))) (#return target) ); }
+#fn tick { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#if (#variant-is (#pin-borrow (#get target view)) View.NoView)
                 (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) 99u64)) ())
-              (#return target)
-#fn driver () ()
+              (#return target) ); }
+#fn driver { #params = (); #returns = (); #body = (
               (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.NoView))))
               (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
               (#let updated (#pin-ref-mut Link) (#call tick ((target installed))))
               (#unsafe (#pin-write (#pin-borrow-mut (#get updated view)) View.NoView))
-              (#drop updated) (#forget link) (#return ())\n";
+              (#drop updated) (#forget link) (#return ()) ); }\n";
 
     fn with_entry_tick(source: &str, statements: &str) -> String {
         let start = source.find("#fn tick").unwrap();
         let end = source.find("#fn driver").unwrap();
         format!(
-            "{}#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-              {statements} (#return target)
+            "{}#fn tick {{ #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
+              {statements} (#return target) ); }}
 {}",
             &source[..start],
             &source[end..]
@@ -2627,9 +2627,9 @@ mod tests {
             };
             let source = format!(
                 "{}
-#fn rewrite ((target (#pin-ref-mut Link))) ()
+#fn rewrite {{ #params = ((target (#pin-ref-mut Link))); #returns = (); #body = (
                     (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 99u64)))
-                    (#return ())\n",
+                    (#return ()) ); }}\n",
                 with_entry_tick(
                     PAYLOAD_ENTRY_SOURCE,
                     &format!(
@@ -2756,20 +2756,20 @@ mod tests {
     fn entry_payload_aliases_are_correlated_with_checked_physical_tag_guards() {
         let source = "#enum Value () (Value.Empty (Value.Full #u64))
 #struct Link () ((value Value) (view (#pin-ref #u64)))
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#let view (#pin-ref #u64)
                 (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Value.Full)))
-              (#pin-set-field target view view) (#return target)
-#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+              (#pin-set-field target view view) (#return target) ); }
+#fn tick { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
                 (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 99u64))) ())
-              (#return target)
-#fn driver ((outside (#pin-ref #u64))) ()
+              (#return target) ); }
+#fn driver { #params = ((outside (#pin-ref #u64))); #returns = (); #body = (
               (#let-mut link Link (#struct-literal Link ((value (Value.Full 42u64)) (view outside))))
               (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
               (#let updated (#pin-ref-mut Link) (#call tick ((target installed))))
               (#pin-set-field updated view outside)
-              (#drop updated) (#forget link) (#return ())\n";
+              (#drop updated) (#forget link) (#return ()) ); }\n";
         for (guard, rejected) in [("Value.Empty", false), ("Value.Full", true)] {
             let source = source.replace("value)) Value.Empty)", &format!("value)) {guard})"));
             let declarations = fixture(&source);
@@ -2795,18 +2795,18 @@ mod tests {
     fn checked_empty_pointer_slots_retire_only_their_stored_entry_alias() {
         let source = "#enum View () (View.Empty (View.Full (#pin-ref-mut #u64)))
 #struct Link () ((value #u64) (view View))
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-              (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.Full view))) (#return target)
-#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+              (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.Full view))) (#return target) ); }
+#fn tick { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               GUARD
               (#let fresh (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-              (#drop fresh) (#return target)
-#fn driver () ()
+              (#drop fresh) (#return target) ); }
+#fn driver { #params = (); #returns = (); #body = (
               (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.Empty))))
               (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
               (#let updated (#pin-ref-mut Link) (#call tick ((target installed))))
-              (#drop updated) (#forget link) (#return ())\n";
+              (#drop updated) (#forget link) (#return ()) ); }\n";
         for (guard, rejected) in [
             (
                 "(#assert (#variant-is (#pin-borrow (#get target view)) View.Empty))",
@@ -2838,12 +2838,12 @@ mod tests {
             };
             let source = format!(
                 "#enum Slot (#linear) (Slot.Empty (Slot.Full #u64))
-#fn initialize ((slot (#pin-ref-mut Slot))) ()
+#fn initialize {{ #params = ((slot (#pin-ref-mut Slot))); #returns = (); #body = (
                   {before}
                   (#let previous Slot (#unsafe (#pin-read slot))) (#forget previous)
                   (#unsafe (#pin-write slot Slot.Empty))
                   {after}
-                  (#unsafe (#pin-write slot (Slot.Full 42u64))) (#return ())\n"
+                  (#unsafe (#pin-write slot (Slot.Full 42u64))) (#return ()) ); }}\n"
             );
             let declarations = fixture(&source);
             let function = declarations.function_id("initialize").unwrap();
@@ -2876,11 +2876,11 @@ mod tests {
             "(#assert (#variant-is (#if choose first second) Slot.Empty))",
         ] {
             let source = format!("#enum Slot (#linear) (Slot.Empty (Slot.Full #u64))
-#fn assert ((condition #bool)) () (#return ())
-#fn initialize ((first (#pin-ref-mut Slot)) (second (#pin-ref-mut Slot)) (choose #bool)) ()
+#fn assert {{ #params = ((condition #bool)); #returns = (); #body = ( (#return ()) ); }}
+#fn initialize {{ #params = ((first (#pin-ref-mut Slot)) (second (#pin-ref-mut Slot)) (choose #bool)); #returns = (); #body = (
                   {assertion}
                   (#let previous Slot (#unsafe (#pin-read first))) (#forget previous)
-                  (#unsafe (#pin-write first (Slot.Full 42u64))) (#return ())\n");
+                  (#unsafe (#pin-write first (Slot.Full 42u64))) (#return ()) ); }}\n");
             let declarations = fixture(&source);
             let effects = guarded_writes(
                 declarations.function_id("initialize").unwrap(),
@@ -2898,14 +2898,14 @@ mod tests {
     #[test]
     fn repeated_nested_calls_keep_one_distinct_write_footprint() {
         let mut source = String::from(
-            "#fn level0 ((target (#pin-ref-mut #u64))) ()
-            (#unsafe (#pin-write target 42u64)) (#return ())\n",
+            "#fn level0 { #params = ((target (#pin-ref-mut #u64))); #returns = (); #body = (
+            (#unsafe (#pin-write target 42u64)) (#return ()) ); }\n",
         );
         for level in 1..=20 {
             source.push_str(&format!(
-                "#fn level{level} ((target (#pin-ref-mut #u64))) ()
+                "#fn level{level} {{ #params = ((target (#pin-ref-mut #u64))); #returns = (); #body = (
                 (#call level{} ((target target)))
-                (#call level{} ((target target))) (#return ())\n",
+                (#call level{} ((target target))) (#return ()) ); }}\n",
                 level - 1,
                 level - 1
             ));
@@ -2929,7 +2929,7 @@ mod tests {
     fn global_consumption_identities_do_not_substitute_an_unused_parameter() {
         let source = format!(
             "#static count #u64 0u64
-#fn touch () () (#unsafe (#forget count)) (#return ())
+#fn touch {{ #params = (); #returns = (); #body = ( (#unsafe (#forget count)) (#return ()) ); }}
 {}",
             SOURCE.replace(
                 "(#pin-set-field target state 2u32)",
@@ -2963,8 +2963,8 @@ mod tests {
             };
             let source = SOURCE
                 .replace(
-                    "#fn tick ((target (#pin-ref-mut Link)))",
-                    "#fn tick ((target (#pin-ref-mut Link)) (outside (#pin-ref #u64)))",
+                    "#fn tick { #params = ((target (#pin-ref-mut Link)));",
+                    "#fn tick { #params = ((target (#pin-ref-mut Link)) (outside (#pin-ref #u64)));",
                 )
                 .replace(
                     "(#call tick ((target running)))",
@@ -3022,8 +3022,8 @@ mod tests {
         let source = format!("{SOURCE}").replace(
             "(#pin-set-field target state 2u32) (#return target)",
             "(#return (#call smash ((owner target))))",
-        ) + "\n#fn smash ((owner (#pin-ref-mut Link))) (#pin-ref-mut Link)
-            (#pin-set-field owner value 99u64) (#return owner)\n";
+        ) + "\n#fn smash { #params = ((owner (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
+            (#pin-set-field owner value 99u64) (#return owner) ); }\n";
         let declarations = fixture(&source);
         let result = call_plan(&declarations, "driver", "tick")
             .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
@@ -3111,8 +3111,8 @@ mod tests {
             };
             let source = SOURCE
                 .replace(
-                    "#fn tick ((target (#pin-ref-mut Link)))",
-                    "#fn tick ((target (#pin-ref-mut Link)) (outside (#pin-ref #u64)))",
+                    "#fn tick { #params = ((target (#pin-ref-mut Link)));",
+                    "#fn tick { #params = ((target (#pin-ref-mut Link)) (outside (#pin-ref #u64)));",
                 )
                 .replace(
                     "(#call tick ((target running)))",
@@ -3148,8 +3148,8 @@ mod tests {
             );
             let source = SOURCE
                 .replace(
-                    "#fn tick ((target (#pin-ref-mut Link)))",
-                    "#fn tick ((target (#pin-ref-mut Link)) (outside (#pin-ref #u64)))",
+                    "#fn tick { #params = ((target (#pin-ref-mut Link)));",
+                    "#fn tick { #params = ((target (#pin-ref-mut Link)) (outside (#pin-ref #u64)));",
                 )
                 .replace(
                     "(#call tick ((target running)))",
@@ -3204,8 +3204,8 @@ mod tests {
             )
             .replace("#pin-ref #u64", "#pin-ref (#tuple #u64 #u64)")
             .replace(
-                "#fn tick ((target (#pin-ref-mut Link)))",
-                "#fn tick ((target (#pin-ref-mut Link)) (outside (#pin-ref (#tuple #u64 #u64))))",
+                "#fn tick { #params = ((target (#pin-ref-mut Link)));",
+                "#fn tick { #params = ((target (#pin-ref-mut Link)) (outside (#pin-ref (#tuple #u64 #u64))));",
             )
             .replace(
                 "(#call tick ((target running)))",
@@ -3239,8 +3239,8 @@ mod tests {
                 "(#pin-set-field target view view) (#pin-set-field target second view)",
             )
             .replace(
-                "#fn tick ((target (#pin-ref-mut Link)))",
-                "#fn tick ((target (#pin-ref-mut Link)) (outside (#pin-ref #u64)))",
+                "#fn tick { #params = ((target (#pin-ref-mut Link)));",
+                "#fn tick { #params = ((target (#pin-ref-mut Link)) (outside (#pin-ref #u64)));",
             )
             .replace(
                 "(#call tick ((target running)))",
@@ -3293,8 +3293,8 @@ mod tests {
             )
             .replace("#pin-ref #u64", "#pin-ref (#array #u64 2)")
             .replace(
-                "#fn tick ((target (#pin-ref-mut Link)))",
-                "#fn tick ((target (#pin-ref-mut Link)) (outside (#pin-ref (#array #u64 2))))",
+                "#fn tick { #params = ((target (#pin-ref-mut Link)));",
+                "#fn tick { #params = ((target (#pin-ref-mut Link)) (outside (#pin-ref (#array #u64 2))));",
             )
             .replace(
                 "(#call tick ((target running)))",
@@ -3377,8 +3377,8 @@ mod tests {
 
     #[test]
     fn reordered_arguments_locate_the_owner_actually_accessed_by_the_callee() {
-        let source = SOURCE.replace("#fn tick ((target (#pin-ref-mut Link)))",
-            "#fn tick ((first (#pin-ref-mut Link)) (target (#pin-ref-mut Link)))")
+        let source = SOURCE.replace("#fn tick { #params = ((target (#pin-ref-mut Link)));",
+            "#fn tick { #params = ((first (#pin-ref-mut Link)) (target (#pin-ref-mut Link)));")
             .replace("(#pin-set-field target state 2u32)", "(#pin-set-field target value 99u64)")
             .replace("(#let updated (#pin-ref-mut Link) (#call tick ((target running))))",
                 "(#let-mut another Link (#struct-literal Link ((value 7u64) (state 0u32) (view outside))))
@@ -3402,23 +3402,23 @@ mod tests {
     #[test]
     fn conditional_fresh_borrow_does_not_hide_a_retained_sibling_alias() {
         let source = "#struct Link () ((value #u64) (view (#pin-ref-mut #u64)))
-#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+#fn install { #params = ((target (#pin-ref-mut Link))); #returns = (#pin-ref-mut Link); #body = (
               (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-              (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view)) (#return target)
-#fn observe ((target (#pin-ref-mut Link)) (choose #bool)) ()
+              (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view)) (#return target) ); }
+#fn observe { #params = ((target (#pin-ref-mut Link)) (choose #bool)); #returns = (); #body = (
               (#let sibling (#pin-ref-mut #u64) (#get target view))
               (#if choose
                 (#block
                   (#let fresh (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
                   (#drop fresh) ()) ())
               (#drop sibling)
-              (#return ())
-#fn driver ((outside (#pin-ref-mut #u64))) ()
+              (#return ()) ); }
+#fn driver { #params = ((outside (#pin-ref-mut #u64))); #returns = (); #body = (
               (#let-mut link Link (#struct-literal Link ((value 42u64) (view outside))))
               (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
               (#call observe ((target installed) (choose true)))
               (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) outside))
-              (#drop installed) (#forget link) (#return ())\n";
+              (#drop installed) (#forget link) (#return ()) ); }\n";
         let declarations = fixture(source);
         let plan = call_plan(&declarations, "driver", "observe");
         assert_eq!(plan.aliases.len(), 1, "{:#?}", plan.aliases);

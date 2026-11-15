@@ -2902,8 +2902,8 @@ mod tests {
     #[test]
     fn unresolved_word_obligations_never_seed_parameter_capabilities() {
         let program = crate::parse_program(
-            "#fn pinned ((frame (#pin-ref-mut #u64))) #u64 (#return (#deref frame))
-#fn main () #u64 (#return 0u64)\n",
+            "#fn pinned { #params = ((frame (#pin-ref-mut #u64))); #returns = #u64; #body = ( (#return (#deref frame)) ); }
+#fn main { #params = (); #returns = #u64; #body = ( (#return 0u64) ); }\n",
         )
         .unwrap();
         let mut declarations =
@@ -2960,7 +2960,7 @@ mod tests {
     #[test]
     fn reference_variant_completion_skips_large_scalar_arrays_and_pointer_boundaries() {
         let program = crate::parse_program(
-            "#enum Holder () ((Holder.Holding (#ref #u64)))\n#fn main () () (#return ())\n",
+            "#enum Holder () ((Holder.Holding (#ref #u64)))\n#fn main { #params = (); #returns = (); #body = ( (#return ()) ); }\n",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -2986,7 +2986,7 @@ mod tests {
     fn reference_variant_completion_keeps_all_alternatives_at_each_array_index() {
         let program = crate::parse_program(
             "#enum Holder () ((Holder.Holding (#ref #u64)) (Holder.Plain #u64))
-#fn main () () (#return ())\n",
+#fn main { #params = (); #returns = (); #body = ( (#return ()) ); }\n",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -3013,9 +3013,9 @@ mod tests {
 
     #[test]
     fn expression_ids_are_dense_and_stable_across_fresh_parses() {
-        let source = "#fn main () #u64
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
             (#let value #u64 1u64)
-            (#return (#u64::add-wrap value 2u64))\n";
+            (#return (#u64::add-wrap value 2u64)) ); }\n";
         let first = crate::parse_program(source).unwrap();
         let second = crate::parse_program(source).unwrap();
         let first_ids = expression_ids(&first);
@@ -3042,10 +3042,10 @@ mod tests {
 
     #[test]
     fn statement_ids_are_dense_and_stable_across_nested_control_flow() {
-        let source = "#fn main () #u64
+        let source = "#fn main { #params = (); #returns = #u64; #body = (
             (#let value #u64 (#block (#let nested #u64 1u64) nested))
             (#let result #u64 (#label outer (#loop (#break-to outer 2u64))))
-            (#return (#u64::add-wrap value result))\n";
+            (#return (#u64::add-wrap value result)) ); }\n";
         let first = crate::parse_program(source).unwrap();
         let second = crate::parse_program(source).unwrap();
         let first_ids = statement_ids(&first);
@@ -3085,7 +3085,7 @@ mod tests {
         ];
         for forms in [forms.to_vec(), forms.into_iter().rev().collect()] {
             let source = format!(
-                "{}#fn main () #u64 (#return alpha-answer)\n",
+                "{}#fn main {{ #params = (); #returns = #u64; #body = ( (#return alpha-answer) ); }}\n",
                 forms.join("")
             );
             let program = crate::parse_program(&source).unwrap();
@@ -3184,8 +3184,8 @@ mod tests {
         let source = "#type Word #u64
 #struct Pair () ((left Word) (right (#ref Word)))
 #const answer Word 42u64
-#fn z ((value (#ref Word))) Word (#return (#deref value))
-#fn main () Word (#return answer)\n";
+#fn z { #params = ((value (#ref Word))); #returns = Word; #body = ( (#return (#deref value)) ); }
+#fn main { #params = (); #returns = Word; #body = ( (#return answer) ); }\n";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let declarations = checked.declarations();
