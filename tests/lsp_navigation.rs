@@ -3,16 +3,11 @@ mod support;
 #[test]
 fn generic_colon_groups_keep_callees_labels_and_values_navigable() {
     run(
-        "#fn [ {
-  #params = [function|identity];
-  #returns = ];
-  #body = ( {
+        "#fn [[function|identity]] {
           #params = { [[parameter|value]] = #u64; };
           #returns = #u64;
           #body: #return [[parameter-use|value]];
         }
-  );
-}
 #fn main {
           #params = {}; #returns = #u64;
           #body:
@@ -31,17 +26,12 @@ fn generic_colon_groups_keep_callees_labels_and_values_navigable() {
 #[test]
 fn indented_statement_headers_keep_loop_scopes_and_call_labels() {
     run(
-        "#fn [ {
-  #params = [function|identity];
-  #returns = ];
-  #body = ( {
+        "#fn [[function|identity]] {
           #params = { [[parameter|value]] = #u64; };
           #returns = #u64;
           #body:
             #return value;
         }
-  );
-}
 #fn main {
           #params = {}; #returns = #u64;
           #body:
@@ -67,10 +57,7 @@ fn indented_statement_headers_keep_loop_scopes_and_call_labels() {
 #[test]
 fn function_records_layout_calls_and_infix_keep_exact_source_roles() {
     run(
-        "#fn [ {
-  #params = [function|identity];
-  #returns = ];
-  #body = ( {
+        "#fn [[function|identity]] {
           #[[params-key|params]] = { [[binding|value]] = #u64; };
           #[[returns-key|returns]] = #u64;
           #[[requires-key|requires]][[requires-colon|:]]
@@ -78,8 +65,6 @@ fn function_records_layout_calls_and_infix_keep_exact_source_roles() {
           #[[body-key|body]][[body-colon|:]]
             #return [[body-use|value]];
         }
-  );
-}
 #fn main {
           #params = {}; #returns = #u64;
           #body = (
@@ -133,9 +118,14 @@ fn callable_intrinsic_operands_navigate_but_builtin_labels_do_not() {
 fn proven_index_has_value_operands_and_no_keyword_definition() {
     run(
         "#struct Item () (([[field|value]] #u64))
-#fn read (([[array|values]] (#ref (#array Item 4))) ([[index|position]] #usize)) #u64
+#fn read {
+  #params = (([[array|values]] (#ref (#array Item 4))) ([[index|position]] #usize));
+  #returns = #u64;
+  #body = (
              (#requires (#usize::lt [[bound-index|position]] 4usize))
              (#return (#get (#[[keyword|index-proven]] [[array-use|values]] [[index-use|position]]) [[field-use|value]]))
+  );
+}
 ",
         &[("keyword", &[]), ("bound-index", &["index"]), ("array-use", &["array"]), ("index-use", &["index"]), ("field-use", &["field"])],
     );
@@ -144,9 +134,14 @@ fn proven_index_has_value_operands_and_no_keyword_definition() {
 #[test]
 fn call_graph_has_no_user_definition_or_arguments() {
     run(
-        "#fn [[entry|main]] () #u64
+        "#fn [[entry|main]] {
+  #params = ();
+  #returns = #u64;
+  #body = (
         (#println (#[[trace|call-graph]]))
         (#return 42u64)
+  );
+}
 ",
         &[("entry", &["entry"]), ("trace", &[])],
     );
@@ -714,10 +709,10 @@ fn borrowed_and_pinned_payload_members_keep_their_declared_type() {
 fn internal_thread_signatures_and_worker_symbols_have_declaration_roles() {
     run(
         r#"
-#fn [ {
-  #params = [worker|worker];
-  #returns = ];
-  #body = ( ((value #u64)) #u64 (#return value)
+#fn [[worker|worker]] {
+  #params = ((value #u64));
+  #returns = #u64;
+  #body = ( (#return value)
   );
 }
 #thread-task Task [[worker-use|worker]]
@@ -903,14 +898,24 @@ fn enum_literals_navigate_only_variants_and_runtime_payloads() {
 #[test]
 fn contracts_resolve_predicates_subjects_and_no_keyword_definitions() {
     run(
-        "#fn [[predicate|valid]] ((value #u64)) #bool (#return true)
-#fn example (([[parameter|input]] #u64)) ()
+        "#fn [[predicate|valid]] {
+  #params = ((value #u64));
+  #returns = #bool;
+  #body = ( (#return true)
+  );
+}
+#fn example {
+  #params = (([[parameter|input]] #u64));
+  #returns = ();
+  #body = (
           (#[[requires|requires]] (#call [[use-predicate|valid]] ((value [[subject|input]]))))
           (#[[ensures|ensures]] (#call valid ((value (#[[old|old]] [[old-subject|input]])))))
           (#[[preserves|preserves]] (#call valid ((value [[preserved-subject|input]]))))
           (#[[assume|assume]] (#call valid ((value [[assumed-subject|input]]))))
           (#[[branch|if-valid]] (#call valid ((value [[validated-subject|input]]))) ())
           (#return ())
+  );
+}
 ",
         &[
             ("use-predicate", &["predicate"]),
@@ -930,10 +935,20 @@ fn contracts_resolve_predicates_subjects_and_no_keyword_definitions() {
 }
 #[test]
 fn refinement_binder_scope_is_local_to_the_type() {
-    run("#fn [[predicate|valid]] ((value #u64)) #bool (#return true)
+    run("#fn [[predicate|valid]] {
+  #params = ((value #u64));
+  #returns = #bool;
+  #body = ( (#return true)
+  );
+}
 #const [[global|value]] #u64 1u64
 #type Small (#[[where|where]] ([[binder|value]] #u64) (#call [[use|valid]] ((value [[bound|value]]))))
-#fn example () #u64 (#return [[outside|value]])
+#fn example {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return [[outside|value]])
+  );
+}
 ", &[
       ("where", &[]), ("use", &["predicate"]), ("bound", &["binder"]), ("outside", &["global"]),
     ]);
@@ -942,10 +957,20 @@ fn refinement_binder_scope_is_local_to_the_type() {
 fn postcondition_result_has_return_type_for_member_navigation() {
     run(
         "#struct Packet () (([[field|count]] #u64))
-#fn valid ((value #u64)) #bool (#return true)
-#fn make () Packet
+#fn valid {
+  #params = ((value #u64));
+  #returns = #bool;
+  #body = ( (#return true)
+  );
+}
+#fn make {
+  #params = ();
+  #returns = Packet;
+  #body = (
           (#ensures (#call valid ((value (#get (#[[result|result]]) [[projection|count]])))))
           (#return (#struct-literal Packet ((count 1u64))))
+  );
+}
 ",
         &[("result", &[]), ("projection", &["field"])],
     );
