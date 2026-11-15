@@ -49,20 +49,21 @@ fn std_string_append_and_println_example_runs_outside_checkout() {
 #[test]
 fn println_borrows_and_writes_exact_utf8_including_nul_and_empty_strings() {
     execute(
-        r#"(#std)
-      (#fn main () #u64
-        (#let bytes (#array #u8 5) (#array-of (#array #u8 5) 65u8 0u8 195u8 169u8 66u8))
-        (#let-mut text String (#match (#call String::from-utf8 ((bytes (#slice-of (#borrow bytes)))))
-          (#case (StringCreateResult.StringCreated created) created) (#case (StringCreateResult.StringCreateFailed error) (#panic))))
-        (#assert (#i64::eq (#println (#borrow text)) 0i64))
-        (#assert (#usize::eq (#call String::len ((string (#borrow text)))) 5usize))
-        (#call String::clear ((string (#borrow-mut text))))
-        (#assert (#i64::eq (#println (#borrow text)) 0i64))
-        (#assert (#match (#call String::push-char ((string (#borrow-mut text)) (value #\!)))
-          (#case StringStatus.StringOk true) (#case _ false)))
-        (#assert (#i64::eq (#println (#borrow text)) 0i64))
-        (#call String::free ((string text)))
-        (#return 42u64))"#,
+        r#"#std
+#fn main () #u64
+          (#let bytes (#array #u8 5) (#array-of (#array #u8 5) 65u8 0u8 195u8 169u8 66u8))
+          (#let-mut text String (#match (#call String::from-utf8 ((bytes (#slice-of (#borrow bytes)))))
+            (#case (StringCreateResult.StringCreated created) created) (#case (StringCreateResult.StringCreateFailed error) (#panic))))
+          (#assert (#i64::eq (#println (#borrow text)) 0i64))
+          (#assert (#usize::eq (#call String::len ((string (#borrow text)))) 5usize))
+          (#call String::clear ((string (#borrow-mut text))))
+          (#assert (#i64::eq (#println (#borrow text)) 0i64))
+          (#assert (#match (#call String::push-char ((string (#borrow-mut text)) (value #\!)))
+            (#case StringStatus.StringOk true) (#case _ false)))
+          (#assert (#i64::eq (#println (#borrow text)) 0i64))
+          (#call String::free ((string text)))
+          (#return 42u64)
+"#,
         "std-print-bytes",
         &lim::CompileConfig::default(),
         b"A\0\xc3\xa9B\n\n!\n",
@@ -80,19 +81,22 @@ fn std_is_deduplicated_across_imports_and_cannot_be_shadowed_by_local_files() {
     fs::write(scratch.path().join("string.lim"), "broken local String").unwrap();
     fs::write(
         scratch.path().join("a.lim"),
-        "(#std) (#fn a () #u64 (#return 20u64))",
+        "#std\n#fn a () #u64 (#return 20u64)\n",
     )
     .unwrap();
     fs::write(
         scratch.path().join("b.lim"),
-        "(#std) (#fn b () #u64 (#return 22u64))",
+        "#std\n#fn b () #u64 (#return 22u64)\n",
     )
     .unwrap();
     compile(
-        "(#std) (#std) (#alias a = ./a.lim::a) (#alias b = ./b.lim::b)
-      (#fn main () #u64 (#let text String (#call String::new ()))
-        (#call String::free ((string text)))
-        (#return (#u64::add-wrap (#call a ()) (#call b ()))))",
+        "#std
+#std
+#alias a = ./a.lim::a
+#alias b = ./b.lim::b
+#fn main () #u64 (#let text String (#call String::new ()))
+          (#call String::free ((string text)))
+          (#return (#u64::add-wrap (#call a ()) (#call b ())))\n",
         &scratch.path().join("main.lim"),
         &lim::CompileConfig::default(),
     )
@@ -106,10 +110,10 @@ fn formatting_skips_embedded_std_but_formats_internal_imports() {
     let child = scratch.path().join("child.lim");
     fs::write(
         &root,
-        "(#std) (#alias helper = ./child.lim::helper) (#fn main () #u64 (#return 42u64))",
+        "#std\n#alias helper = ./child.lim::helper\n#fn main () #u64 (#return 42u64)\n",
     )
     .unwrap();
-    fs::write(&child, "(#std) (#fn helper () () (#return ()))").unwrap();
+    fs::write(&child, "#std\n#fn helper () () (#return ())\n").unwrap();
     let paths = lim::format_project_from_path(&root).unwrap();
     assert_eq!(paths.len(), 2);
     assert!(paths.contains(&root) && paths.contains(&child));
@@ -122,7 +126,7 @@ fn formatting_skips_embedded_std_but_formats_internal_imports() {
 fn cfg_collection_includes_embedded_std_dependencies() {
     let scratch = support::Scratch::new("std-cfg-keys");
     let root = scratch.path().join("main.lim");
-    fs::write(&root, "(#std) (#fn main () #u64 (#return 42u64))").unwrap();
+    fs::write(&root, "#std\n#fn main () #u64 (#return 42u64)\n").unwrap();
     assert_eq!(
         lim::collect_cfg_keys_from_path(&root).unwrap(),
         vec!["#arch", "#os"]
@@ -134,10 +138,11 @@ fn unsupported_stdio_cfg_returns_enosys_without_printing() {
     let mut config = lim::CompileConfig::default();
     config.set("os", "unsupported");
     execute(
-        "(#std) (#fn main () #u64
-      (#let text String (#call String::new ()))
-      (#assert (#i64::eq (#println (#borrow text)) -38i64))
-      (#call String::free ((string text))) (#return 42u64))",
+        "#std
+#fn main () #u64
+        (#let text String (#call String::new ()))
+        (#assert (#i64::eq (#println (#borrow text)) -38i64))
+        (#call String::free ((string text))) (#return 42u64)\n",
         "std-unsupported",
         &config,
         b"",
@@ -147,37 +152,38 @@ fn unsupported_stdio_cfg_returns_enosys_without_printing() {
 #[test]
 fn std_and_println_errors_retain_exact_source_spans() {
     let cases = [
-        ("(#std wrong)", "#std takes no arguments", "(#std wrong)"),
+        ("#std wrong\n", "#std takes no arguments", "#std wrong\n"),
         (
-            "(#fn main () () (#println 1u64) (#return ()))",
+            "#fn main () () (#println 1u64) (#return ())\n",
             "add (#std)",
             "#println",
         ),
         (
-            "(#std) (#fn main () () (#println) (#return ()))",
+            "#std\n#fn main () () (#println) (#return ())\n",
             "exactly one shared String reference",
             "#println",
         ),
         (
-            "(#std) (#fn main () () (#println 1u64) (#return ()))",
+            "#std\n#fn main () () (#println 1u64) (#return ())\n",
             "expected",
             "1u64",
         ),
         (
-            "(#fn consume ((status #i64)) () (#return ()))
-             (#fn main () () (#call consume ((status (#println 1u64)))) (#return ()))",
+            "#fn consume ((status #i64)) () (#return ())
+#fn main () () (#call consume ((status (#println 1u64)))) (#return ())\n",
             "add (#std)",
             "#println",
         ),
         (
-            "(#std) (#fn main () () (#std) (#return ()))",
+            "#std\n#fn main () () (#std) (#return ())\n",
             "only valid as a top-level",
             "#std",
         ),
         (
-            "(#std) (#fn main () () (#let text String (#call String::new ()))
-             (#unsafe-call String::data-pointer ((string (#borrow text))))
-             (#call String::free ((string text))) (#return ()))",
+            "#std
+#fn main () () (#let text String (#call String::new ()))
+               (#unsafe-call String::data-pointer ((string (#borrow text))))
+               (#call String::free ((string text))) (#return ())\n",
             "unsafe",
             "String::data-pointer",
         ),
@@ -208,10 +214,11 @@ fn std_and_println_errors_retain_exact_source_spans() {
 #[test]
 fn shared_string_cannot_be_appended_to_itself() {
     let scratch = support::Scratch::new("std-self-append");
-    let source = "(#std) (#fn main () ()
-      (#let-mut text String (#call String::new ()))
-      (#call String::push-string ((string (#borrow-mut text)) (text (#borrow text))))
-      (#call String::free ((string text))) (#return ()))";
+    let source = "#std
+#fn main () ()
+        (#let-mut text String (#call String::new ()))
+        (#call String::push-string ((string (#borrow-mut text)) (text (#borrow text))))
+        (#call String::free ((string text))) (#return ())\n";
     let error = compile(
         source,
         &scratch.path().join("main.lim"),
@@ -224,14 +231,16 @@ fn shared_string_cannot_be_appended_to_itself() {
 #[test]
 fn println_returns_descriptor_errors_without_consuming_the_string() {
     execute(
-        r#"(#std) (#fn main () #u64
-      (#let chars (#array #char 1) "x")
-      (#let text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
-        (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
-      (#assert (#i64::eq (#unsafe (#linux-syscall #i64 3usize (1i64))) 0i64))
-      (#assert (#i64::eq (#println (#borrow text)) -9i64))
-      (#assert (#usize::eq (#call String::len ((string (#borrow text)))) 1usize))
-      (#call String::free ((string text))) (#return 42u64))"#,
+        r#"#std
+#fn main () #u64
+        (#let chars (#array #char 1) "x")
+        (#let text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
+          (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
+        (#assert (#i64::eq (#unsafe (#linux-syscall #i64 3usize (1i64))) 0i64))
+        (#assert (#i64::eq (#println (#borrow text)) -9i64))
+        (#assert (#usize::eq (#call String::len ((string (#borrow text)))) 1usize))
+        (#call String::free ((string text))) (#return 42u64)
+"#,
         "std-closed-stdout",
         &lim::CompileConfig::default(),
         b"",
@@ -265,7 +274,7 @@ fn injected_stdio(syscall: &str) -> String {
     }
     let mut source = include_str!("../library/stdio.lim").to_owned();
     let mut edits = Vec::new();
-    for node in lim::parse(&source).unwrap() {
+    for node in lim::parse_source_unit(&source).unwrap() {
         collect(&node, syscall, &mut edits);
     }
     assert_eq!(edits.len(), 2);
@@ -307,16 +316,18 @@ fn write_all_retries_eintr_and_short_writes_and_stops_on_zero_progress() {
         )
         .unwrap();
         let source = format!(
-            r#"(#alias String = "{root}/string.lim::String")
-          (#alias StringCreateResult = "{root}/string.lim::StringCreateResult")
-          (#alias String::from-chars = "{root}/string.lim::String::from-chars")
-          (#alias String::free = "{root}/string.lim::String::free")
-          (#alias emit = "{root}/stdio.lim::std-println") (#fn main () #u64
-          (#let chars (#array #char 3) "abc")
-          (#let text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
-            (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
-          (#assert (#i64::eq (#call emit ((text (#borrow text)))) {result}))
-          (#call String::free ((string text))) (#return 42u64))"#,
+            r#"#alias String = "{root}/string.lim::String"
+#alias StringCreateResult = "{root}/string.lim::StringCreateResult"
+#alias String::from-chars = "{root}/string.lim::String::from-chars"
+#alias String::free = "{root}/string.lim::String::free"
+#alias emit = "{root}/stdio.lim::std-println"
+#fn main () #u64
+            (#let chars (#array #char 3) "abc")
+            (#let text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
+              (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
+            (#assert (#i64::eq (#call emit ((text (#borrow text)))) {result}))
+            (#call String::free ((string text))) (#return 42u64)
+"#,
             root = scratch.path().display()
         );
         execute(&source, label, &lim::CompileConfig::default(), expected);
@@ -326,19 +337,20 @@ fn write_all_retries_eintr_and_short_writes_and_stops_on_zero_progress() {
 #[test]
 fn println_is_an_ordinary_borrow_checked_call_inside_async_functions() {
     execute(
-        r#"(#std)
-      (#generate #async-fn ((protocol work-await) (waker #u64) (function
-        (#fn work ((text (#ref String))) #u64
-          (#assert (#i64::eq (#println text) 0i64)) (#return 42u64)))))
-      (#fn main () #u64
-        (#let chars (#array #char 2) "hi")
-        (#let text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
-          (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
-        (#let waker #u64 0u64)
-        (#let result Work::Poll (#call Work::poll ((task (#call work ((text (#borrow text))))) (waker (#borrow waker)))))
-        (#let answer #u64 (#match result (#case (Work::Poll.Ready value) value)
-          (#case (Work::Poll.Pending unfinished) (#block (#forget unfinished) (#panic)))))
-        (#call String::free ((string text))) (#return answer))"#,
+        r#"#std
+#generate #async-fn ((protocol work-await) (waker #u64) (function
+          (#fn work ((text (#ref String))) #u64
+            (#assert (#i64::eq (#println text) 0i64)) (#return 42u64))))
+#fn main () #u64
+          (#let chars (#array #char 2) "hi")
+          (#let text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
+            (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
+          (#let waker #u64 0u64)
+          (#let result Work::Poll (#call Work::poll ((task (#call work ((text (#borrow text))))) (waker (#borrow waker)))))
+          (#let answer #u64 (#match result (#case (Work::Poll.Ready value) value)
+            (#case (Work::Poll.Pending unfinished) (#block (#forget unfinished) (#panic)))))
+          (#call String::free ((string text))) (#return answer)
+"#,
         "std-async-println",
         &lim::CompileConfig::default(),
         b"hi\n",

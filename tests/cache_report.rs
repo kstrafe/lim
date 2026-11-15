@@ -6,7 +6,7 @@ fn reports_hits_misses_damage_and_dependency_identity_separately() {
     let scratch = support::Scratch::new("cache-report");
     let root = scratch.path();
     let input = root.join("main.lim");
-    let source = "(#gn-fn answer () 42) (#gn value () `((#const answer #u64 ,(#gn-call answer)))) (#generate value) (#generate #optional ((type #u64) (name Maybe))) (#fn main () #u64 (#return answer))";
+    let source = "#gn-fn answer () 42\n#gn value () `((#const answer #u64 ,(#gn-call answer)))\n#generate value\n#generate #optional ((type #u64) (name Maybe))\n#fn main () #u64 (#return answer)\n";
     fs::write(&input, &source).unwrap();
     let run = |cfg: &str| {
         let (status, out, err) = support::run(
@@ -34,7 +34,7 @@ fn reports_hits_misses_damage_and_dependency_identity_separately() {
     for entry in fs::read_dir(root.join(".lim/generated")).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().is_some_and(|extension| extension == "lim") {
-            fs::write(path, "(#type Edited #u8)").unwrap();
+            fs::write(path, "#type Edited #u8\n").unwrap();
         }
     }
     assert!(run("mode=one").contains("invalid-entry"));

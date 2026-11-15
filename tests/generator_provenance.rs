@@ -10,8 +10,8 @@ fn compile(source: &str, scratch: &support::Scratch) -> Result<String, lim::Diag
     )
 }
 
-const PRODUCER: &str = "(#gn make (name variant)
-    `((#enum ,name () ((,variant #u64)))))";
+const PRODUCER: &str = "#gn make (name variant)
+      `((#enum ,name () ((,variant #u64))))\n";
 
 #[test]
 fn forward_requirements_validate_fresh_and_cached_outputs() {
@@ -30,8 +30,8 @@ fn forward_requirements_validate_fresh_and_cached_outputs() {
 #[test]
 fn matching_names_do_not_forge_generator_origin() {
     for declaration in [
-        "(#struct Fake () ())",
-        "(#gn counterfeit () `((#struct Fake () ()))) (#generate counterfeit)",
+        "#struct Fake () ()\n",
+        "#gn counterfeit () `((#struct Fake () ()))\n#generate counterfeit\n",
     ] {
         let source = format!(
             "{PRODUCER} {declaration}
@@ -54,9 +54,10 @@ fn matching_names_do_not_forge_generator_origin() {
 fn companions_from_different_invocations_are_rejected() {
     let source = format!(
         "{PRODUCER}
-      (#generate make First First.Ready) (#generate make Second Second.Ready)
-      (#require-generated First make (Second.Ready))
-      (#fn main () #u64 (#return 0u64))"
+#generate make First First.Ready
+#generate make Second Second.Ready
+#require-generated First make (Second.Ready)
+#fn main () #u64 (#return 0u64)\n"
     );
     let error = compile(&source, &support::Scratch::new("provenance-mixed")).unwrap_err();
     assert!(
@@ -71,13 +72,14 @@ fn companions_from_different_invocations_are_rejected() {
 fn duplicate_nested_invocations_keep_both_wrapper_origins() {
     let source = format!(
         "{PRODUCER}
-      (#gn first () `((#generate make Value Value.Ready)))
-      (#gn second () `((#generate make Value Value.Ready)))
-      (#generate first) (#generate second)
-      (#require-generated Value make (Value.Ready))
-      (#require-generated Value first (Value.Ready))
-      (#require-generated Value second (Value.Ready))
-      (#fn main () #u64 (#return 42u64))"
+#gn first () `((#generate make Value Value.Ready))
+#gn second () `((#generate make Value Value.Ready))
+#generate first
+#generate second
+#require-generated Value make (Value.Ready)
+#require-generated Value first (Value.Ready)
+#require-generated Value second (Value.Ready)
+#fn main () #u64 (#return 42u64)\n"
     );
     let scratch = support::Scratch::new("provenance-wrappers");
     for _ in 0..2 {
@@ -87,11 +89,11 @@ fn duplicate_nested_invocations_keep_both_wrapper_origins() {
 
 #[test]
 fn builtin_output_and_its_wrappers_have_checked_origins() {
-    let source = "(#gn wrap () `((#generate #optional ((type #u64) (name Maybe)))))
-      (#generate wrap)
-      (#require-generated Maybe #optional (Maybe.Some Maybe.None Maybe::construct))
-      (#require-generated Maybe wrap (Maybe.Some Maybe.None))
-      (#fn main () #u64 (#return 42u64))";
+    let source = "#gn wrap () `((#generate #optional ((type #u64) (name Maybe))))
+#generate wrap
+#require-generated Maybe #optional (Maybe.Some Maybe.None Maybe::construct)
+#require-generated Maybe wrap (Maybe.Some Maybe.None)
+#fn main () #u64 (#return 42u64)\n";
     let scratch = support::Scratch::new("provenance-builtin");
     for _ in 0..2 {
         compile(source, &scratch).unwrap();
@@ -111,8 +113,8 @@ fn async_companions_can_be_registered_in_a_distributed_enum() {
     // Variant identifiers are global. Registering one future in two executor
     // enums must qualify the variants by their respective executor roots.
     let two_executors = format!(
-        "{source}\n(#distributed-enum OtherExecutor ())
-        (#generate register-future @OtherExecutor @Work Work)"
+        "{source}\n#distributed-enum OtherExecutor ()
+#generate register-future @OtherExecutor @Work Work\n"
     );
     compile(&two_executors, &scratch).unwrap();
     let wrong_producer = source.replacen("#async-fn-pinned", "#optional", 1);

@@ -7,7 +7,7 @@
 /// removing the header disarms its privileges rather than trusting the
 /// generated body with compiler authority.
 pub fn ordinary_source(artifact: &str) -> String {
-    let forms = lim::parse(artifact).expect("generated artifact parses as raw syntax");
+    let forms = lim::parse_source_unit(artifact).expect("generated artifact parses as a source unit");
     let headers = forms
         .iter()
         .filter(|form| {
@@ -50,31 +50,31 @@ mod tests {
     #[test]
     fn restoring_local_names_preserves_foreign_references_and_string_data() {
         let source =
-            "(#fn /entry.lim::work () #u64 (#return /other.lim::value)) \"/entry.lim::data\"";
+            "#fn /entry.lim::work () #u64 (#return /other.lim::value)\n \"/entry.lim::data\"";
         assert_eq!(
             super::ordinary_source_in_file(source, std::path::Path::new("/entry.lim")),
-            "(#fn work () #u64 (#return /other.lim::value)) \"/entry.lim::data\""
+            "#fn work () #u64 (#return /other.lim::value)\n \"/entry.lim::data\""
         );
     }
 
     #[test]
     fn removes_multiline_header_and_preserves_comments_and_body_exactly() {
-        let header = "(#generated-context\n  compiler-owned\n  provenance)";
+        let header = "#generated-context\n    compiler-owned\n    provenance\n";
         let artifact = format!(
             "// generated file\n{header}\n// keep this comment\n(#fn generated () #u64 (#return 42u64))\n"
         );
         let expected =
-            "// generated file\n\n// keep this comment\n(#fn generated () #u64 (#return 42u64))\n";
+            "// generated file\n\n// keep this comment\n#fn generated () #u64 (#return 42u64)\n";
         assert_eq!(ordinary_source(&artifact), expected);
     }
 
     #[test]
     fn public_program_parser_still_rejects_authored_header_and_nested_text_is_untouched() {
-        let authored = "(#generated-context forged)";
+        let authored = "#generated-context forged\n";
         let error = lim::parse_program(authored).unwrap_err();
         assert!(error.contains("compiler-owned"), "{error}");
 
-        let nested = "(#fn text () (#slice #u8) (#return \"#generated-context\"))";
+        let nested = "#fn text () (#slice #u8) (#return \"#generated-context\")\n";
         assert_eq!(ordinary_source(nested), nested);
     }
 }
@@ -86,7 +86,7 @@ pub fn contains_function(source: &str, expected: &str) -> bool {
 }
 
 pub fn contains_declaration(source: &str, keyword: &str, expected: &str) -> bool {
-    lim::parse(source).unwrap().iter().any(|form| {
+    lim::parse_source_unit(source).unwrap().iter().any(|form| {
         matches!(form.children.first().map(|node| &node.expr), Some(lim::Expr::Symbol(head)) if head == keyword)
             && matches!(form.children.get(1).map(|node| &node.expr), Some(lim::Expr::Symbol(name)) if name == expected || name.ends_with(&format!("::{expected}")))
     })

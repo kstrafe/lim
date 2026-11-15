@@ -113,7 +113,7 @@ fn example_type_declarations_start_with_an_uppercase_letter() {
             continue;
         }
         let source = fs::read_to_string(root.join("examples").join(fields[2])).unwrap();
-        for node in lim::parse(&source).unwrap() {
+        for node in lim::parse_source_unit(&source).unwrap() {
             check(&node.expr, fields[2]);
         }
     }
@@ -265,7 +265,7 @@ fn compiler_rejection_is_not_a_runtime_outcome() {
     let output = scratch.0.join("program");
     fs::write(
         &source,
-        "(#fn main () #u64 (#let value #u64 false) (#return value))",
+        "#fn main () #u64 (#let value #u64 false) (#return value)\n",
     )
     .unwrap();
     let (status, _, errors) = run(

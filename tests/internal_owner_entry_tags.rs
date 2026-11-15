@@ -2,32 +2,32 @@ use std::{process::Command, time::Duration};
 mod support;
 
 const SOURCE: &str = r#"
-  (#enum Value () (Value.Empty (Value.Full #u64)))
-  (#struct Link () ((value Value) (view (#pin-ref #u64))))
-  (#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-    (#let view (#pin-ref #u64)
-      (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Value.Full)))
-    (#pin-set-field target view view) (#return target))
-  (#fn initialize-or-touch ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-    (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
-      (#block
-        (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64)))
-        (#let payload (#pin-ref-mut #u64)
-          (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
-        (#unsafe (#pin-write payload 42u64))) ())
-    (#return target))
-  (#fn full_owner () #u64
-    (#let outside #u64 0u64)
-    (#let-mut link Link (#struct-literal Link
-      ((value (Value.Full 42u64)) (view (#pin-borrow outside)))))
-    (#let installed (#pin-ref-mut Link)
-      (#call install ((target (#pin-borrow-mut link)))))
-    (#let updated (#pin-ref-mut Link)
-      (#call initialize-or-touch ((target installed))))
-    (#let answer #u64 (#deref (#get updated view)))
-    (#pin-set-field updated view (#pin-borrow outside))
-    (#drop updated) (#forget link) (#return answer))
-  (#fn main () #u64 (#return (#call full_owner ())))
+#enum Value () (Value.Empty (Value.Full #u64))
+#struct Link () ((value Value) (view (#pin-ref #u64)))
+#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+      (#let view (#pin-ref #u64)
+        (#unsafe (#pin-get-payload-unchecked (#pin-borrow (#get target value)) Value.Full)))
+      (#pin-set-field target view view) (#return target)
+#fn initialize-or-touch ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+      (#if (#variant-is (#pin-borrow (#get target value)) Value.Empty)
+        (#block
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Value.Full 40u64)))
+          (#let payload (#pin-ref-mut #u64)
+            (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
+          (#unsafe (#pin-write payload 42u64))) ())
+      (#return target)
+#fn full_owner () #u64
+      (#let outside #u64 0u64)
+      (#let-mut link Link (#struct-literal Link
+        ((value (Value.Full 42u64)) (view (#pin-borrow outside)))))
+      (#let installed (#pin-ref-mut Link)
+        (#call install ((target (#pin-borrow-mut link)))))
+      (#let updated (#pin-ref-mut Link)
+        (#call initialize-or-touch ((target installed))))
+      (#let answer #u64 (#deref (#get updated view)))
+      (#pin-set-field updated view (#pin-borrow outside))
+      (#drop updated) (#forget link) (#return answer)
+#fn main () #u64 (#return (#call full_owner ()))
 "#;
 
 fn compile(source: &str, scratch: &support::Scratch) -> Result<String, lim::Diagnostic> {
@@ -143,21 +143,21 @@ fn an_initializer_guard_does_not_authorize_writes_after_the_branch_join() {
 #[test]
 fn mutable_reference_in_enum_payload_blocks_owner_reads_through_callees() {
     let source = r#"
-      (#enum View () (View.NoView (View.HasView (#pin-ref-mut #u64))))
-      (#struct Link () ((value #u64) (view View)))
-      (#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-        (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view)))
-        (#return target))
-      (#fn observe ((target (#pin-ref-mut Link))) #u64
-        (#return (#get target value)))
-      (#fn driver () #u64
-        (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.NoView))))
-        (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
-        (#let value #u64 (#call observe ((target installed))))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
-        (#drop installed) (#forget link) (#return value))
-      (#fn main () #u64 (#return (#call driver ())))
+#enum View () (View.NoView (View.HasView (#pin-ref-mut #u64)))
+#struct Link () ((value #u64) (view View))
+#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+          (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view)))
+          (#return target)
+#fn observe ((target (#pin-ref-mut Link))) #u64
+          (#return (#get target value))
+#fn driver () #u64
+          (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.NoView))))
+          (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
+          (#let value #u64 (#call observe ((target installed))))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
+          (#drop installed) (#forget link) (#return value)
+#fn main () #u64 (#return (#call driver ()))
     "#;
     let error = compile(
         source,
@@ -181,24 +181,24 @@ fn mutable_reference_in_enum_payload_blocks_owner_reads_through_callees() {
 #[test]
 fn inactive_conditional_child_allows_guarded_owner_reads_but_active_child_does_not() {
     let source = r#"
-      (#enum View () (View.NoView (View.HasView (#pin-ref-mut #u64))))
-      (#struct Link () ((value #u64) (view View)))
-      (#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-        (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view)))
-        (#return target))
-      (#fn observe ((target (#pin-ref-mut Link))) ()
-        (#if (#variant-is (#pin-borrow (#get target view)) View.NoView)
-          (#block (#let observed #u64 (#get target value)) (#forget observed) ()) ())
-        (#return ()))
-      (#fn driver () #u64
-        (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.NoView))))
-        (#let installed (#pin-ref-mut Link)
-          (#call install ((target (#pin-borrow-mut link)))))
-        (#call observe ((target installed)))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
-        (#drop installed) (#forget link) (#return 42u64))
-      (#fn main () #u64 (#return (#call driver ())))
+#enum View () (View.NoView (View.HasView (#pin-ref-mut #u64)))
+#struct Link () ((value #u64) (view View))
+#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+          (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view)))
+          (#return target)
+#fn observe ((target (#pin-ref-mut Link))) ()
+          (#if (#variant-is (#pin-borrow (#get target view)) View.NoView)
+            (#block (#let observed #u64 (#get target value)) (#forget observed) ()) ())
+          (#return ())
+#fn driver () #u64
+          (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.NoView))))
+          (#let installed (#pin-ref-mut Link)
+            (#call install ((target (#pin-borrow-mut link)))))
+          (#call observe ((target installed)))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
+          (#drop installed) (#forget link) (#return 42u64)
+#fn main () #u64 (#return (#call driver ()))
     "#;
     let scratch = support::Scratch::new("internal-owner-conditional-observation-positive");
     let assembly = compile(source, &scratch).unwrap_or_else(|error| panic!("{error:?}"));
@@ -237,23 +237,23 @@ fn inactive_conditional_child_allows_guarded_owner_reads_but_active_child_does_n
 #[test]
 fn shared_reference_in_enum_payload_blocks_owner_mut_borrows_through_callees() {
     let source = r#"
-      (#enum View () (View.NoView (View.HasView (#pin-ref #u64))))
-      (#struct Link () ((value #u64) (view View)))
-      (#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-        (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view)))
-        (#return target))
-      (#fn mutate ((target (#pin-ref-mut Link))) ()
-        (#let writer (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-        (#unsafe (#pin-write writer 99u64))
-        (#drop writer) (#return ()))
-      (#fn driver () ()
-        (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.NoView))))
-        (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
-        (#call mutate ((target installed)))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
-        (#drop installed) (#forget link) (#return ()))
-      (#fn main () () (#call driver ()) (#return ()))
+#enum View () (View.NoView (View.HasView (#pin-ref #u64)))
+#struct Link () ((value #u64) (view View))
+#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+          (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.HasView view)))
+          (#return target)
+#fn mutate ((target (#pin-ref-mut Link))) ()
+          (#let writer (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
+          (#unsafe (#pin-write writer 99u64))
+          (#drop writer) (#return ())
+#fn driver () ()
+          (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.NoView))))
+          (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
+          (#call mutate ((target installed)))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
+          (#drop installed) (#forget link) (#return ())
+#fn main () () (#call driver ()) (#return ())
     "#;
     let error = compile(
         source,
@@ -274,25 +274,25 @@ fn shared_reference_in_enum_payload_blocks_owner_mut_borrows_through_callees() {
 #[test]
 fn mutable_reference_to_enum_payload_blocks_owner_access_through_callees() {
     let source = r#"
-      (#enum Value () (Value.Empty (Value.Full #u64)))
-      (#enum View () (View.NoView (View.Self (#pin-ref-mut #u64))))
-      (#struct Link () ((value Value) (view View)))
-      (#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-        (#let view (#pin-ref-mut #u64)
-          (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.Self view))) (#return target))
-      (#fn mutate ((target (#pin-ref-mut Link))) ()
-        (#let writer (#pin-ref-mut #u64)
-          (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
-        (#unsafe (#pin-write writer 99u64))
-        (#drop writer) (#return ()))
-      (#fn driver () ()
-        (#let-mut link Link (#struct-literal Link ((value (Value.Full 42u64)) (view View.NoView))))
-        (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
-        (#call mutate ((target installed)))
-        (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
-        (#drop installed) (#forget link) (#return ()))
-      (#fn main () () (#call driver ()) (#return ()))
+#enum Value () (Value.Empty (Value.Full #u64))
+#enum View () (View.NoView (View.Self (#pin-ref-mut #u64)))
+#struct Link () ((value Value) (view View))
+#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+          (#let view (#pin-ref-mut #u64)
+            (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (View.Self view))) (#return target)
+#fn mutate ((target (#pin-ref-mut Link))) ()
+          (#let writer (#pin-ref-mut #u64)
+            (#unsafe (#pin-get-payload-unchecked-mut (#pin-borrow-mut (#get target value)) Value.Full)))
+          (#unsafe (#pin-write writer 99u64))
+          (#drop writer) (#return ())
+#fn driver () ()
+          (#let-mut link Link (#struct-literal Link ((value (Value.Full 42u64)) (view View.NoView))))
+          (#let installed (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
+          (#call mutate ((target installed)))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) View.NoView))
+          (#drop installed) (#forget link) (#return ())
+#fn main () () (#call driver ()) (#return ())
     "#;
     let error = compile(
         source,
@@ -312,26 +312,26 @@ fn mutable_reference_to_enum_payload_blocks_owner_access_through_callees() {
 #[test]
 fn owner_checks_follow_mutable_references_stored_in_nested_owners() {
     let source = r#"
-      (#enum View () (View.Empty (View.Full (#ref-mut #u64))))
-      (#struct Inner () ((value #u64) (view View)))
-      (#struct Outer () ((inner (#ref-mut Inner))))
-      (#fn install ((target (#ref-mut Outer))) (#ref-mut Outer)
-        (#let inner (#ref-mut Inner) (#get target inner))
-        (#let child (#ref-mut #u64) (#borrow-mut (#get inner value)))
-        (#deref-set (#borrow-mut (#get inner view)) (View.Full child))
-        (#return target))
-      (#fn mutate ((target (#ref-mut Outer))) ()
-        (#let inner (#ref-mut Inner) (#get target inner))
-        (#deref-set (#borrow-mut (#get inner value)) 99u64)
-        (#return ()))
-      (#fn main () ()
-        (#let-mut inner Inner (#struct-literal Inner ((value 42u64) (view View.Empty))))
-        (#let inner-ref (#ref-mut Inner) (#borrow-mut inner))
-        (#let-mut outer Outer (#struct-literal Outer ((inner inner-ref))))
-        (#let outer-ref (#ref-mut Outer) (#borrow-mut outer))
-        (#let installed (#ref-mut Outer) (#call install ((target outer-ref))))
-        (#call mutate ((target installed)))
-        (#return ()))
+#enum View () (View.Empty (View.Full (#ref-mut #u64)))
+#struct Inner () ((value #u64) (view View))
+#struct Outer () ((inner (#ref-mut Inner)))
+#fn install ((target (#ref-mut Outer))) (#ref-mut Outer)
+          (#let inner (#ref-mut Inner) (#get target inner))
+          (#let child (#ref-mut #u64) (#borrow-mut (#get inner value)))
+          (#deref-set (#borrow-mut (#get inner view)) (View.Full child))
+          (#return target)
+#fn mutate ((target (#ref-mut Outer))) ()
+          (#let inner (#ref-mut Inner) (#get target inner))
+          (#deref-set (#borrow-mut (#get inner value)) 99u64)
+          (#return ())
+#fn main () ()
+          (#let-mut inner Inner (#struct-literal Inner ((value 42u64) (view View.Empty))))
+          (#let inner-ref (#ref-mut Inner) (#borrow-mut inner))
+          (#let-mut outer Outer (#struct-literal Outer ((inner inner-ref))))
+          (#let outer-ref (#ref-mut Outer) (#borrow-mut outer))
+          (#let installed (#ref-mut Outer) (#call install ((target outer-ref))))
+          (#call mutate ((target installed)))
+          (#return ())
     "#;
     let error = compile(
         source,
@@ -344,26 +344,26 @@ fn owner_checks_follow_mutable_references_stored_in_nested_owners() {
 #[test]
 fn unknown_direct_payload_slot_does_not_hide_a_mutable_owner_alias() {
     let source = r#"
-      (#enum View () (View.Empty (View.Full (#ref-mut #u64))))
-      (#struct Link () ((value #u64) (view View)))
-      (#fn install ((target (#ref-mut Link))) (#ref-mut Link)
-        (#let child (#ref-mut #u64) (#borrow-mut (#get target value)))
-        (#deref-set (#borrow-mut (#get target view)) (View.Full child))
-        (#return target))
-      (#fn mutate ((target (#ref-mut Link))) ()
-        (#deref-set (#borrow-mut (#get target value)) 99u64)
-        (#return ()))
-      (#fn driver ((choose #bool)) ()
-        (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.Empty))))
-        (#if choose
-          (#block
-            (#let installed (#ref-mut Link)
-              (#call install ((target (#borrow-mut link)))))
-            (#drop installed) ())
-          ())
-        (#call mutate ((target (#borrow-mut link))))
-        (#forget link) (#return ()))
-      (#fn main () () (#call driver ((choose true))) (#return ()))
+#enum View () (View.Empty (View.Full (#ref-mut #u64)))
+#struct Link () ((value #u64) (view View))
+#fn install ((target (#ref-mut Link))) (#ref-mut Link)
+          (#let child (#ref-mut #u64) (#borrow-mut (#get target value)))
+          (#deref-set (#borrow-mut (#get target view)) (View.Full child))
+          (#return target)
+#fn mutate ((target (#ref-mut Link))) ()
+          (#deref-set (#borrow-mut (#get target value)) 99u64)
+          (#return ())
+#fn driver ((choose #bool)) ()
+          (#let-mut link Link (#struct-literal Link ((value 42u64) (view View.Empty))))
+          (#if choose
+            (#block
+              (#let installed (#ref-mut Link)
+                (#call install ((target (#borrow-mut link)))))
+              (#drop installed) ())
+            ())
+          (#call mutate ((target (#borrow-mut link))))
+          (#forget link) (#return ())
+#fn main () () (#call driver ((choose true))) (#return ())
     "#;
     let error = compile(
         source,

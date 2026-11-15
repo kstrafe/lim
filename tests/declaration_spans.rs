@@ -20,7 +20,7 @@ fn declaration_failures_select_occurrences_deterministically() {
     let cache = directory.join("cache");
     for (source, expected) in [
         (
-            "(#struct Value () ())\n(#struct Value () ())\n(#struct Value () ())",
+            "#struct Value () ()\n#struct Value () ()\n#struct Value () ()\n",
             "Value",
         ),
         (
@@ -38,7 +38,7 @@ fn declaration_failures_select_occurrences_deterministically() {
             error.message
         );
         let root = directory.join("root.lim");
-        let root_source = format!("(#alias {expected} = ./input.lim::{expected})");
+        let root_source = format!("#alias {expected} = ./input.lim::{expected}\n");
         fs::write(&root, &root_source).unwrap();
         let error = diagnostic(&root_source, &root, &cache);
         assert_eq!(error.span.unwrap().start, expected_start);
@@ -58,14 +58,14 @@ fn declaration_failures_select_occurrences_deterministically() {
             previous = Some(output.stderr);
         }
     }
-    let source = "(#struct Value () ())\n(#unsafe-impl #send Value)\n(#unsafe-impl #sync Value)\n(#unsafe-impl #send Value)\n(#unsafe-impl #send Value)";
+    let source = "#struct Value () ()\n#unsafe-impl #send Value\n#unsafe-impl #sync Value\n#unsafe-impl #send Value\n#unsafe-impl #send Value\n";
     let error = diagnostic(source, &path, &cache);
     assert_eq!(
         error.span.unwrap().start,
         source.match_indices("Value").nth(3).unwrap().0
     );
 
-    let source = "(#fn worker () #u64 (#return 0u64))\n(#generate #thread-spawn ((task First) (worker worker)))\n(#generate #thread-spawn ((task Second) (worker worker)))\n(#struct Invalid () ((second First) (first Second)))";
+    let source = "#fn worker () #u64 (#return 0u64)\n#generate #thread-spawn ((task First) (worker worker))\n#generate #thread-spawn ((task Second) (worker worker))\n#struct Invalid () ((second First) (first Second))\n";
     let expected = source.find("second First").unwrap() + "second ".len();
     for _ in 0..4 {
         let error = diagnostic(source, &path, &cache);

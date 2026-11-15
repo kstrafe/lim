@@ -66,7 +66,7 @@ fn handwritten_bundle_aliases_preserve_failure_and_need_no_grow() {
 #[test]
 fn generated_provider_needs_no_special_producer() {
     let source = fixture();
-    let nodes = lim::parse(&source).unwrap();
+    let nodes = lim::parse_source_unit(&source).unwrap();
     let mut body = String::new();
     let mut provider = String::new();
     let mut cursor = 0;
@@ -83,7 +83,7 @@ fn generated_provider_needs_no_special_producer() {
     }
     body.push_str(&source[cursor..]);
     run(
-        &format!("(#gn provide () `({provider}))\n(#generate provide)\n{body}"),
+        &format!("#gn provide () `({provider})\n#generate provide\n{body}"),
         42,
     );
 }
@@ -91,7 +91,7 @@ fn generated_provider_needs_no_special_producer() {
 #[test]
 fn missing_deallocation_and_wrong_allocate_signature_are_rejected() {
     for (source, operation) in [
-        (fixture().replace("(#unsafe-fn Arena::Allocator::deallocate", "(#unsafe-fn unused-deallocate"), "deallocate"),
+        (fixture().replace("#unsafe-fn Arena::Allocator::deallocate", "(#unsafe-fn unused-deallocate"), "deallocate"),
         (fixture().replace(
             "((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation",
             "((allocator (#ref Arena)) (layout #usize) (alignment #u64)) Arena::Allocator::Allocation",
@@ -130,7 +130,7 @@ fn vector_bundle_requires_grow() {
             &format!("{}/library/", env!("CARGO_MANIFEST_DIR")),
         )
         .replace(
-            "(#unsafe-fn CountingAllocator::Allocator::grow",
+            "#unsafe-fn CountingAllocator::Allocator::grow",
             "(#unsafe-fn unused-grow",
         );
     let error = check(&source).expect_err("vector growth requires its bundle operation");
@@ -143,7 +143,7 @@ fn vector_bundle_requires_grow() {
 #[test]
 fn allocation_must_be_safe_and_unsafe_operations_require_unsafe_calls() {
     let error = check(&fixture().replace(
-        "(#fn Arena::Allocator::allocate",
+        "#fn Arena::Allocator::allocate",
         "(#unsafe-fn Arena::Allocator::allocate",
     ))
     .expect_err("consumer calls allocate safely");
@@ -168,9 +168,10 @@ fn allocation_must_be_safe_and_unsafe_operations_require_unsafe_calls() {
                 expression
             };
             let source = format!(
-                "(#std) (#fn main () #u64
-                (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
-                {expression} (#return 42u64))"
+                "#std
+#fn main () #u64
+                  (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
+                  {expression} (#return 42u64)\n"
             );
             let error = check(&source).expect_err("unsafe call contract must be enforced");
             assert!(error.message.contains("unsafe"), "{error:?}");
@@ -181,7 +182,7 @@ fn allocation_must_be_safe_and_unsafe_operations_require_unsafe_calls() {
 #[test]
 fn bundle_state_alias_does_not_extend_allocator_lifetime() {
     let source = fixture().replace(
-        "(#fn main () #u64",
+        "#fn main () #u64",
         "(#fn escape () PinU64Box
           (#let arena Arena (#struct-literal Arena ((identity 1u64) (fail false))))
           (#return (#match (#call PinU64Box::create ((allocator (#borrow arena)) (value 42u64)))
@@ -200,17 +201,17 @@ fn bundle_state_alias_does_not_extend_allocator_lifetime() {
 fn failed_vector_growth_preserves_initialized_bytes_and_destruction() {
     let source = include_str!("../examples/vec_allocator.lim");
     let start = source
-        .find("(#unsafe-fn CountingAllocator::Allocator::grow")
+        .find("#unsafe-fn CountingAllocator::Allocator::grow")
         .unwrap();
     let end = source
-        .find("(#unsafe-fn CountingAllocator::Allocator::deallocate")
+        .find("#unsafe-fn CountingAllocator::Allocator::deallocate")
         .unwrap();
     let source = format!(
-        "{}\n(#unsafe-fn CountingAllocator::Allocator::grow
-      ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
-       (old-layout #usize) (layout #usize) (alignment #usize))
-      CountingAllocator::Allocator::Allocation
-      (#return (CountingAllocator::Allocator::Allocation.AllocationFailed SystemAllocationError.SystemAllocationOutOfMemory)))\n{}",
+        "{}\n#unsafe-fn CountingAllocator::Allocator::grow
+        ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
+         (old-layout #usize) (layout #usize) (alignment #usize))
+        CountingAllocator::Allocator::Allocation
+        (#return (CountingAllocator::Allocator::Allocation.AllocationFailed SystemAllocationError.SystemAllocationOutOfMemory))\n{}",
         &source[..start],
         &source[end..]
     );
@@ -247,12 +248,12 @@ fn native_heap_counting_bundle_preserves_destruction_counts() {
 #[test]
 fn one_bundle_adapts_multiple_types_and_rejects_unknown_operations_or_options() {
     check(
-        "(#std)
-      (#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u8)
-        (name ByteAllocator) (operations (allocate grow deallocate))))
-      (#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u128)
-        (name WideAllocator) (operations (allocate deallocate))))
-      (#fn main () #u64 (#return 42u64))",
+        "#std
+#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u8)
+          (name ByteAllocator) (operations (allocate grow deallocate)))
+#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u128)
+          (name WideAllocator) (operations (allocate deallocate)))
+#fn main () #u64 (#return 42u64)\n",
     )
     .unwrap();
     for (extra, operations, message) in [
@@ -260,9 +261,9 @@ fn one_bundle_adapts_multiple_types_and_rejects_unknown_operations_or_options() 
         ("(surprise true)", "(allocate deallocate)", "unknown"),
     ] {
         let source = format!(
-            "(#std)
-          (#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u64)
-            (name TypedAllocator) (operations {operations}) {extra}))"
+            "#std
+#generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u64)
+              (name TypedAllocator) (operations {operations}) {extra})\n"
         );
         let error = check(&source).expect_err("invalid adapter options must fail expansion");
         assert_eq!(error.code_string(), "E3000");
@@ -274,33 +275,33 @@ fn one_bundle_adapts_multiple_types_and_rejects_unknown_operations_or_options() 
 #[test]
 fn system_bundle_rejects_unsupported_alignment_without_losing_storage() {
     run(
-        "(#std)
-        (#fn main () #u64
-          (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
-          (#assert (#match (#call SystemAllocator::Allocator::allocate
-            ((allocator (#borrow allocator)) (layout 16usize) (alignment 3usize)))
-            (#case (SystemAllocator::Allocator::Allocation.AllocationFailed error)
-              (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
-            (#case (SystemAllocator::Allocator::Allocation.Allocated unexpected)
-              (#block (#unsafe (#unsafe-call system-deallocate ((pointer unexpected)))) false))))
-          (#return (#match (#call SystemAllocator::Allocator::allocate
-            ((allocator (#borrow allocator)) (layout 16usize) (alignment 8usize)))
-            (#case (SystemAllocator::Allocator::Allocation.AllocationFailed error)
-              (#block (#forget error) 0u64))
-            (#case (SystemAllocator::Allocator::Allocation.Allocated pointer)
-              (#block
-                (#unsafe (#ptr-write pointer 42u8))
-                (#assert (#match (#unsafe (#unsafe-call SystemAllocator::Allocator::grow
-                  ((allocator (#borrow allocator)) (pointer pointer) (old-layout 16usize)
-                   (layout 32usize) (alignment 32usize))))
-                  (#case (SystemAllocator::Allocator::Allocation.AllocationFailed error)
-                    (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
-                  (#case (SystemAllocator::Allocator::Allocation.Allocated unexpected)
-                    (#block (#forget unexpected) false))))
-                (#let answer #u8 (#unsafe (#ptr-read pointer)))
-                (#unsafe (#unsafe-call SystemAllocator::Allocator::deallocate
-                  ((allocator (#borrow allocator)) (pointer pointer) (layout 16usize) (alignment 8usize))))
-                (#as answer #u64))))))",
+        "#std
+#fn main () #u64
+            (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
+            (#assert (#match (#call SystemAllocator::Allocator::allocate
+              ((allocator (#borrow allocator)) (layout 16usize) (alignment 3usize)))
+              (#case (SystemAllocator::Allocator::Allocation.AllocationFailed error)
+                (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
+              (#case (SystemAllocator::Allocator::Allocation.Allocated unexpected)
+                (#block (#unsafe (#unsafe-call system-deallocate ((pointer unexpected)))) false))))
+            (#return (#match (#call SystemAllocator::Allocator::allocate
+              ((allocator (#borrow allocator)) (layout 16usize) (alignment 8usize)))
+              (#case (SystemAllocator::Allocator::Allocation.AllocationFailed error)
+                (#block (#forget error) 0u64))
+              (#case (SystemAllocator::Allocator::Allocation.Allocated pointer)
+                (#block
+                  (#unsafe (#ptr-write pointer 42u8))
+                  (#assert (#match (#unsafe (#unsafe-call SystemAllocator::Allocator::grow
+                    ((allocator (#borrow allocator)) (pointer pointer) (old-layout 16usize)
+                     (layout 32usize) (alignment 32usize))))
+                    (#case (SystemAllocator::Allocator::Allocation.AllocationFailed error)
+                      (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
+                    (#case (SystemAllocator::Allocator::Allocation.Allocated unexpected)
+                      (#block (#forget unexpected) false))))
+                  (#let answer #u8 (#unsafe (#ptr-read pointer)))
+                  (#unsafe (#unsafe-call SystemAllocator::Allocator::deallocate
+                    ((allocator (#borrow allocator)) (pointer pointer) (layout 16usize) (alignment 8usize))))
+                  (#as answer #u64)))))\n",
         42,
     );
 }

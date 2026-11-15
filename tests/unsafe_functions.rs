@@ -2,7 +2,7 @@ use std::{fs, path::Path, process::Command, time::Duration};
 
 mod support;
 
-const DECLARATION: &str = "(#unsafe-fn answer () #u64 (#return 42u64))\n";
+const DECLARATION: &str = "#unsafe-fn answer () #u64 (#return 42u64)\n";
 
 fn compile(source: &str, path: &Path, cache: &Path) -> Result<String, lim::Diagnostic> {
     lim::compile_source_to_assembly(
@@ -17,7 +17,7 @@ fn compile(source: &str, path: &Path, cache: &Path) -> Result<String, lim::Diagn
 #[test]
 fn unsafe_calls_require_a_block_and_highlight_the_callee() {
     let scratch = support::Scratch::new("unsafe-function");
-    let source = format!("{DECLARATION}(#fn main () #u64 (#return (#unsafe-call answer ())))");
+    let source = format!("{DECLARATION}#fn main () #u64 (#return (#unsafe-call answer ()))\n");
     let error = compile(
         &source,
         &scratch.path().join("main.lim"),
@@ -29,7 +29,7 @@ fn unsafe_calls_require_a_block_and_highlight_the_callee() {
     let span = error.span.unwrap();
     assert_eq!(&source[span.start..span.end], "answer");
     let source =
-        format!("{DECLARATION}(#fn main () #u64 (#return (#unsafe (#unsafe-call answer ()))))");
+        format!("{DECLARATION}#fn main () #u64 (#return (#unsafe (#unsafe-call answer ())))\n");
     let assembly = compile(
         &source,
         &scratch.path().join("main.lim"),
@@ -54,7 +54,7 @@ fn unsafe_calls_require_a_block_and_highlight_the_callee() {
 #[test]
 fn declaration_does_not_make_the_function_body_implicitly_unsafe() {
     let scratch = support::Scratch::new("unsafe-body");
-    let source = "(#unsafe-fn read-byte ((pointer (#ptr #u8))) #u8 (#return (#ptr-read pointer)))";
+    let source = "#unsafe-fn read-byte ((pointer (#ptr #u8))) #u8 (#return (#ptr-read pointer))\n";
     let error = compile(
         source,
         &scratch.path().join("main.lim"),
@@ -86,19 +86,19 @@ fn call_spelling_must_match_the_declarations_safety_even_inside_unsafe() {
     for (declaration, call, message) in [
         (DECLARATION, "#call", "#unsafe-call"),
         (
-            "(#extern-fn #abi-c answer () #u64)",
+            "#extern-fn #abi-c answer () #u64\n",
             "#call",
             "#unsafe-call",
         ),
         (
-            "(#fn answer () #u64 (#return 42u64))",
+            "#fn answer () #u64 (#return 42u64)\n",
             "#unsafe-call",
             "safe function",
         ),
     ] {
         for block in ["#block", "#unsafe"] {
             let source =
-                format!("{declaration} (#fn main () #u64 (#return ({block} ({call} answer ()))))");
+                format!("{declaration}#fn main () #u64 (#return ({block} ({call} answer ())))\n");
             assert_error(&source, "E4000", message, "answer");
         }
     }
@@ -108,7 +108,7 @@ fn call_spelling_must_match_the_declarations_safety_even_inside_unsafe() {
 fn unsafe_calls_in_an_unsafe_function_body_still_require_a_block() {
     let scratch = support::Scratch::new("unsafe-body-explicit");
     let source =
-        format!("{DECLARATION} (#unsafe-fn caller () #u64 (#return (#unsafe-call answer ())))");
+        format!("{DECLARATION}#unsafe-fn caller () #u64 (#return (#unsafe-call answer ()))\n");
     assert_error(
         &source,
         "E4300",
@@ -128,7 +128,7 @@ fn unsafe_calls_in_an_unsafe_function_body_still_require_a_block() {
 
 #[test]
 fn unsafe_calls_normalize_named_arguments_and_preserve_error_spans() {
-    let declaration = "(#unsafe-fn combine ((left #u64) (right #bool)) #u64 (#return left))";
+    let declaration = "#unsafe-fn combine ((left #u64) (right #bool)) #u64 (#return left)\n";
     for (arguments, code, message, highlighted) in [
         (
             "(right true) (left 2u64) (left 3u64)",
@@ -157,7 +157,7 @@ fn unsafe_calls_normalize_named_arguments_and_preserve_error_spans() {
         ),
     ] {
         let source = format!(
-            "{declaration} (#fn main () #u64 (#return (#unsafe (#unsafe-call combine ({arguments})))))"
+            "{declaration}#fn main () #u64 (#return (#unsafe (#unsafe-call combine ({arguments}))))\n"
         );
         let error = assert_error(&source, code, message, highlighted);
         if message == "more than once" {
@@ -172,14 +172,14 @@ fn unsafe_calls_normalize_named_arguments_and_preserve_error_spans() {
 #[test]
 fn nested_unsafe_named_argument_errors_highlight_the_inner_value() {
     let declarations = "
-      (#unsafe-fn combine ((left #u64) (right #bool)) #u64 (#return left))
-      (#fn ready ((value #bool)) #bool (#return value))
-      (#unsafe-fn guarded-ready ((value #bool)) #bool (#return value))";
+#unsafe-fn combine ((left #u64) (right #bool)) #u64 (#return left)
+#fn ready ((value #bool)) #bool (#return value)
+#unsafe-fn guarded-ready ((value #bool)) #bool (#return value)\n";
     for call in ["#call ready", "#unsafe-call guarded-ready"] {
         let source = format!(
-            "{declarations} (#fn main () #u64
-              (#return (#unsafe (#unsafe-call combine
-                ((right ({call} ((value 1u64)))) (left 2u64))))))"
+            "{declarations}#fn main () #u64
+                (#return (#unsafe (#unsafe-call combine
+                  ((right ({call} ((value 1u64)))) (left 2u64)))))\n"
         );
         assert_error(&source, "E4000", "expected Bool", "1u64");
     }
@@ -189,21 +189,21 @@ fn nested_unsafe_named_argument_errors_highlight_the_inner_value() {
 fn unsafe_named_arguments_evaluate_once_in_written_order() {
     let scratch = support::Scratch::new("unsafe-call-order");
     let source = "
-      (#fn next ((counter (#ref-mut #u64)) (expected #u64)) #u64
-        (#assert (#u64::eq (#deref counter) expected))
-        (#deref-set counter (#u64::add-wrap expected 1u64))
-        (#return expected))
-      (#unsafe-fn combine ((left #u64) (right #u64)) #u64
-        (#assert (#u64::eq left 1u64))
-        (#assert (#u64::eq right 0u64))
-        (#return 42u64))
-      (#fn main () #u64
-        (#let-mut counter #u64 0u64)
-        (#let result #u64 (#unsafe (#unsafe-call combine
-          ((right (#call next ((counter (#borrow-mut counter)) (expected 0u64))))
-           (left (#call next ((counter (#borrow-mut counter)) (expected 1u64))))))))
-        (#assert (#u64::eq counter 2u64))
-        (#return result))";
+#fn next ((counter (#ref-mut #u64)) (expected #u64)) #u64
+          (#assert (#u64::eq (#deref counter) expected))
+          (#deref-set counter (#u64::add-wrap expected 1u64))
+          (#return expected)
+#unsafe-fn combine ((left #u64) (right #u64)) #u64
+          (#assert (#u64::eq left 1u64))
+          (#assert (#u64::eq right 0u64))
+          (#return 42u64)
+#fn main () #u64
+          (#let-mut counter #u64 0u64)
+          (#let result #u64 (#unsafe (#unsafe-call combine
+            ((right (#call next ((counter (#borrow-mut counter)) (expected 0u64))))
+             (left (#call next ((counter (#borrow-mut counter)) (expected 1u64))))))))
+          (#assert (#u64::eq counter 2u64))
+          (#return result)\n";
     let assembly = compile(
         source,
         &scratch.path().join("main.lim"),
@@ -230,22 +230,22 @@ fn external_imports_and_generated_declarations_preserve_safety() {
     let scratch = support::Scratch::new("unsafe-import-generator");
     fs::write(
         scratch.path().join("module.lim"),
-        format!("{DECLARATION}\n(#fn safe-answer () #u64 (#return 42u64))\n(#extern-fn #abi-c foreign-answer () #u64)"),
+        format!("{DECLARATION}\n#fn safe-answer () #u64 (#return 42u64)\n#extern-fn #abi-c foreign-answer () #u64\n"),
     )
     .unwrap();
     for (declarations, unsafe_names, safe_name) in [
         (
-            "(#alias answer = ./module.lim::answer)\n(#alias foreign-answer = ./module.lim::foreign-answer)\n(#alias safe-answer = ./module.lim::safe-answer)",
+            "#alias answer = ./module.lim::answer\n#alias foreign-answer = ./module.lim::foreign-answer\n#alias safe-answer = ./module.lim::safe-answer\n",
             &["answer", "foreign-answer"][..],
             "safe-answer",
         ),
         (
-            "(#alias ext@answer = ./module.lim::answer)\n(#alias ext@foreign-answer = ./module.lim::foreign-answer)\n(#alias ext@safe-answer = ./module.lim::safe-answer)",
+            "#alias ext@answer = ./module.lim::answer\n#alias ext@foreign-answer = ./module.lim::foreign-answer\n#alias ext@safe-answer = ./module.lim::safe-answer\n",
             &["ext@answer", "ext@foreign-answer"][..],
             "ext@safe-answer",
         ),
         (
-            "(#gn make (name safe-name) `((#unsafe-fn ,name () #u64 (#return 42u64)) (#fn ,safe-name () #u64 (#return 42u64)))) (#generate make answer safe-answer)",
+            "#gn make (name safe-name) `((#unsafe-fn ,name () #u64 (#return 42u64)) (#fn ,safe-name () #u64 (#return 42u64)))\n#generate make answer safe-answer\n",
             &["answer"][..],
             "safe-answer",
         ),
@@ -257,7 +257,7 @@ fn external_imports_and_generated_declarations_preserve_safety() {
                 ("#unsafe-call", "#block", Some("E4300"), "requires an enclosing"),
                 ("#unsafe-call", "#unsafe", None, ""),
             ] {
-                let source = format!("{declarations} (#fn main () #u64 (#return ({block} ({call} {name} ()))))");
+                let source = format!("{declarations}#fn main () #u64 (#return ({block} ({call} {name} ())))\n");
                 let result = compile(&source, &scratch.path().join("main.lim"), &scratch.path().join("cache"));
                 if let Some(code) = code {
                     let error = result.unwrap_err();
@@ -271,7 +271,7 @@ fn external_imports_and_generated_declarations_preserve_safety() {
             }
         }
         for (call, expected_code) in [("#call", None), ("#unsafe-call", Some("E4000"))] {
-            let source = format!("{declarations} (#fn main () #u64 (#return (#unsafe ({call} {safe_name} ()))))");
+            let source = format!("{declarations}#fn main () #u64 (#return (#unsafe ({call} {safe_name} ())))\n");
             let result = compile(&source, &scratch.path().join("main.lim"), &scratch.path().join("cache"));
             if let Some(code) = expected_code {
                 let error = result.unwrap_err();
@@ -295,10 +295,9 @@ fn generated_gensym_calls_preserve_safety_and_cached_diagnostic_spans() {
         ("#fn", "#unsafe-call", Some("safe function")),
     ] {
         let source = format!(
-            "(#gn-fn emit (name) `(({declaration} ,name () #u64 (#return 42u64))
-              (#fn main () #u64 (#return (#unsafe ({call} ,name ()))))))
-             (#gn generate () (#gn-call emit (#gn-gensym \"answer\")))
-             (#generate generate)"
+            "#gn-fn emit (name) `(({declaration} ,name () #u64 (#return 42u64))
+                (#fn main () #u64 (#return (#unsafe ({call} ,name ())))))
+#gn generate () (#gn-call emit (#gn-gensym \"answer\"))\n#generate generate\n"
         );
         let compile = || {
             compile(
@@ -331,9 +330,9 @@ fn generated_gensym_calls_preserve_safety_and_cached_diagnostic_spans() {
 fn implicit_entry_points_cannot_bypass_unsafe_calls() {
     let scratch = support::Scratch::new("unsafe-implicit-call");
     for (source, message) in [
-        ("(#unsafe-fn main () #u64 (#return 42u64))", "implicit entry point 'main' must be safe"),
-        ("(#struct Value () ((n #u64))) (#unsafe-fn Value::clone ((value Value)) Value (#return value))", "implicit entry point 'Value::clone' must be safe"),
-        ("(#unsafe-fn worker () #u64 (#return 42u64)) (#generate #thread-spawn ((task Task) (worker worker)))", "thread worker 'worker' must be safe"),
+        ("#unsafe-fn main () #u64 (#return 42u64)\n", "implicit entry point 'main' must be safe"),
+        ("#struct Value () ((n #u64))\n#unsafe-fn Value::clone ((value Value)) Value (#return value)\n", "implicit entry point 'Value::clone' must be safe"),
+        ("#unsafe-fn worker () #u64 (#return 42u64)\n#generate #thread-spawn ((task Task) (worker worker))\n", "thread worker 'worker' must be safe"),
     ] {
         let error = compile(source, &scratch.path().join("main.lim"), &scratch.path().join("cache")).unwrap_err();
         assert!(error.message.contains(message), "{}", error.message);
@@ -345,7 +344,7 @@ fn implicit_entry_points_cannot_bypass_unsafe_calls() {
 fn io_uring_raw_pointer_contracts_are_enforced() {
     let scratch = support::Scratch::new("unsafe-syscall");
     let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/linux_x86_64.lim");
-    let source = format!("(#alias linux-io-uring-setup = \"{}::linux-io-uring-setup\") (#fn main () #i64 (#return (#unsafe-call linux-io-uring-setup ((entries 2u32) (parameters (#ptr-null (#ptr-mut #u8)))))))", library.to_str().unwrap());
+    let source = format!("#alias linux-io-uring-setup = \"{}::linux-io-uring-setup\"\n#fn main () #i64 (#return (#unsafe-call linux-io-uring-setup ((entries 2u32) (parameters (#ptr-null (#ptr-mut #u8))))))\n", library.to_str().unwrap());
     let error = compile(
         &source,
         &scratch.path().join("main.lim"),
@@ -383,7 +382,7 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
                 };
                 arguments.push_str(&format!(" ({name} {name})"));
             }
-            let signature = format!("(#fn probe-{name} {parameters} {result}");
+            let signature = format!("#fn probe-{name} {parameters} {result}");
             let call = format!("(#unsafe-call {name} ({arguments}))");
             // The structural coverage suite compares signatures. Here retain
             // one spelling: cfg branches may format the same types differently.
@@ -398,17 +397,17 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
     let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/linux_x86_64.lim");
     let contents = fs::read_to_string(&library).unwrap();
     let mut probes = BTreeMap::new();
-    for node in lim::parse(&contents).unwrap() {
+    for node in lim::parse_source_unit(&contents).unwrap() {
         collect(&node, &contents, &mut probes);
     }
     assert!(probes.len() >= 201);
     let mut import = String::new();
-    for node in lim::parse(&contents).unwrap() {
+    for node in lim::parse_source_unit(&contents).unwrap() {
         fn types(node: &lim::SpannedExpr, path: &Path, output: &mut String) {
             if matches!(node.children.first().map(|n| &n.expr), Some(lim::Expr::Symbol(head)) if matches!(head.as_str(), "#struct" | "#enum" | "#type"))
             {
                 if let lim::Expr::Symbol(name) = &node.children[1].expr {
-                    let line = format!("(#alias {name} = \"{}::{name}\")\n", path.display());
+                    let line = format!("#alias {name} = \"{}::{name}\"\n", path.display());
                     if !output.contains(&line) {
                         output.push_str(&line);
                     }
@@ -422,7 +421,7 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
     }
     for name in probes.keys() {
         import.push_str(&format!(
-            "(#alias {name} = \"{}::{name}\")\n",
+            "#alias {name} = \"{}::{name}\"\n",
             library.display()
         ));
     }
@@ -434,7 +433,7 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
         config.set("arch", "x86_64");
         let mut explicit = import.clone();
         for (name, (signature, call)) in &probes {
-            let source = format!("{import}{signature} (#return {call}))");
+            let source = format!("{import}{signature} (#return {call})");
             let error = lim::compile_source_to_assembly(
                 &source,
                 &path,
@@ -460,7 +459,7 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
                 name,
                 "{os}: diagnostic location"
             );
-            explicit.push_str(&format!("{signature} (#return (#unsafe {call})))\n"));
+            explicit.push_str(&format!("{signature} (#return (#unsafe {call})))"));
         }
         // Compile but do not execute: these forwarders intentionally have no
         // resources or valid buffers of their own. Runtime behavior is tested
@@ -479,8 +478,8 @@ fn every_unsafe_linux_wrapper_requires_a_block_in_both_cfg_branches() {
 #[test]
 fn safe_generator_capabilities_reject_unsafe_operations() {
     let scratch = support::Scratch::new("unsafe-capability");
-    let source = "(#unsafe-fn less ((a (#ref #u64)) (b (#ref #u64))) #bool (#return false))
-      (#capability ordered #u64 ((less ((#ref #u64) (#ref #u64)) #bool)))";
+    let source = "#unsafe-fn less ((a (#ref #u64)) (b (#ref #u64))) #bool (#return false)
+#capability ordered #u64 ((less ((#ref #u64) (#ref #u64)) #bool))\n";
     let error = compile(
         source,
         &scratch.path().join("main.lim"),

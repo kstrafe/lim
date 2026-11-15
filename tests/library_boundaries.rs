@@ -8,17 +8,17 @@ fn write(base: &Path, path: &str, source: &str) {
 }
 
 fn library(base: &Path) {
-    write(base, "collection/lib.lim", "(#export Collection collection-new collection-read collection-destroy) (#alias Collection = ./storage.lim::Collection) (#alias collection-new = ./storage.lim::collection-new) (#alias collection-read = ./storage.lim::collection-read) (#alias collection-destroy = ./storage.lim::collection-destroy)");
+    write(base, "collection/lib.lim", "#export Collection collection-new collection-read collection-destroy\n#alias Collection = ./storage.lim::Collection\n#alias collection-new = ./storage.lim::collection-new\n#alias collection-read = ./storage.lim::collection-read\n#alias collection-destroy = ./storage.lim::collection-destroy\n");
     write(
         base,
         "collection/storage.lim",
         "
-      (#struct Collection (#linear) ((capacity #u64)))
-      (#fn private-capacity () #u64 (#return 42u64))
-      (#fn collection-new () Collection
-        (#return (#struct-literal Collection ((capacity (#call private-capacity ()))))))
-      (#fn collection-read ((value (#ref Collection))) #u64 (#return (#get value capacity)))
-      (#fn collection-destroy ((value Collection)) () (#forget value) (#return ()))",
+#struct Collection (#linear) ((capacity #u64))
+#fn private-capacity () #u64 (#return 42u64)
+#fn collection-new () Collection
+          (#return (#struct-literal Collection ((capacity (#call private-capacity ())))))
+#fn collection-read ((value (#ref Collection))) #u64 (#return (#get value capacity))
+#fn collection-destroy ((value Collection)) () (#forget value) (#return ())\n",
     );
 }
 
@@ -89,13 +89,13 @@ fn identical_expansions_in_different_libraries_do_not_merge_ownership() {
     let scratch = support::Scratch::new("generator-instance-ownership");
     // Identical inputs expand in their invocation files. Their canonical
     // identities must remain distinct on cold and warm cache paths.
-    write(scratch.path(), "numbers/lib.lim", "(#export make) (#gn make (name) `((#type ,(#gn-symbol name) #u64))) (#generate make \"Hidden\")");
+    write(scratch.path(), "numbers/lib.lim", "#export make\n#gn make (name) `((#type ,(#gn-symbol name) #u64))\n#generate make \"Hidden\"\n");
     write(scratch.path(), "main.lim", "");
     for imports in [
-        "(#alias nums@make = ./numbers/lib.lim::make) (#generate nums@make \"Hidden\")",
-        "(#generate nums@make \"Hidden\") (#alias nums@make = ./numbers/lib.lim::make)",
+        "#alias nums@make = ./numbers/lib.lim::make\n#generate nums@make \"Hidden\"\n",
+        "#generate nums@make \"Hidden\"\n#alias nums@make = ./numbers/lib.lim::make\n",
     ] {
-        let source = format!("{imports} (#fn main () #u64 (#return 0u64))");
+        let source = format!("{imports}#fn main () #u64 (#return 0u64)\n");
         check_cache_modes_with_identities(
             scratch.path(),
             &source,
@@ -111,14 +111,14 @@ fn repeated_aliases_share_their_internal_dependencies() {
     write(
         scratch.path(),
         "numbers/lib.lim",
-        "(#export read) (#alias read = ./implementation.lim::read)",
+        "#export read\n#alias read = ./implementation.lim::read\n",
     );
     write(
         scratch.path(),
         "numbers/implementation.lim",
-        "(#generate #optional ((type #u64) (name Number))) (#fn read () #u64 (#return 42u64))",
+        "#generate #optional ((type #u64) (name Number))\n#fn read () #u64 (#return 42u64)\n",
     );
-    check_cache_modes_with_identities(scratch.path(), "(#alias first@read = ./numbers/lib.lim::read) (#alias second@read = ./numbers/lib.lim::read) (#fn main () #u64 (#return (#u64::add-wrap (#call first@read ()) (#call second@read ()))))", None, &[("numbers/implementation.lim", "read")]);
+    check_cache_modes_with_identities(scratch.path(), "#alias first@read = ./numbers/lib.lim::read\n#alias second@read = ./numbers/lib.lim::read\n#fn main () #u64 (#return (#u64::add-wrap (#call first@read ()) (#call second@read ())))\n", None, &[("numbers/implementation.lim", "read")]);
 }
 
 #[test]
@@ -127,24 +127,24 @@ fn repeated_aliases_share_transitive_dependencies() {
     write(
         scratch.path(),
         "leaf/lib.lim",
-        "(#export read) (#fn read () #u64 (#return 42u64))",
+        "#export read\n#fn read () #u64 (#return 42u64)\n",
     );
-    write(scratch.path(), "middle/lib.lim", "(#export read) (#alias leaf@read = ../leaf/lib.lim::read) (#fn read () #u64 (#return (#call leaf@read ())))");
-    check_cache_modes_with_identities(scratch.path(), "(#alias first@read = ./middle/lib.lim::read) (#alias second@read = ./middle/lib.lim::read) (#fn main () #u64 (#return (#u64::add-wrap (#call first@read ()) (#call second@read ()))))", None, &[("middle/lib.lim", "read"), ("leaf/lib.lim", "read")]);
+    write(scratch.path(), "middle/lib.lim", "#export read\n#alias leaf@read = ../leaf/lib.lim::read\n#fn read () #u64 (#return (#call leaf@read ()))\n");
+    check_cache_modes_with_identities(scratch.path(), "#alias first@read = ./middle/lib.lim::read\n#alias second@read = ./middle/lib.lim::read\n#fn main () #u64 (#return (#u64::add-wrap (#call first@read ()) (#call second@read ())))\n", None, &[("middle/lib.lim", "read"), ("leaf/lib.lim", "read")]);
 }
 
 #[test]
 fn nested_builtin_expansions_do_not_merge_across_boundaries() {
     let scratch = support::Scratch::new("library-builtin-expansion-ownership");
-    write(scratch.path(), "numbers/lib.lim", "(#export make) (#gn make (name) `((#generate #optional ((type #u64) (name ,(#gn-symbol name)))))) (#generate make \"Hidden\")");
+    write(scratch.path(), "numbers/lib.lim", "#export make\n#gn make (name) `((#generate #optional ((type #u64) (name ,(#gn-symbol name)))))\n#generate make \"Hidden\"\n");
     write(scratch.path(), "main.lim", "");
     for imports in [
-        "(#alias nums@make = ./numbers/lib.lim::make) (#generate nums@make \"Hidden\")",
-        "(#generate nums@make \"Hidden\") (#alias nums@make = ./numbers/lib.lim::make)",
+        "#alias nums@make = ./numbers/lib.lim::make\n#generate nums@make \"Hidden\"\n",
+        "#generate nums@make \"Hidden\"\n#alias nums@make = ./numbers/lib.lim::make\n",
     ] {
         check_cache_modes_with_identities(
             scratch.path(),
-            &format!("{imports} (#fn main () #u64 (#return 0u64))"),
+            &format!("{imports}#fn main () #u64 (#return 0u64)\n"),
             None,
             &[("numbers/lib.lim", "Hidden"), ("main.lim", "Hidden")],
         );
@@ -154,10 +154,10 @@ fn nested_builtin_expansions_do_not_merge_across_boundaries() {
 #[test]
 fn identical_expansions_still_deduplicate_inside_one_source_file() {
     let scratch = support::Scratch::new("library-local-expansion-dedup");
-    write(scratch.path(), "numbers/lib.lim", "(#export read) (#gn make (name) `((#type ,(#gn-symbol name) #u64))) (#generate make \"Hidden\") (#generate make \"Hidden\") (#fn read () #u64 (#let value Hidden 42u64) (#return value))");
+    write(scratch.path(), "numbers/lib.lim", "#export read\n#gn make (name) `((#type ,(#gn-symbol name) #u64))\n#generate make \"Hidden\"\n#generate make \"Hidden\"\n#fn read () #u64 (#let value Hidden 42u64) (#return value)\n");
     check_cache_modes_with_identities(
         scratch.path(),
-        "(#alias read = ./numbers/lib.lim::read) (#fn main () #u64 (#return (#call read ())))",
+        "#alias read = ./numbers/lib.lim::read\n#fn main () #u64 (#return (#call read ()))\n",
         None,
         &[("numbers/lib.lim", "Hidden")],
     );
@@ -166,40 +166,40 @@ fn identical_expansions_still_deduplicate_inside_one_source_file() {
 #[test]
 fn generated_references_cannot_guess_another_librarys_private_declarations() {
     let scratch = support::Scratch::new("library-generated-private-access");
-    write(scratch.path(), "numbers/lib.lim", "(#export read) (#fn secret () #u64 (#return 42u64)) (#fn read () #u64 (#return (#call secret ())))");
+    write(scratch.path(), "numbers/lib.lim", "#export read\n#fn secret () #u64 (#return 42u64)\n#fn read () #u64 (#return (#call secret ()))\n");
     let secret = format!(
         "{}::secret",
         scratch.path().join("numbers/lib.lim").display()
     );
-    let source = format!("(#alias first = ./numbers/lib.lim::read) (#alias second = ./numbers/lib.lim::read) (#gn forge (target) `((#fn stolen () #u64 (#return (#call ,(#gn-symbol target) ()))))) (#generate forge {secret:?}) (#fn main () #u64 (#return 0u64))");
+    let source = format!("#alias first = ./numbers/lib.lim::read\n#alias second = ./numbers/lib.lim::read\n#gn forge (target) `((#fn stolen () #u64 (#return (#call ,(#gn-symbol target) ()))))\n#generate forge {secret:?}\n#fn main () #u64 (#return 0u64)\n");
     check_cache_modes(scratch.path(), &source, Some("private"));
 }
 
 #[test]
 fn standard_declarations_are_shared_through_multiple_aliases() {
     let scratch = support::Scratch::new("library-standard-instance-dedup");
-    write(scratch.path(), "numbers/lib.lim", "(#export read) (#std) (#fn read () #u64 (#let text String (#call String::new ())) (#call String::free ((string text))) (#return 42u64))");
-    check_cache_modes(scratch.path(), "(#std) (#alias first@read = ./numbers/lib.lim::read) (#alias second@read = ./numbers/lib.lim::read) (#fn main () #u64 (#return 0u64))", None);
+    write(scratch.path(), "numbers/lib.lim", "#export read\n#std\n#fn read () #u64 (#let text String (#call String::new ())) (#call String::free ((string text))) (#return 42u64)\n");
+    check_cache_modes(scratch.path(), "#std\n#alias first@read = ./numbers/lib.lim::read\n#alias second@read = ./numbers/lib.lim::read\n#fn main () #u64 (#return 0u64)\n", None);
     // Loading std through a library first preserves its identities and labels.
-    check_cache_modes(scratch.path(), "(#alias first@read = ./numbers/lib.lim::read) (#alias second@read = ./numbers/lib.lim::read) (#std) (#fn main () #u64 (#let text String (#call String::new ())) (#call String::free ((string text))) (#return 0u64))", None);
+    check_cache_modes(scratch.path(), "#alias first@read = ./numbers/lib.lim::read\n#alias second@read = ./numbers/lib.lim::read\n#std\n#fn main () #u64 (#let text String (#call String::new ())) (#call String::free ((string text))) (#return 0u64)\n", None);
 }
 
 #[test]
 fn exported_generators_can_use_private_nested_generators_transitively() {
     let scratch = support::Scratch::new("library-nested-generator-implementation");
-    write(scratch.path(), "leaf/lib.lim", "(#export make) (#gn implementation (name) `((#type ,(#gn-symbol name) #u64))) (#gn make (name) `((#generate implementation ,name)))");
-    write(scratch.path(), "middle/lib.lim", "(#export build) (#alias leaf@make = ../leaf/lib.lim::make) (#gn build (name) `((#generate leaf@make ,name)))");
-    check_cache_modes(scratch.path(), "(#alias middle@build = ./middle/lib.lim::build) (#generate middle@build \"ApplicationNumber\") (#fn main () #u64 (#let number ApplicationNumber 42u64) (#return number))", None);
-    check_cache_modes(scratch.path(), "(#alias middle@leaf@make = ./middle/lib.lim::leaf@make) (#generate middle@leaf@make \"ApplicationNumber\") (#fn main () #u64 (#return 0u64))", Some("not exported"));
-    check_cache_modes(scratch.path(), "(#alias middle@leaf@implementation = ./middle/lib.lim::leaf@implementation) (#generate middle@leaf@implementation \"ApplicationNumber\") (#fn main () #u64 (#return 0u64))", Some("private"));
-    write(scratch.path(), "middle/lib.lim", "(#export build) (#alias leaf@make = ../leaf/lib.lim::make) (#gn build (name) `((#generate leaf@make ,name))) (#generate build \"Hidden\")");
+    write(scratch.path(), "leaf/lib.lim", "#export make\n#gn implementation (name) `((#type ,(#gn-symbol name) #u64))\n#gn make (name) `((#generate implementation ,name))\n");
+    write(scratch.path(), "middle/lib.lim", "#export build\n#alias leaf@make = ../leaf/lib.lim::make\n#gn build (name) `((#generate leaf@make ,name))\n");
+    check_cache_modes(scratch.path(), "#alias middle@build = ./middle/lib.lim::build\n#generate middle@build \"ApplicationNumber\"\n#fn main () #u64 (#let number ApplicationNumber 42u64) (#return number)\n", None);
+    check_cache_modes(scratch.path(), "#alias middle@leaf@make = ./middle/lib.lim::leaf@make\n#generate middle@leaf@make \"ApplicationNumber\"\n#fn main () #u64 (#return 0u64)\n", Some("not exported"));
+    check_cache_modes(scratch.path(), "#alias middle@leaf@implementation = ./middle/lib.lim::leaf@implementation\n#generate middle@leaf@implementation \"ApplicationNumber\"\n#fn main () #u64 (#return 0u64)\n", Some("private"));
+    write(scratch.path(), "middle/lib.lim", "#export build\n#alias leaf@make = ../leaf/lib.lim::make\n#gn build (name) `((#generate leaf@make ,name))\n#generate build \"Hidden\"\n");
     for imports in [
-        "(#alias middle@build = ./middle/lib.lim::build) (#generate middle@build \"Hidden\")",
-        "(#generate middle@build \"Hidden\") (#alias middle@build = ./middle/lib.lim::build)",
+        "#alias middle@build = ./middle/lib.lim::build\n#generate middle@build \"Hidden\"\n",
+        "#generate middle@build \"Hidden\"\n#alias middle@build = ./middle/lib.lim::build\n",
     ] {
         check_cache_modes(
             scratch.path(),
-            &format!("{imports} (#fn main () #u64 (#return 0u64))"),
+            &format!("{imports}#fn main () #u64 (#return 0u64)\n"),
             None,
         );
     }
@@ -211,15 +211,15 @@ fn hygienic_names_are_fresh_per_expansion_instance_on_cache_hits() {
     write(
         scratch.path(),
         "numbers/lib.lim",
-        "(#export make) (#gn make () `((#type ,(#gn-gensym \"hidden\") #u64))) (#generate make)",
+        "#export make\n#gn make () `((#type ,(#gn-gensym \"hidden\") #u64))\n#generate make\n",
     );
     for imports in [
-        "(#alias nums@make = ./numbers/lib.lim::make) (#generate nums@make)",
-        "(#generate nums@make) (#alias nums@make = ./numbers/lib.lim::make)",
+        "#alias nums@make = ./numbers/lib.lim::make\n#generate nums@make\n",
+        "#generate nums@make\n#alias nums@make = ./numbers/lib.lim::make\n",
     ] {
         check_cache_modes(
             scratch.path(),
-            &format!("{imports} (#fn main () #u64 (#return 0u64))"),
+            &format!("{imports}#fn main () #u64 (#return 0u64)\n"),
             None,
         );
     }
@@ -231,16 +231,16 @@ fn generated_only_libraries_retain_their_import_ancestry() {
     write(
         scratch.path(),
         "leaf/lib.lim",
-        "(#export make) (#gn make (name) `((#type ,name #u64)))",
+        "#export make\n#gn make (name) `((#type ,name #u64))\n",
     );
     write(
         scratch.path(),
         "middle/lib.lim",
-        "(#export Number) (#alias leaf@make = ../leaf/lib.lim::make) (#generate leaf@make Number)",
+        "#export Number\n#alias leaf@make = ../leaf/lib.lim::make\n#generate leaf@make Number\n",
     );
     check_cache_modes(
         scratch.path(),
-        "(#alias middle@Number = ./middle/lib.lim::Number) (#fn main () middle@Number (#return 42u64))",
+        "#alias middle@Number = ./middle/lib.lim::Number\n#fn main () middle@Number (#return 42u64)\n",
         None,
     );
 }
@@ -251,26 +251,29 @@ fn canonical_path_delimiters_cannot_alias_other_files() {
     write(
         scratch.path(),
         "first:external:second.lim",
-        "(#fn read () #u64 (#return 1u64))",
+        "#fn read () #u64 (#return 1u64)\n",
     );
     write(
         scratch.path(),
         "first.lim",
-        "(#fn read () #u64 (#return 2u64))",
+        "#fn read () #u64 (#return 2u64)\n",
     );
-    check_cache_modes(scratch.path(), "(#alias p@read = ./first:external:second.lim::read) (#alias second:external:p@read = ./first.lim::read) (#fn main () #u64 (#return (#u64::add-wrap (#call p@read ()) (#call second:external:p@read ()))))", None);
+    check_cache_modes(scratch.path(), "#alias p@read = ./first:external:second.lim::read\n#alias second:external:p@read = ./first.lim::read\n#fn main () #u64 (#return (#u64::add-wrap (#call p@read ()) (#call second:external:p@read ())))\n", None);
 }
 
 #[test]
 fn public_api_runs_with_explicit_aliases_and_no_public_representation() {
     let scratch = support::Scratch::new("library-api");
     library(scratch.path());
-    let source = "(#alias collections@Collection = ./collection/lib.lim::Collection) (#alias collections@collection-destroy = ./collection/lib.lim::collection-destroy) (#alias collections@collection-new = ./collection/lib.lim::collection-new) (#alias collections@collection-read = ./collection/lib.lim::collection-read)
-      (#fn main () #u64
-        (#let value collections@Collection (#call collections@collection-new ()))
-        (#let answer #u64 (#call collections@collection-read ((value (#borrow value)))))
-        (#call collections@collection-destroy ((value value)))
-        (#return answer))";
+    let source = "#alias collections@Collection = ./collection/lib.lim::Collection
+#alias collections@collection-destroy = ./collection/lib.lim::collection-destroy
+#alias collections@collection-new = ./collection/lib.lim::collection-new
+#alias collections@collection-read = ./collection/lib.lim::collection-read
+#fn main () #u64
+          (#let value collections@Collection (#call collections@collection-new ()))
+          (#let answer #u64 (#call collections@collection-read ((value (#borrow value)))))
+          (#call collections@collection-destroy ((value value)))
+          (#return answer)\n";
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let binary = scratch.path().join("program");
@@ -293,9 +296,9 @@ fn internal_and_external_paths_cannot_bypass_the_entry_point() {
     let scratch = support::Scratch::new("library-imports");
     library(scratch.path());
     for source in [
-        "(#alias hidden = ./collection/lib.lim::private-capacity)",
-        "(#alias Collection = ./collection/storage.lim::Collection)",
-        "(#alias hidden = ./collection/storage.lim::private-capacity)",
+        "#alias hidden = ./collection/lib.lim::private-capacity\n",
+        "#alias Collection = ./collection/storage.lim::Collection\n",
+        "#alias hidden = ./collection/storage.lim::private-capacity\n",
     ] {
         let error = check(scratch.path(), "main.lim", source).unwrap_err();
         assert!(
@@ -317,7 +320,7 @@ fn guessed_private_function_and_fields_are_rejected() {
         "(#let-mut value collections@Collection (#call collections@collection-new ())) (#let field (#ref-mut #u64) (#borrow-mut (#get value capacity))) (#deref-set field 0u64) (#call collections@collection-destroy ((value value))) (#return 0u64)",
         "(#let value collections@Collection (#call collections@collection-new ())) (#let answer #u64 (#if-let (collections@Collection capacity) value capacity 0u64)) (#return answer)",
     ] {
-        let source = format!("(#alias collections@Collection = ./collection/lib.lim::Collection) (#alias collections@collection-destroy = ./collection/lib.lim::collection-destroy) (#alias collections@collection-new = ./collection/lib.lim::collection-new) (#fn main () #u64 {body})");
+        let source = format!("#alias collections@Collection = ./collection/lib.lim::Collection\n#alias collections@collection-destroy = ./collection/lib.lim::collection-destroy\n#alias collections@collection-new = ./collection/lib.lim::collection-new\n#fn main () #u64 {body}\n");
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}\n{source}");
     }
@@ -330,7 +333,7 @@ fn white_box_test_entry_can_import_only_the_needed_implementation() {
     check(
         scratch.path(),
         "collection/test.lim",
-        "(#alias private-capacity = ./storage.lim::private-capacity) (#fn main () #u64 (#return (#call private-capacity ())))",
+        "#alias private-capacity = ./storage.lim::private-capacity\n#fn main () #u64 (#return (#call private-capacity ()))\n",
     )
     .unwrap();
 }
@@ -342,26 +345,26 @@ fn nested_libraries_are_isolated_in_both_directions() {
     write(
         scratch.path(),
         "collection/utility/lib.lim",
-        "(#export utility-read) (#alias utility-read = ./implementation.lim::utility-read)",
+        "#export utility-read\n#alias utility-read = ./implementation.lim::utility-read\n",
     );
     write(
         scratch.path(),
         "collection/utility/implementation.lim",
-        "(#fn utility-read () #u64 (#return 7u64))",
+        "#fn utility-read () #u64 (#return 7u64)\n",
     );
     assert!(check(
         scratch.path(),
         "collection/test.lim",
-        "(#alias utility-read = ./utility/implementation.lim::utility-read)"
+        "#alias utility-read = ./utility/implementation.lim::utility-read\n"
     )
     .is_err());
     assert!(check(
         scratch.path(),
         "collection/utility/test.lim",
-        "(#alias Collection = ../storage.lim::Collection)"
+        "#alias Collection = ../storage.lim::Collection\n"
     )
     .is_err());
-    check(scratch.path(), "collection/test.lim", "(#alias util@utility-read = ./utility/lib.lim::utility-read) (#fn main () #u64 (#return (#call util@utility-read ())))").unwrap();
+    check(scratch.path(), "collection/test.lim", "#alias util@utility-read = ./utility/lib.lim::utility-read\n#fn main () #u64 (#return (#call util@utility-read ()))\n").unwrap();
 }
 
 #[test]
@@ -373,16 +376,16 @@ fn symlinks_do_not_bypass_library_ownership() {
         scratch.path().join("storage.lim"),
     )
     .unwrap();
-    assert!(check(scratch.path(), "main.lim", "(#alias Collection = ./storage.lim::Collection) (#alias collection-new = ./storage.lim::collection-new) (#alias collection-read = ./storage.lim::collection-read) (#alias collection-destroy = ./storage.lim::collection-destroy)").is_err());
+    assert!(check(scratch.path(), "main.lim", "#alias Collection = ./storage.lim::Collection\n#alias collection-new = ./storage.lim::collection-new\n#alias collection-read = ./storage.lim::collection-read\n#alias collection-destroy = ./storage.lim::collection-destroy\n").is_err());
 }
 
 #[test]
 fn generated_caller_code_has_no_private_library_privileges() {
     let scratch = support::Scratch::new("library-generated-access");
     library(scratch.path());
-    let source = "(#alias Collection = ./collection/lib.lim::Collection)
-      (#gn forge () `((#fn main () #u64 (#return (#call ./collection/lib.lim::private-capacity ())))))
-      (#generate forge)";
+    let source = "#alias Collection = ./collection/lib.lim::Collection
+#gn forge () `((#fn main () #u64 (#return (#call ./collection/lib.lim::private-capacity ()))))
+#generate forge\n";
     let error = check(scratch.path(), "main.lim", source).unwrap_err();
     assert!(error.contains("private"), "{error}");
 }
@@ -392,21 +395,21 @@ fn explicit_aliases_require_a_declaration_and_preserve_type_identity() {
     let scratch = support::Scratch::new("library-explicit-alias");
     library(scratch.path());
     for source in [
-        "(#alias Collection ./collection/lib.lim::Collection)",
-        "(#alias #u64 = ./collection/lib.lim::Collection)",
-        "(#alias Collection = ./collection/lib.lim)",
-        "(#alias Collection = ./collection/lib.lim::missing)",
-        "(#alias Collection = ./collection/lib.lim::Collection) (#alias Collection = ./collection/lib.lim::Collection)",
+        "#alias Collection ./collection/lib.lim::Collection\n",
+        "#alias #u64 = ./collection/lib.lim::Collection\n",
+        "#alias Collection = ./collection/lib.lim\n",
+        "#alias Collection = ./collection/lib.lim::missing\n",
+        "#alias Collection = ./collection/lib.lim::Collection\n#alias Collection = ./collection/lib.lim::Collection\n",
     ] {
         assert!(check(scratch.path(), "main.lim", source).is_err(), "{source}");
     }
-    check_cache_modes(scratch.path(), "(#alias First = ./collection/lib.lim::Collection) (#alias Second = ./collection/lib.lim::Collection) (#alias create = ./collection/lib.lim::collection-new) (#alias destroy = ./collection/lib.lim::collection-destroy) (#fn main () #u64 (#let value First (#call create ())) (#let same Second value) (#call destroy ((value same))) (#return 42u64))", None);
+    check_cache_modes(scratch.path(), "#alias First = ./collection/lib.lim::Collection\n#alias Second = ./collection/lib.lim::Collection\n#alias create = ./collection/lib.lim::collection-new\n#alias destroy = ./collection/lib.lim::collection-destroy\n#fn main () #u64 (#let value First (#call create ())) (#let same Second value) (#call destroy ((value same))) (#return 42u64)\n", None);
     let expressions = lim::parse("collections@Collection collections@collection-new").unwrap();
     assert_eq!(expressions.len(), 2);
     assert!(lim::parse_program("(@#optional ((type #u64) (name Number)))").is_err());
     check_cache_modes(
         scratch.path(),
-        "(#generate #optional ((type #u64) (name Number))) (#fn main () #u64 (#return 0u64))",
+        "#generate #optional ((type #u64) (name Number))\n#fn main () #u64 (#return 0u64)\n",
         None,
     );
 }
@@ -414,14 +417,14 @@ fn explicit_aliases_require_a_declaration_and_preserve_type_identity() {
 #[test]
 fn aliases_and_global_initializers_cannot_expose_or_construct_private_storage() {
     let scratch = support::Scratch::new("library-global-privacy");
-    write(scratch.path(), "numbers/lib.lim", "(#export Number number) (#struct Number () ((value #u64))) (#const number Number (#struct-literal Number ((value 42u64))))");
+    write(scratch.path(), "numbers/lib.lim", "#export Number number\n#struct Number () ((value #u64))\n#const number Number (#struct-literal Number ((value 42u64)))\n");
     for body in [
-        "(#const forged nums@Number (#struct-literal nums@Number ((value 0u64))))",
-        "(#type Alias nums@Number) (#const copied Alias nums@number) (#const exposed #u64 (#get copied value))",
-        "(#const exposed #u64 (#get nums@number value))",
+        "#const forged nums@Number (#struct-literal nums@Number ((value 0u64)))\n",
+        "#type Alias nums@Number\n#const copied Alias nums@number\n#const exposed #u64 (#get copied value)\n",
+        "#const exposed #u64 (#get nums@number value)\n",
         "(#let exposed #u64 (#get nums@number value))",
     ] {
-        let source = format!("(#alias nums@Number = ./numbers/lib.lim::Number) (#alias nums@number = ./numbers/lib.lim::number) {body} (#fn main () #u64 (#return 0u64))");
+        let source = format!("#alias nums@Number = ./numbers/lib.lim::Number\n#alias nums@number = ./numbers/lib.lim::number\n {body}#fn main () #u64 (#return 0u64)\n");
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}");
     }
@@ -430,19 +433,19 @@ fn aliases_and_global_initializers_cannot_expose_or_construct_private_storage() 
 #[test]
 fn exported_signatures_must_not_leak_private_types() {
     let scratch = support::Scratch::new("library-signature");
-    write(scratch.path(), "numbers/lib.lim", "(#export read) (#struct Secret () ((value #u64))) (#fn read () Secret (#return (#struct-literal Secret ((value 42u64)))))");
+    write(scratch.path(), "numbers/lib.lim", "#export read\n#struct Secret () ((value #u64))\n#fn read () Secret (#return (#struct-literal Secret ((value 42u64))))\n");
     let error = check(
         scratch.path(),
         "main.lim",
-        "(#alias nums@read = ./numbers/lib.lim::read) (#fn main () #u64 (#return 0u64))",
+        "#alias nums@read = ./numbers/lib.lim::read\n#fn main () #u64 (#return 0u64)\n",
     )
     .unwrap_err();
     assert!(error.contains("exposes private type"), "{error}");
-    write(scratch.path(), "numbers/lib.lim", "(#export Value) (#struct Secret () ((value #u64))) (#enum Value () ((Value.Public Secret)))");
+    write(scratch.path(), "numbers/lib.lim", "#export Value\n#struct Secret () ((value #u64))\n#enum Value () ((Value.Public Secret))\n");
     let error = check(
         scratch.path(),
         "main.lim",
-        "(#alias nums@Value = ./numbers/lib.lim::Value) (#fn main () #u64 (#return 0u64))",
+        "#alias nums@Value = ./numbers/lib.lim::Value\n#fn main () #u64 (#return 0u64)\n",
     )
     .unwrap_err();
     assert!(error.contains("exposes private type"), "{error}");
@@ -451,24 +454,24 @@ fn exported_signatures_must_not_leak_private_types() {
 #[test]
 fn exported_enums_expose_every_variant_but_contributions_stay_internal() {
     let scratch = support::Scratch::new("library-enums");
-    write(scratch.path(), "numbers/lib.lim", "(#export Number Events) (#enum Number () ((Number.Value #u64) Number.Empty)) (#distributed-enum Events ()) (#enum-contribute Events (Events.Added #u64))");
+    write(scratch.path(), "numbers/lib.lim", "#export Number Events\n#enum Number () ((Number.Value #u64) Number.Empty)\n#distributed-enum Events ()\n#enum-contribute Events (Events.Added #u64)\n");
     for body in [
-        "(#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Value 42u64)) (#return (#match value (#case (nums@Number.Value payload) payload) (#case nums@Number.Empty 0u64))))",
-        "(#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Empty)) (#return (#match value (#case (nums@Number.Value payload) payload) (#case nums@Number.Empty 42u64))))",
-        "(#fn main () #u64 (#let value nums@Events (#enum-literal nums@Events.Added 42u64)) (#return (#match value (#case (nums@Events.Added payload) payload))))",
+        "#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Value 42u64)) (#return (#match value (#case (nums@Number.Value payload) payload) (#case nums@Number.Empty 0u64)))\n",
+        "#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Empty)) (#return (#match value (#case (nums@Number.Value payload) payload) (#case nums@Number.Empty 42u64)))\n",
+        "#fn main () #u64 (#let value nums@Events (#enum-literal nums@Events.Added 42u64)) (#return (#match value (#case (nums@Events.Added payload) payload)))\n",
     ] {
-        let source = format!("(#alias nums@Events = ./numbers/lib.lim::Events) (#alias nums@Number = ./numbers/lib.lim::Number) {body}");
+        let source = format!("#alias nums@Events = ./numbers/lib.lim::Events\n#alias nums@Number = ./numbers/lib.lim::Number\n {body}");
         check_cache_modes(scratch.path(), &source, None);
     }
     for body in [
-        "(#enum-contribute nums@Events (nums@Events.Forged #u64)) (#fn main () #u64 (#return 0u64))",
-        "(#gn forge () `((#enum-contribute nums@Events (nums@Events.Forged #u64)))) (#generate forge) (#fn main () #u64 (#return 0u64))",
+        "#enum-contribute nums@Events (nums@Events.Forged #u64)\n#fn main () #u64 (#return 0u64)\n",
+        "#gn forge () `((#enum-contribute nums@Events (nums@Events.Forged #u64)))\n#generate forge\n#fn main () #u64 (#return 0u64)\n",
     ] {
-        let source = format!("(#alias nums@Events = ./numbers/lib.lim::Events) (#alias nums@Number = ./numbers/lib.lim::Number) {body}");
+        let source = format!("#alias nums@Events = ./numbers/lib.lim::Events\n#alias nums@Number = ./numbers/lib.lim::Number\n {body}");
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}");
     }
-    check_cache_modes(scratch.path(), "(#alias nums@Number = ./numbers/lib.lim::Number) (#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Value 42u64)) (#return (#match value (#case (nums@Number.Value payload) payload))))", Some("not exhaustive"));
+    check_cache_modes(scratch.path(), "#alias nums@Number = ./numbers/lib.lim::Number\n#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Value 42u64)) (#return (#match value (#case (nums@Number.Value payload) payload)))\n", Some("not exhaustive"));
 }
 
 #[test]
@@ -477,11 +480,11 @@ fn individual_variant_exports_are_rejected() {
     write(
         scratch.path(),
         "numbers/lib.lim",
-        "(#export Number Number.Value) (#enum Number () ((Number.Value #u64)))",
+        "#export Number Number.Value\n#enum Number () ((Number.Value #u64))\n",
     );
     check_cache_modes(
         scratch.path(),
-        "(#alias nums@Number = ./numbers/lib.lim::Number)",
+        "#alias nums@Number = ./numbers/lib.lim::Number\n",
         Some("not individual variants"),
     );
 }
@@ -490,21 +493,21 @@ fn individual_variant_exports_are_rejected() {
 fn every_public_enum_payload_must_be_public_even_when_unused_or_generated() {
     let scratch = support::Scratch::new("library-enum-payloads");
     for declaration in [
-        "(#enum Value () (Value.Empty (Value.Hidden Secret)))",
-        "(#enum Value () (Value.Empty (Value.Hidden (#ref Secret))))",
-        "(#enum Value () (Value.Empty (Value.Hidden (#tuple #u64 Secret))))",
-        "(#type Alias Secret) (#enum Value () (Value.Empty (Value.Hidden Alias)))",
-        "(#generate #optional ((type Secret) (name Value)))",
-        "(#distributed-enum Value ()) (#enum-contribute Value (Value.Hidden Secret))",
+        "#enum Value () (Value.Empty (Value.Hidden Secret))\n",
+        "#enum Value () (Value.Empty (Value.Hidden (#ref Secret)))\n",
+        "#enum Value () (Value.Empty (Value.Hidden (#tuple #u64 Secret)))\n",
+        "#type Alias Secret\n#enum Value () (Value.Empty (Value.Hidden Alias))\n",
+        "#generate #optional ((type Secret) (name Value))\n",
+        "#distributed-enum Value ()\n#enum-contribute Value (Value.Hidden Secret)\n",
     ] {
         write(
             scratch.path(),
             "numbers/lib.lim",
-            &format!("(#export Value) (#struct Secret () ((value #u64))) {declaration}"),
+            &format!("#export Value\n#struct Secret () ((value #u64))\n {declaration}"),
         );
         check_cache_modes(
             scratch.path(),
-            "(#alias nums@Value = ./numbers/lib.lim::Value) (#fn main () #u64 (#return 0u64))",
+            "#alias nums@Value = ./numbers/lib.lim::Value\n#fn main () #u64 (#return 0u64)\n",
             Some("exposes private type"),
         );
     }
@@ -520,8 +523,8 @@ fn opaque_structs_can_wrap_private_enums_and_be_public_enum_payloads() {
         include_str!("../examples/opaque_handle.lim"),
         None,
     );
-    write(scratch.path(), "opaque_handle/lib.lim", &format!("{library}\n(#export Container) (#enum Container (#linear) ((Container.Handle Handle)))"));
-    check_cache_modes(scratch.path(), "(#alias api@handle-create = ./opaque_handle/lib.lim::handle-create) (#alias api@handle-close = ./opaque_handle/lib.lim::handle-close) (#alias api@Container = ./opaque_handle/lib.lim::Container) (#fn main () #u64 (#let value api@Container (#enum-literal api@Container.Handle (#call api@handle-create ((value 42u64))))) (#match value (#case (api@Container.Handle handle) (#call api@handle-close ((handle handle))))) (#return 42u64))", None);
+    write(scratch.path(), "opaque_handle/lib.lim", &format!("{library}\n#export Container\n#enum Container (#linear) ((Container.Handle Handle))\n"));
+    check_cache_modes(scratch.path(), "#alias api@handle-create = ./opaque_handle/lib.lim::handle-create\n#alias api@handle-close = ./opaque_handle/lib.lim::handle-close\n#alias api@Container = ./opaque_handle/lib.lim::Container\n#fn main () #u64 (#let value api@Container (#enum-literal api@Container.Handle (#call api@handle-create ((value 42u64))))) (#match value (#case (api@Container.Handle handle) (#call api@handle-close ((handle handle))))) (#return 42u64)\n", None);
     for body in [
         "(#let value ./opaque_handle/lib.lim::InternalState (#enum-literal ./opaque_handle/lib.lim::InternalState.Closed))",
         "(#match (#enum-literal ./opaque_handle/lib.lim::InternalState.Closed) (#case ./opaque_handle/lib.lim::InternalState.Closed ()) (#case (./opaque_handle/lib.lim::InternalState.Open value) ()))",
@@ -531,7 +534,7 @@ fn opaque_structs_can_wrap_private_enums_and_be_public_enum_payloads() {
         "(#let value api@Handle (#call api@handle-create ((value 42u64)))) (#let field (#ref ./opaque_handle/lib.lim::InternalState) (#borrow (#get value state))) (#forget value)",
         "(#let value api@Handle (#call api@handle-create ((value 42u64)))) (#let field #u64 (#match (#get value state) (#case ./opaque_handle/lib.lim::InternalState.Closed 0u64) (#case (./opaque_handle/lib.lim::InternalState.Open payload) payload))) (#forget value)",
     ] {
-        check_cache_modes(scratch.path(), &format!("(#alias api@handle-create = ./opaque_handle/lib.lim::handle-create) (#alias api@handle-close = ./opaque_handle/lib.lim::handle-close) (#alias api@Container = ./opaque_handle/lib.lim::Container) (#alias api@Handle = ./opaque_handle/lib.lim::Handle) (#fn main () #u64 {body} (#return 0u64))"), Some("private"));
+        check_cache_modes(scratch.path(), &format!("#alias api@handle-create = ./opaque_handle/lib.lim::handle-create\n#alias api@handle-close = ./opaque_handle/lib.lim::handle-close\n#alias api@Container = ./opaque_handle/lib.lim::Container\n#alias api@Handle = ./opaque_handle/lib.lim::Handle\n#fn main () #u64 {body} (#return 0u64)\n"), Some("private"));
     }
 }
 
@@ -541,24 +544,24 @@ fn exported_generated_enums_support_borrowed_variant_matches() {
     write(
         scratch.path(),
         "numbers/lib.lim",
-        "(#export Value) (#generate #optional ((type #u64) (name Value)))",
+        "#export Value\n#generate #optional ((type #u64) (name Value))\n",
     );
-    check_cache_modes(scratch.path(), "(#alias nums@Value = ./numbers/lib.lim::Value) (#fn main () #u64 (#let value nums@Value (#enum-literal nums@Value.Some 42u64)) (#let view (#ref nums@Value) (#borrow value)) (#return (#match view (#case-ref (nums@Value.Some payload) (#deref payload)) (#case-ref nums@Value.None 0u64))))", None);
+    check_cache_modes(scratch.path(), "#alias nums@Value = ./numbers/lib.lim::Value\n#fn main () #u64 (#let value nums@Value (#enum-literal nums@Value.Some 42u64)) (#let view (#ref nums@Value) (#borrow value)) (#return (#match view (#case-ref (nums@Value.Some payload) (#deref payload)) (#case-ref nums@Value.None 0u64)))\n", None);
 }
 
 #[test]
 fn generator_helpers_are_private_even_when_called_inside_unquotes() {
     let scratch = support::Scratch::new("library-generator-privacy");
-    write(scratch.path(), "numbers/lib.lim", "(#export public) (#gn-fn helper () `((#type Number #u64))) (#gn public () (#gn-call helper)) (#gn private () (#gn-call helper))");
-    check(scratch.path(), "main.lim", "(#alias nums@public = ./numbers/lib.lim::public) (#generate nums@public) (#fn main () #u64 (#return 0u64))").unwrap();
+    write(scratch.path(), "numbers/lib.lim", "#export public\n#gn-fn helper () `((#type Number #u64))\n#gn public () (#gn-call helper)\n#gn private () (#gn-call helper)\n");
+    check(scratch.path(), "main.lim", "#alias nums@public = ./numbers/lib.lim::public\n#generate nums@public\n#fn main () #u64 (#return 0u64)\n").unwrap();
     for body in [
-        "(#generate ./numbers/lib.lim::private)",
-        "(#gn forge () (#gn-call ./numbers/lib.lim::helper)) (#generate forge)",
-        "(#gn forge () `((#type Number ,(#gn-first (#gn-call ./numbers/lib.lim::helper))))) (#generate forge)",
-        "(#gn forge () `((#generate ./numbers/lib.lim::private))) (#generate forge)",
+        "#generate ./numbers/lib.lim::private\n",
+        "#gn forge () (#gn-call ./numbers/lib.lim::helper)\n#generate forge\n",
+        "#gn forge () `((#type Number ,(#gn-first (#gn-call ./numbers/lib.lim::helper))))\n#generate forge\n",
+        "#gn forge () `((#generate ./numbers/lib.lim::private))\n#generate forge\n",
     ] {
         let source = format!(
-            "(#alias nums@public = ./numbers/lib.lim::public) {body} (#fn main () #u64 (#return 0u64))"
+            "#alias nums@public = ./numbers/lib.lim::public\n {body}#fn main () #u64 (#return 0u64)\n"
         );
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}");
@@ -571,18 +574,18 @@ fn export_metadata_is_literal_and_confined_to_lib_entries() {
     assert!(check(
         scratch.path(),
         "main.lim",
-        "(#export main) (#fn main () #u64 (#return 0u64))"
+        "#export main\n#fn main () #u64 (#return 0u64)\n"
     )
     .is_err());
     write(
         scratch.path(),
         "numbers/lib.lim",
-        "(#export read) (#fn read () #u64 (#return 0u64)) (#gn forge () `((#export main))) (#generate forge)",
+        "#export read\n#fn read () #u64 (#return 0u64)\n#gn forge () `((#export main))\n#generate forge\n",
     );
     let error = check(
         scratch.path(),
         "main.lim",
-        "(#alias read = ./numbers/lib.lim::read)",
+        "#alias read = ./numbers/lib.lim::read\n",
     )
     .unwrap_err();
     assert!(error.contains("literal source"), "{error}");
@@ -595,7 +598,7 @@ fn standard_library_is_available_inside_a_library_boundary() {
     check(
         scratch.path(),
         "collection/test.lim",
-        "(#std) (#fn main () #u64 (#return 0u64))",
+        "#std\n#fn main () #u64 (#return 0u64)\n",
     )
     .unwrap();
 }
@@ -603,28 +606,28 @@ fn standard_library_is_available_inside_a_library_boundary() {
 #[test]
 fn nested_dependency_exports_are_not_automatically_reexported() {
     let scratch = support::Scratch::new("library-reexports");
-    write(scratch.path(), "outer/lib.lim", "(#export read) (#alias util@read = ./utility/lib.lim::read) (#fn read () #u64 (#return (#call util@read ())))");
+    write(scratch.path(), "outer/lib.lim", "#export read\n#alias util@read = ./utility/lib.lim::read\n#fn read () #u64 (#return (#call util@read ()))\n");
     write(
         scratch.path(),
         "outer/utility/lib.lim",
-        "(#export read) (#fn read () #u64 (#return 42u64))",
+        "#export read\n#fn read () #u64 (#return 42u64)\n",
     );
-    check(scratch.path(), "main.lim", "(#alias outer@read = ./outer/lib.lim::read) (#fn main () #u64 (#return (#call outer@read ())))").unwrap();
-    let error = check(scratch.path(), "main.lim", "(#alias outer@util@read = ./outer/lib.lim::util@read) (#fn main () #u64 (#return (#call outer@util@read ())))").unwrap_err();
+    check(scratch.path(), "main.lim", "#alias outer@read = ./outer/lib.lim::read\n#fn main () #u64 (#return (#call outer@read ()))\n").unwrap();
+    let error = check(scratch.path(), "main.lim", "#alias outer@util@read = ./outer/lib.lim::util@read\n#fn main () #u64 (#return (#call outer@util@read ()))\n").unwrap_err();
     assert!(error.contains("not exported"), "{error}");
 }
 
 #[test]
 fn externally_imported_assembly_preserves_physical_register_names() {
     let scratch = support::Scratch::new("library-assembly");
-    write(scratch.path(), "assembly.lim", "(#fn identity ((value #u64)) #u64 (#return (#unsafe (#asm #u64 ((rdi value)) \"mov rax, rdi\"))))");
-    check(scratch.path(), "main.lim", "(#alias machine@identity = ./assembly.lim::identity) (#fn main () #u64 (#return (#call machine@identity ((value 42u64)))))").unwrap();
+    write(scratch.path(), "assembly.lim", "#fn identity ((value #u64)) #u64 (#return (#unsafe (#asm #u64 ((rdi value)) \"mov rax, rdi\")))\n");
+    check(scratch.path(), "main.lim", "#alias machine@identity = ./assembly.lim::identity\n#fn main () #u64 (#return (#call machine@identity ((value 42u64))))\n").unwrap();
     write(
         scratch.path(),
         "standard.lim",
-        "(#std) (#fn read () #u64 (#return 0u64))",
+        "#std\n#fn read () #u64 (#return 0u64)\n",
     );
-    let source = "(#alias standard@read = ./standard.lim::read) (#fn main () #u64 (#return 0u64))";
+    let source = "#alias standard@read = ./standard.lim::read\n#fn main () #u64 (#return 0u64)\n";
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     lim::generate_assembly(&program).unwrap();
 }
@@ -633,7 +636,7 @@ fn externally_imported_assembly_preserves_physical_register_names() {
 fn private_field_diagnostics_underline_the_exact_source_token() {
     let scratch = support::Scratch::new("library-diagnostic");
     library(scratch.path());
-    let source = "(#alias collections@Collection = ./collection/lib.lim::Collection) (#alias collections@collection-destroy = ./collection/lib.lim::collection-destroy) (#alias collections@collection-new = ./collection/lib.lim::collection-new)\n(#fn main () #u64\n  (#let value collections@Collection (#call collections@collection-new ()))\n  (#let result #u64 (#get value capacity))\n  (#call collections@collection-destroy ((value value)))\n  (#return result))\n";
+    let source = "#alias collections@Collection = ./collection/lib.lim::Collection\n#alias collections@collection-destroy = ./collection/lib.lim::collection-destroy\n#alias collections@collection-new = ./collection/lib.lim::collection-new\n#fn main () #u64\n    (#let value collections@Collection (#call collections@collection-new ()))\n    (#let result #u64 (#get value capacity))\n    (#call collections@collection-destroy ((value value)))\n    (#return result)\n";
     let path = scratch.path().join("main.lim");
     let error = lim::compile_source_to_assembly(
         source,
@@ -657,9 +660,9 @@ fn private_field_diagnostics_underline_the_exact_source_token() {
 #[test]
 fn private_enum_payload_diagnostics_underline_the_type() {
     let scratch = support::Scratch::new("library-enum-payload-diagnostic");
-    let library = "(#export Value)\n(#struct Secret () ((value #u64)))\n(#enum Value () ((Value.Visible #u64) (Value.Hidden Secret)))\n";
+    let library = "#export Value\n#struct Secret () ((value #u64))\n#enum Value () ((Value.Visible #u64) (Value.Hidden Secret))\n";
     write(scratch.path(), "numbers/lib.lim", library);
-    let source = "(#alias nums@Value = ./numbers/lib.lim::Value) (#fn main () #u64 (#return 0u64))";
+    let source = "#alias nums@Value = ./numbers/lib.lim::Value\n#fn main () #u64 (#return 0u64)\n";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),
@@ -681,16 +684,19 @@ fn private_enum_payload_diagnostics_underline_the_type() {
 #[test]
 fn native_thread_entry_points_are_private_unless_exported() {
     let scratch = support::Scratch::new("library-native-privacy");
-    let implementation = "(#export Task Task::join Task::SpawnResult Task::SpawnError Task::JoinResult) (#fn worker () #u64 (#return 42u64)) (#generate #thread-spawn ((task Task) (worker worker)))";
+    let implementation = "#export Task Task::join Task::SpawnResult Task::SpawnError Task::JoinResult\n#fn worker () #u64 (#return 42u64)\n#generate #thread-spawn ((task Task) (worker worker))\n";
     write(scratch.path(), "workers/lib.lim", implementation);
-    let source = "(#alias workers@Task::JoinResult = ./workers/lib.lim::Task::JoinResult) (#alias workers@Task::SpawnResult = ./workers/lib.lim::Task::SpawnResult) (#alias workers@Task::join = ./workers/lib.lim::Task::join) (#alias workers@Task::spawn = ./workers/lib.lim::Task::spawn)
-      (#fn main () #u64 (#return
-        (#match (#call workers@Task::spawn ())
-          (#case (workers@Task::SpawnResult.Ok task)
-            (#match (#call workers@Task::join ((task task)))
-              (#case (workers@Task::JoinResult.Ok result) result)
-              (#case (workers@Task::JoinResult.Error (#tuple retry-task error-code)) (#panic))))
-          (#case (workers@Task::SpawnResult.Error error) (#panic)))))";
+    let source = "#alias workers@Task::JoinResult = ./workers/lib.lim::Task::JoinResult
+#alias workers@Task::SpawnResult = ./workers/lib.lim::Task::SpawnResult
+#alias workers@Task::join = ./workers/lib.lim::Task::join
+#alias workers@Task::spawn = ./workers/lib.lim::Task::spawn
+#fn main () #u64 (#return
+          (#match (#call workers@Task::spawn ())
+            (#case (workers@Task::SpawnResult.Ok task)
+              (#match (#call workers@Task::join ((task task)))
+                (#case (workers@Task::JoinResult.Ok result) result)
+                (#case (workers@Task::JoinResult.Error (#tuple retry-task error-code)) (#panic))))
+            (#case (workers@Task::SpawnResult.Error error) (#panic))))\n";
     // Public result types do not make the native spawn entry point public.
     // Keep explicit aliases for native functions: exported generated signatures
     // must be valid alias targets, just like ordinary function declarations.
@@ -700,14 +706,14 @@ fn native_thread_entry_points_are_private_unless_exported() {
     write(
         scratch.path(),
         "workers/lib.lim",
-        &implementation.replace("(#export Task ", "(#export Task Task::spawn "),
+        &implementation.replace("#export Task ", "(#export Task Task::spawn "),
     );
     check(scratch.path(), "main.lim", source).unwrap();
-    write(scratch.path(), "workers/lib.lim", "(#export Task Task::spawn) (#fn worker () #u64 (#return 42u64)) (#generate #thread-spawn ((task Task) (worker worker)))");
+    write(scratch.path(), "workers/lib.lim", "#export Task Task::spawn\n#fn worker () #u64 (#return 42u64)\n#generate #thread-spawn ((task Task) (worker worker))\n");
     let error = check(
         scratch.path(),
         "main.lim",
-        "(#alias workers@Task = ./workers/lib.lim::Task) (#fn main () #u64 (#return 0u64))",
+        "#alias workers@Task = ./workers/lib.lim::Task\n#fn main () #u64 (#return 0u64)\n",
     )
     .unwrap_err();
     assert!(error.contains("exposes private type"), "{error}");
@@ -719,8 +725,8 @@ fn unstable_aliases_do_not_grant_library_or_representation_permissions() {
     library(scratch.path());
     // The nearest lib.lim owns implementation files. External callers normally
     // use its exported aliases; #unstable opts into one implementation target.
-    check_cache_modes(scratch.path(), "(#alias capacity = (#unstable ./collection/storage.lim::private-capacity)) (#fn main () #u64 (#return (#call capacity ())))", None);
-    check_cache_modes(scratch.path(), "(#alias capacity = (#unstable ./collection/storage.lim::private-capacity)) (#alias create = ./collection/storage.lim::collection-new) (#fn main () #u64 (#return (#call capacity ())))", Some("private library implementation"));
+    check_cache_modes(scratch.path(), "#alias capacity = (#unstable ./collection/storage.lim::private-capacity)\n#fn main () #u64 (#return (#call capacity ()))\n", None);
+    check_cache_modes(scratch.path(), "#alias capacity = (#unstable ./collection/storage.lim::private-capacity)\n#alias create = ./collection/storage.lim::collection-new\n#fn main () #u64 (#return (#call capacity ()))\n", Some("private library implementation"));
     // Even opting into a type leaves its representation private.
-    check_cache_modes(scratch.path(), "(#alias Collection = (#unstable ./collection/storage.lim::Collection)) (#fn main () #u64 (#let value Collection (#struct-literal Collection ((capacity 42u64)))) (#forget value) (#return 0u64))", Some("private"));
+    check_cache_modes(scratch.path(), "#alias Collection = (#unstable ./collection/storage.lim::Collection)\n#fn main () #u64 (#let value Collection (#struct-literal Collection ((capacity 42u64)))) (#forget value) (#return 0u64)\n", Some("private"));
 }

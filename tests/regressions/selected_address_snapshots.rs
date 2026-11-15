@@ -10,26 +10,26 @@ fn run(body: &str, label: &str) {
 fn run_storage(body: &str, label: &str, pinned: bool) {
     let source = format!(
         r#"
-        (#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64)))
-        (#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64)))
-        (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
-          (#return (#match task
-            (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
-            (#case (Child.Resume value) (ChildPoll.ChildReady value)))))
-        (#struct Owner () ((values (#array #u64 2))))
-        (#type WideRow (#array #u128 2))
-        (#generate #async-fn-pinned ((protocol work-await) (waker #u64)
-          (function (#fn work ((seed #u64)) #u64 {body}))))
-        (#fn main () #u64
-          (#let waker #u64 0u64)
-          (#let-mut task Work::Frame (#call work ((seed 42u64))))
-          (#let first Work::Poll
-            (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
-          (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
-          (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
-            (#case (Work::Poll.Ready result) result)
-            (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))
-          (#forget task) (#return answer))
+#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
+#enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
+#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+            (#return (#match task
+              (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
+              (#case (Child.Resume value) (ChildPoll.ChildReady value))))
+#struct Owner () ((values (#array #u64 2)))
+#type WideRow (#array #u128 2)
+#generate #async-fn-pinned ((protocol work-await) (waker #u64)
+            (function (#fn work ((seed #u64)) #u64 {body})))
+#fn main () #u64
+            (#let waker #u64 0u64)
+            (#let-mut task Work::Frame (#call work ((seed 42u64))))
+            (#let first Work::Poll
+              (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
+            (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
+            (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
+              (#case (Work::Poll.Ready result) result)
+              (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))
+            (#forget task) (#return answer)
         "#
     );
     let source = if pinned {

@@ -7,13 +7,13 @@ fn check(source: &str) -> Result<(), String> {
 
 #[test]
 fn names_identify_types_functions_and_variants() {
-    let source = "(#enum Work::Poll () ((Work::Poll.Ready #u64) Work::Poll.Pending))
-      (#fn Work::poll ((value #u64)) Work::Poll
-        (#return (#enum-literal Work::Poll.Ready (#u64::add-wrap value 2u64))))
-      (#fn main () #u64
-        (#return (#match (#call Work::poll ((value 40u64)))
-          (#case (Work::Poll.Ready result) result)
-          (#case Work::Poll.Pending 0u64))))";
+    let source = "#enum Work::Poll () ((Work::Poll.Ready #u64) Work::Poll.Pending)
+#fn Work::poll ((value #u64)) Work::Poll
+          (#return (#enum-literal Work::Poll.Ready (#u64::add-wrap value 2u64)))
+#fn main () #u64
+          (#return (#match (#call Work::poll ((value 40u64)))
+            (#case (Work::Poll.Ready result) result)
+            (#case Work::Poll.Pending 0u64)))\n";
     let program = parse_program(source).unwrap();
     check_types(&program).unwrap();
     generate_assembly(&program).unwrap();
@@ -22,18 +22,18 @@ fn names_identify_types_functions_and_variants() {
 #[test]
 fn invalid_declaration_spellings_are_rejected() {
     for source in [
-        "(#struct thing () ())", "(#type thing #u64)",
-        "(#enum thing () (thing.Ready))", "(#distributed-enum thing ())",
-        "(#struct Work::frame () ())", "(#struct Work.Frame () ())",
-        "(#generate #optional ((type #u64) (name thing)))",
-        "(#fn Main () () (#return ()))", "(#fn work::poll () () (#return ()))",
-        "(#fn main ((Value #u64)) #u64 (#return Value))",
-        "(#fn main () #u64 (#let Value #u64 42u64) (#return Value))",
-        "(#struct Thing () ((Field #u64)))",
-        "(#enum State () (Ready))", "(#enum State () (State.ready))",
-        "(#enum State () (Other.Ready))", "(#enum State () (State::Ready))",
-        "(#enum State () ((State.Ready #u64)))
-          (#fn main ((state State)) #u64 (#return (#match state (#case (State.Ready Value) Value))))",
+        "#struct thing () ()\n", "#type thing #u64\n",
+        "#enum thing () (thing.Ready)\n", "#distributed-enum thing ()\n",
+        "#struct Work::frame () ()\n", "#struct Work.Frame () ()\n",
+        "#generate #optional ((type #u64) (name thing))\n",
+        "#fn Main () () (#return ())\n", "#fn work::poll () () (#return ())\n",
+        "#fn main ((Value #u64)) #u64 (#return Value)\n",
+        "#fn main () #u64 (#let Value #u64 42u64) (#return Value)\n",
+        "#struct Thing () ((Field #u64))\n",
+        "#enum State () (Ready)\n", "#enum State () (State.ready)\n",
+        "#enum State () (Other.Ready)\n", "#enum State () (State::Ready)\n",
+        "#enum State () ((State.Ready #u64))
+#fn main ((state State)) #u64 (#return (#match state (#case (State.Ready Value) Value)))\n",
     ] {
         let error = parse_program(source).unwrap_err();
         assert!(error.contains("identifier '"), "{source}: {error}");
@@ -63,20 +63,20 @@ fn numeric_words_preserve_all_operation_families() {
             "shr",
         ] {
             check(&format!(
-                "(#fn main () #{scalar} (#return (#{scalar}::{operation} 6{scalar} 2{scalar})))"
+                "#fn main () #{scalar} (#return (#{scalar}::{operation} 6{scalar} 2{scalar}))\n"
             ))
             .unwrap();
         }
         for operation in ["eq", "ne", "lt", "le", "gt", "ge"] {
             check(&format!(
-                "(#fn main () #bool (#return (#{scalar}::{operation} 6{scalar} 2{scalar})))"
+                "#fn main () #bool (#return (#{scalar}::{operation} 6{scalar} 2{scalar}))\n"
             ))
             .unwrap();
         }
     }
-    check("(#fn main () #bool (#return (#bool::and (#bool::not false) (#bool::or false true))))")
+    check("#fn main () #bool (#return (#bool::and (#bool::not false) (#bool::or false true)))\n")
         .unwrap();
-    check("(#fn main () #f64 (#return (#f64::add 40.0f64 2.0f64)))").unwrap();
+    check("#fn main () #f64 (#return (#f64::add 40.0f64 2.0f64))\n").unwrap();
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn old_operator_spellings_and_implicit_overflow_are_rejected() {
     ] {
         assert!(
             check(&format!(
-                "(#fn main () #u64 (#return ({operation} 40u64 2u64)))"
+                "#fn main () #u64 (#return ({operation} 40u64 2u64))\n"
             ))
             .is_err(),
             "{operation}"
@@ -100,25 +100,25 @@ fn old_operator_spellings_and_implicit_overflow_are_rejected() {
 #[test]
 fn generators_construct_variants_without_overloading_symbol_append() {
     check(
-        "(#gn make (name)
-      `((#enum ,name () ((,(#gn-variant name \"Ready\") #u64)))
-        (#fn ,(#gn-symbol-append name \"create\") ((value #u64)) ,name
-          (#return (#enum-literal ,(#gn-variant name \"Ready\") value)))))
-      (#generate make State)
-      (#fn main () #u64 (#return (#match (#call State::create ((value 42u64)))
-        (#case (State.Ready value) value))))",
+        "#gn make (name)
+        `((#enum ,name () ((,(#gn-variant name \"Ready\") #u64)))
+          (#fn ,(#gn-symbol-append name \"create\") ((value #u64)) ,name
+            (#return (#enum-literal ,(#gn-variant name \"Ready\") value))))
+#generate make State
+#fn main () #u64 (#return (#match (#call State::create ((value 42u64)))
+          (#case (State.Ready value) value)))\n",
     )
     .unwrap();
-    assert!(parse_program("(#gn bad () `((#struct lowercase () ()))) (#generate bad)").is_err());
+    assert!(parse_program("#gn bad () `((#struct lowercase () ()))\n#generate bad\n").is_err());
 }
 
 #[test]
 fn compiler_issued_private_type_symbols_remain_hygienic() {
     check(
-        "(#gn-fn private-type (name) `((#struct ,name () ((value #u64)))))
-      (#gn make () (#gn-call private-type (#gn-gensym \"Private\")))
-      (#generate make)
-      (#fn main () #u64 (#return 42u64))",
+        "#gn-fn private-type (name) `((#struct ,name () ((value #u64))))
+#gn make () (#gn-call private-type (#gn-gensym \"Private\"))
+#generate make
+#fn main () #u64 (#return 42u64)\n",
     )
     .unwrap();
 }
@@ -127,11 +127,11 @@ fn compiler_issued_private_type_symbols_remain_hygienic() {
 fn naming_diagnostics_underline_the_identifier() {
     let scratch = support::Scratch::new("naming-diagnostics");
     for (source, offending) in [
-        ("(#struct wrong () ())", "wrong"),
-        ("(#enum State () (Other.Ready))", "Other.Ready"),
-        ("(#fn main ((Wrong #u64)) #u64 (#return Wrong))", "Wrong"),
+        ("#struct wrong () ()\n", "wrong"),
+        ("#enum State () (Other.Ready)\n", "Other.Ready"),
+        ("#fn main ((Wrong #u64)) #u64 (#return Wrong)\n", "Wrong"),
         (
-            "(#fn main () #u64 (#return (#u64.+.wrap 1u64 2u64)))",
+            "#fn main () #u64 (#return (#u64.+.wrap 1u64 2u64))\n",
             "#u64.+.wrap",
         ),
     ] {

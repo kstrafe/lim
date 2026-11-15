@@ -1,10 +1,10 @@
 #[test]
 fn properties_are_part_of_the_declaring_type() {
     let program = lim::parse_program(
-        "(#struct Handle (#linear #repr-c) ((value #u64)))
-      (#enum Error (#repr-c #linear) (Error.Failed))
-      (#struct Plain () ((value #u64)))
-      (#enum Flag () (Flag.On Flag.Off))",
+        "#struct Handle (#linear #repr-c) ((value #u64))
+#enum Error (#repr-c #linear) (Error.Failed)
+#struct Plain () ((value #u64))
+#enum Flag () (Flag.On Flag.Off)\n",
     )
     .unwrap();
     for item in &program.items {
@@ -39,17 +39,17 @@ fn properties_are_part_of_the_declaring_type() {
 #[test]
 fn old_forms_and_invalid_properties_are_rejected() {
     for source in [
-        "(#struct Token () ()) (#linear Token)",
-        "(#enum State () (State.Empty)) (#linear State)",
-        "(#struct Old ((field #u64)))",
-        "(#enum Old (Unprefixed.Empty))",
-        "(#struct Old #repr-c ((field #u64)))",
-        "(#struct Duplicate (#linear #linear) ())",
-        "(#enum Duplicate (#repr-c #repr-c) (Duplicate.Empty))",
-        "(#struct Unknown (#copy) ())",
-        "(#struct Nested ((#linear)) ())",
-        "(#enum Unprefixed (linear) (Unprefixed.Empty))",
-        "(#enum Unprefixed (#linear repr-c) (Unprefixed.Empty))",
+        "#struct Token () ()\n (#linear Token)",
+        "#enum State () (State.Empty)\n (#linear State)",
+        "#struct Old ((field #u64))\n",
+        "#enum Old (Unprefixed.Empty)\n",
+        "#struct Old #repr-c ((field #u64))\n",
+        "#struct Duplicate (#linear #linear) ()\n",
+        "#enum Duplicate (#repr-c #repr-c) (Duplicate.Empty)\n",
+        "#struct Unknown (#copy) ()\n",
+        "#struct Nested ((#linear)) ()\n",
+        "#enum Unprefixed (linear) (Unprefixed.Empty)\n",
+        "#enum Unprefixed (#linear repr-c) (Unprefixed.Empty)\n",
     ] {
         assert!(lim::parse_program(source).is_err(), "accepted {source}");
     }
@@ -58,12 +58,12 @@ fn old_forms_and_invalid_properties_are_rejected() {
 #[test]
 fn generators_emit_complete_property_bearing_declarations() {
     let program = lim::parse_program(
-        "(#gn make-resource (name)
-      `((#struct ,name (#linear) ((value #u64)))))
-      (#generate make-resource Resource)
-      (#fn main () ()
-        (#let resource Resource (#struct-literal Resource ((value 1u64))))
-        (#forget resource) (#return ()))",
+        "#gn make-resource (name)
+        `((#struct ,name (#linear) ((value #u64))))
+#generate make-resource Resource
+#fn main () ()
+          (#let resource Resource (#struct-literal Resource ((value 1u64))))
+          (#forget resource) (#return ())\n",
     )
     .unwrap();
     assert!(program.items.iter().any(|item| matches!(item,

@@ -24,7 +24,7 @@ fn materialize(root: &Path, entry: &str, output: &str, cache: &str) -> Vec<Strin
         .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
         .collect::<Vec<_>>();
     for source in &sources {
-        lim::parse(source).expect("emitted generated source parses");
+        lim::parse_source_unit(source).expect("emitted generated source parses");
     }
     sources
 }
@@ -82,17 +82,17 @@ fn identical_builtin_invocations_deduplicate_within_each_file_and_keep_origins()
     write_module(
         root,
         "a.lim",
-        "(#generate #optional ((type #u64) (name Shared?)))\n(#generate #optional ((type #u64) (name Shared?)))\n",
+        "#generate #optional ((type #u64) (name Shared?))\n#generate #optional ((type #u64) (name Shared?))\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#generate #optional ((type #u64) (name Shared?)))\n",
+        "#generate #optional ((type #u64) (name Shared?))\n",
     );
     write_module(
         root,
         "main.lim",
-        "(#alias FirstValue = ./a.lim::Shared?)\n(#alias SecondValue = ./b.lim::Shared?)\n",
+        "#alias FirstValue = ./a.lim::Shared?\n#alias SecondValue = ./b.lim::Shared?\n",
     );
 
     let generated = materialize(root, "main.lim", "generated", "cache");
@@ -118,22 +118,22 @@ fn identical_user_generator_calls_keep_per_file_artifacts_and_origins() {
     write_module(
         root,
         "defs.lim",
-        "(#gn emit-shared () `((#type Shared #u64)))\n",
+        "#gn emit-shared () `((#type Shared #u64))\n",
     );
     write_module(
         root,
         "a.lim",
-        "(#alias emit-shared = ./defs.lim::emit-shared)\n(#generate emit-shared)\n(#generate emit-shared)\n",
+        "#alias emit-shared = ./defs.lim::emit-shared\n#generate emit-shared\n#generate emit-shared\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#alias emit-shared = ./defs.lim::emit-shared)\n(#generate emit-shared)\n",
+        "#alias emit-shared = ./defs.lim::emit-shared\n#generate emit-shared\n",
     );
     write_module(
         root,
         "main.lim",
-        "(#alias FirstValue = ./a.lim::Shared)\n(#alias SecondValue = ./b.lim::Shared)\n",
+        "#alias FirstValue = ./a.lim::Shared\n#alias SecondValue = ./b.lim::Shared\n",
     );
 
     let generated = materialize(root, "main.lim", "generated", "cache");
@@ -159,22 +159,22 @@ fn user_generator_artifacts_are_per_invocation_cache_payloads() {
     write_module(
         root,
         "defs.lim",
-        "(#gn child (name) `((#type ,name #u64)))\n(#gn parent (name) `((#generate child ,name)))\n",
+        "#gn child (name) `((#type ,name #u64))\n#gn parent (name) `((#generate child ,name))\n",
     );
     write_module(
         root,
         "a.lim",
-        "(#alias parent = ./defs.lim::parent) (#alias child = ./defs.lim::child)\n(#generate parent First)\n(#generate child Second)\n",
+        "#alias parent = ./defs.lim::parent\n#alias child = ./defs.lim::child\n#generate parent First\n#generate child Second\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#alias parent = ./defs.lim::parent)\n(#generate parent First)\n",
+        "#alias parent = ./defs.lim::parent\n#generate parent First\n",
     );
     write_module(
         root,
         "main.lim",
-        "(#alias FirstValue = ./a.lim::First)\n(#alias SecondValue = ./b.lim::First)\n",
+        "#alias FirstValue = ./a.lim::First\n#alias SecondValue = ./b.lim::First\n",
     );
     let mut cold = materialize(root, "main.lim", "generated", "cache");
     assert_eq!(
@@ -182,12 +182,12 @@ fn user_generator_artifacts_are_per_invocation_cache_payloads() {
         5,
         "each file has its own parent/child payloads, plus the second child in a.lim"
     );
-    for marker in ["(#type First #u64)", "#generate", "(#type Second #u64)"] {
+    for marker in ["#type First #u64\n", "#generate", "#type Second #u64\n"] {
         let matching = cold
             .iter()
             .filter(|source| {
                 if marker == "#generate" {
-                    lim::parse(source).unwrap().iter().any(|node| {
+                    lim::parse_source_unit(source).unwrap().iter().any(|node| {
                         matches!(&node.expr, lim::Expr::List(items)
                             if matches!(items.first(), Some(lim::Expr::Generate)))
                     })
@@ -197,7 +197,7 @@ fn user_generator_artifacts_are_per_invocation_cache_payloads() {
             })
             .map(String::as_str)
             .collect::<Vec<_>>();
-        let expected = if marker == "(#type Second #u64)" {
+        let expected = if marker == "#type Second #u64\n" {
             vec![vec![absolute_origin(root, "a.lim", 3)]]
         } else {
             vec![
@@ -236,10 +236,10 @@ fn user_generator_artifacts_are_per_invocation_cache_payloads() {
         .find(|path| {
             fs::read_to_string(path)
                 .unwrap()
-                .contains("(#type First #u64)")
+                .contains("#type First #u64")
         })
         .unwrap();
-    fs::write(child, "(#type Corrupted #u64)").unwrap();
+    fs::write(child, "#type Corrupted #u64\n").unwrap();
     let mut repaired = materialize(root, "main.lim", "generated", "cache");
     repaired.sort();
     assert_eq!(
@@ -255,7 +255,7 @@ fn inspectable_user_generator_output_cannot_be_silently_discarded() {
     let cache = root.join("cache");
     fs::write(&cache, "this is a file, not a cache directory").unwrap();
     let result = lim::write_generated_sources_from_path_with_config_and_cache(
-        "(#gn emit () `((#type Value #u64))) (#generate emit)",
+        "#gn emit () `((#type Value #u64))\n#generate emit\n",
         &root.join("main.lim"),
         &root.join("generated"),
         &lim::CompileConfig::default(),
@@ -274,8 +274,8 @@ fn duplicate_invocations_load_once_and_publish_all_origins_once() {
     let input = root.join("main.lim");
     let cache = root.join("cache");
     let source = format!(
-        "(#gn child () `((#type Shared #u64)))\n(#gn parent () `((#generate child)))\n{}",
-        "(#generate parent)\n".repeat(64)
+        "#gn child () `((#type Shared #u64))\n#gn parent () `((#generate child))\n{}",
+        "#generate parent\n".repeat(64)
     );
     let run = |source: &str| {
         lim::with_cache_report(|| {
@@ -327,7 +327,7 @@ fn repeated_builtin_materialization_uses_one_cache_lookup() {
     let scratch = support::Scratch::new("builtin-ram-lookup");
     let root = scratch.path();
     let input = root.join("main.lim");
-    let source = "(#generate #optional ((type #u64) (name Shared)))\n".repeat(64);
+    let source = "#generate #optional ((type #u64) (name Shared))\n".repeat(64);
     let run = || {
         lim::with_cache_report(|| {
             lim::write_generated_sources_from_path_with_config_and_cache(
@@ -362,22 +362,22 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
     write_module(
         root,
         "defs.lim",
-        "(#gn wrap-shared () `((#generate #optional ((type #u64) (name ,(#gn-gensym \"Nested\"))))))\n",
+        "#gn wrap-shared () `((#generate #optional ((type #u64) (name ,(#gn-gensym \"Nested\")))))\n",
     );
     write_module(
         root,
         "a.lim",
-        "(#alias wrap-shared = ./defs.lim::wrap-shared)\n(#generate wrap-shared)\n(#generate wrap-shared)\n",
+        "#alias wrap-shared = ./defs.lim::wrap-shared\n#generate wrap-shared\n#generate wrap-shared\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#alias wrap-shared = ./defs.lim::wrap-shared)\n(#generate wrap-shared)\n",
+        "#alias wrap-shared = ./defs.lim::wrap-shared\n#generate wrap-shared\n",
     );
     write_module(
         root,
         "main.lim",
-        "(#alias first-generator = ./a.lim::wrap-shared)\n(#alias second-generator = ./b.lim::wrap-shared)\n",
+        "#alias first-generator = ./a.lim::wrap-shared\n#alias second-generator = ./b.lim::wrap-shared\n",
     );
 
     let cold = materialize(root, "main.lim", "generated", "cache");
@@ -412,17 +412,17 @@ fn warm_generation_retains_per_file_artifacts_and_origins() {
     write_module(
         root,
         "a.lim",
-        "(#generate #optional ((type #u64) (name Warm?)))\n",
+        "#generate #optional ((type #u64) (name Warm?))\n",
     );
     write_module(
         root,
         "b.lim",
-        "(#generate #optional ((type #u64) (name Warm?)))\n",
+        "#generate #optional ((type #u64) (name Warm?))\n",
     );
     write_module(
         root,
         "main.lim",
-        "(#alias FirstValue = ./a.lim::Warm?)\n(#alias SecondValue = ./b.lim::Warm?)\n",
+        "#alias FirstValue = ./a.lim::Warm?\n#alias SecondValue = ./b.lim::Warm?\n",
     );
 
     let cold = materialize(root, "main.lim", "generated", "cache");
@@ -443,7 +443,7 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
     let root = scratch.path();
     let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_fn.lim");
     let source = fs::read_to_string(&example).unwrap();
-    let invocation_line = lim::parse(&source)
+    let invocation_line = lim::parse_source_unit(&source)
         .unwrap()
         .into_iter()
         .find(|node| {
@@ -464,7 +464,7 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
     )
     .unwrap();
     let has_work_protocol = |source: &str| {
-        lim::parse(source).unwrap().iter().any(|node| {
+        lim::parse_source_unit(source).unwrap().iter().any(|node| {
             matches!(&node.expr, lim::Expr::List(items)
                 if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#syntax")
                     && matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name.ends_with(".lim::WorkAwait")))
@@ -475,7 +475,7 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
         .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
         .find(|source| has_work_protocol(source))
         .expect("async protocol source was materialized");
-    lim::parse(&generated).expect("async generated source parses");
+    lim::parse_source_unit(&generated).expect("async generated source parses");
     assert!(generated.starts_with("// Generated from:\n// "));
     assert!(!generated.contains("#await"), "{generated}");
     assert!(has_work_protocol(&generated), "{generated}");

@@ -19,7 +19,7 @@ fn warnings(source: &str) -> Vec<lim::Diagnostic> {
 
 #[test]
 fn unused_struct_enum_and_alias_warnings_have_exact_names_and_warning_severity() {
-    let source = "(#struct UnusedStruct () ())\n(#enum UnusedEnum () (UnusedEnum.Empty))\n(#type UnusedAlias #u64)\n(#fn main () #u64 (#return 0u64))";
+    let source = "#struct UnusedStruct () ()\n#enum UnusedEnum () (UnusedEnum.Empty)\n#type UnusedAlias #u64\n#fn main () #u64 (#return 0u64)\n";
     let diagnostics = warnings(source);
     assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
     for (diagnostic, name) in diagnostics
@@ -41,21 +41,21 @@ fn unused_struct_enum_and_alias_warnings_have_exact_names_and_warning_severity()
 #[test]
 fn function_signatures_bodies_globals_and_transitive_types_count_as_use() {
     for source in [
-        "(#type Alias Container) (#struct Container () ((element Element))) (#enum Element () (Element.Empty)) (#fn consume ((value Alias)) () (#forget value) (#return ()))",
-        "(#enum Choice () (Choice.Only)) (#fn main () #u64 (#return (#match Choice.Only (#case Choice.Only 0u64))))",
-        "(#struct Local () ()) (#fn main () #u64 (#let value Local (#struct-literal Local ())) (#forget value) (#return 0u64))",
-        "(#struct Local () ()) (#fn main () #u64 (#return (#block (#let value Local (#struct-literal Local ())) (#forget value) 0u64)))",
-        "(#type Counter #u64) (#let value Counter 1u64)",
-        "(#struct Sized () ((value #u64))) (#fn main () #usize (#return (#size-of Sized)))",
+        "#type Alias Container\n#struct Container () ((element Element))\n#enum Element () (Element.Empty)\n#fn consume ((value Alias)) () (#forget value) (#return ())\n",
+        "#enum Choice () (Choice.Only)\n#fn main () #u64 (#return (#match Choice.Only (#case Choice.Only 0u64)))\n",
+        "#struct Local () ()\n#fn main () #u64 (#let value Local (#struct-literal Local ())) (#forget value) (#return 0u64)\n",
+        "#struct Local () ()\n#fn main () #u64 (#return (#block (#let value Local (#struct-literal Local ())) (#forget value) 0u64))\n",
+        "#type Counter #u64\n#let value Counter 1u64\n",
+        "#struct Sized () ((value #u64))\n#fn main () #usize (#return (#size-of Sized))\n",
     ] { assert!(warnings(source).is_empty(), "{source}"); }
 }
 
 #[test]
 fn self_references_and_field_labels_do_not_hide_unused_types() {
     let source =
-        "(#struct First () ((next (#ptr Second)))) (#struct Second () ((back (#ptr First))))";
+        "#struct First () ((next (#ptr Second)))\n#struct Second () ((back (#ptr First)))\n";
     assert_eq!(warnings(source).len(), 2);
-    let source = "(#struct Unused () ()) (#struct Used () ((unused #u64))) (#fn main () #u64 (#let value Used (#struct-literal Used ((unused 0u64)))) (#forget value) (#return 0u64))";
+    let source = "#struct Unused () ()\n#struct Used () ((unused #u64))\n#fn main () #u64 (#let value Used (#struct-literal Used ((unused 0u64)))) (#forget value) (#return 0u64)\n";
     let diagnostics = warnings(source);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert!(diagnostics[0].message.contains("'Unused'"));
@@ -66,8 +66,8 @@ fn imported_generated_and_cfg_selected_types_keep_warning_origins() {
     let scratch = support::Scratch::new("unused-type-origins");
     let entry = scratch.path().join("main.lim");
     let imported = scratch.path().join("types.lim");
-    fs::write(&imported, "(#struct Unused () ())").unwrap();
-    let source = "(#alias Ext@Unused = ./types.lim::Unused) (#gn emit () `((#type Generated #u64))) (#generate emit) (#cfg-if (#cfg-is #platform not-enabled) (#enum Hidden () (Hidden.Absent)))";
+    fs::write(&imported, "#struct Unused () ()\n").unwrap();
+    let source = "#alias Ext@Unused = ./types.lim::Unused\n#gn emit () `((#type Generated #u64))\n#generate emit\n#cfg-if (#cfg-is #platform not-enabled) (#enum Hidden () (Hidden.Absent))\n";
     let mut previous = None;
     for _ in 0..2 {
         let (result, diagnostics) = lim::with_warnings(|| {
@@ -98,7 +98,7 @@ fn cli_warnings_are_nonfatal_for_check_and_native_compilation() {
     let binary = scratch.path().join("program");
     fs::write(
         &entry,
-        "(#enum Unused () (Unused.Empty))\n(#fn main () #u64 (#return 42u64))",
+        "#enum Unused () (Unused.Empty)\n#fn main () #u64 (#return 42u64)\n",
     )
     .unwrap();
     for command in [

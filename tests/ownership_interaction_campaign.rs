@@ -75,11 +75,11 @@ fn aliases_aggregate_returns_and_generated_helpers_preserve_loans() {
                 let name = format!("ownership-{generated}-{shape}-{action}");
                 let scratch = support::Scratch::new(&name);
                 let dir = scratch.path();
-                let helper = format!("(#fn carry ((input (#ref #u64))) {ty} (#return {value}))");
+                let helper = format!("#fn carry ((input (#ref #u64))) {ty} (#return {value})\n");
                 let library = format!(
-                    "(#struct Holder () ((view (#ref #u64))))\n{}",
+                    "#struct Holder () ((view (#ref #u64)))\n{}",
                     if generated {
-                        format!("(#gn emit () `({helper})) (#generate emit)")
+                        format!("#gn emit () `({helper})\n#generate emit\n")
                     } else {
                         helper
                     }
@@ -96,13 +96,13 @@ fn aliases_aggregate_returns_and_generated_helpers_preserve_loans() {
                     "(#let answer #u64 (#deref alias)) (#forget alias) (#return answer)"
                 };
                 let source = format!(
-                    "(#alias Holder = ./lib.lim::Holder)
-                    (#alias forwarded = ./lib.lim::carry)
-                    (#fn main () #u64
-                      (#let-mut owner #u64 42u64) (#let-mut other #u64 0u64)
-                      (#let carried {ty} (#call forwarded ((input (#borrow owner)))))
-                      (#let alias (#ref #u64) {extract}) (#forget carried)
-                      {operation} {finish})"
+                    "#alias Holder = ./lib.lim::Holder
+#alias forwarded = ./lib.lim::carry
+#fn main () #u64
+                        (#let-mut owner #u64 42u64) (#let-mut other #u64 0u64)
+                        (#let carried {ty} (#call forwarded ((input (#borrow owner)))))
+                        (#let alias (#ref #u64) {extract}) (#forget carried)
+                        {operation} {finish}\n"
                 );
                 let (cold, cold_report) = compile(dir, &source);
                 let (warm, warm_report) = compile(dir, &source);
@@ -135,11 +135,11 @@ fn aggregate_owner_transfer_requires_exactly_one_consumption() {
             let name = format!("linear-transfer-{generated}-{action}");
             let scratch = support::Scratch::new(&name);
             let dir = scratch.path();
-            let helper = "(#fn transfer ((input Token)) Token (#return input))";
+            let helper = "#fn transfer ((input Token)) Token (#return input)\n";
             let library = format!(
-                "(#struct Token (#linear) ((value #u64))) {}",
+                "#struct Token (#linear) ((value #u64))\n {}",
                 if generated {
-                    format!("(#gn emit () `({helper})) (#generate emit)")
+                    format!("#gn emit () `({helper})\n#generate emit\n")
                 } else {
                     helper.to_owned()
                 }
@@ -157,13 +157,13 @@ fn aggregate_owner_transfer_requires_exactly_one_consumption() {
                 _ => "",
             };
             let source = format!(
-                "(#alias Token = ./lib.lim::Token)
-                (#alias forwarded = ./lib.lim::transfer)
-                (#fn main () #u64
-                  (#let owner Token (#struct-literal Token ((value 42u64))))
-                  {borrow}
-                  (#let moved Token (#call forwarded ((input owner))))
-                  {consumption} (#return 42u64))"
+                "#alias Token = ./lib.lim::Token
+#alias forwarded = ./lib.lim::transfer
+#fn main () #u64
+                    (#let owner Token (#struct-literal Token ((value 42u64))))
+                    {borrow}
+                    (#let moved Token (#call forwarded ((input owner))))
+                    {consumption} (#return 42u64)\n"
             );
             let (cold, _) = compile(dir, &source);
             let (warm, report) = compile(dir, &source);

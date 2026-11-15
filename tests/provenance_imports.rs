@@ -22,17 +22,17 @@ fn explicit_aliases_keep_canonical_producer_identity_under_cfg_and_cache() {
     let scratch = support::Scratch::new("provenance-import-alias");
     fs::write(
         scratch.path().join("producer.lim"),
-        "(#gn make (name) `((#struct ,name () ())))
-         (#cfg-if (#cfg-is #extra yes) (#generate make Thing))",
+        "#gn make (name) `((#struct ,name () ()))
+#cfg-if (#cfg-is #extra yes) (#generate make Thing)\n",
     )
     .unwrap();
 
-    let source = "(#alias make = ./producer.lim::make)
-      (#alias same-make = ./producer.lim::make)
-      (#cfg-if (#cfg-is #extra yes) (#alias Thing = ./producer.lim::Thing))
-      (#cfg-if (#cfg-is #extra yes) (#require-generated Thing make))
-      (#cfg-if (#cfg-is #extra yes) (#require-generated Thing same-make))
-      (#fn main () #u64 (#return 0u64))";
+    let source = "#alias make = ./producer.lim::make
+#alias same-make = ./producer.lim::make
+#cfg-if (#cfg-is #extra yes) (#alias Thing = ./producer.lim::Thing)
+#cfg-if (#cfg-is #extra yes) (#require-generated Thing make)
+#cfg-if (#cfg-is #extra yes) (#require-generated Thing same-make)
+#fn main () #u64 (#return 0u64)\n";
     for extra in ["no", "yes"] {
         let mut config = lim::CompileConfig::default();
         config.set("extra", extra);
@@ -46,14 +46,14 @@ fn explicit_aliases_keep_canonical_producer_identity_under_cfg_and_cache() {
 #[test]
 fn imported_consumer_requirement_keeps_its_source_span_and_rendered_hunk() {
     let scratch = support::Scratch::new("provenance-import-diagnostic");
-    let module = "(#gn make (name) `((#struct ,name () ())))
-      (#generate make Actual)
-      (#require-generated Wanted make)
-      (#fn read () #u64 (#return 0u64))";
+    let module = "#gn make (name) `((#struct ,name () ()))
+#generate make Actual
+#require-generated Wanted make
+#fn read () #u64 (#return 0u64)\n";
     let module_path = scratch.path().join("consumer.lim");
     fs::write(&module_path, module).unwrap();
-    let root = "(#alias read = ./consumer.lim::read)
-      (#fn main () #u64 (#return (#call read ())))";
+    let root = "#alias read = ./consumer.lim::read
+#fn main () #u64 (#return (#call read ()))\n";
     let error = compile(
         root,
         &scratch.path().join("main.lim"),
@@ -79,14 +79,15 @@ fn imported_consumer_requirement_keeps_its_source_span_and_rendered_hunk() {
 #[test]
 fn duplicate_inner_builtin_output_retains_each_wrapper_origin_cold_and_warm() {
     let scratch = support::Scratch::new("provenance-import-wrappers");
-    let source = "(#gn make (name) `((#generate #optional ((type #u64) (name ,name)))))
-      (#gn wrappera () `((#generate make NameMaybe)))
-      (#gn wrapperb () `((#generate make NameMaybe)))
-      (#generate wrappera) (#generate wrapperb)
-      (#require-generated NameMaybe #optional (NameMaybe.Some NameMaybe.None NameMaybe::construct))
-      (#require-generated NameMaybe wrappera (NameMaybe.Some NameMaybe.None))
-      (#require-generated NameMaybe wrapperb (NameMaybe.Some NameMaybe.None))
-      (#fn main () #u64 (#return 0u64))";
+    let source = "#gn make (name) `((#generate #optional ((type #u64) (name ,name))))
+#gn wrappera () `((#generate make NameMaybe))
+#gn wrapperb () `((#generate make NameMaybe))
+#generate wrappera
+#generate wrapperb
+#require-generated NameMaybe #optional (NameMaybe.Some NameMaybe.None NameMaybe::construct)
+#require-generated NameMaybe wrappera (NameMaybe.Some NameMaybe.None)
+#require-generated NameMaybe wrapperb (NameMaybe.Some NameMaybe.None)
+#fn main () #u64 (#return 0u64)\n";
     for _ in 0..2 {
         compile(
             source,

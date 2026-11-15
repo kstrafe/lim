@@ -162,10 +162,10 @@ fn cold_and_warm_builds_are_identical_across_relocated_workspaces() {
     for root in [left.path(), right.path()] {
         let mut expected_summaries = None;
         let mut expected_warm_artifacts = None;
-        fs::write(root.join("module.lim"), "(#const z #u64 2u64) (#const a #u64 20u64) (#const float #f64 1.5f64)\n(#gn alias (name) `((#type ,name #u64)))\n(#generate alias Word)\n(#generate #optional ((type #u64) (name Maybe)))").unwrap();
+        fs::write(root.join("module.lim"), "#const z #u64 2u64\n#const a #u64 20u64\n#const float #f64 1.5f64\n#gn alias (name) `((#type ,name #u64))\n#generate alias Word\n#generate #optional ((type #u64) (name Maybe))\n").unwrap();
         fs::write(
             root.join("main.lim"),
-            "(#alias a = ./module.lim::a) (#alias z = ./module.lim::z) (#fn main () #u64 (#return (#u64::add-wrap a z)))",
+            "#alias a = ./module.lim::a\n#alias z = ./module.lim::z\n#fn main () #u64 (#return (#u64::add-wrap a z))\n",
         )
         .unwrap();
         for _ in 0..2 {

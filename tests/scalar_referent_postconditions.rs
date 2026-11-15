@@ -13,46 +13,46 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
     )
 }
 
-const PROGRAM: &str = "(#struct Holder () ((value (#ref #u64))))
-  (#fn update ((selector (#ref-mut #u64)) (flag #bool)) ()
-    (#deref-set selector 1u64)
-    (#if flag (#block (#return ())) ())
-    (#deref-set selector 0u64)
-    (#return ()))
-  (#fn main () #u64
-    (#let-mut selector #u64 0u64)
-    (#let words (#array #u64 1) (#array-repeat 0u64))
-    (#call update ((selector (#borrow-mut selector)) (flag false)))
-    (#let answer #u64 (#match selector
-      (#case 0 (#block
-        (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice words))))
-        (#let value #u64 (#deref (#get holder value)))
-        (#forget holder) value))
-      (#case _ 42u64)))
-    (#forget words) (#return answer))";
+const PROGRAM: &str = "#struct Holder () ((value (#ref #u64)))
+#fn update ((selector (#ref-mut #u64)) (flag #bool)) ()
+      (#deref-set selector 1u64)
+      (#if flag (#block (#return ())) ())
+      (#deref-set selector 0u64)
+      (#return ())
+#fn main () #u64
+      (#let-mut selector #u64 0u64)
+      (#let words (#array #u64 1) (#array-repeat 0u64))
+      (#call update ((selector (#borrow-mut selector)) (flag false)))
+      (#let answer #u64 (#match selector
+        (#case 0 (#block
+          (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice words))))
+          (#let value #u64 (#deref (#get holder value)))
+          (#forget holder) value))
+        (#case _ 42u64)))
+      (#forget words) (#return answer)\n";
 
 #[test]
 fn fresh_pinned_heap_initializers_provide_only_current_scalar_facts() {
-    let source = "(#struct Holder () ((value (#ref #u64))))
-      (#struct State () ((pc #u64)))
-      (#fn mode ((flag #bool)) #u64 (#return (#if flag 0u64 1u64)))
-      (#fn inspect ((state (#pin-ref State)) (words (#slice #u64))) #u64
-        (#return (#match (#get state pc)
-          (#case 0 42u64)
-          (#case _ (#block
-            (#let holder Holder (#unsafe (#word-read Holder words)))
-            (#let answer #u64 (#deref (#get holder value)))
-            (#forget holder) answer)))))
-      (#fn main () #u64
-        (#let pointer (#ptr-mut State) (#unsafe (#linux-syscall (#ptr-mut State)
-          9usize (0usize (#size-of State) 3usize 34usize -1i64 0usize))))
-        (#let initial State (#struct-literal State ((pc 0u64))))
-        (#let-mut frame (#pin-own State) (#unsafe (#pin-own-of pointer initial)))
-        (#let words (#array #u64 1) (#array-repeat 0u64))
-        (#let answer #u64 (#call inspect ((state (#pin-own-borrow frame)) (words (#borrow-slice words)))))
-        (#let raw (#ptr-mut State) (#unsafe (#pin-release frame)))
-        (#let ignored #i64 (#unsafe (#linux-syscall #i64 11usize (raw (#size-of State)))))
-        (#forget words) (#return answer))";
+    let source = "#struct Holder () ((value (#ref #u64)))
+#struct State () ((pc #u64))
+#fn mode ((flag #bool)) #u64 (#return (#if flag 0u64 1u64))
+#fn inspect ((state (#pin-ref State)) (words (#slice #u64))) #u64
+          (#return (#match (#get state pc)
+            (#case 0 42u64)
+            (#case _ (#block
+              (#let holder Holder (#unsafe (#word-read Holder words)))
+              (#let answer #u64 (#deref (#get holder value)))
+              (#forget holder) answer))))
+#fn main () #u64
+          (#let pointer (#ptr-mut State) (#unsafe (#linux-syscall (#ptr-mut State)
+            9usize (0usize (#size-of State) 3usize 34usize -1i64 0usize))))
+          (#let initial State (#struct-literal State ((pc 0u64))))
+          (#let-mut frame (#pin-own State) (#unsafe (#pin-own-of pointer initial)))
+          (#let words (#array #u64 1) (#array-repeat 0u64))
+          (#let answer #u64 (#call inspect ((state (#pin-own-borrow frame)) (words (#borrow-slice words)))))
+          (#let raw (#ptr-mut State) (#unsafe (#pin-release frame)))
+          (#let ignored #i64 (#unsafe (#linux-syscall #i64 11usize (raw (#size-of State)))))
+          (#forget words) (#return answer)\n";
     compile(source).expect("fresh heap state excludes the uninitialized reader");
     for initializer in ["1u64", "(#call mode ((flag true)))"] {
         let invalid = source.replace("(pc 0u64)", &format!("(pc {initializer})"));
@@ -75,7 +75,7 @@ fn fresh_pinned_heap_initializers_provide_only_current_scalar_facts() {
 fn void_callee_referent_postcondition_excludes_inactive_word_reader() {
     let definite = PROGRAM
         .replace(
-            "(#fn update ((selector (#ref-mut #u64)) (flag #bool)) ()\n    (#deref-set selector 1u64)\n    (#if flag (#block (#return ())) ())\n    (#deref-set selector 0u64)\n    (#return ()))",
+            "#fn update ((selector (#ref-mut #u64)) (flag #bool)) ()\n      (#deref-set selector 1u64)\n      (#if flag (#block (#return ())) ())\n      (#deref-set selector 0u64)\n      (#return ())",
             "(#fn update ((selector (#ref-mut #u64))) ()\n    (#deref-set selector 1u64)\n    (#return ()))",
         )
         .replace("((selector (#borrow-mut selector)) (flag false))", "((selector (#borrow-mut selector)))");
@@ -94,7 +94,7 @@ fn alternate_normal_return_cannot_leave_a_stale_selector_postcondition() {
 fn later_alias_mutation_invalidates_a_callee_selector_postcondition() {
     let source = PROGRAM
         .replace(
-            "  (#fn main () #u64",
+            "#fn main () #u64",
             "  (#fn mutate-alias ((alias (#ref-mut #u64))) ()\n    (#deref-set alias 0u64)\n    (#return ()))\n  (#fn main () #u64",
         )
         .replace(

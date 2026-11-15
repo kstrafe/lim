@@ -14,7 +14,7 @@ fn timing_stderr(output: &std::process::Output) -> String {
 fn check_timings_are_opt_in_and_json_is_a_plain_object() {
     let scratch = support::Scratch::new("timings-check");
     let source = scratch.path().join("main.lim");
-    fs::write(&source, "(#fn main () #u64 (#return 0u64))").unwrap();
+    fs::write(&source, "#fn main () #u64 (#return 0u64)\n").unwrap();
 
     let default = lim().arg("--check").arg(&source).output().unwrap();
     assert!(default.status.success());
@@ -63,7 +63,7 @@ fn semantic_failure_preserves_completed_and_unwound_detail_timings() {
     let source = scratch.path().join("bad.lim");
     fs::write(
         &source,
-        "(#fn main () #u64 (#let wrong #u32 1u64) (#return 0u64))",
+        "#fn main () #u64 (#let wrong #u32 1u64) (#return 0u64)\n",
     )
     .unwrap();
     let output = lim()
@@ -83,7 +83,7 @@ fn semantic_failure_preserves_completed_and_unwound_detail_timings() {
 fn assembly_and_binary_commands_report_emission_and_native_stages() {
     let scratch = support::Scratch::new("timings-outputs");
     let source = scratch.path().join("main.lim");
-    fs::write(&source, "(#fn main () #u64 (#return 0u64))").unwrap();
+    fs::write(&source, "#fn main () #u64 (#return 0u64)\n").unwrap();
 
     let assembly = scratch.path().join("main.s");
     let emitted = lim()
@@ -124,7 +124,7 @@ fn assembly_and_binary_commands_report_emission_and_native_stages() {
 fn failed_compile_reports_reached_stages_in_json_mode() {
     let scratch = support::Scratch::new("timings-failure");
     let source = scratch.path().join("bad.lim");
-    fs::write(&source, "(#fn main (").unwrap();
+    fs::write(&source, "#fn main (").unwrap();
     let output = lim()
         .arg("--check")
         .arg(&source)

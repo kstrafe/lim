@@ -96,7 +96,7 @@ fn implemented() -> BTreeMap<u32, String> {
         })
         .collect();
     let mut result = BTreeMap::new();
-    for form in lim::parse(include_str!("../library/linux_x86_64.lim")).unwrap() {
+    for form in lim::parse_source_unit(include_str!("../library/linux_x86_64.lim")).unwrap() {
         walk(&form.expr, &mut |expr| {
             let lim::Expr::List(items) = expr else { return };
             if !matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#fn" || head == "#unsafe-fn")

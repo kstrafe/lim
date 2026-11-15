@@ -14,8 +14,8 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 #[test]
 fn generated_and_distributed_variants_cannot_bypass_the_single_payload_rule() {
     for source in [
-        "(#gn emit () `((#enum Bad () ((Bad.Pair #u64 #u32))))) (#generate emit)",
-        "(#distributed-enum Bad ()) (#enum-contribute Bad (Bad.Pair #u64 #u32))",
+        "#gn emit () `((#enum Bad () ((Bad.Pair #u64 #u32))))\n#generate emit\n",
+        "#distributed-enum Bad ()\n#enum-contribute Bad (Bad.Pair #u64 #u32)\n",
     ] {
         let error = compile(source).unwrap_err();
         assert!(
@@ -37,12 +37,12 @@ fn every_pinned_payload_projection_is_indexless_and_rejects_the_old_form() {
         ),
     ] {
         let source = format!(
-            "(#enum Choice () ((Choice.Full #u64) Choice.Empty))
-             (#fn main () #u64
-               (#let-mut owner Choice (Choice.Full 42u64))
-               (#let value ({reference} #u64)
-                 (#unsafe ({operator} ({borrow} owner) Choice.Full)))
-               (#return (#deref value)))"
+            "#enum Choice () ((Choice.Full #u64) Choice.Empty)
+#fn main () #u64
+                 (#let-mut owner Choice (Choice.Full 42u64))
+                 (#let value ({reference} #u64)
+                   (#unsafe ({operator} ({borrow} owner) Choice.Full)))
+                 (#return (#deref value))\n"
         );
         compile(&source).unwrap();
         let indexed = source.replace("owner) Choice.Full)", "owner) Choice.Full 0)");
@@ -58,12 +58,12 @@ fn every_pinned_payload_projection_is_indexless_and_rejects_the_old_form() {
 #[test]
 fn a_fieldless_variant_has_no_pinned_payload_to_borrow() {
     let error = compile(
-        "(#enum Choice () ((Choice.Full #u64) Choice.Empty))
-         (#fn main () #u64
-           (#let-mut owner Choice Choice.Empty)
-           (#let value (#pin-ref #u64)
-             (#unsafe (#pin-get-payload-unchecked (#pin-borrow owner) Choice.Empty)))
-           (#return (#deref value)))",
+        "#enum Choice () ((Choice.Full #u64) Choice.Empty)
+#fn main () #u64
+             (#let-mut owner Choice Choice.Empty)
+             (#let value (#pin-ref #u64)
+               (#unsafe (#pin-get-payload-unchecked (#pin-borrow owner) Choice.Empty)))
+             (#return (#deref value))\n",
     )
     .unwrap_err();
     assert!(error.message.contains("no payload"), "{error:?}");

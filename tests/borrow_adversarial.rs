@@ -226,74 +226,74 @@ fn rejects_adversarial_borrow_violations_at_the_conflicting_operation() {
     let cases = [
         Violation {
             name: "shared-then-write",
-            source: "(#fn main () #u64
-              (#let-mut owner #u64 1u64)
-              (#let view (#ref #u64) (#borrow owner))
-              (#set owner 2u64)
-              (#drop view) (#return 0u64))",
+            source: "#fn main () #u64
+                (#let-mut owner #u64 1u64)
+                (#let view (#ref #u64) (#borrow owner))
+                (#set owner 2u64)
+                (#drop view) (#return 0u64)\n",
             conflict: "#set",
             conflict_occurrence: 0,
             origin: Some(("#borrow owner", 0)),
         },
         Violation {
             name: "two-overlapping-call-arguments",
-            source: "(#fn inspect ((left (#ref-mut #u64)) (right (#ref #u64))) ()
-                (#forget left) (#drop right) (#return ()))
-              (#fn main () ()
-                (#let-mut owner #u64 1u64)
-                (#call inspect ((left (#borrow-mut owner)) (right (#borrow owner))))
-                (#return ()))",
+            source: "#fn inspect ((left (#ref-mut #u64)) (right (#ref #u64))) ()
+                  (#forget left) (#drop right) (#return ())
+#fn main () ()
+                  (#let-mut owner #u64 1u64)
+                  (#call inspect ((left (#borrow-mut owner)) (right (#borrow owner))))
+                  (#return ())\n",
             conflict: "(#borrow owner)",
             conflict_occurrence: 0,
             origin: Some(("#borrow-mut owner", 0)),
         },
         Violation {
             name: "parent-access-during-child-reborrow",
-            source: "(#struct Pair () ((left #u64) (right #u64)))
-              (#fn main () #u64
-                (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
-                (#let parent (#ref-mut Pair) (#borrow-mut pair))
-                (#let child (#ref-mut #u64) (#borrow-mut (#get parent left)))
-                (#let bad #u64 (#get parent left))
-                (#drop child) (#drop parent) (#forget pair) (#return bad))",
+            source: "#struct Pair () ((left #u64) (right #u64))
+#fn main () #u64
+                  (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+                  (#let parent (#ref-mut Pair) (#borrow-mut pair))
+                  (#let child (#ref-mut #u64) (#borrow-mut (#get parent left)))
+                  (#let bad #u64 (#get parent left))
+                  (#drop child) (#drop parent) (#forget pair) (#return bad)\n",
             conflict: "#get",
             conflict_occurrence: 1,
             origin: Some(("#borrow-mut (#get parent left)", 0)),
         },
         Violation {
             name: "dynamic-slice-indices-may-alias",
-            source: "(#fn main () ()
-              (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 1u64 2u64))
-              (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values)))
-              (#let index #usize 0usize)
-              (#let first (#ref-mut #u64) (#slice-mut-idx view index))
-              (#let second (#ref-mut #u64) (#slice-mut-idx view index))
-              (#deref-set first 10u64)
-              (#deref-set second 20u64)
-              (#forget first) (#forget second) (#forget view) (#forget values) (#return ()))",
+            source: "#fn main () ()
+                (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 1u64 2u64))
+                (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values)))
+                (#let index #usize 0usize)
+                (#let first (#ref-mut #u64) (#slice-mut-idx view index))
+                (#let second (#ref-mut #u64) (#slice-mut-idx view index))
+                (#deref-set first 10u64)
+                (#deref-set second 20u64)
+                (#forget first) (#forget second) (#forget view) (#forget values) (#return ())\n",
             conflict: "#slice-mut-idx",
             conflict_occurrence: 1,
             origin: Some(("#borrow-mut values", 0)),
         },
         Violation {
             name: "block-local-reference-escape",
-            source: "(#fn main () #u64
-              (#let escaped (#ref #u64)
-                (#block (#let local #u64 7u64) (#borrow local)))
-              (#return (#deref escaped)))",
+            source: "#fn main () #u64
+                (#let escaped (#ref #u64)
+                  (#block (#let local #u64 7u64) (#borrow local)))
+                (#return (#deref escaped))\n",
             conflict: "(#block (#let local #u64 7u64) (#borrow local))",
             conflict_occurrence: 0,
             origin: None,
         },
         Violation {
             name: "aggregate-reference-escape",
-            source: "(#struct Holder () ((view (#ref #u64))))
-              (#fn bad () Holder
-                (#let local #u64 7u64)
-                (#return (#struct-literal Holder ((view (#borrow local))))))
-              (#fn main () #u64
-                (#let holder Holder (#call bad ()))
-                (#return (#deref (#get holder view))))",
+            source: "#struct Holder () ((view (#ref #u64)))
+#fn bad () Holder
+                  (#let local #u64 7u64)
+                  (#return (#struct-literal Holder ((view (#borrow local)))))
+#fn main () #u64
+                  (#let holder Holder (#call bad ()))
+                  (#return (#deref (#get holder view)))\n",
             conflict: "(#return (#struct-literal Holder ((view (#borrow local)))))",
             conflict_occurrence: 0,
             origin: Some(("(#borrow local)", 0)),
@@ -307,13 +307,13 @@ fn rejects_adversarial_borrow_violations_at_the_conflicting_operation() {
         },
         Violation {
             name: "owner-move-while-borrowed",
-            source: "(#struct Token (#linear) ((value #u64)))
-              (#fn consume ((token Token)) () (#forget token) (#return ()))
-              (#fn main () ()
-                (#let token Token (#struct-literal Token ((value 1u64))))
-                (#let view (#ref Token) (#borrow token))
-                (#call consume ((token token)))
-                (#drop view) (#return ()))",
+            source: "#struct Token (#linear) ((value #u64))
+#fn consume ((token Token)) () (#forget token) (#return ())
+#fn main () ()
+                  (#let token Token (#struct-literal Token ((value 1u64))))
+                  (#let view (#ref Token) (#borrow token))
+                  (#call consume ((token token)))
+                  (#drop view) (#return ())\n",
             conflict: "token",
             conflict_occurrence: 5,
             origin: Some(("#borrow token", 0)),
@@ -337,23 +337,23 @@ fn accepts_adversarial_non_aliasing_controls() {
     let accepted = [
         (
             "shared-shared",
-            "(#fn main () #u64
-               (#let owner #u64 9u64)
-               (#let first (#ref #u64) (#borrow owner))
-               (#let second (#ref #u64) (#borrow owner))
-               (#let result #u64 (#u64::add-wrap (#deref first) (#deref second)))
-               (#drop first) (#drop second) (#return result))",
+            "#fn main () #u64
+                 (#let owner #u64 9u64)
+                 (#let first (#ref #u64) (#borrow owner))
+                 (#let second (#ref #u64) (#borrow owner))
+                 (#let result #u64 (#u64::add-wrap (#deref first) (#deref second)))
+                 (#drop first) (#drop second) (#return result)\n",
         ),
         (
             "disjoint-fields",
-            "(#struct Pair () ((left #u64) (right #u64)))
-             (#fn main () #u64
-               (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
-               (#let left (#ref-mut #u64) (#borrow-mut (#get pair left)))
-               (#let right (#ref-mut #u64) (#borrow-mut (#get pair right)))
-               (#deref-set left 40u64) (#deref-set right 2u64)
-               (#drop left) (#drop right)
-               (#return (#u64::add-wrap (#get pair left) (#get pair right))))",
+            "#struct Pair () ((left #u64) (right #u64))
+#fn main () #u64
+                 (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+                 (#let left (#ref-mut #u64) (#borrow-mut (#get pair left)))
+                 (#let right (#ref-mut #u64) (#borrow-mut (#get pair right)))
+                 (#deref-set left 40u64) (#deref-set right 2u64)
+                 (#drop left) (#drop right)
+                 (#return (#u64::add-wrap (#get pair left) (#get pair right)))\n",
         ),
     ];
 

@@ -16,18 +16,18 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 #[test]
 fn borrowed_arguments_and_generated_case_sequences_run_in_order() {
     let source = r#"
-      (#gn make-function (name)
-        `((#fn ,name ((value (#ref-mut #u64))) #u64
-            (#return (#match true
-              (#case true (#when true)
-                (#deref-set value (#u64::add-wrap (#deref value) 1u64))
-                (#deref-set value (#u64::add-wrap (#deref value) 1u64))
-                (#deref value))
-              (#case _ 0u64))))))
-      (#generate make-function increment)
-      (#fn main () #u64
-        (#let-mut value #u64 40u64)
-        (#return (#call increment (($ (#borrow-mut value))))))
+#gn make-function (name)
+          `((#fn ,name ((value (#ref-mut #u64))) #u64
+              (#return (#match true
+                (#case true (#when true)
+                  (#deref-set value (#u64::add-wrap (#deref value) 1u64))
+                  (#deref-set value (#u64::add-wrap (#deref value) 1u64))
+                  (#deref value))
+                (#case _ 0u64)))))
+#generate make-function increment
+#fn main () #u64
+          (#let-mut value #u64 40u64)
+          (#return (#call increment (($ (#borrow-mut value)))))
     "#;
     let assembly = compile(source).unwrap();
     let scratch = support::Scratch::new("readability-native");
@@ -55,9 +55,9 @@ fn shorthand_keeps_mutability_and_type_errors_on_the_original_expression() {
         ("#let-mut", "#u64", "#borrow"),
     ] {
         let source = format!(
-            "(#fn take ((value (#ref-mut #u64))) () (#return ()))
-          (#fn main () () ({binding} value {ty} 42{})
-            (#call take (($ ({operation} value)))) (#return ()))",
+            "#fn take ((value (#ref-mut #u64))) () (#return ())
+#fn main () () ({binding} value {ty} 42{})
+              (#call take (($ ({operation} value)))) (#return ())\n",
             &ty[1..]
         );
         let error = compile(&source).expect_err("sugar must not infer a type or borrow mode");
@@ -77,9 +77,9 @@ fn case_sequences_do_not_hide_aliasing_or_linear_leaks() {
         "(#let leaked Token (#struct-literal Token ())) 42u64",
     ] {
         let source = format!(
-            "(#struct Token (#linear) ())
-          (#fn main () #u64 (#let-mut value #u64 42u64)
-            (#return (#match true (#case true {body}) (#case false 0u64))))"
+            "#struct Token (#linear) ()
+#fn main () #u64 (#let-mut value #u64 42u64)
+              (#return (#match true (#case true {body}) (#case false 0u64)))\n"
         );
         compile(&source).expect_err("ordinary ownership checks must apply to case sequences");
     }
@@ -87,12 +87,12 @@ fn case_sequences_do_not_hide_aliasing_or_linear_leaks() {
 
 #[test]
 fn formatting_preserves_comments_sugar_and_semantics() {
-    let source = "(#fn take ((value (#ref #u64))) #u64 (#return (#deref value)))
-      (#fn main () #u64 (#let value #u64 42u64)
-        (#return (#match true
-          (#case true // keep this arm comment
-            (#let answer #u64 (#call take (($ (#borrow value))))) answer)
-          (#case false 0u64))))";
+    let source = "#fn take ((value (#ref #u64))) #u64 (#return (#deref value))
+#fn main () #u64 (#let value #u64 42u64)
+          (#return (#match true
+            (#case true // keep this arm comment
+              (#let answer #u64 (#call take (($ (#borrow value))))) answer)
+            (#case false 0u64)))\n";
     let formatted = lim::format_source(source).unwrap();
     assert!(formatted.contains("// keep this arm comment\n"));
     assert!(formatted.contains("($ (#borrow value))"));

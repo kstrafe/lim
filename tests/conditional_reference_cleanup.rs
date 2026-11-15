@@ -3,21 +3,21 @@ mod support;
 use std::{process::Command, time::Duration};
 
 const DECLARATIONS: &str = "
-  (#struct Resource (#linear) ((value #u64)))
-  (#enum Holder (#linear) ((Holder.Holding (#ref Resource)) (Holder.Plain #u64)))
-  (#enum Cell (#linear) ((Cell.Empty) (Cell.Full Holder)))
-  (#struct Output (#linear) ((cell Cell)))
-  (#fn extract ((source (#ref-mut Cell))) Output
-    (#let old Cell (#deref source))
-    (#deref-set source (Cell.Empty))
-    (#return (#struct-literal Output ((cell old)))))
-  (#fn inspect ((output Output)) #u64
-    (#let (Output cell) Output output)
-    (#return (#match cell
-      (#case (Cell.Empty) 42u64)
-      (#case (Cell.Full holder) (#match holder
-        (#case (Holder.Holding held) (#get held value))
-        (#case (Holder.Plain amount) amount))))))";
+#struct Resource (#linear) ((value #u64))
+#enum Holder (#linear) ((Holder.Holding (#ref Resource)) (Holder.Plain #u64))
+#enum Cell (#linear) ((Cell.Empty) (Cell.Full Holder))
+#struct Output (#linear) ((cell Cell))
+#fn extract ((source (#ref-mut Cell))) Output
+      (#let old Cell (#deref source))
+      (#deref-set source (Cell.Empty))
+      (#return (#struct-literal Output ((cell old))))
+#fn inspect ((output Output)) #u64
+      (#let (Output cell) Output output)
+      (#return (#match cell
+        (#case (Cell.Empty) 42u64)
+        (#case (Cell.Full holder) (#match holder
+          (#case (Holder.Holding held) (#get held value))
+          (#case (Holder.Plain amount) amount)))))\n";
 
 fn run(source: &str, label: &str) {
     let scratch = support::Scratch::new(label);
@@ -60,13 +60,13 @@ fn ordinary_extraction_retains_nested_reference_and_reference_free_alternatives(
     ] {
         let source = format!(
             "{DECLARATIONS}
-          (#fn main () #u64
-            (#let owner Resource (#struct-literal Resource ((value 42u64))))
-            (#let-mut cell Cell {initializer})
-            (#let result #u64 (#call inspect
-              ((output (#call extract ((source (#borrow-mut cell))))))))
-            (#assert (#variant-is (#borrow cell) Cell.Empty))
-            (#forget cell) (#forget owner) (#return result))"
+#fn main () #u64
+              (#let owner Resource (#struct-literal Resource ((value 42u64))))
+              (#let-mut cell Cell {initializer})
+              (#let result #u64 (#call inspect
+                ((output (#call extract ((source (#borrow-mut cell))))))))
+              (#assert (#variant-is (#borrow cell) Cell.Empty))
+              (#forget cell) (#forget owner) (#return result)\n"
         );
         run(&source, "ordinary-conditional-reference-extraction");
     }
@@ -76,13 +76,13 @@ fn ordinary_extraction_retains_nested_reference_and_reference_free_alternatives(
 fn extracted_reference_cannot_hide_a_live_loan_of_its_owner() {
     let source = format!(
         "{DECLARATIONS}
-      (#fn main () #u64
-        (#let owner Resource (#struct-literal Resource ((value 42u64))))
-        (#let-mut cell Cell (Cell.Full (Holder.Holding (#borrow owner))))
-        (#let output Output (#call extract ((source (#borrow-mut cell)))))
-        (#forget owner)
-        (#let answer #u64 (#call inspect ((output output))))
-        (#forget cell) (#return answer))"
+#fn main () #u64
+          (#let owner Resource (#struct-literal Resource ((value 42u64))))
+          (#let-mut cell Cell (Cell.Full (Holder.Holding (#borrow owner))))
+          (#let output Output (#call extract ((source (#borrow-mut cell)))))
+          (#forget owner)
+          (#let answer #u64 (#call inspect ((output output))))
+          (#forget cell) (#return answer)\n"
     );
     let scratch = support::Scratch::new("ordinary-extracted-reference-conflict");
     let error = lim::compile_source_to_assembly(
@@ -101,9 +101,9 @@ fn extracted_reference_cannot_hide_a_live_loan_of_its_owner() {
 fn lifetime_only_pointer_anchor_cannot_prove_extracted_storage_absent_or_consumed() {
     let source = format!(
         "{DECLARATIONS}
-      (#fn opaque-extract ((anchor (#ref-mut Cell)) (address (#ptr-mut Cell))) #u64
-        (#let view (#ref-mut Cell) (#unsafe (#ptr-borrow-mut anchor address)))
-        (#return (#call inspect ((output (#call extract ((source view))))))))"
+#fn opaque-extract ((anchor (#ref-mut Cell)) (address (#ptr-mut Cell))) #u64
+          (#let view (#ref-mut Cell) (#unsafe (#ptr-borrow-mut anchor address)))
+          (#return (#call inspect ((output (#call extract ((source view)))))))\n"
     );
     let scratch = support::Scratch::new("ordinary-pointer-extraction-no-permission");
     let error = lim::compile_source_to_assembly(

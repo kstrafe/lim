@@ -98,7 +98,7 @@ fn editing_a_raw_parent_does_not_change_its_source_children_or_other_clones() {
 #[test]
 fn cloned_assertion_statements_validate_and_emit_as_distinct_occurrences() {
     let mut program =
-        lim::parse_program("(#fn main () #u64 (#assert true) (#return 42u64))").unwrap();
+        lim::parse_program("#fn main () #u64 (#assert true) (#return 42u64)\n").unwrap();
     let lim::Item::Function(main) = &mut program.items[0] else {
         panic!("expected the main function");
     };
@@ -123,11 +123,11 @@ fn cloned_assertion_statements_validate_and_emit_as_distinct_occurrences() {
 #[test]
 fn cloned_function_bodies_keep_their_distinct_type_contexts() {
     let mut program = lim::parse_program(
-        "(#fn copy-word ((value #u64)) #u64 (#return (#clone value)))
-         (#fn copy-flag ((value #bool)) #bool (#return (#clone value)))
-         (#fn main () #u64
-           (#assert (#call copy-flag ((value true))))
-           (#return (#call copy-word ((value 42u64)))))",
+        "#fn copy-word ((value #u64)) #u64 (#return (#clone value))
+#fn copy-flag ((value #bool)) #bool (#return (#clone value))
+#fn main () #u64
+             (#assert (#call copy-flag ((value true))))
+             (#return (#call copy-word ((value 42u64))))\n",
     )
     .unwrap();
     let lim::Item::Function(original) = &program.items[0] else {
@@ -158,12 +158,12 @@ fn cloned_function_bodies_keep_their_distinct_type_contexts() {
 #[test]
 fn repeated_shared_call_syntax_still_rejects_a_second_linear_consumption() {
     let mut program = lim::parse_program(
-        "(#struct Owned (#linear) ((value #u64)))
-         (#fn consume ((value Owned)) () (#forget value) (#return ()))
-         (#fn main () #u64
-           (#let item Owned (#struct-literal Owned ((value 42u64))))
-           (#call consume ((value item)))
-           (#return 0u64))",
+        "#struct Owned (#linear) ((value #u64))
+#fn consume ((value Owned)) () (#forget value) (#return ())
+#fn main () #u64
+             (#let item Owned (#struct-literal Owned ((value 42u64))))
+             (#call consume ((value item)))
+             (#return 0u64)\n",
     )
     .unwrap();
     let function = program

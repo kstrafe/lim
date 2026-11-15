@@ -3,19 +3,19 @@ mod support;
 use lim::{CompileConfig, DiagnosticCode, TargetDescription};
 
 const SOURCE: &str = "
-(#struct Pair () ((left #u64) (right #u64)))
-(#enum Slot () ((Slot.Empty) (Slot.Full Pair)))
-(#fn main () #u64
-  (#let-mut slot Slot (Slot.Full (#struct-literal Pair ((left 39u64) (right 2u64)))))
-  (#let pinned (#pin-ref-mut Slot) (#pin-borrow-mut slot))
-  (#let payload (#pin-ref-mut Pair)
-    (#unsafe (#pin-get-payload-unchecked-mut pinned Slot.Full)))
-  (#pin-set-field payload left 40u64)
-  (#let answer #u64 (#u64::add-wrap (#get payload left) (#get payload right)))
-  (#forget payload)
-  (#forget pinned)
-  (#forget slot)
-  (#return answer))";
+#struct Pair () ((left #u64) (right #u64))
+#enum Slot () ((Slot.Empty) (Slot.Full Pair))
+#fn main () #u64
+    (#let-mut slot Slot (Slot.Full (#struct-literal Pair ((left 39u64) (right 2u64)))))
+    (#let pinned (#pin-ref-mut Slot) (#pin-borrow-mut slot))
+    (#let payload (#pin-ref-mut Pair)
+      (#unsafe (#pin-get-payload-unchecked-mut pinned Slot.Full)))
+    (#pin-set-field payload left 40u64)
+    (#let answer #u64 (#u64::add-wrap (#get payload left) (#get payload right)))
+    (#forget payload)
+    (#forget pinned)
+    (#forget slot)
+    (#return answer)\n";
 
 fn compile(source: &str) -> Result<String, lim::Diagnostic> {
     let scratch = support::Scratch::new("unchecked-payload");
@@ -131,12 +131,12 @@ fn unchecked_projection_still_checks_payload_types_and_lifetimes() {
         assert!(diagnostic.message.contains(message), "{diagnostic:?}");
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
     }
-    let source = "(#struct Pair () ((left #u64) (right #u64)))
-      (#enum Slot () ((Slot.Empty) (Slot.Full Pair)))
-      (#fn bad () (#pin-ref Pair)
-        (#let-mut slot Slot (Slot.Full (#struct-literal Pair ((left 1u64) (right 2u64)))))
-        (#let pinned (#pin-ref Slot) (#pin-borrow slot))
-        (#return (#unsafe (#pin-get-payload-unchecked pinned Slot.Full))))";
+    let source = "#struct Pair () ((left #u64) (right #u64))
+#enum Slot () ((Slot.Empty) (Slot.Full Pair))
+#fn bad () (#pin-ref Pair)
+          (#let-mut slot Slot (Slot.Full (#struct-literal Pair ((left 1u64) (right 2u64)))))
+          (#let pinned (#pin-ref Slot) (#pin-borrow slot))
+          (#return (#unsafe (#pin-get-payload-unchecked pinned Slot.Full)))\n";
     let diagnostic = compile(source).unwrap_err();
     assert_eq!(diagnostic.code, DiagnosticCode::Borrow, "{diagnostic:?}");
     assert!(diagnostic.span.is_some());

@@ -41,17 +41,17 @@ fn exchange_and_compare_exchange_cover_all_atomic_widths_and_orders() {
         } else {
             format!("17{suffix}")
         };
-        let source = format!("(#fn main () #u64
-          (#let-mut state (#atomic {ty}) (#atomic-init {ty} {initial}))
-          (#let old {ty} (#atomic-exchange (#borrow state) 2{suffix} #memory-relaxed))
-          (#assert ({ty}::eq old {initial}))
-          (#let (#tuple won observed) (#tuple #bool {ty}) (#atomic-compare-exchange (#borrow state) 2{suffix} {initial} #memory-acq-rel #memory-acquire))
-          (#assert won) (#assert ({ty}::eq observed 2{suffix}))
-          (#let (#tuple failed actual) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) 0{suffix} 3{suffix} #memory-seq-cst #memory-seq-cst))
-          (#assert (#bool::eq failed false)) (#assert ({ty}::eq actual {initial}))
-          (#let (#tuple weak-won weak-old) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) {initial} 42{suffix} #memory-release #memory-relaxed))
-          (#assert weak-won) (#assert ({ty}::eq weak-old {initial}))
-          (#forget state) (#return 42u64))");
+        let source = format!("#fn main () #u64
+            (#let-mut state (#atomic {ty}) (#atomic-init {ty} {initial}))
+            (#let old {ty} (#atomic-exchange (#borrow state) 2{suffix} #memory-relaxed))
+            (#assert ({ty}::eq old {initial}))
+            (#let (#tuple won observed) (#tuple #bool {ty}) (#atomic-compare-exchange (#borrow state) 2{suffix} {initial} #memory-acq-rel #memory-acquire))
+            (#assert won) (#assert ({ty}::eq observed 2{suffix}))
+            (#let (#tuple failed actual) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) 0{suffix} 3{suffix} #memory-seq-cst #memory-seq-cst))
+            (#assert (#bool::eq failed false)) (#assert ({ty}::eq actual {initial}))
+            (#let (#tuple weak-won weak-old) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) {initial} 42{suffix} #memory-release #memory-relaxed))
+            (#assert weak-won) (#assert ({ty}::eq weak-old {initial}))
+            (#forget state) (#return 42u64)\n");
         let path = root.join(format!("{ty}.lim"));
         let assembly = lim::compile_source_to_assembly(
             &source,
@@ -79,7 +79,7 @@ fn exchange_and_compare_exchange_cover_all_atomic_widths_and_orders() {
     }
     for success in ["relaxed", "acquire", "release", "acq-rel", "seq-cst"] {
         for failure in ["relaxed", "acquire", "release", "acq-rel", "seq-cst"] {
-            let source = format!("(#fn main () () (#let-mut state (#atomic #u64) (#atomic-init #u64 0u64)) (#atomic-compare-exchange (#borrow state) 0u64 1u64 #memory-{success} #memory-{failure}) (#forget state) (#return ()))");
+            let source = format!("#fn main () () (#let-mut state (#atomic #u64) (#atomic-init #u64 0u64)) (#atomic-compare-exchange (#borrow state) 0u64 1u64 #memory-{success} #memory-{failure}) (#forget state) (#return ())\n");
             let allowed = failure == "relaxed"
                 || (failure == "acquire" && matches!(success, "acquire" | "acq-rel" | "seq-cst"))
                 || (failure == "seq-cst" && success == "seq-cst");

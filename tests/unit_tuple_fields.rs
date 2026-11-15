@@ -40,19 +40,19 @@ fn zero_word_aggregate_locals_can_be_enum_payloads() {
         ("", "(#tuple () ())", "(#tuple (#tuple () ()) () ())"),
         ("", "(#array () 2)", "(#array-of (#array () 2) () ())"),
         (
-            "(#struct Empty () ())",
+            "#struct Empty () ()\n",
             "Empty",
             "(#struct-literal Empty ())",
         ),
     ] {
         let source = format!(
             "{declarations}
-          (#enum Outcome () ((Outcome.Done {ty})))
-          (#fn make () Outcome
-            (#let empty {ty} {value}) (#return (Outcome.Done empty)))
-          (#fn main () #u64
-            (#return (#match (#call make ())
-              (#case (Outcome.Done value) (#block value 42u64)))))"
+#enum Outcome () ((Outcome.Done {ty}))
+#fn make () Outcome
+              (#let empty {ty} {value}) (#return (Outcome.Done empty))
+#fn main () #u64
+              (#return (#match (#call make ())
+                (#case (Outcome.Done value) (#block value 42u64))))\n"
         );
         assert_eq!(run(&source).code(), Some(42), "{source}");
     }
@@ -65,12 +65,12 @@ fn unit_tuple_projection_evaluates_small_and_indirect_receivers() {
         let values = "42u64 ".repeat(words);
         let source = format!(
             r#"
-          (#fn make () (#tuple {fields} ())
-            (#assert false)
-            (#return (#tuple (#tuple {fields} ()) {values} ())))
-          (#fn main () #u64
-            (#get (#call make ()) {words})
-            (#return 42u64))
+#fn make () (#tuple {fields} ())
+              (#assert false)
+              (#return (#tuple (#tuple {fields} ()) {values} ()))
+#fn main () #u64
+              (#get (#call make ()) {words})
+              (#return 42u64)
         "#
         );
         let status = run(&source);

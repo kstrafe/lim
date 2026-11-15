@@ -12,7 +12,7 @@ fn native_x86_64_syscall_catalog_is_complete_and_ordered() {
     let mut names = HashSet::new();
     let mut entries = Vec::new();
     for line in source.lines() {
-        let Some(rest) = line.strip_prefix("(#const lINUX-SYS-") else {
+        let Some(rest) = line.strip_prefix("#const lINUX-SYS-") else {
             continue;
         };
         let (name, rest) = rest.split_once(' ').expect("syscall name and type");
@@ -1346,7 +1346,7 @@ fn futex2_requeue_checks_reject_waking_instead_of_moving_the_waiter() {
     let scratch = support::Scratch::new("linux-futex2-false-requeue");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let original = include_str!("../examples/linux_futex2.lim");
-    let from = "(#unsafe (#unsafe-call linux-futex-requeue ((waiters memory) (flags 0u32) (wake-count 0i32) (requeue-count 1i32))))\n      (#unsafe (#unsafe-call linux-futex-wake";
+    let from = "(#unsafe (#unsafe-call linux-futex-requeue ((waiters memory) (flags 0u32) (wake-count 0i32) (requeue-count 1i32))))\n        (#unsafe (#unsafe-call linux-futex-wake";
     let to = "(#unsafe (#unsafe-call linux-futex-requeue ((waiters memory) (flags 0u32) (wake-count 1i32) (requeue-count 0i32))))\n      (#unsafe (#unsafe-call linux-futex-wake";
     assert_eq!(
         original.matches(from).count(),

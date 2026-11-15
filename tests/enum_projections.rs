@@ -15,8 +15,7 @@ fn check(source: &str) -> Result<(), String> {
 }
 
 fn declaration(mode: &str) -> String {
-    format!("(#std) (#enum Choice () ((Choice.Full #u64) Choice.Empty))
-      (#generate #enum-project ((enum Choice) (variant Choice.Full) (payload #u64) (mode #{mode}) (name Projection)))")
+    format!("#std\n#enum Choice () ((Choice.Full #u64) Choice.Empty)\n#generate #enum-project ((enum Choice) (variant Choice.Full) (payload #u64) (mode #{mode}) (name Projection))\n")
 }
 
 fn run(source: &str, answer: i32) {
@@ -45,13 +44,7 @@ fn every_mode_generates_only_the_selected_signature_and_handles_both_variants() 
     for (mode, borrow) in MODES {
         for (value, answer) in [("(Choice.Full 42u64)", 42), ("Choice.Empty", 7)] {
             let source = format!(
-                "{}
-              (#fn main () #u64
-                (#let-mut owner Choice {value})
-                (#let-else (Projection.Some payload)
-                  (#call Projection::project ((source (#{borrow} owner))))
-                  (#else (#return 7u64)))
-                (#return (#deref payload)))",
+                "{}\n#fn main () #u64\n                  (#let-mut owner Choice {value})\n                  (#let-else (Projection.Some payload)\n                    (#call Projection::project ((source (#{borrow} owner))))\n                    (#else (#return 7u64)))\n                  (#return (#deref payload))\n",
                 declaration(mode)
             );
             let program = parse_program(&source).unwrap();
@@ -83,12 +76,7 @@ fn every_mode_generates_only_the_selected_signature_and_handles_both_variants() 
 fn optional_payloads_retain_the_owner_loan_and_selected_mutability() {
     for (mode, borrow) in MODES {
         let source = format!(
-            "{}
-          (#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))
-            (#let-else (Projection.Some payload)
-              (#call Projection::project ((source (#{borrow} owner))))
-              (#else (#return 0u64)))
-            (#set owner Choice.Empty) (#return (#deref payload)))",
+            "{}\n#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))\n              (#let-else (Projection.Some payload)\n                (#call Projection::project ((source (#{borrow} owner))))\n                (#else (#return 0u64)))\n              (#set owner Choice.Empty) (#return (#deref payload))\n",
             declaration(mode)
         );
         for invalid in [
@@ -110,12 +98,7 @@ fn optional_payloads_retain_the_owner_loan_and_selected_mutability() {
 fn an_undestructured_optional_keeps_the_loan_and_unreferenceable_payloads_are_rejected() {
     for (mode, borrow) in MODES {
         let source = format!(
-            "{}
-          (#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))
-            (#let projected Projection (#call Projection::project ((source (#{borrow} owner)))))
-            (#forget owner)
-            (#let-else (Projection.Some payload) projected (#else (#return 0u64)))
-            (#return (#deref payload)))",
+            "{}\n#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))\n              (#let projected Projection (#call Projection::project ((source (#{borrow} owner)))))\n              (#forget owner)\n              (#let-else (Projection.Some payload) projected (#else (#return 0u64)))\n              (#return (#deref payload))\n",
             declaration(mode)
         );
         let error = check(&source).unwrap_err();
@@ -123,7 +106,7 @@ fn an_undestructured_optional_keeps_the_loan_and_unreferenceable_payloads_are_re
             error.contains("borrow") || error.contains("pinned"),
             "{mode}: {error}"
         );
-        let error = check(&format!("(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n          (#enum Choice () ((Choice.HasUnit ()) Choice.Empty))\n          (#generate lim-gen-enum-project ((enum Choice) (variant Choice.HasUnit) (payload ()) (mode #{mode}) (name Projection)))\n          (#fn main () #u64 (#let-mut owner Choice (Choice.HasUnit ()))\n            (#let-else (Projection.Some payload)\n              (#call Projection::project ((source (#{borrow} owner)))) (#else (#return 0u64)))\n            (#let value () (#deref payload)) (#forget value)\n            (#return 42u64))")).unwrap_err();
+        let error = check(&format!("#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project\n#enum Choice () ((Choice.HasUnit ()) Choice.Empty)\n#generate lim-gen-enum-project ((enum Choice) (variant Choice.HasUnit) (payload ()) (mode #{mode}) (name Projection))\n#fn main () #u64 (#let-mut owner Choice (Choice.HasUnit ()))\n              (#let-else (Projection.Some payload)\n                (#call Projection::project ((source (#{borrow} owner)))) (#else (#return 0u64)))\n              (#let value () (#deref payload)) (#forget value)\n              (#return 42u64)\n")).unwrap_err();
         assert!(
             error.contains("reference target other than () or #never"),
             "{error}"
@@ -135,12 +118,7 @@ fn an_undestructured_optional_keeps_the_loan_and_unreferenceable_payloads_are_re
 fn returning_projected_references_preserves_origins_and_rejects_local_escape() {
     for (mode, borrow) in MODES {
         let source = format!(
-            "{}
-          (#fn project ((source (#{mode} Choice)) (fallback (#{mode} #u64))) (#{mode} #u64)
-            (#let-else (Projection.Some payload)
-              (#call Projection::project ((source source)))
-              (#else (#return fallback)))
-            (#return payload))",
+            "{}\n#fn project ((source (#{mode} Choice)) (fallback (#{mode} #u64))) (#{mode} #u64)\n              (#let-else (Projection.Some payload)\n                (#call Projection::project ((source source)))\n                (#else (#return fallback)))\n              (#return payload)\n",
             declaration(mode)
         );
         check(&source).unwrap();
@@ -160,56 +138,58 @@ fn returning_projected_references_preserves_origins_and_rejects_local_escape() {
 
 #[test]
 fn a_mismatch_can_project_the_other_variant_and_destroy_the_linear_owner() {
-    let source = "(#std) (#struct Resource (#linear) ((value #u64)))
-      (#enum Choice () ((Choice.Full Resource) (Choice.Other Resource)))
-      (#generate #enum-project ((enum Choice) (variant Choice.Full) (payload Resource) (mode #pin-ref-mut) (name FullView)))
-      (#generate #enum-project ((enum Choice) (variant Choice.Other) (payload Resource) (mode #pin-ref-mut) (name OtherView)))
-      (#fn main () #u64
-        (#let-mut owner Choice (Choice.Other (#struct-literal Resource ((value 42u64)))))
-        (#let-else (FullView.Some payload)
-          (#call FullView::project ((source (#pin-borrow-mut owner))))
-          (#else
-            (#let-else (OtherView.Some failure)
-              (#call OtherView::project ((source (#pin-borrow-mut owner))))
-              (#else (#forget owner) (#return 0u64)))
-            (#let answer #u64 (#get failure value))
-            (#drop failure) (#forget owner) (#return answer)))
-        (#drop payload) (#forget owner) (#return 0u64))";
+    let source = "#std
+#struct Resource (#linear) ((value #u64))
+#enum Choice () ((Choice.Full Resource) (Choice.Other Resource))
+#generate #enum-project ((enum Choice) (variant Choice.Full) (payload Resource) (mode #pin-ref-mut) (name FullView))
+#generate #enum-project ((enum Choice) (variant Choice.Other) (payload Resource) (mode #pin-ref-mut) (name OtherView))
+#fn main () #u64
+          (#let-mut owner Choice (Choice.Other (#struct-literal Resource ((value 42u64)))))
+          (#let-else (FullView.Some payload)
+            (#call FullView::project ((source (#pin-borrow-mut owner))))
+            (#else
+              (#let-else (OtherView.Some failure)
+                (#call OtherView::project ((source (#pin-borrow-mut owner))))
+                (#else (#forget owner) (#return 0u64)))
+              (#let answer #u64 (#get failure value))
+              (#drop failure) (#forget owner) (#return answer)))
+          (#drop payload) (#forget owner) (#return 0u64)\n";
     run(source, 42);
 }
 
 #[test]
 fn aliases_generated_declarations_and_external_prefixes_obey_normal_checking() {
     let scratch = support::Scratch::new("projection-import");
-    fs::write(scratch.path().join("library.lim"), "(#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project)\n      (#gn declare () `((#enum Choice () ((Choice.Full #u64) Choice.Empty)) (#type View (#pin-ref Choice))))\n      (#generate declare)\n      (#generate lim-gen-enum-project ((enum Choice) (variant Choice.Full) (payload #u64) (mode #pin-ref) (name Projection)))\n      (#fn read ((input View)) #u64\n        (#let-else (Projection.Some value)\n          (#call Projection::project ((source input))) (#else (#return 0u64)))\n        (#return (#deref value)))").unwrap();
+    fs::write(scratch.path().join("library.lim"), "#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project\n#gn declare () `((#enum Choice () ((Choice.Full #u64) Choice.Empty)) (#type View (#pin-ref Choice)))\n#generate declare\n#generate lim-gen-enum-project ((enum Choice) (variant Choice.Full) (payload #u64) (mode #pin-ref) (name Projection))\n#fn read ((input View)) #u64\n          (#let-else (Projection.Some value)\n            (#call Projection::project ((source input))) (#else (#return 0u64)))\n          (#return (#deref value))\n").unwrap();
     let source =
-        "(#alias ExtChoice = ./library.lim::Choice)\n(#alias ext@read = ./library.lim::read)
-      (#fn main () #u64 (#let owner ExtChoice (ExtChoice.Full 42u64))
-        (#return (#call ext@read ((input (#pin-borrow owner))))))";
+        "#alias ExtChoice = ./library.lim::Choice
+#alias ext@read = ./library.lim::read
+#fn main () #u64 (#let owner ExtChoice (ExtChoice.Full 42u64))
+          (#return (#call ext@read ((input (#pin-borrow owner)))))\n";
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     check_types(&program).unwrap();
 }
 
 #[test]
 fn projected_async_protocol_payloads_do_not_require_generator_dependency_order() {
-    check("(#std)
-      (#generate #enum-project ((enum Work::Poll) (variant Work::Poll.Ready) (payload #u64) (mode #ref) (name ReadyView)))
-      (#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#return 42u64)))))
-      (#fn read ((input (#ref Work::Poll))) #u64
-        (#let-else (ReadyView.Some value)
-          (#call ReadyView::project ((source input))) (#else (#return 0u64)))
-        (#return (#deref value)))
-      (#fn main () #u64 (#return 0u64))").unwrap();
+    check("#std
+#generate #enum-project ((enum Work::Poll) (variant Work::Poll.Ready) (payload #u64) (mode #ref) (name ReadyView))
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (function (#fn work () #u64 (#return 42u64))))
+#fn read ((input (#ref Work::Poll))) #u64
+          (#let-else (ReadyView.Some value)
+            (#call ReadyView::project ((source input))) (#else (#return 0u64)))
+          (#return (#deref value))
+#fn main () #u64 (#return 0u64)\n").unwrap();
 }
 
 #[test]
 fn invalid_modes_payloads_receivers_and_removed_keywords_are_rejected() {
     let valid = format!(
-        "{} (#fn main () #u64
-      (#let-mut owner Choice (Choice.Full 42u64))
-      (#let-else (Projection.Some value)
-        (#call Projection::project ((source (#pin-borrow-mut owner)))) (#else (#return 0u64)))
-      (#return (#deref value)))",
+        "{}#fn main () #u64
+        (#let-mut owner Choice (Choice.Full 42u64))
+        (#let-else (Projection.Some value)
+          (#call Projection::project ((source (#pin-borrow-mut owner)))) (#else (#return 0u64)))
+        (#return (#deref value))\n",
         declaration("pin-ref-mut")
     );
     check(&valid).unwrap();
@@ -230,15 +210,15 @@ fn invalid_modes_payloads_receivers_and_removed_keywords_are_rejected() {
         "#let-else-pin-mut",
     ] {
         let source = format!(
-            "(#enum Choice () ((Choice.Full #u64) Choice.Empty))
-          (#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))
-            ({removed} (Choice.Full value) (#pin-ref-mut Choice) (#pin-borrow-mut owner) (#return 0u64))
-            (#return (#deref value)))"
+            "#enum Choice () ((Choice.Full #u64) Choice.Empty)
+#fn main () #u64 (#let-mut owner Choice (Choice.Full 42u64))
+              ({removed} (Choice.Full value) (#pin-ref-mut Choice) (#pin-borrow-mut owner) (#return 0u64))
+              (#return (#deref value))\n"
         );
         assert!(
             check(&source).is_err(),
             "removed keyword accepted: {removed}"
         );
     }
-    assert!(check("(#std) (#generate #pin-project ())").is_err());
+    assert!(check("#std\n#generate #pin-project ()\n").is_err());
 }

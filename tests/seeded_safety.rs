@@ -52,14 +52,14 @@ fn seeded_reader_corpus_never_panics_and_formatting_preserves_syntax() {
                 }
             }
             if let Ok(parsed) = lim::parse(&source) {
-                if let Ok(formatted) = lim::format_source(&source) {
+                if let Ok(formatted) = lim::format_syntax(&source) {
                     let reparsed =
                         lim::parse(&formatted).expect("formatter must emit readable syntax");
                     assert_eq!(
                         parsed.iter().map(|node| &node.expr).collect::<Vec<_>>(),
                         reparsed.iter().map(|node| &node.expr).collect::<Vec<_>>()
                     );
-                    assert_eq!(lim::format_source(&formatted).unwrap(), formatted);
+                    assert_eq!(lim::format_syntax(&formatted).unwrap(), formatted);
                 }
             }
         });
@@ -78,12 +78,13 @@ fn seeded_projected_borrows_match_a_small_independent_alias_oracle() {
             for same_field in [false, true] {
                 let suffix = |mutable| if mutable { "-mut" } else { "" };
                 let field = if same_field { "left" } else { "right" };
-                let source = format!("(#struct Record (#linear) ((left #u64) (right #u64))) (#fn main () #u64
-                    (#let-mut owner Record (#struct-literal Record ((right 25u64) (left 17u64))))
-                    (#let first (#ref{} #u64) (#borrow{} (#get owner left)))
-                    (#let second (#ref{} #u64) (#borrow{} (#get owner {field})))
-                    (#let left #u64 (#deref first)) (#let right #u64 (#deref second))
-                    (#drop second) (#drop first) (#forget owner) (#return (#u64::add-wrap left right)))", suffix(first_mut), suffix(first_mut), suffix(second_mut), suffix(second_mut));
+                let source = format!("#struct Record (#linear) ((left #u64) (right #u64))
+#fn main () #u64
+                      (#let-mut owner Record (#struct-literal Record ((right 25u64) (left 17u64))))
+                      (#let first (#ref{} #u64) (#borrow{} (#get owner left)))
+                      (#let second (#ref{} #u64) (#borrow{} (#get owner {field})))
+                      (#let left #u64 (#deref first)) (#let right #u64 (#deref second))
+                      (#drop second) (#drop first) (#forget owner) (#return (#u64::add-wrap left right))\n", suffix(first_mut), suffix(first_mut), suffix(second_mut), suffix(second_mut));
                 let result = lim::compile_source_to_assembly(
                     &source,
                     &scratch.path().join("case.lim"),
@@ -114,17 +115,7 @@ fn seeded_projected_borrows_match_a_small_independent_alias_oracle() {
 #[test]
 fn seeded_aggregate_calls_and_enum_branches_match_rust_integer_results() {
     let scratch = support::Scratch::new("seeded-aggregate-native");
-    let mut source = String::from("(#struct Wide (#linear) ((left #u8) (marker #u128) (right #u64) (count #u16)))
-        (#enum Choice (#linear) ((Choice.Held Wide) (Choice.Other #u64)))
-        (#fn make ((left #u8) (marker #u128) (right #u64) (count #u16)) Wide
-          (#return (#struct-literal Wide ((count count) (right right) (marker marker) (left left)))))
-        (#fn compute ((choose #bool) (owner Wide)) #u64
-          (#let choice Choice (#if choose (#enum-literal Choice.Held owner) (#block (#forget owner) (#enum-literal Choice.Other 7u64))))
-          (#return (#match choice
-            (#case (Choice.Held record) (#block
-              (#let result #u64 (#u64::add-wrap (#u64::add-wrap (#as (#get record left) #u64) (#as (#get record marker) #u64)) (#u64::add-wrap (#get record right) (#as (#get record count) #u64))))
-              (#forget record) result))
-            (#case (Choice.Other value) value)))) (#fn main () #u64\n");
+    let mut source = String::from("#struct Wide (#linear) ((left #u8) (marker #u128) (right #u64) (count #u16))\n#enum Choice (#linear) ((Choice.Held Wide) (Choice.Other #u64))\n#fn make ((left #u8) (marker #u128) (right #u64) (count #u16)) Wide\n            (#return (#struct-literal Wide ((count count) (right right) (marker marker) (left left))))\n#fn compute ((choose #bool) (owner Wide)) #u64\n            (#let choice Choice (#if choose (#enum-literal Choice.Held owner) (#block (#forget owner) (#enum-literal Choice.Other 7u64))))\n            (#return (#match choice\n              (#case (Choice.Held record) (#block\n                (#let result #u64 (#u64::add-wrap (#u64::add-wrap (#as (#get record left) #u64) (#as (#get record marker) #u64)) (#u64::add-wrap (#get record right) (#as (#get record count) #u64))))\n                (#forget record) result))\n              (#case (Choice.Other value) value)))\n#fn main () #u64\n");
     let mut state = SEED;
     for case in 0..32 {
         let left = next(&mut state) as u8;
@@ -140,9 +131,9 @@ fn seeded_aggregate_calls_and_enum_branches_match_rust_integer_results() {
         } else {
             7
         };
-        source.push_str(&format!("(#assert (#u64::eq (#call compute ((owner (#call make ((count {count}u16) (right {right}u64) (marker {marker}u128) (left {left}u8)))) (choose {choose}))) {expected}u64))\n"));
+        source.push_str(&format!("  (#assert (#u64::eq (#call compute ((owner (#call make ((count {count}u16) (right {right}u64) (marker {marker}u128) (left {left}u8)))) (choose {choose}))) {expected}u64))\n"));
     }
-    source.push_str("(#return 42u64))");
+    source.push_str("  (#return 42u64)");
     let assembly = lim::compile_source_to_assembly(
         &source,
         &scratch.path().join("case.lim"),
@@ -181,7 +172,7 @@ fn pathological_reference_programs_report_cold_and_warm_check_codegen_times() {
     }
     let scratch = support::Scratch::new("pathological-reference-programs");
     for width in [8, 32, 128] {
-        let source = format!("(#fn select ((control #u64) (owner (#ref (#array #u64 {width})))) (#ref #u64) (#return {})) (#fn main () #u64 (#return 42u64))", tree(0, width));
+        let source = format!("#fn select ((control #u64) (owner (#ref (#array #u64 {width})))) (#ref #u64) (#return {})\n#fn main () #u64 (#return 42u64)\n", tree(0, width));
         let mut previous = None;
         for pass in 0..3 {
             let start = std::time::Instant::now();

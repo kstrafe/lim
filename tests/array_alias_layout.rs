@@ -10,7 +10,7 @@ fn source(length: usize, global: bool) -> String {
     let row = format!("(#array-of Row {values})");
     let grid = format!("(#array-of Grid {row} (#array-repeat 25u64))");
     let declaration = if global {
-        format!("(#static table Grid {grid})")
+        format!("#static table Grid {grid}\n")
     } else {
         String::new()
     };
@@ -20,21 +20,24 @@ fn source(length: usize, global: bool) -> String {
         ""
     };
     format!(
-        "(#type Scalar #u64) (#type Row (#array Scalar {length}))
-      (#type RowAlias Row) (#type Grid (#array RowAlias 2)) {declaration}
-      (#fn make-row () RowAlias (#return {row}))
-      (#fn make-grid () Grid (#return {grid}))
-      (#fn inspect ((values Grid)) #u64
-        (#return (#u64::add-wrap (#index (#index values 0usize) 0usize)
-          (#index (#index values 1usize) {last}usize))))
-      (#fn main () #u64
-        (#let local Grid {grid})
-        (#assert (#u64::eq (#call inspect ((values local))) 42u64))
-        (#let returned Grid (#call make-grid ()))
-        (#assert (#u64::eq (#call inspect ((values returned))) 42u64))
-        (#let returned-row RowAlias (#call make-row ()))
-        (#assert (#u64::eq (#index returned-row 0usize) 17u64)) {extra}
-        (#return (#call inspect ((values {grid})))))",
+        "#type Scalar #u64
+#type Row (#array Scalar {length})
+#type RowAlias Row
+#type Grid (#array RowAlias 2)
+ {declaration}
+#fn make-row () RowAlias (#return {row})
+#fn make-grid () Grid (#return {grid})
+#fn inspect ((values Grid)) #u64
+          (#return (#u64::add-wrap (#index (#index values 0usize) 0usize)
+            (#index (#index values 1usize) {last}usize)))
+#fn main () #u64
+          (#let local Grid {grid})
+          (#assert (#u64::eq (#call inspect ((values local))) 42u64))
+          (#let returned Grid (#call make-grid ()))
+          (#assert (#u64::eq (#call inspect ((values returned))) 42u64))
+          (#let returned-row RowAlias (#call make-row ()))
+          (#assert (#u64::eq (#index returned-row 0usize) 17u64)) {extra}
+          (#return (#call inspect ((values {grid}))))\n",
         last = length - 1
     )
 }
@@ -75,8 +78,8 @@ fn aliased_static_array_constructors_keep_nested_layouts() {
 
 #[test]
 fn an_alias_annotation_does_not_bypass_constructor_length_checking() {
-    let source = "(#type Row (#array #u64 2))
-      (#fn main () #u64 (#let row Row (#array-of Row 42u64)) (#return 42u64))";
+    let source = "#type Row (#array #u64 2)
+#fn main () #u64 (#let row Row (#array-of Row 42u64)) (#return 42u64)\n";
     let error = lim::check_types(&lim::parse_program(source).unwrap()).unwrap_err();
     assert!(error.contains("expects 2 elements"), "{error}");
 }

@@ -26,10 +26,10 @@ fn assembly(source: &str, input: &Path, pruned: bool) -> Result<String, lim::Dia
 fn executable_keeps_transitive_callees_but_library_keeps_exports() {
     let scratch = support::Scratch::new("reachable-callees");
     let path = scratch.path().join("main.lim");
-    let source = "(#fn unused () #u64 (#return 99u64))
-        (#fn leaf ((x #u64)) #u64 (#return x))
-        (#fn middle () #u64 (#return (#call leaf ((x 42u64)))))
-        (#fn main () #u64 (#return (#call middle ())))";
+    let source = "#fn unused () #u64 (#return 99u64)
+#fn leaf ((x #u64)) #u64 (#return x)
+#fn middle () #u64 (#return (#call leaf ((x 42u64))))
+#fn main () #u64 (#return (#call middle ()))\n";
     let full = assembly(source, &path, false).unwrap();
     let pruned = assembly(source, &path, true).unwrap();
     assert!(full.contains(".globl unused\n"));
@@ -53,18 +53,18 @@ fn executable_keeps_transitive_callees_but_library_keeps_exports() {
 #[test]
 fn implicit_copy_clone_hooks_and_their_callees_are_retained() {
     let scratch = support::Scratch::new("reachable-clone-hooks");
-    let source = "(#struct Value () ((number #u64)))
-      (#type Alias Value)
-      (#fn increment ((value Value)) Value
-        (#return (#struct-literal Value
-          ((number (#u64::add-wrap (#get value number) 1u64))))))
-      (#fn Value::clone ((value Value)) Value
-        (#return (#call increment ((value value)))))
-      (#fn unused () #u64 (#return 99u64))
-      (#fn main () #u64
-        (#let original Alias (#struct-literal Value ((number 41u64))))
-        (#let copied Alias (#clone original))
-        (#return (#get copied number)))";
+    let source = "#struct Value () ((number #u64))
+#type Alias Value
+#fn increment ((value Value)) Value
+          (#return (#struct-literal Value
+            ((number (#u64::add-wrap (#get value number) 1u64)))))
+#fn Value::clone ((value Value)) Value
+          (#return (#call increment ((value value))))
+#fn unused () #u64 (#return 99u64)
+#fn main () #u64
+          (#let original Alias (#struct-literal Value ((number 41u64))))
+          (#let copied Alias (#clone original))
+          (#return (#get copied number))\n";
     let pruned = assembly(source, &scratch.path().join("main.lim"), true).unwrap();
     assert!(pruned.contains(".globl Value_x3a__x3a_clone\n"), "{pruned}");
     assert!(pruned.contains(".globl increment\n"), "{pruned}");
@@ -90,22 +90,23 @@ fn implicit_copy_clone_hooks_and_their_callees_are_retained() {
 #[test]
 fn implicit_clone_hooks_cannot_form_direct_or_mutual_recursion() {
     let sources = [
-        "(#struct Value () ((number #u64)))
-         (#fn Value::clone ((value Value)) Value (#return (#clone value)))",
-        "(#struct Value () ((number #u64)))
-         (#fn Value::clone ((value Value)) Value (#return (#call helper ((value value)))))
-         (#fn helper ((value Value)) Value (#return (#clone value)))",
-        "(#struct Left () ((number #u64))) (#struct Right () ((number #u64)))
-         (#fn Left::clone ((value Left)) Left
-           (#let right Right (#clone (#struct-literal Right ((number 0u64)))))
-           (#return value))
-         (#fn Right::clone ((value Right)) Right
-           (#let left Left (#clone (#struct-literal Left ((number 0u64)))))
-           (#return value))",
+        "#struct Value () ((number #u64))
+#fn Value::clone ((value Value)) Value (#return (#clone value))\n",
+        "#struct Value () ((number #u64))
+#fn Value::clone ((value Value)) Value (#return (#call helper ((value value))))
+#fn helper ((value Value)) Value (#return (#clone value))\n",
+        "#struct Left () ((number #u64))
+#struct Right () ((number #u64))
+#fn Left::clone ((value Left)) Left
+             (#let right Right (#clone (#struct-literal Right ((number 0u64)))))
+             (#return value)
+#fn Right::clone ((value Right)) Right
+             (#let left Left (#clone (#struct-literal Left ((number 0u64)))))
+             (#return value)\n",
     ];
     let scratch = support::Scratch::new("recursive-clone-hooks");
     for source in sources {
-        let source = format!("{source} (#fn main () #u64 (#return 42u64))");
+        let source = format!("{source}#fn main () #u64 (#return 42u64)\n");
         for pruned in [false, true] {
             let error = assembly(&source, &scratch.path().join("main.lim"), pruned).unwrap_err();
             assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
@@ -125,10 +126,10 @@ fn unused_imported_functions_are_still_checked() {
     let scratch = support::Scratch::new("reachable-validation");
     fs::write(
         scratch.path().join("unused.lim"),
-        "(#fn unused () #u64 (#return false))",
+        "#fn unused () #u64 (#return false)\n",
     )
     .unwrap();
-    let source = "(#alias unused = ./unused.lim::unused) (#fn main () #u64 (#return 42u64))";
+    let source = "#alias unused = ./unused.lim::unused\n#fn main () #u64 (#return 42u64)\n";
     let error = assembly(source, &scratch.path().join("main.lim"), true).unwrap_err();
     let text = error.message.to_ascii_lowercase();
     assert!(text.contains("u64") && text.contains("bool"), "{text}");
@@ -137,9 +138,9 @@ fn unused_imported_functions_are_still_checked() {
 #[test]
 fn raw_assembly_symbol_calls_keep_their_callees() {
     let scratch = support::Scratch::new("reachable-asm");
-    let source = "(#fn helper () #u64 (#return 42u64))
-        (#fn unused () #u64 (#return 0u64))
-        (#fn main () #u64 (#return (#unsafe (#asm #u64 () \"call helper\"))))";
+    let source = "#fn helper () #u64 (#return 42u64)
+#fn unused () #u64 (#return 0u64)
+#fn main () #u64 (#return (#unsafe (#asm #u64 () \"call helper\")))\n";
     let pruned = assembly(source, &scratch.path().join("main.lim"), true).unwrap();
     assert!(pruned.contains(".globl helper\n"));
     assert!(!pruned.contains(".globl unused\n"));
@@ -182,7 +183,7 @@ fn cli_binary_prunes_but_emit_assembly_preserves_exports() {
     let input = scratch.path().join("main.lim");
     fs::write(
         &input,
-        "(#fn unused () #u64 (#return 99u64)) (#fn main () #u64 (#return 42u64))",
+        "#fn unused () #u64 (#return 99u64)\n#fn main () #u64 (#return 42u64)\n",
     )
     .unwrap();
     let binary = scratch.path().join("program");

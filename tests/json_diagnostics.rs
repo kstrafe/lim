@@ -83,19 +83,19 @@ fn errors_are_json_from_frontend_through_linker() {
     fs::create_dir(&directory).unwrap();
     let path = directory.join("quoted \"é: input.lim");
     for (source, category) in [
-        ("(#fn main () #u64 (#return \"bad)", "lex"),
-        ("(#fn main () #u64 (#return 0u64)", "parse"),
+        ("#fn main () #u64 (#return \"bad)", "lex"),
+        ("#fn main () #u64 (#return 0u64", "parse"),
         (
-            "(#fn main () #u64 (#let café #u64 false) (#return café))",
+            "#fn main () #u64 (#let café #u64 false) (#return café)\n",
             "type",
         ),
         (
-            "(#fn small ((value #u64)) #bool (#return (#u64::lt value 100u64))) (#fn consume ((value #u64)) () (#requires (#call small ((value value)))) (#return ())) (#fn main () #u64 (#call consume ((value 200u64))) (#return 42u64))",
+            "#fn small ((value #u64)) #bool (#return (#u64::lt value 100u64))\n#fn consume ((value #u64)) () (#requires (#call small ((value value)))) (#return ())\n#fn main () #u64 (#call consume ((value 200u64))) (#return 42u64)\n",
             "contract",
         ),
-        ("(#fn main () #u64 (#return 42u64))", "link"),
+        ("#fn main () #u64 (#return 42u64)\n", "link"),
         (
-            "(#gn fail () (#gn-error \"bad \\\"message\\\"\")) (#generate fail)",
+            "#gn fail () (#gn-error \"bad \\\"message\\\"\")\n#generate fail\n",
             "generator",
         ),
     ] {
@@ -127,8 +127,8 @@ fn errors_are_json_from_frontend_through_linker() {
         }
     }
     let imported = directory.join("module.lim");
-    fs::write(&imported, "(#fn broken () #u64 (#return false))").unwrap();
-    fs::write(&path, "(#alias broken = ./module.lim::broken)").unwrap();
+    fs::write(&imported, "#fn broken () #u64 (#return false)\n").unwrap();
+    fs::write(&path, "#alias broken = ./module.lim::broken\n").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg("--diagnostic-format=json")
         .arg(&path)
@@ -138,7 +138,7 @@ fn errors_are_json_from_frontend_through_linker() {
     assert!(text.contains("module.lim"), "{text}");
     fs::write(
         &path,
-        "(#gn bad () `((#fn broken () #u64 (#return false)))) (#generate bad)",
+        "#gn bad () `((#fn broken () #u64 (#return false)))\n#generate bad\n",
     )
     .unwrap();
     let mut previous = None;

@@ -2,22 +2,22 @@ use std::{process::Command, time::Duration};
 mod support;
 
 const SOURCE: &str = r#"
-  (#struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64))))
-  (#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-    (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
-    (#pin-set-field target view view) (#return target))
-  (#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-    (#let observed #u64 (#get target value)) (#assert (#u64::eq observed 42u64))
-    (#return target))
-  (#fn driver ((outside (#pin-ref #u64))) #u64
-    (#let-mut link Link (#struct-literal Link ((value 42u64) (state 0u32) (view outside))))
-    (#let running (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
-    (#let updated (#pin-ref-mut Link) (#call tick ((target running))))
-    (#let answer #u64 (#deref (#get updated view)))
-    (#pin-set-field updated view outside) (#drop updated) (#forget link)
-    (#return answer))
-  (#fn main () #u64 (#let outside #u64 0u64)
-    (#return (#call driver ((outside (#pin-borrow outside))))))
+#struct Link () ((value #u64) (state #u32) (view (#pin-ref #u64)))
+#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+      (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
+      (#pin-set-field target view view) (#return target)
+#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+      (#let observed #u64 (#get target value)) (#assert (#u64::eq observed 42u64))
+      (#return target)
+#fn driver ((outside (#pin-ref #u64))) #u64
+      (#let-mut link Link (#struct-literal Link ((value 42u64) (state 0u32) (view outside))))
+      (#let running (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
+      (#let updated (#pin-ref-mut Link) (#call tick ((target running))))
+      (#let answer #u64 (#deref (#get updated view)))
+      (#pin-set-field updated view outside) (#drop updated) (#forget link)
+      (#return answer)
+#fn main () #u64 (#let outside #u64 0u64)
+      (#return (#call driver ((outside (#pin-borrow outside)))))
 "#;
 
 fn compile(source: &str, scratch: &support::Scratch) -> Result<String, lim::Diagnostic> {
@@ -114,27 +114,27 @@ fn a_shared_internal_child_blocks_an_exclusive_borrow_at_the_actual_call_argumen
 }
 
 const EXCLUSIVE_SOURCE: &str = r#"
-  (#struct Link () ((value #u64) (state #u32) (view (#pin-ref-mut #u64))))
-  (#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-    (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
-    (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))
-    (#return target))
-  (#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
-    (#let observed #u64 (#get target value)) (#assert (#u64::eq observed 42u64))
-    (#return target))
-  (#fn finish ((target (#pin-ref-mut Link)) (outside (#pin-ref-mut #u64))) #u64
-    (#let answer #u64 (#deref (#get target view)))
-    (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) outside))
-    (#drop target) (#return answer))
-  (#fn main () #u64
-    (#let-mut outside #u64 0u64)
-    (#let-mut link Link (#struct-literal Link ((value 42u64) (state 0u32)
-      (view (#pin-borrow-mut outside)))))
-    (#let running (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
-    (#let updated (#pin-ref-mut Link) (#call tick ((target running))))
-    (#let answer #u64 (#call finish ((target updated) (outside (#pin-borrow-mut outside)))))
-    (#forget link)
-    (#return answer))
+#struct Link () ((value #u64) (state #u32) (view (#pin-ref-mut #u64)))
+#fn install ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+      (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
+      (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))
+      (#return target)
+#fn tick ((target (#pin-ref-mut Link))) (#pin-ref-mut Link)
+      (#let observed #u64 (#get target value)) (#assert (#u64::eq observed 42u64))
+      (#return target)
+#fn finish ((target (#pin-ref-mut Link)) (outside (#pin-ref-mut #u64))) #u64
+      (#let answer #u64 (#deref (#get target view)))
+      (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) outside))
+      (#drop target) (#return answer)
+#fn main () #u64
+      (#let-mut outside #u64 0u64)
+      (#let-mut link Link (#struct-literal Link ((value 42u64) (state 0u32)
+        (view (#pin-borrow-mut outside)))))
+      (#let running (#pin-ref-mut Link) (#call install ((target (#pin-borrow-mut link)))))
+      (#let updated (#pin-ref-mut Link) (#call tick ((target running))))
+      (#let answer #u64 (#call finish ((target updated) (outside (#pin-borrow-mut outside)))))
+      (#forget link)
+      (#return answer)
 "#;
 
 #[test]

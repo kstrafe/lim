@@ -134,7 +134,7 @@ fn reader_and_group_children_keep_exact_source_spans() {
 
 #[test]
 fn public_type_mismatch_span_and_rendering_point_at_rhs() {
-    let source = "(#fn main () #bool (#return 23u64))";
+    let source = "#fn main () #bool (#return 23u64)\n";
     let path = std::env::temp_dir().join(format!("lim-source-children-{}.lim", std::process::id()));
     let compile = || {
         lim::compile_source_to_assembly(
@@ -162,7 +162,7 @@ fn public_type_mismatch_span_and_rendering_point_at_rhs() {
     let underline = rendered.lines().find(|line| line.contains('^')).unwrap();
     assert_eq!(source_line.find("23u64"), underline.find('^'), "{rendered}");
 
-    let parsed = lim::parse(source).unwrap();
+    let parsed = lim::parse_source_unit(source).unwrap();
     let mut parsed_clone = parsed[0].clone();
     parsed_clone.children[4].children[1].expr = Expr::Symbol("mutated".into());
     let after = compile().unwrap_err();

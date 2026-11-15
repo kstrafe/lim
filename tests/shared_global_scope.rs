@@ -24,9 +24,9 @@ fn global_reference_origins_remain_in_scope_across_branches() {
 #[test]
 fn sharing_globals_does_not_allow_shadowing() {
     for body in [
-        "(#fn bad ((vALUE #u64)) #u64 (#return vALUE))",
-        "(#fn bad () #u64 (#let vALUE #u64 1u64) (#return vALUE))",
-        "(#fn bad () #u64 (#return (#block (#let vALUE #u64 1u64) vALUE)))",
+        "#fn bad ((vALUE #u64)) #u64 (#return vALUE)\n",
+        "#fn bad () #u64 (#let vALUE #u64 1u64) (#return vALUE)\n",
+        "#fn bad () #u64 (#return (#block (#let vALUE #u64 1u64) vALUE))\n",
     ] {
         let error = lim::parse_program(&format!("(#let vALUE #u64 42u64) {body}")).unwrap_err();
         assert!(error.contains("shadowing is not allowed"), "{error}");
@@ -39,7 +39,7 @@ fn local_reference_escapes_still_fail_with_many_globals() {
     for i in 0..512 {
         source.push_str(&format!("(#let global{i} #u64 {i}u64)\n"));
     }
-    source.push_str("(#fn bad () (#ref #u64) (#let value #u64 42u64) (#return (#borrow value)))");
+    source.push_str("#fn bad () (#ref #u64) (#let value #u64 42u64) (#return (#borrow value))\n");
     let error = assembly(&source).unwrap_err();
     assert!(error.contains("local"), "{error}");
 }

@@ -44,30 +44,31 @@ fn run(source: &str, input: &[u8], expected_stdout: &[u8]) {
 #[test]
 fn odd_raw_byte_references_keep_their_address_through_safe_io_wrappers() {
     run(
-        r#"(#alias LinuxTimespec = "@LINUX@::LinuxTimespec")
-(#alias linux-mmap = "@LINUX@::linux-mmap")
-(#alias linux-munmap = "@LINUX@::linux-munmap")
-(#alias linux-read-byte-from = "@LINUX@::linux-read-byte-from")
-(#alias linux-write-byte = "@LINUX@::linux-write-byte")
-(#alias linux-clock-gettime = "@LINUX@::linux-clock-gettime")
-(#alias linux-nanosleep = "@LINUX@::linux-nanosleep")
-        (#fn main () #u64
-          (#let base (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
-          (#let odd (#ptr-mut #u8) (#unsafe (#ptr-offset base 1usize)))
-          (#unsafe (#ptr-write base 91u8))
-          (#unsafe (#ptr-write odd 0u8))
-          (#unsafe (#ptr-write (#ptr-offset base 2usize) 92u8))
-          (#let-mut anchor #u64 0u64)
-          (#let view (#ref-mut #u8) (#unsafe (#ptr-borrow-mut (#borrow-mut anchor) odd)))
-          (#assert (#i64::eq (#call linux-read-byte-from ((fd 0i64) (destination view))) 1i64))
-          (#assert (#u8::eq (#unsafe (#ptr-read base)) 91u8))
-          (#assert (#u8::eq (#unsafe (#ptr-read (#ptr-offset base 2usize))) 92u8))
-          (#drop view)
-          (#let shared (#ref #u8) (#unsafe (#ptr-borrow (#borrow anchor) odd)))
-          (#assert (#i64::eq (#call linux-write-byte ((source shared))) 1i64))
-          (#drop shared)
-          (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address base) (length 4096usize)))) 0i64))
-          (#return 42u64))"#,
+        r#"#alias LinuxTimespec = "@LINUX@::LinuxTimespec"
+#alias linux-mmap = "@LINUX@::linux-mmap"
+#alias linux-munmap = "@LINUX@::linux-munmap"
+#alias linux-read-byte-from = "@LINUX@::linux-read-byte-from"
+#alias linux-write-byte = "@LINUX@::linux-write-byte"
+#alias linux-clock-gettime = "@LINUX@::linux-clock-gettime"
+#alias linux-nanosleep = "@LINUX@::linux-nanosleep"
+#fn main () #u64
+            (#let base (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
+            (#let odd (#ptr-mut #u8) (#unsafe (#ptr-offset base 1usize)))
+            (#unsafe (#ptr-write base 91u8))
+            (#unsafe (#ptr-write odd 0u8))
+            (#unsafe (#ptr-write (#ptr-offset base 2usize) 92u8))
+            (#let-mut anchor #u64 0u64)
+            (#let view (#ref-mut #u8) (#unsafe (#ptr-borrow-mut (#borrow-mut anchor) odd)))
+            (#assert (#i64::eq (#call linux-read-byte-from ((fd 0i64) (destination view))) 1i64))
+            (#assert (#u8::eq (#unsafe (#ptr-read base)) 91u8))
+            (#assert (#u8::eq (#unsafe (#ptr-read (#ptr-offset base 2usize))) 92u8))
+            (#drop view)
+            (#let shared (#ref #u8) (#unsafe (#ptr-borrow (#borrow anchor) odd)))
+            (#assert (#i64::eq (#call linux-write-byte ((source shared))) 1i64))
+            (#drop shared)
+            (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address base) (length 4096usize)))) 0i64))
+            (#return 42u64)
+"#,
         &[0xa7],
         &[0xa7],
     );
@@ -76,62 +77,63 @@ fn odd_raw_byte_references_keep_their_address_through_safe_io_wrappers() {
 #[test]
 fn clock_and_nanosleep_marshal_descending_stack_and_ascending_raw_timespecs() {
     run(
-        r#"(#alias LinuxTimespec = "@LINUX@::LinuxTimespec")
-(#alias linux-mmap = "@LINUX@::linux-mmap")
-(#alias linux-munmap = "@LINUX@::linux-munmap")
-(#alias linux-read-byte-from = "@LINUX@::linux-read-byte-from")
-(#alias linux-write-byte = "@LINUX@::linux-write-byte")
-(#alias linux-clock-gettime = "@LINUX@::linux-clock-gettime")
-(#alias linux-nanosleep = "@LINUX@::linux-nanosleep")
-        (#fn main () #u64
-          (#let-mut stack-time LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 0i64) (seconds 0i64))))
-          (#assert (#i64::eq (#call linux-clock-gettime ((clock-id 1i64) (time (#borrow-mut stack-time)))) 0i64))
-          (#assert (#i64::le 0i64 (#get stack-time nanoseconds)))
-          (#assert (#i64::lt (#get stack-time nanoseconds) 1000000000i64))
-          (#assert (#i64::gt (#get stack-time seconds) 0i64))
-          (#let-mut stack-rem LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 123i64) (seconds 456i64))))
-          (#let stack-zero LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 0i64) (seconds 0i64))))
-          (#assert (#i64::eq (#call linux-nanosleep ((request (#borrow stack-zero)) (remaining (#borrow-mut stack-rem)))) 0i64))
-          (#assert (#i64::eq (#get stack-rem nanoseconds) 123i64))
-          (#assert (#i64::eq (#get stack-rem seconds) 456i64))
-          (#let invalid LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 1000000000i64) (seconds 0i64))))
-          (#assert (#i64::eq (#call linux-nanosleep ((request (#borrow invalid)) (remaining (#borrow-mut stack-rem)))) -22i64))
-          (#let raw (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
-          // Lim's ascending raw words hold ns then seconds, unlike Linux's C ABI.
-          (#let raw-words (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64) ((rdi raw)) "mov rax, rdi")))
-          (#unsafe (#ptr-write raw-words 0i64))
-          (#unsafe (#ptr-write (#ptr-offset raw-words 1usize) 0i64))
-          (#let-mut raw-anchor #u64 0u64)
-          (#let raw-struct (#ptr-mut LinuxTimespec) (#unsafe (#asm (#ptr-mut LinuxTimespec) ((rdi raw)) "mov rax, rdi")))
-          (#let raw-time (#ref-mut LinuxTimespec) (#unsafe (#ptr-borrow-mut (#borrow-mut raw-anchor) raw-struct)))
-          (#assert (#i64::eq (#call linux-clock-gettime ((clock-id 1i64) (time raw-time))) 0i64))
-          (#assert (#i64::le 0i64 (#get raw-time nanoseconds)))
-          (#assert (#i64::lt (#get raw-time nanoseconds) 1000000000i64))
-          (#assert (#i64::gt (#get raw-time seconds) 0i64))
-          (#drop raw-time)
-          (#unsafe (#ptr-write raw-words 0i64))
-          (#unsafe (#ptr-write (#ptr-offset raw-words 1usize) 0i64))
-          (#let rem-words (#ptr-mut #i64) (#unsafe (#ptr-offset raw-words 2usize)))
-          (#unsafe (#ptr-write rem-words 123i64))
-          (#unsafe (#ptr-write (#ptr-offset rem-words 1usize) 456i64))
-          (#let rem-struct (#ptr-mut LinuxTimespec) (#unsafe (#asm (#ptr-mut LinuxTimespec)
-            ((rdi rem-words)) "mov rax, rdi")))
-          (#let request-anchor #u64 0u64)
-          (#let-mut remaining-anchor #u64 0u64)
-          (#let raw-request (#ref LinuxTimespec) (#unsafe (#ptr-borrow (#borrow request-anchor) raw-struct)))
-          (#let raw-remaining (#ref-mut LinuxTimespec) (#unsafe (#ptr-borrow-mut (#borrow-mut remaining-anchor) rem-struct)))
-          (#assert (#i64::eq (#call linux-nanosleep ((request raw-request) (remaining raw-remaining))) 0i64))
-          (#assert (#i64::eq (#get raw-remaining nanoseconds) 123i64))
-          (#assert (#i64::eq (#get raw-remaining seconds) 456i64))
-          (#drop raw-request)
-          (#unsafe (#ptr-write raw-words 1000000000i64))
-          (#let raw-invalid (#ref LinuxTimespec) (#unsafe (#ptr-borrow (#borrow request-anchor) raw-struct)))
-          (#assert (#i64::eq (#call linux-nanosleep ((request raw-invalid) (remaining raw-remaining))) -22i64))
-          (#assert (#i64::eq (#get raw-remaining nanoseconds) 123i64))
-          (#assert (#i64::eq (#get raw-remaining seconds) 456i64))
-          (#drop raw-invalid) (#drop raw-remaining)
-          (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address raw) (length 4096usize)))) 0i64))
-          (#return 42u64))"#,
+        r#"#alias LinuxTimespec = "@LINUX@::LinuxTimespec"
+#alias linux-mmap = "@LINUX@::linux-mmap"
+#alias linux-munmap = "@LINUX@::linux-munmap"
+#alias linux-read-byte-from = "@LINUX@::linux-read-byte-from"
+#alias linux-write-byte = "@LINUX@::linux-write-byte"
+#alias linux-clock-gettime = "@LINUX@::linux-clock-gettime"
+#alias linux-nanosleep = "@LINUX@::linux-nanosleep"
+#fn main () #u64
+            (#let-mut stack-time LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 0i64) (seconds 0i64))))
+            (#assert (#i64::eq (#call linux-clock-gettime ((clock-id 1i64) (time (#borrow-mut stack-time)))) 0i64))
+            (#assert (#i64::le 0i64 (#get stack-time nanoseconds)))
+            (#assert (#i64::lt (#get stack-time nanoseconds) 1000000000i64))
+            (#assert (#i64::gt (#get stack-time seconds) 0i64))
+            (#let-mut stack-rem LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 123i64) (seconds 456i64))))
+            (#let stack-zero LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 0i64) (seconds 0i64))))
+            (#assert (#i64::eq (#call linux-nanosleep ((request (#borrow stack-zero)) (remaining (#borrow-mut stack-rem)))) 0i64))
+            (#assert (#i64::eq (#get stack-rem nanoseconds) 123i64))
+            (#assert (#i64::eq (#get stack-rem seconds) 456i64))
+            (#let invalid LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 1000000000i64) (seconds 0i64))))
+            (#assert (#i64::eq (#call linux-nanosleep ((request (#borrow invalid)) (remaining (#borrow-mut stack-rem)))) -22i64))
+            (#let raw (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
+            // Lim's ascending raw words hold ns then seconds, unlike Linux's C ABI.
+            (#let raw-words (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64) ((rdi raw)) "mov rax, rdi")))
+            (#unsafe (#ptr-write raw-words 0i64))
+            (#unsafe (#ptr-write (#ptr-offset raw-words 1usize) 0i64))
+            (#let-mut raw-anchor #u64 0u64)
+            (#let raw-struct (#ptr-mut LinuxTimespec) (#unsafe (#asm (#ptr-mut LinuxTimespec) ((rdi raw)) "mov rax, rdi")))
+            (#let raw-time (#ref-mut LinuxTimespec) (#unsafe (#ptr-borrow-mut (#borrow-mut raw-anchor) raw-struct)))
+            (#assert (#i64::eq (#call linux-clock-gettime ((clock-id 1i64) (time raw-time))) 0i64))
+            (#assert (#i64::le 0i64 (#get raw-time nanoseconds)))
+            (#assert (#i64::lt (#get raw-time nanoseconds) 1000000000i64))
+            (#assert (#i64::gt (#get raw-time seconds) 0i64))
+            (#drop raw-time)
+            (#unsafe (#ptr-write raw-words 0i64))
+            (#unsafe (#ptr-write (#ptr-offset raw-words 1usize) 0i64))
+            (#let rem-words (#ptr-mut #i64) (#unsafe (#ptr-offset raw-words 2usize)))
+            (#unsafe (#ptr-write rem-words 123i64))
+            (#unsafe (#ptr-write (#ptr-offset rem-words 1usize) 456i64))
+            (#let rem-struct (#ptr-mut LinuxTimespec) (#unsafe (#asm (#ptr-mut LinuxTimespec)
+              ((rdi rem-words)) "mov rax, rdi")))
+            (#let request-anchor #u64 0u64)
+            (#let-mut remaining-anchor #u64 0u64)
+            (#let raw-request (#ref LinuxTimespec) (#unsafe (#ptr-borrow (#borrow request-anchor) raw-struct)))
+            (#let raw-remaining (#ref-mut LinuxTimespec) (#unsafe (#ptr-borrow-mut (#borrow-mut remaining-anchor) rem-struct)))
+            (#assert (#i64::eq (#call linux-nanosleep ((request raw-request) (remaining raw-remaining))) 0i64))
+            (#assert (#i64::eq (#get raw-remaining nanoseconds) 123i64))
+            (#assert (#i64::eq (#get raw-remaining seconds) 456i64))
+            (#drop raw-request)
+            (#unsafe (#ptr-write raw-words 1000000000i64))
+            (#let raw-invalid (#ref LinuxTimespec) (#unsafe (#ptr-borrow (#borrow request-anchor) raw-struct)))
+            (#assert (#i64::eq (#call linux-nanosleep ((request raw-invalid) (remaining raw-remaining))) -22i64))
+            (#assert (#i64::eq (#get raw-remaining nanoseconds) 123i64))
+            (#assert (#i64::eq (#get raw-remaining seconds) 456i64))
+            (#drop raw-invalid) (#drop raw-remaining)
+            (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address raw) (length 4096usize)))) 0i64))
+            (#return 42u64)
+"#,
         &[],
         &[],
     );

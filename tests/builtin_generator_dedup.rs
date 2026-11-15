@@ -7,24 +7,24 @@ fn direct_nested_and_repeated_builtin_calls_share_one_checked_artifact() {
     for (generator, builtin) in [
         (
             "#optional",
-            "(#generate #optional ((type #u64) (name Shared)))",
+            "#generate #optional ((type #u64) (name Shared))\n",
         ),
         (
             "#array",
-            "(#generate #array ((element #u64) (length 4) (name Shared)))",
+            "#generate #array ((element #u64) (length 4) (name Shared))\n",
         ),
     ] {
         for invocations in [
-            format!("(#generate outer)\n{builtin}\n{builtin}"),
-            format!("{builtin}\n(#generate outer)\n{builtin}"),
+            format!("#generate outer\n{builtin}\n{builtin}"),
+            format!("{builtin}\n#generate outer\n{builtin}"),
         ] {
             let scratch = support::Scratch::new("builtin-generator-dedup");
             let entry = scratch.path().join("main.lim");
             let source = format!(
-                "(#gn outer () `({builtin}))\n{invocations}\n(#fn main () #u64 (#return 0u64))"
+                "#gn outer () `({builtin})\n{invocations}\n#fn main () #u64 (#return 0u64)\n"
             );
             for _ in 0..2 {
-                let outer = source.rfind("(#generate outer)").unwrap();
+                let outer = source.rfind("#generate outer").unwrap();
                 let direct = source.rfind(builtin).unwrap();
                 let nested = lim::locate_generated_details(
                     &source,
@@ -56,7 +56,7 @@ fn direct_nested_and_repeated_builtin_calls_share_one_checked_artifact() {
                 assert_eq!(direct[0].path, artifact.path);
                 let text = fs::read_to_string(&artifact.path).unwrap();
                 for line in source.lines().enumerate().filter_map(|(index, line)| {
-                    (line == builtin || line == "(#generate outer)").then_some(index + 1)
+                    (line == builtin || line == "#generate outer\n").then_some(index + 1)
                 }) {
                     assert!(
                         text.contains(&format!("{}:{line}", entry.display())),
@@ -79,14 +79,14 @@ fn canonical_named_argument_order_deduplicates_but_different_inputs_do_not() {
     let scratch = support::Scratch::new("builtin-canonical-dedup");
     let entry = scratch.path().join("main.lim");
     for source in [
-        "(#generate #optional ((type #u64) (name Shared))) (#generate #optional ((name Shared) (type #u64)))",
-        "(#generate #array ((element #u64) (length 4) (name Shared))) (#generate #array ((name Shared) (length 4) (element #u64))) (#require-generated Shared #array (Shared::get Shared::borrow Shared::borrow-mut))",
-        "(#gn outer () `((#generate #optional ((name Shared) (type #u64))))) (#generate outer) (#generate #optional ((type #u64) (name Shared))) (#require-generated Shared outer (Shared::construct)) (#require-generated Shared #optional (Shared::construct))",
+        "#generate #optional ((type #u64) (name Shared))\n#generate #optional ((name Shared) (type #u64))\n",
+        "#generate #array ((element #u64) (length 4) (name Shared))\n#generate #array ((name Shared) (length 4) (element #u64))\n#require-generated Shared #array (Shared::get Shared::borrow Shared::borrow-mut)\n",
+        "#gn outer () `((#generate #optional ((name Shared) (type #u64))))\n#generate outer\n#generate #optional ((type #u64) (name Shared))\n#require-generated Shared outer (Shared::construct)\n#require-generated Shared #optional (Shared::construct)\n",
     ] {
         lim::check_source_with_generated_sources(source, &entry, &lim::CompileConfig::default(), &scratch.path().join("cache"), &scratch.path().join("generated")).unwrap();
     }
     let invalid =
-        "(#generate #optional ((type #u64) (name Shared))) (#generate #optional ((type #u32) (name Shared)))";
+        "#generate #optional ((type #u64) (name Shared))\n#generate #optional ((type #u32) (name Shared))\n";
     let error = lim::check_source_with_generated_sources(
         invalid,
         &entry,
