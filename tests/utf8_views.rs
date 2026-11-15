@@ -154,7 +154,7 @@ fn slice_validation_and_scalar_iteration_match_the_rust_utf8_oracle() {
 fn every_subview_range_matches_rust_boundaries_for_both_storage_layouts() {
     let bytes = "A\0é€😀!".as_bytes();
     let mut base = format!(
-        "#std\n#fn main () #u64\n  (#let bytes (#array #u8 {}) (#array-of (#array #u8 {}) {}))\n",
+        "#std\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n  (#let bytes (#array #u8 {}) (#array-of (#array #u8 {}) {}))\n  );\n}}\n",
         bytes.len(),
         bytes.len(),
         bytes
@@ -196,13 +196,21 @@ fn nested_views_and_iterators_keep_the_source_borrow_not_temporary_containers() 
     execute(
         r#"#std
 #struct StoredView () ((contents StringView))
-#fn middle ((owner (#ref String))) StoredView
+#fn middle {
+  #params = ((owner (#ref String)));
+  #returns = StoredView;
+  #body = (
           (#let parent StringView (#call String::view ((string owner))))
           (#let child StringView (#match (#call StringView::subview ((view (#borrow parent)) (start 1usize) (end 3usize)))
             (#case (StringView::Result.Valid selected) selected) (#case _ (#panic))))
           (#forget parent)
           (#return (#struct-literal StoredView ((contents child))))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let chars (#array #char 3) "Aé!")
           (#let-mut text String (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
             (#case (StringCreateResult.StringCreated created) created) (#case _ (#panic))))
@@ -219,6 +227,8 @@ fn nested_views_and_iterators_keep_the_source_borrow_not_temporary_containers() 
           (#call String::clear ((string (#borrow-mut text))))
           (#call String::free ((string text)))
           (#return 42u64)
+  );
+}
 "#,
         "utf8-nested-returned-view",
     );
@@ -228,7 +238,10 @@ fn nested_views_and_iterators_keep_the_source_borrow_not_temporary_containers() 
 fn empty_string_view_and_empty_subview_retain_borrows_and_iterate_to_end() {
     execute(
         r#"#std
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
         (#let text String (#call String::new ()))
         (#let whole StringView (#call String::view ((string (#borrow text)))))
         (#assert (#call StringView::is-empty ((view (#borrow whole)))))
@@ -239,6 +252,8 @@ fn empty_string_view_and_empty_subview_retain_borrows_and_iterate_to_end() {
         (#assert (#match (#call StringView::Chars::next ((iterator (#borrow-mut iterator))))
           (#case StringView::CharResult.End true) (#case _ false)))
         (#forget iterator) (#call String::free ((string text))) (#return 42u64)
+  );
+}
 "#,
         "utf8-empty-view",
     );
@@ -265,7 +280,7 @@ fn string_and_slice_views_reject_mutation_destruction_and_source_escape() {
                 2 => "",
                 _ => "(#call String::free ((string moved)))",
             };
-            let source = format!("#std\n#fn main () #u64 (#let-mut text String (#call String::new ())) {setup} {mutation} (#let size #usize (#call StringView::len ((view (#borrow view))))) (#forget view) {cleanup} (#return 42u64)\n");
+            let source = format!("#std\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut text String (#call String::new ())) {setup} {mutation} (#let size #usize (#call StringView::len ((view (#borrow view))))) (#forget view) {cleanup} (#return 42u64)\n  );\n}}\n");
             let scratch = support::Scratch::new(&format!("utf8-borrow-{i}-{j}"));
             let error = compile(&source, &scratch.path().join("main.lim")).unwrap_err();
             assert_eq!(error.code_string(), "E4100", "{}", error.message);
@@ -280,10 +295,10 @@ fn string_and_slice_views_reject_mutation_destruction_and_source_escape() {
         }
     }
     for (label, source) in [
-        ("iterator", "#std\n#fn main () #u64 (#let-mut text String (#call String::new ())) (#let whole StringView (#call String::view ((string (#borrow text))))) (#let-mut iterator StringView::Chars (#call StringView::chars ((view whole)))) (#call String::free ((string text))) (#call StringView::Chars::next ((iterator (#borrow-mut iterator)))) (#forget iterator) (#return 42u64)\n"),
-        ("returned", "#std\n#fn bad () StringView (#let text String (#call String::new ())) (#let view StringView (#call String::view ((string (#borrow text))))) (#forget text) (#return view)\n"),
-        ("slice", "#std\n#fn main () #u64 (#let-mut bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view Utf8Slice (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic)))) (#let change (#ref-mut (#array #u8 1)) (#borrow-mut bytes)) (#call Utf8Slice::len ((view (#borrow view)))) (#forget view) (#return 42u64)\n"),
-        ("slice-returned", "#std\n#fn bad () Utf8Slice (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#return (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic))))\n"),
+        ("iterator", "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut text String (#call String::new ())) (#let whole StringView (#call String::view ((string (#borrow text))))) (#let-mut iterator StringView::Chars (#call StringView::chars ((view whole)))) (#call String::free ((string text))) (#call StringView::Chars::next ((iterator (#borrow-mut iterator)))) (#forget iterator) (#return 42u64)\n  );\n}\n"),
+        ("returned", "#std\n#fn bad {\n  #params = ();\n  #returns = StringView;\n  #body = ( (#let text String (#call String::new ())) (#let view StringView (#call String::view ((string (#borrow text))))) (#forget text) (#return view)\n  );\n}\n"),
+        ("slice", "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let-mut bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view Utf8Slice (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic)))) (#let change (#ref-mut (#array #u8 1)) (#borrow-mut bytes)) (#call Utf8Slice::len ((view (#borrow view)))) (#forget view) (#return 42u64)\n  );\n}\n"),
+        ("slice-returned", "#std\n#fn bad {\n  #params = ();\n  #returns = Utf8Slice;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#return (#match (#call Utf8Slice::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (Utf8Slice::Result.Valid selected) selected) (#case _ (#panic))))\n  );\n}\n"),
     ] {
         let scratch = support::Scratch::new(&format!("utf8-reject-{label}"));
         let error = compile(source, &scratch.path().join("main.lim")).unwrap_err();
@@ -302,7 +317,7 @@ fn string_and_slice_views_reject_mutation_destruction_and_source_escape() {
 fn generated_views_are_cached_inspectable_and_compile_as_ordinary_lim() {
     let scratch = support::Scratch::new("utf8-inspectable");
     let path = scratch.path().join("main.lim");
-    let source = "#std\n#generate #utf8-view ((name BorrowedText) (owner (#slice #u8)))\n#fn main () #u64 (#return 42u64)\n";
+    let source = "#std\n#generate #utf8-view ((name BorrowedText) (owner (#slice #u8)))\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
     fs::write(&path, source).unwrap();
     let first = compile(source, &path).unwrap();
     let generated_dir = scratch.path().join(".lim/generated");
@@ -325,13 +340,13 @@ fn generated_views_are_cached_inspectable_and_compile_as_ordinary_lim() {
         modified,
         fs::metadata(&generated).unwrap().modified().unwrap()
     );
-    execute(&format!("#std\n{text}\n#fn main () #u64 (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view BorrowedText (#match (#call BorrowedText::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (BorrowedText::Result.Valid accepted) accepted) (#case _ (#panic)))) (#assert (#usize::eq (#call BorrowedText::len ((view (#borrow view)))) 1usize)) (#forget view) (#return 42u64)\n"), "utf8-emitted-source");
+    execute(&format!("#std\n{text}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let bytes (#array #u8 1) (#array-of (#array #u8 1) 65u8)) (#let view BorrowedText (#match (#call BorrowedText::from-owner ((owner (#slice-of (#borrow bytes))))) (#case (BorrowedText::Result.Valid accepted) accepted) (#case _ (#panic)))) (#assert (#usize::eq (#call BorrowedText::len ((view (#borrow view)))) 1usize)) (#forget view) (#return 42u64)\n  );\n}}\n"), "utf8-emitted-source");
 }
 
 #[test]
 fn assume_valid_requires_unsafe_and_unstable_owner_types_fail_at_the_invocation() {
     let scratch = support::Scratch::new("utf8-unsafe-contract");
-    let source = "#std\n#fn bad ((owner (#slice #u8))) Utf8Slice (#return (#unsafe-call Utf8Slice::assume-valid ((owner owner))))\n";
+    let source = "#std\n#fn bad {\n  #params = ((owner (#slice #u8)));\n  #returns = Utf8Slice;\n  #body = ( (#return (#unsafe-call Utf8Slice::assume-valid ((owner owner))))\n  );\n}\n";
     let error = compile(source, &scratch.path().join("main.lim")).unwrap_err();
     assert_eq!(error.code_string(), "E4300", "{}", error.message);
     assert!(error.message.contains("unsafe"));

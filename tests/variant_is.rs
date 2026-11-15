@@ -33,7 +33,10 @@ fn variant_tests_borrow_linear_values_without_consuming_them() {
     let source = "#enum Choice (#linear) ((Choice.Number 7 #u64) (Choice.Other 19 #u64))
 
 #type ChoiceAlias Choice
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut value ChoiceAlias (Choice.Number 42u64))
           (#let shared (#ref Choice) (#borrow value))
           (#let first #bool (#variant-is shared Choice.Number))
@@ -45,7 +48,7 @@ fn variant_tests_borrow_linear_values_without_consuming_them() {
           (#let payload #u64 (#get-payload value Choice.Number 0))
           (#forget value)
           (#return (#if (#bool::and first (#bool::and (#bool::not again) selected))
-            payload 0u64))\n";
+            payload 0u64))\n  );\n}\n";
     check(source).unwrap();
     assert_eq!(run(source).code(), Some(42));
 }
@@ -53,7 +56,10 @@ fn variant_tests_borrow_linear_values_without_consuming_them() {
 #[test]
 fn pinned_shared_and_exclusive_references_and_explicit_discriminants_work() {
     let source = "#enum Choice () ((Choice.Number 7 #u64) (Choice.Other 19 #u64))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut value Choice (Choice.Other 42u64))
           (#let shared (#pin-ref Choice) (#pin-borrow value))
           (#let wrong #bool (#variant-is shared Choice.Number))
@@ -63,7 +69,7 @@ fn pinned_shared_and_exclusive_references_and_explicit_discriminants_work() {
           (#let still-right #bool (#variant-is exclusive Choice.Other))
           (#drop exclusive)
           (#return (#if (#bool::and (#bool::not wrong) (#bool::and right still-right))
-            (#get-payload value Choice.Other 0) 0u64))\n";
+            (#get-payload value Choice.Other 0) 0u64))\n  );\n}\n";
     check(source).unwrap();
     assert_eq!(run(source).code(), Some(42));
 }
@@ -71,15 +77,23 @@ fn pinned_shared_and_exclusive_references_and_explicit_discriminants_work() {
 #[test]
 fn computed_receiver_is_evaluated_once() {
     let source = "#enum Choice () ((Choice.Yes #u64) Choice.No)
-#fn counted ((counter (#ref-mut #u64)) (value (#ref Choice))) (#ref Choice)
+#fn counted {
+  #params = ((counter (#ref-mut #u64)) (value (#ref Choice)));
+  #returns = (#ref Choice);
+  #body = (
           (#deref-set counter (#u64::add-wrap (#deref counter) 1u64))
           (#return value)
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut counter #u64 0u64)
           (#let value Choice (Choice.Yes 42u64))
           (#let result #bool (#variant-is
             (#call counted ((counter (#borrow-mut counter)) (value (#borrow value)))) Choice.Yes))
-          (#return (#if (#bool::and result (#u64::eq counter 1u64)) 42u64 0u64))\n";
+          (#return (#if (#bool::and result (#u64::eq counter 1u64)) 42u64 0u64))\n  );\n}\n";
     check(source).unwrap();
     assert_eq!(run(source).code(), Some(42));
 }
@@ -87,11 +101,19 @@ fn computed_receiver_is_evaluated_once() {
 #[test]
 fn builtin_sigils_do_not_reserve_the_unprefixed_function_name() {
     let source = "#enum Choice () (Choice.Ready Choice.Stop)
-#fn variant-is ((number #u64)) #u64 (#return number)
-#fn main () #u64
+#fn variant-is {
+  #params = ((number #u64));
+  #returns = #u64;
+  #body = ( (#return number)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let value Choice Choice.Ready)
           (#assert (#variant-is (#borrow value) Choice.Ready))
-          (#return (#call variant-is ((number 42u64))))\n";
+          (#return (#call variant-is ((number 42u64))))\n  );\n}\n";
     check(source).unwrap();
     assert_eq!(run(source).code(), Some(42));
 }
@@ -114,12 +136,15 @@ fn variant_test_rejects_invalid_operands_and_reports_the_expression_line() {
             "#enum Choice () (Choice.Yes Choice.No)
 #enum Other () (Other.Right)
 #struct Record () ()
-#fn main () #bool
+#fn main {{
+  #params = ();
+  #returns = #bool;
+  #body = (
     (#let value Choice Choice.Yes)
     (#let record Record (#struct-literal Record ()))
     {expression}
     (#return true)
-"
+  );\n}}\n"
         );
         let input = scratch.path().join("bad.lim");
         fs::write(&input, &source).unwrap();
@@ -144,7 +169,10 @@ fn exclusive_handles_in_fields_and_computed_blocks_remain_usable() {
     let source = "#enum Choice (#linear) ((Choice.Number #u64) Choice.Empty)
 #struct Holder () ((view (#ref-mut Choice)))
 #type Alias Choice
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut value Choice (Choice.Number 42u64))
           (#let holder Holder (#struct-literal Holder ((view (#borrow-mut value)))))
           (#assert (#variant-is (#get holder view) Choice.Number))
@@ -155,7 +183,7 @@ fn exclusive_handles_in_fields_and_computed_blocks_remain_usable() {
           (#assert (#variant-is view Choice.Number))
           (#drop view)
           (#let result #u64 (#get-payload value Choice.Number 0))
-          (#forget value) (#return result)\n";
+          (#forget value) (#return result)\n  );\n}\n";
     check(source).unwrap();
     assert_eq!(run(source).code(), Some(42));
 }
@@ -166,13 +194,16 @@ fn tag_tests_do_not_bypass_live_mutable_child_loans() {
         let expression = format!("(#variant-is {receiver} Choice.Number)");
         let source = format!(
             "#enum Choice () ((Choice.Number #u64) Choice.Empty)
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let-mut value Choice (Choice.Number 42u64))
               (#let parent (#pin-ref-mut Choice) (#pin-borrow-mut value))
               (#let child (#pin-ref-mut #u64) (#unsafe (#pin-get-payload-unchecked-mut parent Choice.Number)))
               {expression}
               (#let result #u64 (#deref child))
-              (#drop child) (#drop parent) (#forget value) (#return result)\n"
+              (#drop child) (#drop parent) (#forget value) (#return result)\n  );\n}}\n"
         );
         let scratch = support::Scratch::new("variant-is-loan");
         let error = lim::compile_source_to_assembly(

@@ -30,14 +30,24 @@ fn run(source: &str, stdout: &[u8]) {
 #[test]
 fn exact_reference_pointer_round_trip_preserves_nested_slice_contents() {
     let source = r#"
-#fn recover ((owner (#pin-ref (#slice #u64)))) (#ref (#slice #u64))
+#fn recover {
+  #params = ((owner (#pin-ref (#slice #u64))));
+  #returns = (#ref (#slice #u64));
+  #body = (
           (#return (#unsafe (#ptr-borrow owner (#ref-ptr owner))))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let backing (#array #u64 1) (#array-of (#array #u64 1) 42u64))
           (#let descriptor (#slice #u64) (#slice-of (#borrow backing)))
           (#let view (#ref (#slice #u64)) (#call recover ((owner (#pin-shared descriptor)))))
           (#let answer #u64 (#deref (#slice-idx (#deref view) 0usize)))
           (#forget view) (#forget descriptor) (#forget backing) (#return answer)
+  );
+}
 "#;
     run(source, &[]);
     let conflicting = source
@@ -74,26 +84,41 @@ fn packed_scalar_references_access_exact_width_at_a_guard_page() {
         let expected = if ty == "#bool" { "true" } else { new };
         let source = format!(
             r#"
-#fn read ((view (#ref {ty}))) {ty} (#return (#deref view))
-#fn write ((view (#ref-mut {ty})) (value {ty})) () (#deref-set view value) (#return ())
-#fn main () #u64
+#fn read {{
+  #params = ((view (#ref {ty})));
+  #returns = {ty};
+  #body = ( (#return (#deref view))
+  );
+}}
+#fn write {{
+  #params = ((view (#ref-mut {ty})) (value {ty}));
+  #returns = ();
+  #body = ( (#deref-set view value) (#return ())
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let base (#ptr-mut {ty}) (#unsafe (#linux-syscall (#ptr-mut {ty}) 9usize
                 (0usize 8192usize 3usize 34usize -1i64 0usize))))
               (#assert (#usize::lt (#ptr-address base) 18446744073709547521usize))
               (#let guard (#ptr-mut {ty}) (#unsafe (#ptr-offset base {guard_offset}usize)))
               (#assert (#i64::eq (#unsafe (#linux-syscall #i64 10usize (guard 4096usize 0usize))) 0i64))
               (#let last (#ptr-mut {ty}) (#unsafe (#ptr-offset base {offset}usize)))
-              (#unsafe (#ptr-write last {old}))
+              (#unsafe (#ptr-write last {ty}0))
               (#let-mut anchor #u64 0u64)
-              (#let view (#ref-mut {ty}) (#unsafe (#ptr-borrow-mut (#borrow-mut anchor) last)))
-              (#call write ((view view) (value {new})))
-              (#assert ({ty}::eq (#unsafe (#ptr-read last)) {expected}))
+              (#let view (#ref-mut {ty}1) (#unsafe (#ptr-borrow-mut (#borrow-mut anchor) last)))
+              (#call write ((view view) (value {ty}2)))
+              (#assert ({ty}3::eq (#unsafe (#ptr-read last)) {ty}4))
               (#drop view)
-              (#let shared (#ref {ty}) (#unsafe (#ptr-borrow (#borrow anchor) last)))
-              (#assert ({ty}::eq (#call read ((view shared))) {expected}))
+              (#let shared (#ref {ty}5) (#unsafe (#ptr-borrow (#borrow anchor) last)))
+              (#assert ({ty}6::eq (#call read ((view shared))) {ty}7))
               (#drop shared)
               (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (base 8192usize))) 0i64))
               (#return 42u64)
+  );
+}}
 "#,
             guard_offset = 4096 / bytes,
             offset = (4096 - bytes) / bytes
@@ -106,8 +131,16 @@ fn packed_scalar_references_access_exact_width_at_a_guard_page() {
 fn odd_byte_references_survive_calls_struct_storage_and_native_boundaries() {
     run(
         r#"#struct Holder () ((byte (#ref #u8)))
-#fn forward ((byte (#ref #u8))) (#ref #u8) (#return byte)
-#fn main () #u64
+#fn forward {
+  #params = ((byte (#ref #u8)));
+  #returns = (#ref #u8);
+  #body = ( (#return byte)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let base (#ptr-mut #u8) (#unsafe (#linux-syscall (#ptr-mut #u8) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
           (#assert (#usize::lt (#ptr-address base) 18446744073709547521usize))
@@ -126,6 +159,8 @@ fn odd_byte_references_survive_calls_struct_storage_and_native_boundaries() {
           (#assert (#u8::eq (#unsafe (#ptr-read (#ptr-offset base 2usize))) 100u8))
           (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (base 4096usize))) 0i64))
           (#return 42u64)
+  );
+}
 "#,
         b"x",
     );
@@ -135,8 +170,16 @@ fn odd_byte_references_survive_calls_struct_storage_and_native_boundaries() {
 fn word_backed_narrow_locals_and_heap_fields_still_store_canonical_words() {
     run(
         r#"#struct Value () ((field #i8))
-#fn update ((field (#ref-mut #i8))) () (#deref-set field 42i8) (#return ())
-#fn main () #u64
+#fn update {
+  #params = ((field (#ref-mut #i8)));
+  #returns = ();
+  #body = ( (#deref-set field 42i8) (#return ())
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut local #i8 -1i8)
           (#call update ((field (#borrow-mut local))))
           (#assert (#i8::eq local 42i8))
@@ -150,6 +193,8 @@ fn word_backed_narrow_locals_and_heap_fields_still_store_canonical_words() {
           (#let raw (#ptr-mut Value) (#unsafe (#pin-release owner)))
           (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (raw 4096usize))) 0i64))
           (#return 42u64)
+  );
+}
 "#,
         b"",
     );

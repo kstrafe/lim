@@ -78,7 +78,10 @@ fn string_utf8_capacity_mutation_and_clone_contract() {
         r#"
       // String fixture: {import:?}
 #std
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let chars (#array #char 3) "Aé🙂")
           (#let-mut text String
             (#match (#call String::from-chars ((text (#slice-of (#borrow chars)))))
@@ -119,6 +122,8 @@ fn string_utf8_capacity_mutation_and_clone_contract() {
           (#call String::free ((string moved)))
           (#call String::free ((string copy)))
           (#return 42u64)
+  );
+}}
     "#,
         import = string_import()
     );
@@ -131,11 +136,19 @@ fn string_utf8_validation_matrix_and_embedded_nul() {
         r#"
       // String fixture: {import:?}
 #std
-#fn valid ((bytes (#slice #u8))) #bool
+#fn valid {{
+  #params = ((bytes (#slice #u8)));
+  #returns = #bool;
+  #body = (
           (#return (#match (#call String::from-utf8 ((bytes bytes)))
             (#case (StringCreateResult.StringCreated text) (#block (#call String::free ((string text))) true))
             (#case _ false)))
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let nul (#array #u8 3) (#array-of (#array #u8 3) 65u8 0u8 66u8))
           (#let good (#array #u8 4) (#array-of (#array #u8 4) 240u8 159u8 153u8 130u8))
           (#let overlong (#array #u8 2) (#array-of (#array #u8 2) 192u8 175u8))
@@ -149,6 +162,8 @@ fn string_utf8_validation_matrix_and_embedded_nul() {
           (#assert (#bool::not (#call valid ((bytes (#slice-of (#borrow truncated)))))))
           (#assert (#bool::not (#call valid ((bytes (#slice-of (#borrow too-large)))))))
           (#return 42u64)
+  );
+}}
     "#,
         import = string_import()
     );
@@ -250,7 +265,10 @@ fn character_encoding_and_popping_cover_every_utf8_width_and_invalid_scalars() {
         r#"
       // String fixture: {import:?}
 #std
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let values (#array #u32 10) (#array-of (#array #u32 10)
             0u32 127u32 128u32 2047u32 2048u32 55295u32 57344u32 65535u32 65536u32 1114111u32))
           (#let widths (#array #usize 10) (#array-of (#array #usize 10)
@@ -284,6 +302,8 @@ fn character_encoding_and_popping_cover_every_utf8_width_and_invalid_scalars() {
           (#call String::clear ((string (#borrow-mut text))))
           (#call String::free ((string text)))
           (#return 42u64)
+  );
+}}
     "#,
         import = string_import()
     );
@@ -296,9 +316,17 @@ fn returned_and_copied_byte_views_retain_the_owner_borrow() {
         r#"
       // String fixture: {import:?}
 #std
-#fn view-of ((string (#ref String))) StringBytes
+#fn view-of {{
+  #params = ((string (#ref String)));
+  #returns = StringBytes;
+  #body = (
           (#return (#call String::bytes ((string string))))
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut text String (#call String::new ()))
           (#assert (#match (#call String::push-char ((string (#borrow-mut text)) (value (#as 65u32 #char))))
             (#case StringStatus.StringOk true) (#case _ false)))
@@ -312,6 +340,8 @@ fn returned_and_copied_byte_views_retain_the_owner_borrow() {
           (#call String::clear ((string (#borrow-mut text))))
           (#call String::free ((string text)))
           (#return 42u64)
+  );
+}}
     "#,
         import = string_import()
     );
@@ -321,21 +351,21 @@ fn returned_and_copied_byte_views_retain_the_owner_borrow() {
 #[test]
 fn string_linear_ownership_and_borrow_diagnostics() {
     rejected(
-        "#fn main () #u64 (#let text String (#call String::new ())) (#return 42u64)\n",
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let text String (#call String::new ())) (#return 42u64)\n  );\n}\n",
         "string-leak",
         "E4200",
         "must be consumed before returning",
         "text",
     );
-    rejected("#fn main () #u64 (#let text String (#call String::new ())) (#call String::free ((string text))) (#call String::free ((string text))) (#return 42u64)\n",
+    rejected("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let text String (#call String::new ())) (#call String::free ((string text))) (#call String::free ((string text))) (#return 42u64)\n  );\n}\n",
         "string-use-after-free", "E4200", "was used more than once", "text");
-    rejected("#fn main () #u64 (#let text String (#call String::new ())) (#let copy String (#clone text)) (#call String::free ((string text))) (#call String::free ((string copy))) (#return 42u64)\n",
+    rejected("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let text String (#call String::new ())) (#let copy String (#clone text)) (#call String::free ((string text))) (#call String::free ((string copy))) (#return 42u64)\n  );\n}\n",
         "string-direct-clone", "E4000", "opaque", "(#clone text)");
-    rejected("#fn main () #u64 (#let text String (#struct-literal String ((pointer (#ptr-null (#ptr-mut #u8))) (length 0usize) (capacity 0usize)))) (#call String::free ((string text))) (#return 42u64)\n",
+    rejected("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let text String (#struct-literal String ((pointer (#ptr-null (#ptr-mut #u8))) (length 0usize) (capacity 0usize)))) (#call String::free ((string text))) (#return 42u64)\n  );\n}\n",
         "string-forged-owner", "E4000", "cannot construct opaque type 'String'", "String");
-    rejected("#fn main () #u64 (#let text String (#call String::new ())) (#let pointer (#ptr-mut #u8) (#get text pointer)) (#call String::free ((string text))) (#return 42u64)\n",
+    rejected("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let text String (#call String::new ())) (#let pointer (#ptr-mut #u8) (#get text pointer)) (#call String::free ((string text))) (#return 42u64)\n  );\n}\n",
         "string-exposed-pointer", "E4000", "cannot access fields of opaque type 'String'", "pointer");
-    rejected("#fn dangling () StringBytes (#let text String (#call String::new ())) (#let view StringBytes (#call String::bytes ((string (#borrow text))))) (#forget text) (#return view)\n",
+    rejected("#fn dangling {\n  #params = ();\n  #returns = StringBytes;\n  #body = ( (#let text String (#call String::new ())) (#let view StringBytes (#call String::bytes ((string (#borrow text))))) (#forget text) (#return view)\n  );\n}\n",
         "string-dead-byte-view", "E4200", "returned reference may point to a consumed linear referent", "(#return view)");
     for operation in [
         "(#call String::clear ((string (#borrow-mut text))))",
@@ -347,14 +377,17 @@ fn string_linear_ownership_and_borrow_diagnostics() {
             "()"
         };
         let body = format!(
-            "#fn main () #u64
+            "#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let-mut text String (#call String::new ()))
             (#let bytes StringBytes (#call String::bytes ((string (#borrow text)))))
             {operation}
             (#let length #usize (#call StringBytes::len ((bytes bytes))))
             (#drop bytes)
             {cleanup}
-            (#return (#as length #u64))\n"
+            (#return (#as length #u64))\n  );\n}}\n"
         );
         let (label, message, fragment) = if operation.contains("String::clear") {
             (

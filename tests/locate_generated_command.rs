@@ -2,7 +2,7 @@ mod support;
 
 use std::{fs, path::PathBuf, process::Command, time::Duration};
 
-const SOURCE: &str = "#gn first () `((#type First #u64))\n#gn second () `((#type Second #u64))\n#generate first; #generate second\n#fn main () #u64 (#return 0u64)\n";
+const SOURCE: &str = "#gn first () `((#type First #u64))\n#gn second () `((#type Second #u64))\n#generate first; #generate second\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n";
 
 fn run(arguments: &[&str]) -> (bool, String, String) {
     let (status, stdout, stderr) = support::run(
@@ -71,7 +71,7 @@ fn imported_selection_uses_cfg_target_module_paths_and_writes_lsp_context() {
     let input = scratch.path().join("main.lim");
     fs::write(
         &input,
-        "#alias First = ./modules/selected.lim::First\n#fn main () First (#return 0u64)\n",
+        "#alias First = ./modules/selected.lim::First\n#fn main {\n  #params = ();\n  #returns = First;\n  #body = ( (#return 0u64)\n  );\n}\n",
     )
     .unwrap();
     let context = scratch.path().join("context.lsp");
@@ -140,7 +140,7 @@ fn rejects_bad_selections_and_options_with_json_cli_diagnostics() {
 fn reports_current_entry_errors_even_when_selection_has_no_invocation() {
     let scratch = support::Scratch::new("locate-command-diagnostic");
     let input = scratch.path().join("main.lim");
-    fs::write(&input, "#fn main () #u64 (#return missing)\n").unwrap();
+    fs::write(&input, "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return missing)\n  );\n}\n").unwrap();
     let selection = format!("{}:1:1", input.display());
     let (success, stdout, stderr) = run(&[
         input.to_str().unwrap(),

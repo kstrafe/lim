@@ -79,12 +79,15 @@ fn seeded_projected_borrows_match_a_small_independent_alias_oracle() {
                 let suffix = |mutable| if mutable { "-mut" } else { "" };
                 let field = if same_field { "left" } else { "right" };
                 let source = format!("#struct Record (#linear) ((left #u64) (right #u64))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
                       (#let-mut owner Record (#struct-literal Record ((right 25u64) (left 17u64))))
                       (#let first (#ref{} #u64) (#borrow{} (#get owner left)))
                       (#let second (#ref{} #u64) (#borrow{} (#get owner {field})))
                       (#let left #u64 (#deref first)) (#let right #u64 (#deref second))
-                      (#drop second) (#drop first) (#forget owner) (#return (#u64::add-wrap left right))\n", suffix(first_mut), suffix(first_mut), suffix(second_mut), suffix(second_mut));
+                      (#drop second) (#drop first) (#forget owner) (#return (#u64::add-wrap left right))\n  );\n}}\n", suffix(first_mut), suffix(first_mut), suffix(second_mut), suffix(second_mut));
                 let result = lim::compile_source_to_assembly(
                     &source,
                     &scratch.path().join("case.lim"),
@@ -184,7 +187,7 @@ fn pathological_reference_programs_report_cold_and_warm_check_codegen_times() {
     }
     let scratch = support::Scratch::new("pathological-reference-programs");
     for width in [8, 32, 128] {
-        let source = format!("#fn select ((control #u64) (owner (#ref (#array #u64 {width})))) (#ref #u64) (#return {})\n#fn main () #u64 (#return 42u64)\n", tree(0, width));
+        let source = format!("#fn select {{\n  #params = ((control #u64) (owner (#ref (#array #u64 {width}))));\n  #returns = (#ref #u64);\n  #body = ( (#return {})\n  );\n}}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n", tree(0, width));
         let mut previous = None;
         for pass in 0..3 {
             let start = std::time::Instant::now();

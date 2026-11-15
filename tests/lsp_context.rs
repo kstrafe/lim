@@ -9,8 +9,14 @@ fn directory(name: &str) -> PathBuf {
 
 fn assert_cfg(config: &CompileConfig, key: &str, value: &str) {
     let source = format!(
-        "#cfg-if (#cfg-is #{key} {value}) (#fn main () #u64 (#return 0u64)) (#cfg-else (#fn main () #u64 (#return missing)))
-"
+        "#cfg-if (#cfg-is #{key} {value}) (#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)
+  );
+}}) (#cfg-else (#fn main {{
+  #params = ();
+  #returns = #u64;\n  #body = ( (#return missing)\n  );\n}}))\n"
     );
     let program = lim::parse_program_with_config(&source, config).unwrap();
     lim::check_types(&program).unwrap();
@@ -63,7 +69,7 @@ fn multiple_context_blocks_keep_settings_independent_and_reject_invalid_document
 fn cli_accumulates_distinct_entries_and_cfg_variants_without_duplicate_writes() {
     let base = directory("multiple-cli");
     for entry in ["app.lim", "test.lim"] {
-        fs::write(base.join(entry), "#fn main () #u64 (#return 0u64)\n").unwrap();
+        fs::write(base.join(entry), "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n").unwrap();
     }
     let run = |entry: &str, mode: &str| {
         Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -127,7 +133,7 @@ fn parallel_cli_recording_preserves_every_entry() {
     let mut children = Vec::new();
     for index in 0..8 {
         let entry = format!("entry-{index}.lim");
-        fs::write(base.join(&entry), "#fn main () #u64 (#return 0u64)\n").unwrap();
+        fs::write(base.join(&entry), "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n").unwrap();
         children.push(
             Command::new(env!("CARGO_BIN_EXE_lim"))
                 .current_dir(&base)
@@ -165,14 +171,14 @@ fn parallel_cli_recording_preserves_every_entry() {
 fn editor_checks_all_contexts_including_the_shared_file() {
     let base = directory("multiple-editor");
     let library = base.join("library.lim");
-    let source = "#fn read-value () #u64 (#return false)\n";
+    let source = "#fn read-value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return false)\n  );\n}\n";
     fs::write(&library, source).unwrap();
     let mut contexts = Vec::new();
     for (name, ty, value) in [("app", "#u64", "42u64"), ("test", "#bool", "false")] {
         let entry = base.join(format!("{name}.lim"));
         fs::write(
             &entry,
-            format!("#alias read-value = ./library.lim::read-value\n#fn provide () {ty} (#return {value})\n"),
+            format!("#alias read-value = ./library.lim::read-value\n#fn provide {{\n  #params = ();\n  #returns = {ty};\n  #body = ( (#return {value})\n  );\n}}\n"),
         )
         .unwrap();
         contexts.push(LspContext {
@@ -201,7 +207,7 @@ fn cli_records_effective_cfg_project_paths_and_target_without_rewrites() {
     fs::create_dir_all(base.join("src")).unwrap();
     fs::create_dir_all(base.join("modules")).unwrap();
     fs::write(base.join("lim.project"), "schema-version = 1\nname = \"demo\"\nsource-root = \"src\"\nmodule-path = \"modules\"\ntarget = \"x86_64-sysv\"\n").unwrap();
-    fs::write(base.join("src/main.lim"), "#cfg-if (#cfg-is #feature test) (#fn main () #u64 (#return 42u64)) (#cfg-else (#fn main () #u64 (#return missing)))\n").unwrap();
+    fs::write(base.join("src/main.lim"), "#cfg-if (#cfg-is #feature test) (#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}) (#cfg-else (#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return missing)\n  );\n}))\n").unwrap();
     let run = || {
         Command::new(env!("CARGO_BIN_EXE_lim"))
             .current_dir(&base)
@@ -243,7 +249,7 @@ fn cli_records_effective_cfg_project_paths_and_target_without_rewrites() {
     );
     fs::write(
         base.join("src/main.lim"),
-        "#fn main () #u64 (#return missing)\n",
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return missing)\n  );\n}\n",
     )
     .unwrap();
     assert!(!run().status.success());
@@ -343,8 +349,8 @@ fn context_editor_checks_entry_not_isolated_module_and_reloads_flags() {
     let base = directory("editor");
     let entry = base.join("main.lim");
     let imported = base.join("child.lim");
-    let text = "#fn child () #u64 (#return 42u64)\n";
-    fs::write(&entry, "#cfg-if (#cfg-is #feature enabled) (#type Number #u64) (#cfg-else (#type Number #bool))\n#alias child = ./child.lim::child\n#fn main () Number (#return (#call child ()))\n").unwrap();
+    let text = "#fn child {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
+    fs::write(&entry, "#cfg-if (#cfg-is #feature enabled) (#type Number #u64) (#cfg-else (#type Number #bool))\n#alias child = ./child.lim::child\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return (#call child ()))\n  );\n}\n").unwrap();
     let overlays = std::collections::HashMap::from([(imported.clone(), text.to_owned())]);
     let mut config = CompileConfig::default();
     config.set("feature", "enabled");
@@ -370,7 +376,7 @@ fn context_editor_checks_entry_not_isolated_module_and_reloads_flags() {
     );
     let unrelated = base.join("unrelated.lim");
     let error = lim::check_source_for_editor(
-        "#fn lone () () (#return ())\n",
+        "#fn lone {\n  #params = ();\n  #returns = ();\n  #body = ( (#return ())\n  );\n}\n",
         &unrelated,
         &CompileConfig::default(),
         &overlays,
@@ -387,7 +393,7 @@ fn context_editor_checks_entry_not_isolated_module_and_reloads_flags() {
 #[test]
 fn cli_build_and_assembly_generation_and_rejected_context_paths() {
     let base = directory("outputs");
-    fs::write(base.join("main.lim"), "#fn main () #u64 (#return 42u64)\n").unwrap();
+    fs::write(base.join("main.lim"), "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
     for args in [
         vec!["main.lim", "-o", "binary", "--write-lsp-config", "lim.lsp"],
         vec![

@@ -19,38 +19,50 @@ fn inline_linearity_propagates_through_struct_enum_tuple_and_array() {
             "value",
             "#struct Resource (#linear) ((value #u64))
 #struct Nested () ((payload Resource))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
                  (#let resource Resource (#struct-literal Resource ((value 1u64))))
                  (#let value Nested (#struct-literal Nested ((payload resource))))
-                 (#return 0u64)\n",
+                 (#return 0u64)\n  );\n}\n",
         ),
         (
             "enum with one linear payload variant",
             "choice",
             "#struct Resource (#linear) ((value #u64))
 #enum Choice () ((Choice.Empty) (Choice.Selected (#tuple #bool Resource)))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
                  (#let choice Choice (Choice.Empty))
-                 (#return 0u64)\n",
+                 (#return 0u64)\n  );\n}\n",
         ),
         (
             "tuple containing a linear aggregate",
             "value",
             "#struct Resource (#linear) ((value #u64))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
                  (#let value (#tuple #u64 Resource)
                    (#tuple 3u64 (#struct-literal Resource ((value 4u64)))))
-                 (#return 0u64)\n",
+                 (#return 0u64)\n  );\n}\n",
         ),
         (
             "array containing a linear aggregate",
             "value",
             "#struct Resource (#linear) ((value #u64))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
                  (#let value (#array Resource 1)
                    (#array-of (#array Resource 1)
                      (#struct-literal Resource ((value 5u64)))))
-                 (#return 0u64)\n",
+                 (#return 0u64)\n  );\n}\n",
         ),
     ];
 
@@ -81,11 +93,14 @@ fn inline_linearity_propagates_through_struct_enum_tuple_and_array() {
 fn copy_fields_and_shared_references_do_not_create_linear_obligations() {
     let source = "#struct Resource (#linear) ((value #u64))
 #struct CopyView () ((number #u64) (view (#ref Resource)))
-#fn main ((view (#ref Resource))) #u64
+#fn main {
+  #params = ((view (#ref Resource)));
+  #returns = #u64;
+  #body = (
             (#let value CopyView (#struct-literal CopyView
               ((number 8u64) (view view))))
             (#let duplicate CopyView (#clone value))
-            (#return (#get duplicate number))\n";
+            (#return (#get duplicate number))\n  );\n}\n";
     compile(source).unwrap_or_else(|error| {
         panic!("Copy fields and references to linear resources should remain Copy: {error:?}")
     });

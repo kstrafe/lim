@@ -18,13 +18,21 @@ const PREFIX: &str = r#"
 #static fallback-storage Data (#struct-literal Data ((padding 999u128) (value 60u64) (sentinel 70u64)))
 #static destroyed (#atomic #u64) (#atomic-init #u64 0u64)
 #static cancelled (#atomic #u64) (#atomic-init #u64 0u64)
-#fn make-heap () (#pin-own Data)
+#fn make-heap {
+  #params = ();
+  #returns = (#pin-own Data);
+  #body = (
     (#let pointer (#ptr-mut Data) (#unsafe (#linux-syscall (#ptr-mut Data) 9usize
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
     (#assert (#usize::lt (#ptr-address pointer) 18446744073709547520usize))
     (#return (#unsafe (#pin-own-of pointer
       (#struct-literal Data ((padding 123u128) (value 50u64) (sentinel 80u64))))))
-#fn destroy-heap ((owner (#pin-own Data))) ()
+  );
+}
+#fn destroy-heap {
+  #params = ((owner (#pin-own Data)));
+  #returns = ();
+  #body = (
     (#let view (#pin-ref Data) (#pin-own-borrow owner))
     (#assert (#u64::eq (#get view sentinel) 80u64))
     (#drop view)
@@ -32,23 +40,40 @@ const PREFIX: &str = r#"
     (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
     (#let ignored #u64 (#unsafe (#atomic-fetch-add (#borrow destroyed) 1u64 #memory-relaxed)))
     (#return ())
+  );
+}
 #enum Child (#linear) ((Child.Holding (#tuple (#pin-ref #u64) #u64)))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
     (#return (#match task (#case (Child.Holding (#tuple reference count))
       (#if (#u64::lt count 2u64)
         (ChildPoll.ChildPending (Child.Holding (#tuple reference (#u64::add-wrap count 1u64))))
         (ChildPoll.ChildReady (#deref reference))))))
-#fn cancel-child ((child Child)) ()
+  );
+}
+#fn cancel-child {
+  #params = ((child Child));
+  #returns = ();
+  #body = (
     (#match child (#case (Child.Holding (#tuple reference count)) (#block
       (#assert (#u64::ge (#deref reference) 40u64))
       (#drop reference) ())))
     (#let ignored #u64 (#unsafe (#atomic-fetch-add (#borrow cancelled) 1u64 #memory-relaxed)))
     (#return ())
-#fn verify-cancel ((phase #u64)) ()
+  );
+}
+#fn verify-cancel {
+  #params = ((phase #u64));
+  #returns = ();
+  #body = (
     (#let expected #u64 (#if (#bool::or (#u64::eq phase 1u64) (#u64::eq phase 2u64)) 1u64 0u64))
     (#assert (#u64::eq (#unsafe (#atomic-load (#borrow cancelled) #memory-relaxed)) expected))
     (#return ())
+  );
+}
 "#;
 
 fn direct_source() -> String {
@@ -70,7 +95,10 @@ fn direct_source() -> String {
       (#call destroy-heap ((owner heap)))
       (#forget local)
       (#return answer))))
-#fn run ((choice #u64) (cancel-at #u64)) #u64
+#fn run {{
+  #params = ((choice #u64) (cancel-at #u64));
+  #returns = #u64;
+  #body = (
     (#unsafe (#atomic-store (#borrow destroyed) 0u64 #memory-relaxed))
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work (($ choice))))
@@ -99,7 +127,12 @@ fn direct_source() -> String {
     (#assert (#u64::eq (#unsafe (#atomic-load (#borrow destroyed) #memory-relaxed)) 1u64))
     (#assert (#u64::eq answer (#u64::add-wrap 40u64 (#u64::mul-wrap choice 10u64))))
     (#forget frame) (#return 42u64)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#assert (#u64::eq (#call run ((choice 0u64) (cancel-at 9u64))) 42u64))
     (#assert (#u64::eq (#call run ((choice 1u64) (cancel-at 9u64))) 42u64))
     (#assert (#u64::eq (#call run ((choice 2u64) (cancel-at 9u64))) 42u64))
@@ -107,6 +140,8 @@ fn direct_source() -> String {
     (#assert (#u64::eq (#call run ((choice 1u64) (cancel-at 1u64))) 42u64))
     (#assert (#u64::eq (#call run ((choice 2u64) (cancel-at 2u64))) 42u64))
     (#return 42u64)
+  );
+}}
 "#
     )
 }
@@ -213,17 +248,37 @@ fn mixed_local_allocation_static_targets_survive_pending_and_cancel_in_order() {
 fn direct_ordinary_allocation_mix_requires_a_real_owner_recipe() {
     // No executor driver or dependent child is needed to exercise the planner.
     let source = "#struct Data (#linear) ((value #u64))
-#fn make () (#pin-own Data)
+#fn make {
+  #params = ();
+  #returns = (#pin-own Data);
+  #body = (
           (#let pointer (#ptr-mut Data) (#unsafe (#linux-syscall (#ptr-mut Data) 9usize (0usize 4096usize 3usize 34usize -1i64 0usize))))
           (#return (#unsafe (#pin-own-of pointer (#struct-literal Data ((value 42u64))))))
-#fn destroy ((owner (#pin-own Data))) ()
+  );
+}
+#fn destroy {
+  #params = ((owner (#pin-own Data)));
+  #returns = ();
+  #body = (
           (#let pointer (#ptr-mut Data) (#unsafe (#pin-release owner)))
           (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) (#return ())
+  );
+}
 #enum Child (#linear) ((Child.Waiting #u64))
 #enum Poll () ((Poll.Pending Child) (Poll.Ready #u64))
-#fn poll ((task Child) (waker (#ref #u64))) Poll
+#fn poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = Poll;
+  #body = (
           (#return (#match task (#case (Child.Waiting value) (#enum-literal Poll.Ready value))))
-#fn cancel ((task Child)) () (#forget task) (#return ())
+  );
+}
+#fn cancel {
+  #params = ((task Child));
+  #returns = ();
+  #body = ( (#forget task) (#return ())
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (cancel (work-cancel ((heap destroy) (await-0 cancel))))
           (function (#fn work ((choose #bool)) #u64
             (#let-mut local #u64 40u64) (#let-mut heap (#pin-own Data) (#call make ()))
@@ -232,7 +287,10 @@ fn direct_ordinary_allocation_mix_requires_a_real_owner_recipe() {
               (#unsafe (#ptr-borrow anchor (#ref-ptr (#pin-borrow (#get anchor value))))))))
             (#let ignored #u64 (#await Child Poll.Pending Poll.Ready poll (#enum-literal Child.Waiting 0u64)))
             (#let answer #u64 (#deref view)) (#drop view) (#call destroy ((owner heap))) (#forget local) (#return answer))))
-#fn main () #u64 (#return 0u64)\n";
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)\n  );\n}\n";
     let scratch = support::Scratch::new("async-direct-allocation-owner-recipe");
     let diagnostic =
         compile(source, &scratch).expect_err("unrepresented owning allocation must fail closed");
@@ -280,7 +338,7 @@ fn mixed_local_allocation_exclusive_targets_survive_pending_and_cancellation() {
 
 #[test]
 fn immutable_static_does_not_gain_exclusive_pinning_permission() {
-    let source = format!("{PREFIX}\n#fn invalid () (#pin-ref-mut #u64)\n    (#return (#unsafe (#pin-borrow-mut (#get fallback-storage value))))\n");
+    let source = format!("{PREFIX}\n#fn invalid {{\n  #params = ();\n  #returns = (#pin-ref-mut #u64);\n  #body = (\n    (#return (#unsafe (#pin-borrow-mut (#get fallback-storage value))))\n  );\n}}\n");
     let scratch = support::Scratch::new("async-static-exclusive-rejection");
     let error = compile(&source, &scratch).expect_err("static is immutable even inside unsafe");
     assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
@@ -376,7 +434,10 @@ fn direct_static_field_borrow_keeps_global_identity_across_pending() {
       (#let view (#pin-ref #u64) (#unsafe (#pin-borrow (#get fallback-storage value))))
       (#let answer #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Holding (#tuple view 0u64))))
       (#drop view) (#return answer))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let waker #u64 0u64)
     (#let-mut frame Work::Frame (#call work ()))
     (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
@@ -388,6 +449,8 @@ fn direct_static_field_borrow_keeps_global_identity_across_pending() {
       (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
     (#call Work::Poll::destroy ((task (#pin-borrow-mut frame))))
     (#forget frame) (#assert (#u64::eq answer 60u64)) (#return 42u64)
+  );
+}}
 "#
     );
     run(&source);

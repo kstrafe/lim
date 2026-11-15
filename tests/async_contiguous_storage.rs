@@ -211,7 +211,10 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
     let prefix = source.split_once("#fn main () #u64").unwrap().0;
     run(&format!(
         "{prefix}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut frame Work::Frame (#call work ()))
           (#let first Work::Poll (#call Work::poll
@@ -226,22 +229,30 @@ fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
           (#assert (#u64::eq (#get original value) 2u64))
           (#forget original) (#forget cleanup)
           (#forget pending) (#forget next) (#forget frame)
-          (#return 42u64)\n"
+          (#return 42u64)\n  );\n}}\n"
     ));
 }
 
 fn cloned_source() -> String {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim");
     let hooks = "
-#fn Token::clone ((original Token)) Token
+#fn Token::clone {
+  #params = ((original Token));
+  #returns = Token;
+  #body = (
           (#let value #u64 (#get original value))
           (#forget original)
           (#return (#struct-literal Token ((value (#u64::add-wrap value 10u64)))))
-#fn Owner::clone ((original Owner)) Owner
+  );
+}
+#fn Owner::clone {
+  #params = ((original Owner));
+  #returns = Owner;
+  #body = (
           (#let kept #u64 (#get original kept))
           (#let item Token (#clone (#get original item)))
           (#forget original)
-          (#return (#struct-literal Owner ((kept kept) (item item))))\n";
+          (#return (#struct-literal Owner ((kept kept) (item item))))\n  );\n}\n";
     format!("{hooks}\n{source}").replace(
         "(#let whole (#ref Owner)",
         "(#let copied Owner (#clone owner))

@@ -3,9 +3,12 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 const TRACE: &str = "
-#fn mark ((byte #u8) (value #u64)) #u64
+#fn mark {
+  #params = ((byte #u8) (value #u64));
+  #returns = #u64;
+  #body = (
       (#let written #i64 (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))))
-      (#assert (#i64::eq written 1i64)) (#return value)\n";
+      (#assert (#i64::eq written 1i64)) (#return value)\n  );\n}\n";
 
 fn trace(source: &str, expected: &[u8], success: bool) {
     for target in [
@@ -72,12 +75,20 @@ fn labels_route_values_without_reordering_effects_even_if_signature_changes() {
     for parameters in ["(left #u64) (right #u64)", "(right #u64) (left #u64)"] {
         let source = format!(
             "{TRACE}
-#fn subtract ({parameters}) #u64
+#fn subtract {{
+  #params = ({parameters});
+  #returns = #u64;
+  #body = (
               (#call mark ((byte 67u8) (value 0u64)))
               (#return (#u64::sub-wrap left right))
-#fn main () #u64 (#return (#call subtract
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call subtract
               ((right (#call mark ((byte 65u8) (value 2u64))))
-               (left (#call mark ((byte 66u8) (value 44u64)))))))\n"
+               (left (#call mark ((byte 66u8) (value 44u64)))))))\n  );\n}}\n"
         );
         trace(&source, b"ABC", true);
         trace(&source.replace("#call ", ""), b"ABC", true);
@@ -90,7 +101,10 @@ fn struct_layout_and_projection_keep_written_initialization_effects() {
         &format!(
             "{TRACE}
 #struct Pair () ((left #u64) (right #u64))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let pair Pair (#struct-literal Pair
             ((right (#call mark ((byte 65u8) (value 2u64))))
              (left (#call mark ((byte 66u8) (value 44u64)))))))
@@ -98,7 +112,7 @@ fn struct_layout_and_projection_keep_written_initialization_effects() {
           (#let projected #u64 (#get (#struct-literal Pair
             ((right (#call mark ((byte 67u8) (value 0u64))))
              (left (#call mark ((byte 68u8) (value 0u64)))))) left))
-          (#return (#u64::sub-wrap (#get pair left) (#get pair right)))\n"
+          (#return (#u64::sub-wrap (#get pair left) (#get pair right)))\n  );\n}}\n"
         ),
         b"ABCD",
         true,
@@ -110,11 +124,14 @@ fn strict_intrinsic_roles_survive_reversed_evaluation() {
     trace(
         &format!(
             "{TRACE}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
         (#return (#call #u64::sub-wrap
           ((right (#call mark ((byte 65u8) (value 2u64))))
            (left (#call mark ((byte 66u8) (value 44u64)))))))
-"
+  );\n}}\n"
         ),
         b"AB",
         true,
@@ -126,12 +143,25 @@ fn a_nonreturning_argument_stops_later_values_and_callee_entry() {
     trace(
         &format!(
             "{TRACE}
-#fn fail () #u64 (#call mark ((byte 65u8) (value 0u64))) (#return (#panic))
-#fn callee ((left #u64) (right #u64)) #u64
+#fn fail {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#call mark ((byte 65u8) (value 0u64))) (#return (#panic))
+  );
+}}
+#fn callee {{
+  #params = ((left #u64) (right #u64));
+  #returns = #u64;
+  #body = (
           (#return (#call mark ((byte 67u8) (value 42u64))))
-#fn main () #u64 (#return (#call callee
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call callee
           ((right (#call fail ()))
-           (left (#call mark ((byte 66u8) (value 0u64)))))))\n"
+           (left (#call mark ((byte 66u8) (value 0u64)))))))\n  );\n}}\n"
         ),
         b"A",
         false,
@@ -141,15 +171,26 @@ fn a_nonreturning_argument_stops_later_values_and_callee_entry() {
 #[test]
 fn later_writes_respect_earlier_argument_loans_and_report_authored_spans() {
     let prefix =
-        "#fn change ((target (#ref-mut #u64))) #u64 (#deref-set target 42u64) (#return 0u64)
-#fn read ((view (#ref #u64)) (ignored #u64)) #u64 (#return (#deref view))\n";
+        "#fn change {
+  #params = ((target (#ref-mut #u64)));
+  #returns = #u64;
+  #body = ( (#deref-set target 42u64) (#return 0u64)
+  );
+}
+#fn read {
+  #params = ((view (#ref #u64)) (ignored #u64));
+  #returns = #u64;
+  #body = ( (#return (#deref view))\n  );\n}\n";
     let write = "(ignored (#call change ((target (#borrow-mut owner)))))";
     let borrow = "(view (#borrow owner))";
     let valid = format!(
         "{prefix}
-#fn main () #u64 (#let-mut owner #u64 0u64)
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let-mut owner #u64 0u64)
         (#return (#call read ({write} {borrow})))
-"
+  );\n}}\n"
     );
     lim::check_types(&lim::parse_program(&valid).unwrap()).unwrap();
     let invalid = valid.replace(&format!("{write} {borrow}"), &format!("{borrow} {write}"));
@@ -181,17 +222,23 @@ fn aliases_and_direct_file_calls_keep_written_order() {
         scratch.path().join("helper.lim"),
         format!(
             "{TRACE}
-#fn subtract ((left #u64) (right #u64)) #u64 (#return (#u64::sub-wrap left right))\n"
+#fn subtract {{
+  #params = ((left #u64) (right #u64));
+  #returns = #u64;
+  #body = ( (#return (#u64::sub-wrap left right))\n  );\n}}\n"
         ),
     )
     .unwrap();
     let path = scratch.path().join("main.lim");
     let source = "#alias mark = ./helper.lim::mark
 #alias subtract = ./helper.lim::subtract
-#fn main () #u64 (#return (subtract {
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (subtract {
           right = mark { byte = 65u8; value = 2; };
           left = mark { byte = 66u8; value = 44; };
-        }))\n";
+        }))\n  );\n}\n";
     for source in [
         source.to_owned(),
         source.replace("(subtract {", "(./helper.lim::subtract {"),
@@ -222,13 +269,26 @@ fn aliases_and_direct_file_calls_keep_written_order() {
 
 #[test]
 fn contract_requirements_use_the_state_after_every_argument() {
-    let source = "#fn positive ((value #u64)) #bool (#return (#u64::gt value 0u64))
-#fn accept ((value #u64) (ignored ())) #u64
+    let source = "#fn positive {
+  #params = ((value #u64));
+  #returns = #bool;
+  #body = ( (#return (#u64::gt value 0u64))
+  );
+}
+#fn accept {
+  #params = ((value #u64) (ignored ()));
+  #returns = #u64;
+  #body = (
           (#requires (#call positive ((value value)))) (#return value)
-#fn main () #u64 (#let-mut number #u64 42u64)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let-mut number #u64 42u64)
           (#return (#if-valid (#call positive ((value number)))
             (#call accept ((ignored (#block (#set number 0u64) ())) (value number)))
-            0u64))\n";
+            0u64))\n  );\n}\n";
     let program = lim::parse_program(source).unwrap();
     let error = lim::check_types(&program).unwrap_err();
     assert!(

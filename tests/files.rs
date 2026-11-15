@@ -28,7 +28,7 @@ fn execute(source: &str, scratch: &support::Scratch) {
 #[test]
 fn minimal_std_entry_compiles_with_the_file_api_loaded() {
     let scratch = support::Scratch::new("file-std-minimal");
-    let source = "#std\n#fn main () #u64 (#return 42u64)\n";
+    let source = "#std\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
     let assembly = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),
@@ -56,7 +56,10 @@ fn buffered_binary_reads_cross_refill_boundaries_and_preserve_eof() {
                 "(#assert (#match (#call FileReader::next-byte ((reader (#borrow-mut reader))))\n(#case (FileByteResult.FileByte byte) (#u8::eq byte {byte}u8)) (#case _ false)))"
             )).collect::<Vec<_>>().join("\n  ");
             execute(&format!("#std
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
   {}
   (#let opened FileOpenResult (#call File::open-read ((path (#borrow path)))))
   (#call String::free ((string path)))
@@ -69,7 +72,7 @@ fn buffered_binary_reads_cross_refill_boundaries_and_preserve_eof() {
   (#assert (#match (#call FileReader::next-byte ((reader (#borrow-mut reader)))) (#case FileByteResult.FileByteEof true) (#case _ false)))
   (#assert (#match (#call FileReader::close ((reader reader))) (#case FileStatus.FileOk true) (#case _ false)))
   (#return 42u64)
-", path_binding(&path)), &scratch);
+  );\n}}\n", path_binding(&path)), &scratch);
         }
     }
 }
@@ -79,7 +82,10 @@ fn file_creation_writes_utf8_nul_and_closes_explicitly() {
     let scratch = support::Scratch::new("file-write");
     let path = scratch.path().join("output");
     execute(&format!("#std
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
   {}
   (#let opened FileOpenResult (#call File::create ((path (#borrow path)) (permissions 384u32))))
   (#call String::free ((string path)))
@@ -93,7 +99,7 @@ fn file_creation_writes_utf8_nul_and_closes_explicitly() {
   (#call String::free ((string text)))
   (#assert (#match (#call File::close ((file file))) (#case FileStatus.FileOk true) (#case _ false)))
   (#return 42u64)
-", path_binding(&path)), &scratch);
+  );\n}}\n", path_binding(&path)), &scratch);
     assert_eq!(fs::read(path).unwrap(), "Aλ\0Z".as_bytes());
 }
 
@@ -102,37 +108,68 @@ fn missing_paths_and_invalid_buffer_sizes_are_explicit_errors() {
     let scratch = support::Scratch::new("file-errors");
     let missing = scratch.path().join("missing");
     execute(&format!("#std
-#fn is-missing-file-error ((error FileError)) #bool
+#fn is-missing-file-error {{
+  #params = ((error FileError));
+  #returns = #bool;
+  #body = (
             (#return (#match error
               (#case (FileError.FileIoError code) (#i64::eq code -2i64))
               (#case _ false)))
-#fn closes-successfully ((file File)) #bool
+  );
+}}
+#fn closes-successfully {{
+  #params = ((file File));
+  #returns = #bool;
+  #body = (
             (#return (#match (#call File::close ((file file)))
               (#case FileStatus.FileOk true) (#case _ false)))
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
    {}
   (#let opened FileOpenResult (#call File::open-read ((path (#borrow path)))))
   (#call String::free ((string path)))
   (#assert (#match opened (#case (FileOpenResult.FileOpenFailed failure) (#call is-missing-file-error ((error failure))))
   (#case (FileOpenResult.FileOpened unexpected) (#block (#call closes-successfully ((file unexpected))) false))
   (#case _ false))) (#return 42u64)
-", path_binding(&missing)), &scratch);
+  );\n}}\n", path_binding(&missing)), &scratch);
     let existing = scratch.path().join("existing");
     fs::write(&existing, b"data").unwrap();
     execute(&format!("#std
-#fn is-invalid-system-allocation-size ((error SystemAllocationError)) #bool
+#fn is-invalid-system-allocation-size {{
+  #params = ((error SystemAllocationError));
+  #returns = #bool;
+  #body = (
             (#return (#match error
               (#case SystemAllocationError.SystemAllocationInvalidSize true)
               (#case _ false)))
-#fn is-invalid-size-error ((error FileError)) #bool
+  );
+}}
+#fn is-invalid-size-error {{
+  #params = ((error FileError));
+  #returns = #bool;
+  #body = (
             (#return (#match error
               (#case (FileError.FileAllocationError allocation-error)
                 (#call is-invalid-system-allocation-size ((error allocation-error))))
               (#case _ false)))
-#fn closes-successfully ((file File)) #bool
+  );
+}}
+#fn closes-successfully {{
+  #params = ((file File));
+  #returns = #bool;
+  #body = (
             (#return (#match (#call File::close ((file file)))
               (#case FileStatus.FileOk true) (#case _ false)))
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
    {}
   (#let opened FileOpenResult (#call File::open-read ((path (#borrow path)))))
   (#call String::free ((string path)))
@@ -147,7 +184,7 @@ fn missing_paths_and_invalid_buffer_sizes_are_explicit_errors() {
   (#case (FileReaderCreateResult.FileReaderCreated unexpected)
   (#block (#call FileReader::close ((reader unexpected))) false))))
   (#return 42u64)
-", path_binding(&existing)), &scratch);
+  );\n}}\n", path_binding(&existing)), &scratch);
 }
 
 #[test]
@@ -166,7 +203,7 @@ fn files_cannot_be_duplicated_abandoned_or_closed_while_borrowed() {
             lim::DiagnosticCode::Borrow,
         ),
     ] {
-        let source = format!("#std\n#fn bad ((file File)) () {body} (#return ())\n#fn main () #u64 (#return 0u64)\n");
+        let source = format!("#std\n#fn bad {{\n  #params = ((file File));\n  #returns = ();\n  #body = ( {body} (#return ())\n  );\n}}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}}\n");
         let error = lim::compile_source_to_assembly(
             &source,
             &scratch.path().join("case.lim"),

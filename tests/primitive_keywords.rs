@@ -21,9 +21,9 @@ const PRIMITIVES: &[&str] = &[
 #[test]
 fn every_primitive_type_requires_a_prefix() {
     for name in PRIMITIVES {
-        let source = format!("#fn identity ((value #{name})) #{name} (#return value)\n");
+        let source = format!("#fn identity {{\n  #params = ((value #{name}));\n  #returns = #{name};\n  #body = ( (#return value)\n  );\n}}\n");
         assert!(parse_program(&source).is_ok(), "{name}");
-        let source = format!("#fn identity ((value {name})) #{name} (#return value)\n");
+        let source = format!("#fn identity {{\n  #params = ((value {name}));\n  #returns = #{name};\n  #body = ( (#return value)\n  );\n}}\n");
         let error = reject(&source);
         assert!(error.message.contains(&format!("#{name}")), "{error:?}");
         let span = error.span.expect("primitive error has a source span");
@@ -40,6 +40,6 @@ fn nested_type_positions_are_checked_without_rewriting_identifiers_or_literals()
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end], "u8");
     }
-    assert!(parse_program("#fn make-u64 () #u64 (#return (#u64::add-wrap 40u64 2u64))\n").is_ok());
+    assert!(parse_program("#fn make-u64 {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-wrap 40u64 2u64))\n  );\n}\n").is_ok());
     assert!(parse_program("#struct User::Type () ((field-name #u8))\n").is_ok());
 }

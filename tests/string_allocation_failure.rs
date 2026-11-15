@@ -81,14 +81,22 @@ fn allocation_failures_are_explicit_and_empty_owners_need_no_allocation() {
             ("system-heap-allocate", "failing-allocate"),
             ("system-heap-deallocate", "unexpected-deallocate")
         ]),
-        "#fn failing-allocate ((size #usize)) (#ptr-mut #u8)
+        "#fn failing-allocate {
+  #params = ((size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
              (#return (#ptr-null (#ptr-mut #u8)))
-#unsafe-fn unexpected-deallocate ((pointer (#ptr-mut #u8))) ()
-             (#panic) (#return ())\n"
+  );
+}
+#unsafe-fn unexpected-deallocate {
+  #params = ((pointer (#ptr-mut #u8)));\n  #returns = ();\n  #body = (\n             (#panic) (#return ())\n  );\n}\n"
     );
     execute(
         &allocator,
-        r#"#fn main () #u64
+        r#"#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let-mut empty String (#call String::new ()))
             (#assert (#call String::is-empty ((string (#borrow empty)))))
             (#assert (#usize::eq (#call String::capacity ((string (#borrow empty)))) 0usize))
@@ -109,6 +117,8 @@ fn allocation_failures_are_explicit_and_empty_owners_need_no_allocation() {
               (#case (StringCreateResult.StringCreated zero) (#block (#call String::free ((string zero))) true))
               (#case (StringCreateResult.StringCreateFailed error) false)))
             (#return 42u64)
+  );
+}
 "#,
         "string-failed-malloc",
     );
@@ -119,12 +129,18 @@ fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("system-heap-reallocate", "failing-reallocate")]),
-        "#unsafe-fn failing-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)
-             (#return (#ptr-null (#ptr-mut #u8)))\n"
+        "#unsafe-fn failing-reallocate {
+  #params = ((pointer (#ptr-mut #u8)) (size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
+             (#return (#ptr-null (#ptr-mut #u8)))\n  );\n}\n"
     );
     execute(
         &allocator,
-        r#"#fn main () #u64
+        r#"#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let-mut text String (#call String::new ()))
             (#let prefix (#array #char 3) "abc")
             (#assert (#match (#call String::push-chars ((string (#borrow-mut text)) (text (#slice-of (#borrow prefix)))))
@@ -144,6 +160,8 @@ fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
               (#case (StringByteResult.StringByte byte) (#u8::eq byte 99u8)) (#case _ false)))
             (#call String::free ((string text)))
             (#return 42u64)
+  );
+}
 "#,
         "string-failed-realloc",
     );
@@ -154,12 +172,18 @@ fn failed_string_append_preserves_both_owners() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("system-heap-reallocate", "failing-reallocate")]),
-        "#unsafe-fn failing-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)
-            (#return (#ptr-null (#ptr-mut #u8)))\n"
+        "#unsafe-fn failing-reallocate {
+  #params = ((pointer (#ptr-mut #u8)) (size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
+            (#return (#ptr-null (#ptr-mut #u8)))\n  );\n}\n"
     );
     execute(
         &allocator,
-        r#"#fn main () #u64
+        r#"#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
         (#let prefix (#array #char 3) "abc")
         (#let suffix (#array #char 9) "123456789")
         (#let-mut target String (#match (#call String::from-chars ((text (#slice-of (#borrow prefix)))))
@@ -178,6 +202,8 @@ fn failed_string_append_preserves_both_owners() {
           (#case (StringByteResult.StringByte byte) (#u8::eq byte 57u8)) (#case _ false)))
         (#call String::free ((string target))) (#call String::free ((string source)))
         (#return 42u64)
+  );
+}
 "#,
         "string-failed-string-append",
     );
@@ -188,13 +214,19 @@ fn failed_deep_clone_preserves_the_original_owner() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("system-heap-allocate", "selective-allocate")]),
-        "#fn selective-allocate ((size #usize)) (#ptr-mut #u8)
+        "#fn selective-allocate {
+  #params = ((size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
              (#return (#if (#usize::eq size 8usize)
-               (#ptr-null (#ptr-mut #u8)) (#unsafe (#call system-heap-allocate ((size size))))))\n"
+               (#ptr-null (#ptr-mut #u8)) (#unsafe (#call system-heap-allocate ((size size))))))\n  );\n}\n"
     );
     execute(
         &allocator,
-        r#"#fn main () #u64
+        r#"#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let-mut text String (#call String::new ()))
             (#assert (#match (#call String::reserve ((string (#borrow-mut text)) (additional 16usize)))
               (#case StringStatus.StringOk true) (#case _ false)))
@@ -209,6 +241,8 @@ fn failed_deep_clone_preserves_the_original_owner() {
               (#case (StringPopResult.StringPopped value) (#char::eq value #\é)) (#case _ false)))
             (#call String::free ((string text)))
             (#return 42u64)
+  );
+}
 "#,
         "string-failed-clone",
     );
@@ -222,14 +256,22 @@ fn zero_and_oversize_raw_requests_are_rejected_before_allocator_hooks() {
             ("system-heap-allocate", "unexpected-allocate"),
             ("system-heap-reallocate", "unexpected-reallocate")
         ]),
-        "#fn unexpected-allocate ((size #usize)) (#ptr-mut #u8)
+        "#fn unexpected-allocate {
+  #params = ((size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
              (#panic) (#return (#ptr-null (#ptr-mut #u8)))
-#unsafe-fn unexpected-reallocate ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)
-             (#panic) (#return (#ptr-null (#ptr-mut #u8)))\n"
+  );
+}
+#unsafe-fn unexpected-reallocate {
+  #params = ((pointer (#ptr-mut #u8)) (size #usize));\n  #returns = (#ptr-mut #u8);\n  #body = (\n             (#panic) (#return (#ptr-null (#ptr-mut #u8)))\n  );\n}\n"
     );
     execute(
         &allocator,
-        r#"#fn main () #u64
+        r#"#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#assert (#match (#call system-allocate ((size 0usize)))
               (#case (SystemAllocationResult.SystemAllocationFailed error) (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
               (#case (SystemAllocationResult.SystemAllocated pointer) false)))
@@ -240,6 +282,8 @@ fn zero_and_oversize_raw_requests_are_rejected_before_allocator_hooks() {
               (#case (SystemAllocationResult.SystemAllocationFailed error) (#match error (#case SystemAllocationError.SystemAllocationInvalidSize true) (#case _ false)))
               (#case (SystemAllocationResult.SystemAllocated pointer) false)))
             (#return 42u64)
+  );
+}
 "#,
         "string-allocation-size-validation",
     );

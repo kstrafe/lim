@@ -30,25 +30,65 @@ fn run(source: &str, instrumented: bool) -> std::process::ExitStatus {
 #[test]
 fn test_build_checks_false_postcondition_and_production_erases_it() {
     let source = r#"
-#fn below-100 ((value #u64)) #bool (#return (#u64::lt value 100u64))
-#fn produce () #u64 (#ensures (#call below-100 ((value (#result))))) (#return 200u64)
-#fn main () #u64 (#let value #u64 (#call produce ())) (#forget value) (#return 42u64)
+#fn below-100 {
+  #params = ((value #u64));
+  #returns = #bool;
+  #body = ( (#return (#u64::lt value 100u64))
+  );
+}
+#fn produce {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#ensures (#call below-100 ((value (#result))))) (#return 200u64)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let value #u64 (#call produce ())) (#forget value) (#return 42u64)
+  );
+}
 "#;
     assert_eq!(run(source, false).code(), Some(42));
     assert_eq!(run(source, true).signal(), Some(4));
 }
 #[test]
 fn test_build_accepts_true_postcondition() {
-    let source = r#"#fn below-100 ((value #u64)) #bool (#return (#u64::lt value 100u64))
-#fn produce () #u64 (#ensures (#call below-100 ((value (#result))))) (#return 7u64)
-#fn main () #u64 (#return (#call produce ()))
+    let source = r#"#fn below-100 {
+  #params = ((value #u64));
+  #returns = #bool;
+  #body = ( (#return (#u64::lt value 100u64))
+  );
+}
+#fn produce {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#ensures (#call below-100 ((value (#result))))) (#return 7u64)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call produce ()))
+  );
+}
 "#;
     assert_eq!(run(source, true).code(), Some(7));
 }
 #[test]
 fn assume_never_evaluates_its_predicate_even_in_tests() {
-    let source = r#"#fn explosive ((value #u64)) #bool (#return (#panic))
-#fn main () #u64 (#assume (#call explosive ((value 42u64)))) (#return 42u64)
+    let source = r#"#fn explosive {
+  #params = ((value #u64));
+  #returns = #bool;
+  #body = ( (#return (#panic))
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#assume (#call explosive ((value 42u64)))) (#return 42u64)
+  );
+}
 "#;
     for mode in [false, true] {
         assert_eq!(run(source, mode).code(), Some(42));
@@ -56,8 +96,18 @@ fn assume_never_evaluates_its_predicate_even_in_tests() {
 }
 #[test]
 fn validation_branch_remains_executable_in_production() {
-    let source = r#"#fn check-input ((value #u64)) #bool (#return (#u64::lt value 100u64))
-#fn main () #u64 (#if-valid (#call check-input ((value 200u64))) (#block (#return 1u64))) (#return 42u64)
+    let source = r#"#fn check-input {
+  #params = ((value #u64));
+  #returns = #bool;
+  #body = ( (#return (#u64::lt value 100u64))
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#if-valid (#call check-input ((value 200u64))) (#block (#return 1u64))) (#return 42u64)
+  );
+}
 "#;
     for mode in [false, true] {
         assert_eq!(run(source, mode).code(), Some(42));
@@ -65,9 +115,24 @@ fn validation_branch_remains_executable_in_production() {
 }
 #[test]
 fn conditional_preservation_checks_only_initially_true_predicates() {
-    let source = r#"#fn small ((value (#ref #u64))) #bool (#return (#u64::lt (#deref value) 100u64))
-#fn overwrite ((value (#ref-mut #u64))) () (#preserves (#call small ((value value)))) (#deref-set value 200u64) (#return ())
-#fn main () #u64 (#let-mut number #u64 7u64) (#call overwrite ((value (#borrow-mut number)))) (#return 42u64)
+    let source = r#"#fn small {
+  #params = ((value (#ref #u64)));
+  #returns = #bool;
+  #body = ( (#return (#u64::lt (#deref value) 100u64))
+  );
+}
+#fn overwrite {
+  #params = ((value (#ref-mut #u64)));
+  #returns = ();
+  #body = ( (#preserves (#call small ((value value)))) (#deref-set value 200u64) (#return ())
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let-mut number #u64 7u64) (#call overwrite ((value (#borrow-mut number)))) (#return 42u64)
+  );
+}
 "#;
     assert_eq!(run(source, false).code(), Some(42));
     assert_eq!(run(source, true).signal(), Some(4));
@@ -76,21 +141,51 @@ fn conditional_preservation_checks_only_initially_true_predicates() {
 
 #[test]
 fn entry_assertions_are_independent_of_an_assume() {
-    let source = r#"#fn small ((value #u64)) #bool (#return (#u64::lt value 100u64))
-#fn consume ((value #u64)) () (#requires (#call small ((value value)))) (#return ())
-#fn main () #u64 (#let value #u64 200u64) (#assume (#call small ((value value)))) (#call consume ((value value))) (#return 42u64)
+    let source = r#"#fn small {
+  #params = ((value #u64));
+  #returns = #bool;
+  #body = ( (#return (#u64::lt value 100u64))
+  );
+}
+#fn consume {
+  #params = ((value #u64));
+  #returns = ();
+  #body = ( (#requires (#call small ((value value)))) (#return ())
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let value #u64 200u64) (#assume (#call small ((value value)))) (#call consume ((value value))) (#return 42u64)
+  );
+}
 "#;
     assert_eq!(run(source, false).code(), Some(42));
     assert_eq!(run(source, true).signal(), Some(4));
 }
 #[test]
 fn old_snapshots_the_entry_scalar_on_every_return() {
-    let source = r#"#fn increased ((before #u64) (after #u64)) #bool (#return (#u64::lt before after))
-#fn update ((value (#ref-mut #u64)) (early #bool)) ()
+    let source = r#"#fn increased {
+  #params = ((before #u64) (after #u64));
+  #returns = #bool;
+  #body = ( (#return (#u64::lt before after))
+  );
+}
+#fn update {
+  #params = ((value (#ref-mut #u64)) (early #bool));
+  #returns = ();
+  #body = (
         (#ensures (#call increased ((before (#old (#deref value))) (after (#deref value)))))
         (#if early (#block (#deref-set value 2u64) (#return ())))
         (#deref-set value 3u64) (#return ())
-#fn main () #u64 (#let-mut number #u64 1u64) (#call update ((value (#borrow-mut number)) (early true))) (#return number)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let-mut number #u64 1u64) (#call update ((value (#borrow-mut number)) (early true))) (#return number)
+  );
+}
 "#;
     assert_eq!(run(source, true).code(), Some(2));
     assert_eq!(
@@ -160,12 +255,22 @@ fn proven_index_elides_production_bounds_checks_and_audits_test_accesses() {
 #[test]
 fn instrumented_proven_index_audits_an_assumed_bound() {
     let source = r#"
-#fn read ((values (#ref (#array #u64 4))) (index #usize)) #u64
+#fn read {
+  #params = ((values (#ref (#array #u64 4))) (index #usize));
+  #returns = #u64;
+  #body = (
           (#assume (#usize::lt index 4usize))
           (#return (#index-proven values index))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64))
           (#return (#call read ((values (#borrow values)) (index 4usize))))
+  );
+}
 "#;
     assert_eq!(run(source, true).signal(), Some(4));
 }
@@ -181,16 +286,26 @@ fn instrumented_index_proof_helper_audits_its_promise() {
 #[test]
 fn proven_element_borrows_preserve_array_layout_and_borrow_rules() {
     let source = r#"
-#fn edit ((values (#ref-mut (#array #u64 4))) (index #usize)) ()
+#fn edit {
+  #params = ((values (#ref-mut (#array #u64 4))) (index #usize));
+  #returns = ();
+  #body = (
           (#requires (#usize::lt index 4usize))
           (#deref-set (#borrow-mut (#index-proven values index)) 42u64)
           (#return ())
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64))
           (#let index #usize 2usize)
           (#if-valid (#usize::lt index 4usize)
             (#call edit ((values (#borrow-mut values)) (index index))))
           (#return (#index values 2usize))
+  );
+}
 "#;
     for instrumented in [false, true] {
         assert_eq!(run(source, instrumented).code(), Some(42));
@@ -200,10 +315,18 @@ fn proven_element_borrows_preserve_array_layout_and_borrow_rules() {
 #[test]
 fn proven_index_reads_multiword_elements() {
     let source = r#"
-#fn read ((values (#ref (#array (#tuple #u64 #u64) 2))) (index #usize)) #u64
+#fn read {
+  #params = ((values (#ref (#array (#tuple #u64 #u64) 2))) (index #usize));
+  #returns = #u64;
+  #body = (
           (#requires (#usize::lt index 2usize))
           (#return (#get (#index-proven values index) 1))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let values (#array (#tuple #u64 #u64) 2)
             (#array (#array (#tuple #u64 #u64) 2)
               (#tuple (#tuple #u64 #u64) 1u64 2u64)
@@ -212,6 +335,8 @@ fn proven_index_reads_multiword_elements() {
           (#if-valid (#usize::lt index 2usize)
             (#block (#return (#call read ((values (#borrow values)) (index index))))))
           (#return 0u64)
+  );
+}
 "#;
     for instrumented in [false, true] {
         assert_eq!(run(source, instrumented).code(), Some(42));
@@ -219,19 +344,34 @@ fn proven_index_reads_multiword_elements() {
 }
 #[test]
 fn fixed_field_borrow_is_checked_in_both_build_modes() {
-    let source = r#"#fn small ((value (#ref #u64))) #bool (#return (#u64::lt (#deref value) 100u64))
+    let source = r#"#fn small {
+  #params = ((value (#ref #u64)));
+  #returns = #bool;
+  #body = ( (#return (#u64::lt (#deref value) 100u64))
+  );
+}
 #type Small (#where (value #u64) (#call small ((value (#borrow value)))))
 #struct Holder () ((number Small))
-#fn edit ((holder (#ref-mut Holder))) ()
+#fn edit {
+  #params = ((holder (#ref-mut Holder)));
+  #returns = ();
+  #body = (
           (#let slot (#ref-mut #u64) (#borrow-mut (#get holder number)))
           (#deref-set slot 42u64)
           (#assume (#call small ((value slot))))
           (#return ())
-#fn main () #u64 (#let number #u64 7u64)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let number #u64 7u64)
           (#assume (#call small ((value (#borrow number)))))
           (#let-mut holder Holder (#struct-literal Holder ((number number))))
           (#call edit ((holder (#borrow-mut holder))))
           (#let answer #u64 (#get holder number)) (#forget holder) (#return answer)
+  );
+}
 "#;
     for mode in [false, true] {
         assert_eq!(run(source, mode).code(), Some(42));
@@ -239,17 +379,37 @@ fn fixed_field_borrow_is_checked_in_both_build_modes() {
 }
 #[test]
 fn returned_element_reference_defers_the_owner_restore_check() {
-    let source = r#"#fn small ((value (#ref #u64))) #bool (#return (#u64::lt (#deref value) 100u64))
+    let source = r#"#fn small {
+  #params = ((value (#ref #u64)));
+  #returns = #bool;
+  #body = ( (#return (#u64::lt (#deref value) 100u64))
+  );
+}
 #type Small (#where (value #u64) (#call small ((value (#borrow value)))))
 #struct Holder () ((number Small))
-#fn slot ((holder (#ref-mut Holder))) (#ref-mut #u64) (#return (#borrow-mut (#get holder number)))
-#fn edit ((holder (#ref-mut Holder))) ()
+#fn slot {
+  #params = ((holder (#ref-mut Holder)));
+  #returns = (#ref-mut #u64);
+  #body = ( (#return (#borrow-mut (#get holder number)))
+  );
+}
+#fn edit {
+  #params = ((holder (#ref-mut Holder)));
+  #returns = ();
+  #body = (
           (#let item (#ref-mut #u64) (#call slot ((holder holder))))
           (#deref-set item 42u64) (#assume (#call small ((value item)))) (#return ())
-#fn main () #u64 (#let number #u64 7u64) (#assume (#call small ((value (#borrow number)))))
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let number #u64 7u64) (#assume (#call small ((value (#borrow number)))))
           (#let-mut holder Holder (#struct-literal Holder ((number number))))
           (#call edit ((holder (#borrow-mut holder))))
           (#let answer #u64 (#get holder number)) (#forget holder) (#return answer)
+  );
+}
 "#;
     for mode in [false, true] {
         assert_eq!(run(source, mode).code(), Some(42));
@@ -262,9 +422,9 @@ fn contracts_compose_with_existing_async_programs() {
         "(#u64::add-wrap total offset)",
         "(#call #u64::add-wrap ((right offset) (left total)))",
     );
-    source.push_str("\n#generate #array ((element #u64) (length 4) (name AsyncValues))\n#fn generated-array-read ((values (#ref AsyncValues)) (index #usize)) #u64 (#requires (#call #usize::lt ((left index) (right 4usize)))) (#return (#call AsyncValues::get ((values values) (index index))))\n");
-    source.push_str("\n#fn contract-test-predicate ((value #u64)) #bool (#return (#u64::lt value 100u64))\n#fn contract-test-client ((value #u64)) () (#requires (#call contract-test-predicate ((value value)))) (#return ())\n");
-    source.push_str("\n#fn contract-test-index ((values (#ref (#array #u64 4))) (index #usize)) #u64 (#requires (#usize::lt index 4usize)) (#return (#index-proven values index))\n");
+    source.push_str("\n#generate #array ((element #u64) (length 4) (name AsyncValues))\n#fn generated-array-read {\n  #params = ((values (#ref AsyncValues)) (index #usize));\n  #returns = #u64;\n  #body = ( (#requires (#call #usize::lt ((left index) (right 4usize)))) (#return (#call AsyncValues::get ((values values) (index index))))\n  );\n}\n");
+    source.push_str("\n#fn contract-test-predicate {\n  #params = ((value #u64));\n  #returns = #bool;\n  #body = ( (#return (#u64::lt value 100u64))\n  );\n}\n#fn contract-test-client {\n  #params = ((value #u64));\n  #returns = ();\n  #body = ( (#requires (#call contract-test-predicate ((value value)))) (#return ())\n  );\n}\n");
+    source.push_str("\n#fn contract-test-index {\n  #params = ((values (#ref (#array #u64 4))) (index #usize));\n  #returns = #u64;\n  #body = ( (#requires (#usize::lt index 4usize)) (#return (#index-proven values index))\n  );\n}\n");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_fn.lim");
     let scratch = support::Scratch::new("async-contract-check");
     lim::compile_source_to_assembly(
@@ -298,9 +458,14 @@ fn contracts_compose_with_existing_async_programs() {
         );
     audited_source.push_str(
         r#"
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64))
           (#return (#call contract-test-index ((values (#borrow values)) (index 4usize))))
+  );
+}
 "#,
     );
     let mut config = lim::CompileConfig::default();
@@ -328,11 +493,19 @@ fn contracts_compose_with_existing_async_programs() {
 }
 #[test]
 fn a_whole_collection_can_be_validated_after_an_element_borrow() {
-    let source = r#"#fn ordered ((values (#ref (#array #u64 2)))) #bool
+    let source = r#"#fn ordered {
+  #params = ((values (#ref (#array #u64 2))));
+  #returns = #bool;
+  #body = (
           (#return (#u64::le (#index (#deref values) 0usize) (#index (#deref values) 1usize)))
+  );
+}
 #type Ordered (#where (value (#array #u64 2)) (#call ordered ((values (#borrow value)))))
 #struct Store () ((values Ordered))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let values (#array #u64 2) (#array (#array #u64 2) 7u64 9u64))
           (#assume (#call ordered ((values (#borrow values)))))
           (#let-mut store Store (#struct-literal Store ((values values))))
@@ -341,6 +514,8 @@ fn a_whole_collection_can_be_validated_after_an_element_borrow() {
           (#if-valid (#call ordered ((values (#borrow (#get store values))))) () (#panic))
           (#let answer #u64 (#index (#get store values) 1usize))
           (#forget store) (#return answer)
+  );
+}
 "#;
     for mode in [false, true] {
         assert_eq!(run(source, mode).code(), Some(42));

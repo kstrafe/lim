@@ -22,7 +22,7 @@ fn replace(source: &str, old: &str, new: &str) -> String {
 
 fn with_main(source: &str, body: &str) -> String {
     let (prefix, _) = source.rsplit_once("#fn main ").unwrap();
-    format!("{prefix}\n#fn main () #u64 {body}\n")
+    format!("{prefix}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( {body}\n  );\n}}\n")
 }
 
 fn replace_function(source: &str, name: &str, replacement: &str) -> String {
@@ -179,27 +179,51 @@ fn shared_ownership_primitives_require_explicit_unsafe_blocks() {
         ("(#let view (#pin-ref-mut #u64) (#pin-shared-borrow-mut (#borrow-mut owner))) (#drop view) (#forget owner)", "pin-shared-borrow-mut"),
         ("(#let raw (#ptr-mut #u64) (#pin-shared-release owner))", "pin-shared-release"),
     ] {
-        let source = format!("#fn probe ((token (#pin-shared-own #u64))) ()
+        let source = format!("#fn probe {{
+  #params = ((token (#pin-shared-own #u64)));
+  #returns = ();
+  #body = (
               (#let-mut owner (#pin-shared-own #u64) token) {body} (#return ())
-#fn main () #u64 (#return 42u64)\n");
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}}\n");
         rejected(&source, lim::DiagnosticCode::Unsafe, primitive);
     }
 }
 
 #[test]
 fn shared_token_is_not_copy_send_sync_or_a_unique_pin_owner() {
-    let program = lim::parse_program("#fn main () #u64 (#return 42u64)\n").unwrap();
+    let program = lim::parse_program("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
     let token = lim::Type::PinShared(Box::new(lim::Type::U64));
     for property in [lim::ThreadProperty::Send, lim::ThreadProperty::Sync] {
         assert!(!lim::type_has_thread_property(&program, &token, property).unwrap());
     }
-    let copy = "#fn duplicate ((token (#pin-shared-own #u64))) ()
+    let copy = "#fn duplicate {
+  #params = ((token (#pin-shared-own #u64)));
+  #returns = ();
+  #body = (
         (#let copied (#pin-shared-own #u64) (#clone token)) (#forget copied) (#forget token) (#return ())
-#fn main () #u64 (#return 42u64)\n";
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}\n";
     rejected(copy, lim::DiagnosticCode::Type, "cannot be cloned");
-    let release = "#fn release ((token (#pin-shared-own #u64))) (#ptr-mut #u64)
+    let release = "#fn release {
+  #params = ((token (#pin-shared-own #u64)));
+  #returns = (#ptr-mut #u64);
+  #body = (
         (#return (#unsafe (#pin-release token)))
-#fn main () #u64 (#return 42u64)\n";
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}\n";
     rejected(release, lim::DiagnosticCode::Type, "owning heap pin");
 }
 
@@ -226,8 +250,11 @@ const OWNER: &str = "(#let owner PinnedNumberRc (#match (#call PinnedNumberRc::c
 #[test]
 fn allocator_is_retained_by_clones_and_direct_or_helper_returned_view_aliases() {
     let base = allocator_source();
-    let helper = "#fn view-alias ((owner (#ref PinnedNumberRc))) (#pin-ref #u64)
-        (#return (#call PinnedNumberRc::borrow ((owner owner))))\n";
+    let helper = "#fn view-alias {
+  #params = ((owner (#ref PinnedNumberRc)));
+  #returns = (#pin-ref #u64);
+  #body = (
+        (#return (#call PinnedNumberRc::borrow ((owner owner))))\n  );\n}\n";
     for view in [
         "(#call PinnedNumberRc::borrow ((owner (#borrow clone))))",
         "(#call view-alias ((owner (#borrow clone))))",
@@ -273,7 +300,7 @@ fn releasing_views_and_final_owner_allows_allocator_mutation() {
 fn rc_handle_cannot_escape_its_allocator() {
     let source = with_main(&allocator_source(), "(#return 42u64)");
     let source = format!(
-        "{source}\n#fn escape () PinnedNumberRc {ARENA} {OWNER} (#forget arena) (#return owner)\n"
+        "{source}\n#fn escape {{\n  #params = ();\n  #returns = PinnedNumberRc;\n  #body = ( {ARENA} {OWNER} (#forget arena) (#return owner)\n  );\n}}\n"
     );
     rejected(
         &source,
@@ -288,14 +315,18 @@ fn allocation_failure_returns_the_original_linear_value_without_cleanup() {
     let base = replace_function(
         &base,
         "Arena::Allocator::allocate",
-        "#fn Arena::Allocator::allocate
-        ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) Arena::Allocator::Allocation
-        (#return (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory))\n",
+        "#fn Arena::Allocator::allocate {
+  #params = ((allocator (#ref Arena)) (layout #usize) (alignment #usize));
+  #returns = Arena::Allocator::Allocation;
+  #body = (
+        (#return (Arena::Allocator::Allocation.AllocationFailed ArenaError.OutOfMemory))\n  );\n}\n",
     );
-    let base = replace_function(&base, "destroy-number", "#fn destroy-number
-        ((allocator (#ref Arena)) (pin (#pin-ref-mut Value))) ()
+    let base = replace_function(&base, "destroy-number", "#fn destroy-number {
+  #params = ((allocator (#ref Arena)) (pin (#pin-ref-mut Value)));
+  #returns = ();
+  #body = (
         (#let ignored #u64 (#atomic-fetch-add (#borrow (#get allocator destroyed)) 1u64 #memory-relaxed))
-        (#forget pin) (#return ())\n");
+        (#forget pin) (#return ())\n  );\n}\n");
     let source = with_main(&base, "
       (#let arena Arena (#struct-literal Arena ((destroyed (#atomic-init #u64 0u64)) (deallocated (#atomic-init #u64 0u64)))))
       (#let result PinnedNumberRc::CreateResult (#call PinnedNumberRc::create
@@ -316,16 +347,23 @@ fn allocation_failure_returns_the_original_linear_value_without_cleanup() {
 
 fn nested_reference_source(body: &str) -> String {
     let base = replace(&allocator_source(), "(type #u64)", "(type Value)");
-    let base = replace_function(&base, "destroy-number", "#fn destroy-number
-        ((allocator (#ref Arena)) (pin (#pin-ref-mut Value))) ()
+    let base = replace_function(&base, "destroy-number", "#fn destroy-number {
+  #params = ((allocator (#ref Arena)) (pin (#pin-ref-mut Value)));
+  #returns = ();
+  #body = (
         (#assert (#u64::eq (#deref (#get pin reference)) 42u64))
         (#let ignored #u64 (#atomic-fetch-add (#borrow (#get allocator destroyed)) 1u64 #memory-relaxed))
-        (#forget pin) (#return ())\n");
+        (#forget pin) (#return ())\n  );\n}\n");
     let source = with_main(&base, body);
     format!(
         "#struct Value (#linear) ((reference (#ref #u64)))
-#fn nested-view ((owner (#ref PinnedNumberRc))) (#pin-ref Value)
-          (#return (#call PinnedNumberRc::borrow ((owner owner))))\n{source}"
+#fn nested-view {{
+  #params = ((owner (#ref PinnedNumberRc)));
+  #returns = (#pin-ref Value);
+  #body = (
+          (#return (#call PinnedNumberRc::borrow ((owner owner))))\n  );
+}}
+{source}"
     )
 }
 

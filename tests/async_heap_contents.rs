@@ -4,22 +4,42 @@ mod support;
 
 const PREFIX: &str = r#"
 #struct Holder () ((link (#ref #u64)))
-#fn make ((pointer (#ptr-mut Holder)) (source (#ref #u64))) (#pin-own Holder)
+#fn make {
+  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)));
+  #returns = (#pin-own Holder);
+  #body = (
       (#return (#unsafe (#pin-own-of pointer (#struct-literal Holder ((link source))))))
-#fn get ((owner (#ref (#pin-own Holder)))) (#ref #u64)
+  );
+}
+#fn get {
+  #params = ((owner (#ref (#pin-own Holder))));
+  #returns = (#ref #u64);
+  #body = (
       (#let view (#pin-ref Holder) (#pin-own-borrow owner))
       (#return (#get view link))
-#fn destroy ((owner (#pin-own Holder))) ()
+  );
+}
+#fn destroy {
+  #params = ((owner (#pin-own Holder)));
+  #returns = ();
+  #body = (
       (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
       (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
       (#return ())
+  );
+}
 #enum Step (#linear) ((Step.Waiting #u64))
 #enum StepPoll (#linear) ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
       (#return (#match task
         (#case (Step.Waiting count)
           (#if (#u64::eq count 0u64) (StepPoll.StepReady 0u64)
             (StepPoll.StepPending (Step.Waiting (#u64::sub-wrap count 1u64)))))))
+  );
+}
 #generate #async-fn ((protocol work-await) (waker #u64) (function
       (#fn work ((pointer (#ptr-mut Holder)) (source (#ref #u64))) #u64
         (#let ignored #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
@@ -45,7 +65,10 @@ fn compile(source: &str, scratch: &support::Scratch) -> Result<String, lim::Diag
 fn heap_reference_owner_created_after_await_survives_next_await() {
     let source = format!(
         r#"{PREFIX}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut source #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -60,6 +83,8 @@ fn heap_reference_owner_created_after_await_survives_next_await() {
             (#case (Work::Poll.Pending unfinished) (#block (#forget unfinished) (#unreachable)))))
           (#set source 99u64)
           (#return answer)
+  );
+}}
 "#
     );
     let scratch = support::Scratch::new("async-heap-contents");
@@ -83,7 +108,10 @@ fn heap_reference_owner_created_after_await_survives_next_await() {
 fn async_heap_reference_prevents_source_mutation_across_pending() {
     let source = format!(
         r#"{PREFIX}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut source #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -96,6 +124,8 @@ fn async_heap_reference_prevents_source_mutation_across_pending() {
           (#let third Work::Poll (#call Work::poll ((task waiting2) (waker (#borrow waker)))))
           (#return (#match third (#case (Work::Poll.Ready answer) answer)
             (#case (Work::Poll.Pending unfinished) (#block (#forget unfinished) (#unreachable)))))
+  );
+}}
 "#
     );
     let scratch = support::Scratch::new("async-heap-contents-mutation");
@@ -150,16 +180,39 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
     let source = format!(
         r#"{prefix}
 #struct CountedOwner () ((owner (#pin-own Holder)) (counts (#ptr-mut #u64)))
-#fn make-counted ((pointer (#ptr-mut Holder)) (source (#ref #u64)) (counts (#ptr-mut #u64))) CountedOwner
+#fn make-counted {{
+  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)) (counts (#ptr-mut #u64)));
+  #returns = CountedOwner;
+  #body = (
           (#return (#struct-literal CountedOwner
             ((owner (#call make ((pointer pointer) (source source) (counts counts)))) (counts counts))))
-#fn get-counted ((owner (#ref CountedOwner))) (#ref #u64)
+  );
+}}
+#fn get-counted {{
+  #params = ((owner (#ref CountedOwner)));
+  #returns = (#ref #u64);
+  #body = (
           (#return (#call get ((owner (#borrow (#get owner owner))))))
-#fn destroy-counted ((counted CountedOwner)) ()
+  );
+}}
+#fn destroy-counted {{
+  #params = ((counted CountedOwner));
+  #returns = ();
+  #body = (
           (#let (CountedOwner owner counts) CountedOwner counted)
           (#call destroy ((owner owner) (counts counts))) (#return ())
-#fn cancel-step ((child Step)) () (#forget child) (#return ())
-#fn main () #u64
+  );
+}}
+#fn cancel-step {{
+  #params = ((child Step));
+  #returns = ();
+  #body = ( (#forget child) (#return ())
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut source #u64 42u64)
           (#let counts (#ptr-mut #u64) (#unsafe (#linux-syscall (#ptr-mut #u64) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -198,6 +251,8 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
           (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (counts 4096usize))) 0i64))
           (#forget waker)
           (#return source)
+  );
+}}
 "#
     );
     let scratch = support::Scratch::new("async-heap-owner-cancel");

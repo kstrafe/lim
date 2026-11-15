@@ -6,10 +6,15 @@ use std::{fs, process::Command, time::Duration};
 fn child_retaining_a_parent_borrow_cannot_be_exported_by_cleanup() {
     let source = "#enum Child (#linear) ((Child.Holding (#tuple (#ref #u64) #u64)))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
           (#return (#match task (#case (Child.Holding (#tuple view count))
             (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Holding (#tuple view 1u64)))
               (ChildPoll.ChildReady (#deref view))))))
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
           (function (#fn work () #u64
             (#let owner #u64 40u64)
@@ -44,9 +49,14 @@ fn cancellation_clears_internal_handles_before_exporting_stationary_owners() {
     let source = "#struct Owner (#linear) ((amount #u64))
 #enum Child () ((Child.Start #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
           (#return (#match task (#case (Child.Start count)
             (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Start 2u64)) (ChildPoll.ChildReady count)))))
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
           (function (#fn work () #u64
             (#let owner Owner (#struct-literal Owner ((amount 40u64))))
@@ -54,7 +64,10 @@ fn cancellation_clears_internal_handles_before_exporting_stationary_owners() {
             (#let result #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start 0u64)))
             (#let answer #u64 (#u64::add-wrap (#get view amount) result))
             (#drop view) (#forget owner) (#return answer))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ()))
           (#let first Work::Poll (#call Work::poll
@@ -68,7 +81,7 @@ fn cancellation_clears_internal_handles_before_exporting_stationary_owners() {
           (#forget cleanup)
           (#let again Work::Frame::Cleanup (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))
           (#assert (#variant-is (#borrow (#get again owner)) Work::Frame::Cleanup::Owner.Empty))
-          (#forget again) (#forget task) (#return (#u64::add-wrap amount 2u64))\n";
+          (#forget again) (#forget task) (#return (#u64::add-wrap amount 2u64))\n  );\n}\n";
     let scratch = support::Scratch::new("async-self-borrow-cleanup");
     let cache = scratch.path().join("cache");
     let input = scratch.path().join("input.lim");

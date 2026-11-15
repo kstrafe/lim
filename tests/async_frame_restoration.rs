@@ -15,7 +15,10 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
         .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait");
     let source = format!("{prefix}
-#fn main () #u64 (#let waker #u64 0u64)
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let waker #u64 0u64)
           (#let-mut frame Work::Frame (#call work ((owner (#struct-literal Owner
             ((payload (#struct-literal Payload ((left 40u64) (right 5u64))))))))))
           (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
@@ -23,7 +26,7 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
           (#let second Work::Poll (#call Work::poll ((task pending) (waker (#borrow waker)))))
           (#let answer #u64 (#match second (#case (Work::Poll.Ready result) result)
             (#case (Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
-          (#forget frame) (#return answer)\n");
+          (#forget frame) (#return answer)\n  );\n}}\n");
     let scratch = support::Scratch::new("async-finalized-frame-restoration");
     let path = scratch.path().join("input.lim");
     let output = scratch.path().join("generated");
@@ -205,7 +208,10 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
             "(protocol WorkAwait) (access ((owner OwnerAccess)))",
         );
     let source = format!("{prefix}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut frame Work::Frame (#call work ((owner (#struct-literal Owner
             ((payload (#struct-literal Payload ((left 40u64) (right 5u64))))))))))
@@ -232,7 +238,7 @@ fn requested_parameter_access_is_public_cached_and_independently_checked() {
             ((payload (#struct-literal Payload ((left 11u64) (right 7u64)))))))))
           (#let cancelled-owner Owner (#call OwnerAccess::read ((task (#pin-borrow cancelled)))))
           (#let cancelled-left #u64 (#get (#get cancelled-owner payload) left))
-          (#forget cancelled) (#return (#u64::add-wrap answer cancelled-left))\n");
+          (#forget cancelled) (#return (#u64::add-wrap answer cancelled-left))\n  );\n}}\n");
     let scratch = support::Scratch::new("async-public-parameter-access");
     let path = scratch.path().join("input.lim");
     let cache = scratch.path().join("cache");
@@ -380,7 +386,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "#async-fn-pinned",
             "((amount #u64))",
             "(amount AmountAccess)",
-            "#fn AmountAccess::read () #u64 (#return 0u64)\n",
+            "#fn AmountAccess::read {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n",
             "conflicts with an existing declaration",
         ),
         (
@@ -388,7 +394,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "#async-fn-pinned",
             "((amount #u64))",
             "(amount AmountAccess)",
-            "#fn AmountAccess::replace () () (#return ())\n",
+            "#fn AmountAccess::replace {\n  #params = ();\n  #returns = ();\n  #body = ( (#return ())\n  );\n}\n",
             "conflicts with an existing declaration",
         ),
     ]
@@ -400,8 +406,11 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
 #generate {kind} ((protocol WorkAwait) (waker #u64) (access ({access}))
             (function (#fn work {parameters} #u64 (#forget amount) (#return 42u64))))
 {suffix}
-#fn main () #u64 (#return 0u64)
-"
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)
+  );\n}}\n"
         );
         let cache = scratch.path().join(format!("cache-{index}"));
         let output = scratch.path().join(format!("output-{index}"));
@@ -455,24 +464,27 @@ fn access_handles_unit_aliases_multiple_parameters_and_imports() {
 #alias UnitAccess::read = {path}::UnitAccess::read
 #alias AmountAccess::replace = {path}::AmountAccess::replace
 #alias AmountAccess::read = {path}::AmountAccess::read
-#alias OtherAccess::replace = {path}::OtherAccess::replace
-#alias OtherAccess::read = {path}::OtherAccess::read
-#fn main () #u64
+#alias OtherAccess::replace = {path}0::OtherAccess::replace
+#alias OtherAccess::read = {path}1::OtherAccess::read
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let waker #u64 0u64)
-              (#let-mut frame {frame} (#call {prefix}work (({prefix}empty ()) ({prefix}amount 40u64) ({prefix}other 5u64))))
+              (#let-mut frame {path}2 (#call {path}3work (({path}4empty ()) ({path}5amount 40u64) ({path}6other 5u64))))
               (#let poll-result #u64 (#match
-                (#call {prefix}Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
-                (#case ({prefix}Work::Poll.Ready answer) answer)
-                (#case ({prefix}Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+                (#call {path}7Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
+                (#case ({path}8Work::Poll.Ready answer) answer)
+                (#case ({path}9Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
               (#assert (#u64::eq poll-result 40u64))
-              (#call {prefix}UnitAccess::replace ((task (#pin-borrow-mut frame)) (value ())))
-              (#let empty {prefix}Nothing (#call {prefix}UnitAccess::read ((task (#pin-borrow frame)))))
-              (#call {prefix}AmountAccess::replace ((task (#pin-borrow-mut frame)) (value 42u64)))
-              (#call {prefix}OtherAccess::replace ((task (#pin-borrow-mut frame)) (value 7u64)))
-              (#let other #u64 (#call {prefix}OtherAccess::read ((task (#pin-borrow frame)))))
+              (#call {path}0UnitAccess::replace ((task (#pin-borrow-mut frame)) (value ())))
+              (#let empty {path}1Nothing (#call {path}2UnitAccess::read ((task (#pin-borrow frame)))))
+              (#call {path}3AmountAccess::replace ((task (#pin-borrow-mut frame)) (value 42u64)))
+              (#call {path}4OtherAccess::replace ((task (#pin-borrow-mut frame)) (value 7u64)))
+              (#let other #u64 (#call {path}5OtherAccess::read ((task (#pin-borrow frame)))))
               (#assert (#u64::eq other 7u64))
-              (#let answer {prefix}Amount (#call {prefix}AmountAccess::read ((task (#pin-borrow frame)))))
-              (#forget frame) (#return answer)\n");
+              (#let answer {path}6Amount (#call {path}7AmountAccess::read ((task (#pin-borrow frame)))))
+              (#forget frame) (#return answer)\n  );\n}}\n");
         let mut config = lim::CompileConfig::default();
         config.set("async-lowering", "graph");
         let assembly = lim::compile_source_to_assembly(
@@ -505,9 +517,14 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
         for replace in [false, true] {
             let prefix = "#enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
                   (#return (#match task (#case (Child.Waiting count)
                     (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady 42u64)))))
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64) (access ((amount AmountAccess)))
                   (function (#fn work ((amount #u64)) #u64
                     (#return (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64))))))\n";
@@ -526,10 +543,13 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
             };
             let source = format!(
                 "{prefix}
-#fn main () #u64 (#let waker #u64 0u64)
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let waker #u64 0u64)
                 (#let-mut frame Work::Frame (#call work ((amount 40u64))))
                 {suspend} {call} (#forget frame) (#return 0u64)
-"
+  );\n}}\n"
             );
             let scratch = support::Scratch::new("async-access-before-terminal");
             let mut config = lim::CompileConfig::default();

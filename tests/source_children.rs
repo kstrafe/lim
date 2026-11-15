@@ -134,7 +134,7 @@ fn reader_and_group_children_keep_exact_source_spans() {
 
 #[test]
 fn public_type_mismatch_span_and_rendering_point_at_rhs() {
-    let source = "#fn main () #bool (#return 23u64)\n";
+    let source = "#fn main {\n  #params = ();\n  #returns = #bool;\n  #body = ( (#return 23u64)\n  );\n}\n";
     let path = std::env::temp_dir().join(format!("lim-source-children-{}.lim", std::process::id()));
     let compile = || {
         lim::compile_source_to_assembly(

@@ -32,7 +32,10 @@ fn explicit_aliases_keep_canonical_producer_identity_under_cfg_and_cache() {
 #cfg-if (#cfg-is #extra yes) (#alias Thing = ./producer.lim::Thing)
 #cfg-if (#cfg-is #extra yes) (#require-generated Thing make)
 #cfg-if (#cfg-is #extra yes) (#require-generated Thing same-make)
-#fn main () #u64 (#return 0u64)\n";
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)\n  );\n}\n";
     for extra in ["no", "yes"] {
         let mut config = lim::CompileConfig::default();
         config.set("extra", extra);
@@ -49,11 +52,17 @@ fn imported_consumer_requirement_keeps_its_source_span_and_rendered_hunk() {
     let module = "#gn make (name) `((#struct ,name () ()))
 #generate make Actual
 #require-generated Wanted make
-#fn read () #u64 (#return 0u64)\n";
+#fn read {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)\n  );\n}\n";
     let module_path = scratch.path().join("consumer.lim");
     fs::write(&module_path, module).unwrap();
     let root = "#alias read = ./consumer.lim::read
-#fn main () #u64 (#return (#call read ()))\n";
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call read ()))\n  );\n}\n";
     let error = compile(
         root,
         &scratch.path().join("main.lim"),
@@ -87,7 +96,10 @@ fn duplicate_inner_builtin_output_retains_each_wrapper_origin_cold_and_warm() {
 #require-generated NameMaybe #optional (NameMaybe.Some NameMaybe.None NameMaybe::construct)
 #require-generated NameMaybe wrappera (NameMaybe.Some NameMaybe.None)
 #require-generated NameMaybe wrapperb (NameMaybe.Some NameMaybe.None)
-#fn main () #u64 (#return 0u64)\n";
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)\n  );\n}\n";
     for _ in 0..2 {
         compile(
             source,

@@ -5,7 +5,10 @@ use lim::{CompileConfig, DiagnosticCode, TargetDescription};
 const SOURCE: &str = "
 #struct Pair () ((left #u64) (right #u64))
 #enum Slot () ((Slot.Empty) (Slot.Full Pair))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut slot Slot (Slot.Full (#struct-literal Pair ((left 39u64) (right 2u64)))))
     (#let pinned (#pin-ref-mut Slot) (#pin-borrow-mut slot))
     (#let payload (#pin-ref-mut Pair)
@@ -15,7 +18,7 @@ const SOURCE: &str = "
     (#forget payload)
     (#forget pinned)
     (#forget slot)
-    (#return answer)\n";
+    (#return answer)\n  );\n}\n";
 
 fn compile(source: &str) -> Result<String, lim::Diagnostic> {
     let scratch = support::Scratch::new("unchecked-payload");
@@ -133,10 +136,13 @@ fn unchecked_projection_still_checks_payload_types_and_lifetimes() {
     }
     let source = "#struct Pair () ((left #u64) (right #u64))
 #enum Slot () ((Slot.Empty) (Slot.Full Pair))
-#fn bad () (#pin-ref Pair)
+#fn bad {
+  #params = ();
+  #returns = (#pin-ref Pair);
+  #body = (
           (#let-mut slot Slot (Slot.Full (#struct-literal Pair ((left 1u64) (right 2u64)))))
           (#let pinned (#pin-ref Slot) (#pin-borrow slot))
-          (#return (#unsafe (#pin-get-payload-unchecked pinned Slot.Full)))\n";
+          (#return (#unsafe (#pin-get-payload-unchecked pinned Slot.Full)))\n  );\n}\n";
     let diagnostic = compile(source).unwrap_err();
     assert_eq!(diagnostic.code, DiagnosticCode::Borrow, "{diagnostic:?}");
     assert!(diagnostic.span.is_some());

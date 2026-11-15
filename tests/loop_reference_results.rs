@@ -13,11 +13,14 @@ fn block_wrapped_loop_references_keep_their_source_borrow() {
     ] {
         let source = format!(
             "#struct Holder () ((view (#ref #u64)))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let-mut owner #u64 42u64)
               (#let saved {ty} (#block (#block (#label result (#loop
                 (#break-to result {value}))))))
-              (#return {read})\n"
+              (#return {read})\n  );\n}}\n"
         );
         let program = lim::parse_program(&source).unwrap();
         lim::check_types(&program).unwrap();
@@ -33,9 +36,12 @@ fn block_wrapped_loop_references_keep_their_source_borrow() {
 
 #[test]
 fn block_wrapped_loop_cannot_return_a_reference_to_its_local_owner() {
-    let source = "#fn escape () (#ref #u64)
+    let source = "#fn escape {
+  #params = ();
+  #returns = (#ref #u64);
+  #body = (
         (#return (#block (#let owner #u64 42u64)
-          (#label result (#loop (#break-to result (#borrow owner))))))\n";
+          (#label result (#loop (#break-to result (#borrow owner))))))\n  );\n}\n";
     let error = lim::check_types(&lim::parse_program(source).unwrap()).unwrap_err();
     assert!(
         error.contains("local") || error.contains("outlive") || error.contains("borrow"),
@@ -52,15 +58,23 @@ fn loop_payload_bounds_do_not_invent_missing_reference_slots() {
         let source = format!(
             "#enum Inner () ((Inner.First (#ref #u64)) (Inner.Second (#ref #u64)))
 #enum Outer () ((Outer.Present Inner) (Outer.Absent #u64))
-#fn use-value ((input Outer)) #u64
+#fn use-value {{
+  #params = ((input Outer));
+  #returns = #u64;
+  #body = (
               (#return (#match input
                 (#case (Outer.Present child) (#match child
                   (#case (Inner.First view) (#deref view))
                   (#case (Inner.Second view) (#deref view))))
                 (#case (Outer.Absent value) value)))
-#fn main () #u64 (#let owner #u64 42u64)
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let owner #u64 42u64)
               (#let packet Outer {result})
-              (#return (#call use-value ((input packet))))\n"
+              (#return (#call use-value ((input packet))))\n  );\n}}\n"
         );
         let program = lim::parse_program(&source).unwrap();
         lim::check_types(&program).unwrap();
@@ -71,15 +85,23 @@ fn loop_payload_bounds_do_not_invent_missing_reference_slots() {
 #[test]
 fn loop_result_bounds_keep_unknown_alternatives_conservative() {
     let source = "#enum Choice () ((Choice.Borrowed (#ref #u64)) (Choice.Value #u64))
-#fn select ((input Choice) (choose #bool)) Choice
+#fn select {
+  #params = ((input Choice) (choose #bool));
+  #returns = Choice;
+  #body = (
           (#return (#block (#label result (#loop
             (#if choose (#block (#break-to result input))
               (#block (#forget input) (#break-to result (Choice.Value 42u64))))))))
-#fn main () #u64 (#let-mut owner #u64 1u64)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let-mut owner #u64 1u64)
           (#let saved Choice (#call select ((input (Choice.Borrowed (#borrow owner))) (choose true))))
           (#set owner 2u64)
           (#return (#match saved
-            (#case (Choice.Borrowed view) (#deref view)) (#case (Choice.Value value) value)))\n";
+            (#case (Choice.Borrowed view) (#deref view)) (#case (Choice.Value value) value)))\n  );\n}\n";
     let error = lim::check_types(&lim::parse_program(source).unwrap()).unwrap_err();
     assert!(
         error.contains("borrow") || error.contains("access"),

@@ -5,10 +5,13 @@ use std::{process::Command, time::Duration};
 const CONTEXT: &str = "
 #enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
       (#return (#match task
         (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
-        (#case (Child.Resume value) (ChildPoll.ChildReady value))))\n";
+        (#case (Child.Resume value) (ChildPoll.ChildReady value))))\n  );\n}\n";
 
 fn config() -> lim::CompileConfig {
     let mut config = lim::CompileConfig::default();
@@ -53,7 +56,10 @@ fn run_guard(guard_accepts: bool) {
                   (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Start (#deref view)))))))
             (#assert (#u64::eq marker {expected_marker}))
             (#return result))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64) (#let owner #u64 42u64)
           (#let-mut frame Work::Frame
             (#call work ((source (#borrow owner)))))
@@ -61,7 +67,7 @@ fn run_guard(guard_accepts: bool) {
             (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
           (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
           {completion_polls}
-          (#forget frame) (#return answer)\n"
+          (#forget frame) (#return answer)\n  );\n}}\n"
     );
     let scratch = support::Scratch::new(if guard_accepts {
         "async-reference-guard-accepted"

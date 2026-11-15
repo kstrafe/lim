@@ -61,9 +61,12 @@ fn generators_emit_complete_property_bearing_declarations() {
         "#gn make-resource (name)
         `((#struct ,name (#linear) ((value #u64))))
 #generate make-resource Resource
-#fn main () ()
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
           (#let resource Resource (#struct-literal Resource ((value 1u64))))
-          (#forget resource) (#return ())\n",
+          (#forget resource) (#return ())\n  );\n}\n",
     )
     .unwrap();
     assert!(program.items.iter().any(|item| matches!(item,

@@ -56,7 +56,7 @@ fn generated_nested_field_projection_matrix() {
         let (decls, ty, leaf, literal) = nested_prefix(depth);
         let left = format!("(#get {leaf} left)");
         let right = format!("(#get {leaf} right)");
-        let base = format!("{decls}\n#fn main () #u64\n    (#let-mut owner {ty} {literal})\n");
+        let base = format!("{decls}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let-mut owner {ty} {literal})\n  );\n}}\n");
         let disjoint = format!(
             "{base}  (#let a (#ref-mut #u64) (#borrow-mut {left}))\n  (#let b (#ref-mut #u64) (#borrow-mut {right}))\n  (#deref-set a 4u64) (#deref-set b 5u64)\n  (#drop a) (#drop b) (#return 0u64)"
         );
@@ -67,10 +67,10 @@ fn generated_nested_field_projection_matrix() {
         expect_borrow(&format!("nested-{depth}-overlap"), &overlap);
 
         let shared_controls = format!(
-            "{decls}\n#fn main () #u64\n    (#let owner {ty} {literal})\n    (#let a (#ref #u64) (#borrow {left}))\n    (#let b (#ref #u64) (#borrow {left}))\n    (#let result #u64 (#u64::add-wrap (#deref a) (#deref b)))\n    (#drop a) (#drop b) (#return result)\n"
+            "{decls}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let owner {ty} {literal})\n    (#let a (#ref #u64) (#borrow {left}))\n    (#let b (#ref #u64) (#borrow {left}))\n    (#let result #u64 (#u64::add-wrap (#deref a) (#deref b)))\n    (#drop a) (#drop b) (#return result)\n  );\n}}\n"
         );
         let shared_conflict = format!(
-            "{decls}\n#fn main () #u64\n    (#let-mut owner {ty} {literal})\n    (#let a (#ref #u64) (#borrow {left}))\n    (#let b (#ref-mut #u64) (#borrow-mut {left}))\n    (#drop a) (#drop b) (#return 0u64)\n"
+            "{decls}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let-mut owner {ty} {literal})\n    (#let a (#ref #u64) (#borrow {left}))\n    (#let b (#ref-mut #u64) (#borrow-mut {left}))\n    (#drop a) (#drop b) (#return 0u64)\n  );\n}}\n"
         );
         expect_accept(&format!("nested-{depth}-shared-shared"), &shared_controls);
         expect_borrow(&format!("nested-{depth}-shared-write"), &shared_conflict);
@@ -87,10 +87,10 @@ fn generated_helper_returned_reference_matrix() {
             let sibling = format!("(#get {leaf} {other})");
             let helper_selected = selected.replace("owner", "target");
             let helper = format!(
-                "{decls}\n#fn pick ((target (#ref-mut {ty}))) (#ref-mut #u64)\n    (#return (#borrow-mut {helper_selected}))\n"
+                "{decls}\n#fn pick {{\n  #params = ((target (#ref-mut {ty})));\n  #returns = (#ref-mut #u64);\n  #body = (\n    (#return (#borrow-mut {helper_selected}))\n  );\n}}\n"
             );
             let common = format!(
-                "{helper}\n#fn main () #u64\n    (#let-mut owner {ty} {literal})\n    (#let view (#ref-mut #u64) (#call pick ((target (#borrow-mut owner)))))\n"
+                "{helper}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let-mut owner {ty} {literal})\n    (#let view (#ref-mut #u64) (#call pick ((target (#borrow-mut owner)))))\n  );\n}}\n"
             );
             let accepted = format!(
                 "{common}  (#let sibling (#ref-mut #u64) (#borrow-mut {sibling}))\n  (#deref-set sibling 7u64) (#deref-set view 8u64)\n  (#drop sibling) (#drop view) (#return 0u64)"
@@ -108,26 +108,42 @@ fn generated_helper_returned_reference_matrix() {
 fn generated_branch_selected_origin_matrix() {
     for (ordering, first, second) in [("forward", "a", "b"), ("reverse", "b", "a")] {
         let source = format!(
-            "#fn select ((choose #bool) (a (#ref #u64)) (b (#ref #u64))) (#ref #u64)
+            "#fn select {{
+  #params = ((choose #bool) (a (#ref #u64)) (b (#ref #u64)));
+  #returns = (#ref #u64);
+  #body = (
     (#return (#if choose {first} {second}))
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut a #u64 1u64) (#let-mut b #u64 2u64)
   (#let view (#ref #u64) (#call select ((choose true) (a (#borrow a)) (b (#borrow b)))))
   (#set {first} 7u64)
     (#drop view) (#return 0u64)
-"
+  );\n}}\n"
         );
         expect_borrow(&format!("branch-{ordering}-selected-origin"), &source);
 
         let control = format!(
-            "#fn select ((choose #bool) (a (#ref #u64)) (b (#ref #u64))) (#ref #u64)
+            "#fn select {{
+  #params = ((choose #bool) (a (#ref #u64)) (b (#ref #u64)));
+  #returns = (#ref #u64);
+  #body = (
     (#return (#if choose {first} {second}))
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#let-mut a #u64 1u64) (#let-mut b #u64 2u64)
   (#let view (#ref #u64) (#call select ((choose true) (a (#borrow a)) (b (#borrow b)))))
   (#let answer #u64 (#deref view))
     (#drop view) (#return answer)
-"
+  );\n}}\n"
         );
         expect_accept(&format!("branch-{ordering}-other-origin-control"), &control);
     }

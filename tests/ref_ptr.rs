@@ -52,20 +52,30 @@ fn scalar_and_aggregate_roundtrips_lend_all_four_reference_kinds() {
                     let source = format!(
                         r#"
 #struct Pair () ((left #u64) (right #u64))
-#fn extract ((view (#{pin}ref{suffix} {ty}))) (#ptr{suffix} {ty})
+#fn extract {{
+  #params = ((view (#{pin}ref{suffix} {ty})));
+  #returns = (#ptr{suffix} {ty});
+  #body = (
                           (#return (#ref-ptr view))
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
                           (#let-mut owner {ty} {init})
-                          (#let view (#{pin}ref{suffix} {ty}) (#{pin}borrow{suffix} owner))
-                          (#let pointer (#ptr{suffix} {ty}) (#ref-ptr view))
+                          (#let view (#{pin}ref{suffix} {ty}) (#{suffix}0borrow{suffix}1 owner))
+                          (#let pointer (#ptr{suffix}2 {suffix}3) (#ref-ptr view))
                           (#assert (#usize::eq (#ptr-address pointer) (#ptr-address (#ref-ptr view))))
                           (#assert (#usize::eq (#ptr-address pointer) (#ptr-address (#call extract ((view view))))))
-                          (#let restored (#{pin}ref{suffix} {ty})
-                            (#unsafe (#{pin}ptr-borrow{suffix} view pointer)))
+                          (#let restored (#{suffix}4ref{suffix}5 {suffix}6)
+                            (#unsafe (#{suffix}7ptr-borrow{suffix}8 view pointer)))
                           (#drop view)
-                          (#let answer #u64 {read})
+                          (#let answer #u64 {suffix}9)
                           (#drop restored)
                           (#forget owner) (#return answer)
+  );
+}}
 "#
                     );
                     run(&source, target);
@@ -78,13 +88,21 @@ fn scalar_and_aggregate_roundtrips_lend_all_four_reference_kinds() {
 #[test]
 fn extraction_does_not_retain_a_loan_and_reference_remains_writable() {
     run(
-        r#"#fn escape () (#ptr-mut #u64)
+        r#"#fn escape {
+  #params = ();
+  #returns = (#ptr-mut #u64);
+  #body = (
           (#let-mut owner #u64 1u64)
           (#let view (#ref-mut #u64) (#borrow-mut owner))
           (#let pointer (#ptr-mut #u64) (#ref-ptr view))
           (#deref-set view 42u64)
           (#drop view) (#set owner 0u64) (#return pointer)
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let pointer (#ptr-mut #u64) (#call escape ()))
           (#assert (#bool::not (#ptr-is-null pointer)))
           (#let-mut value #u64 1u64)
@@ -95,6 +113,8 @@ fn extraction_does_not_retain_a_loan_and_reference_remains_writable() {
           (#assert (#u64::eq (#unsafe (#ptr-read address)) 1u64))
           (#deref-set view 42u64)
           (#return (#deref view))
+  );
+}
 "#,
         lim::TargetDescription::X86_64_SYSTEM_V,
     );
@@ -106,7 +126,10 @@ fn projected_exclusive_handles_are_lent_without_being_moved() {
         let source = format!(
             r#"
 #struct Holder () ((view (#{pin}ref-mut #u64)))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let-mut value #u64 42u64)
               (#let holder Holder (#struct-literal Holder ((view (#{pin}borrow-mut value)))))
               (#let first (#ptr-mut #u64) (#ref-ptr (#get holder view)))
@@ -114,6 +137,8 @@ fn projected_exclusive_handles_are_lent_without_being_moved() {
               (#assert (#usize::eq (#ptr-address first) (#ptr-address second)))
               (#let answer #u64 (#deref (#get holder view)))
               (#forget holder) (#return answer)
+  );
+}}
 "#
         );
         run(&source, lim::TargetDescription::X86_64_SYSTEM_V);
@@ -128,7 +153,7 @@ fn nonreferences_and_fat_slices_are_rejected() {
         "(#borrow-slice values)",
         "(#borrow-slice-mut values)",
     ] {
-        let source = format!("#fn main () () (#let-mut values (#array #u64 1) (#array-of (#array #u64 1) 42u64)) (#let pointer (#ptr #u64) (#ref-ptr {operand})) (#forget values) (#return ())\n");
+        let source = format!("#fn main {{\n  #params = ();\n  #returns = ();\n  #body = ( (#let-mut values (#array #u64 1) (#array-of (#array #u64 1) 42u64)) (#let pointer (#ptr #u64) (#ref-ptr {operand})) (#forget values) (#return ())\n  );\n}}\n");
         let error = compile(&source, lim::TargetDescription::X86_64_SYSTEM_V).unwrap_err();
         assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
         assert!(
@@ -147,7 +172,7 @@ fn extraction_is_safe_but_raw_access_and_reborrowing_are_unsafe() {
         "(#ptr-write pointer 42u64)",
         "(#ptr-borrow view pointer)",
     ] {
-        let source = format!("#fn main () () (#let-mut owner #u64 42u64) (#let view (#ref-mut #u64) (#borrow-mut owner)) (#let pointer (#ptr-mut #u64) (#ref-ptr view)) {operation} (#drop view) (#return ())\n");
+        let source = format!("#fn main {{\n  #params = ();\n  #returns = ();\n  #body = ( (#let-mut owner #u64 42u64) (#let view (#ref-mut #u64) (#borrow-mut owner)) (#let pointer (#ptr-mut #u64) (#ref-ptr view)) {operation} (#drop view) (#return ())\n  );\n}}\n");
         let error = compile(&source, lim::TargetDescription::X86_64_SYSTEM_V).unwrap_err();
         assert_eq!(error.code, lim::DiagnosticCode::Unsafe, "{error:?}");
         assert!(error.message.contains("unsafe"), "{error:?}");

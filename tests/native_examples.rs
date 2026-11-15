@@ -265,7 +265,7 @@ fn compiler_rejection_is_not_a_runtime_outcome() {
     let output = scratch.0.join("program");
     fs::write(
         &source,
-        "#fn main () #u64 (#let value #u64 false) (#return value)\n",
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let value #u64 false) (#return value)\n  );\n}\n",
     )
     .unwrap();
     let (status, _, errors) = run(

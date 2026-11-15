@@ -59,16 +59,24 @@ fn referenced_tuple_fields_keep_layout_direction_and_evaluate_receivers_once() {
     ] {
         let tuple = "(#tuple () #u128 #f64 #u64)";
         let source = format!(
-            "#fn receiver ((view ({ty} {tuple})) (count (#ref-mut #u64))) ({ty} {tuple})
+            "#fn receiver {{
+  #params = ((view ({ty} {tuple})) (count (#ref-mut #u64)));
+  #returns = ({ty} {tuple});
+  #body = (
                 (#deref-set count (#u64::add-wrap (#deref count) 1u64)) (#return view)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
                   (#let-mut values {tuple} (#tuple {tuple} () 18446744073709551617u128 3.5f64 42u64))
                   (#let view ({ty} {tuple}) ({borrow} values)) (#let-mut count #u64 0u64)
                   (#let unit () (#get (#call receiver ((view view) (count (#borrow-mut count)))) 0))
                   (#assert (#u64::eq count 1u64))
                   (#assert (#u128::eq (#get view 1) 18446744073709551617u128))
                   (#assert (#f64::eq (#get view 2) 3.5f64))
-                  (#return (#get view 3))\n"
+                  (#return (#get view 3))\n  );\n}}\n"
         );
         assert_runs(&compile(&source, scratch.path(), &[]), b"");
     }
@@ -76,10 +84,13 @@ fn referenced_tuple_fields_keep_layout_direction_and_evaluate_receivers_once() {
         let tuple = "(#tuple #u128 #f64 #u64)";
         let source = format!(
             "#let values {tuple} (#tuple {tuple} 18446744073709551617u128 3.5f64 42u64)
-#fn main () #u64 (#let view ({ty} {tuple}) ({borrow} values))
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let view ({ty} {tuple}) ({borrow} values))
                   (#assert (#u128::eq (#get view 0) 18446744073709551617u128))
                   (#assert (#f64::eq (#get view 1) 3.5f64)) (#return (#get view 2))
-"
+  );\n}}\n"
         );
         assert_runs(&compile(&source, scratch.path(), &[]), b"");
     }
@@ -120,7 +131,7 @@ fn loop_headers_and_outer_value_transfers_return_the_selected_value() {
         "(#for () true () (#break-to outer 42u64))",
     ] {
         let source = format!(
-            "#fn main () #u64 (#return (#label outer (#loop {statement} (#break 0u64))))\n"
+            "#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#label outer (#loop {statement} (#break 0u64))))\n  );\n}}\n"
         );
         assert_runs(&compile(&source, scratch.path(), &[]), b"");
     }
@@ -147,7 +158,7 @@ fn labeled_value_loops_reserve_scratch_for_large_patterns_and_projections() {
             (#array-of (#array (#array #u64 7) 1) {array}) 0usize) 6usize)))"
         ),
     ] {
-        let source = format!("#fn main () #u64 (#return {expression})\n");
+        let source = format!("#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return {expression})\n  );\n}}\n");
         assert_runs(&compile(&source, scratch.path(), &[]), b"");
     }
 }
@@ -165,27 +176,41 @@ fn large_loop_results_keep_their_local_or_indirect_destination() {
     );
     for source in [
         format!(
-            "#fn main () #u64
+            "#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let values (#array #u64 7) {result})
-            (#return (#index values 6usize))\n"
+            (#return (#index values 6usize))\n  );\n}}\n"
         ),
         format!(
             "#enum Packet () ((Packet.Present (#array #u64 7)))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let packet Packet (#block (#label outer (#loop
                 (#forget 0u64) (#break-to outer (Packet.Present {values}))))))
               (#let-else (Packet.Present values) Packet packet (#unreachable))
-              (#return (#index values 6usize))\n"
+              (#return (#index values 6usize))\n  );\n}}\n"
         ),
         // The loop writes a nested field at a nonzero offset in an indirect
         // return. Accidentally writing at zero corrupts the sentinel field.
         format!(
             "#struct Packet () ((sentinel #u64) (values (#array #u64 7)))
-#fn make () Packet (#return (#struct-literal Packet
+#fn make {{
+  #params = ();
+  #returns = Packet;
+  #body = ( (#return (#struct-literal Packet
               ((sentinel 9u64) (values {result}))))
-#fn main () #u64 (#let packet Packet (#call make ()))
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let packet Packet (#call make ()))
               (#assert (#u64::eq (#get packet sentinel) 9u64))
-              (#return (#index (#get packet values) 6usize))\n"
+              (#return (#index (#get packet values) 6usize))\n  );\n}}\n"
         ),
     ] {
         assert_runs(&compile(&source, scratch.path(), &[]), b"");
@@ -310,7 +335,7 @@ fn object_rodata_relocations_resolve_into_the_read_only_segment() {
     )
     .unwrap();
     let program = lim::parse_program(
-        "#extern-fn #abi-c read_constant () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call read_constant ())))\n",
+        "#extern-fn  read_constant {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_constant ())))\n  );\n}\n",
     )
     .unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
@@ -679,10 +704,13 @@ fn syscall_library_binary_has_no_interpreter_or_dynamic_dependencies() {
     let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/linux_x86_64.lim");
     let source = format!(
         "#alias linux-write-byte = {}::linux-write-byte
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let letter #u8 83u8)
             (#assert (#i64::eq (#call linux-write-byte ((source (#borrow letter)))) 1i64))
-            (#return 42u64)\n",
+            (#return 42u64)\n  );\n}}\n",
         library.display()
     );
     let binary = compile(&source, scratch.path(), &[]);
@@ -694,8 +722,15 @@ fn syscall_library_binary_has_no_interpreter_or_dynamic_dependencies() {
 fn unused_external_declarations_do_not_require_a_c_runtime() {
     let scratch = support::Scratch::new("unused-extern-link");
     let binary = compile(
-        "#extern-fn #abi-c abs ((value #i32)) #i32
-#fn main () #u64 (#return 42u64)\n",
+        "#extern-fn  abs {
+  #abi = #abi-c;
+  #params = ((value #i32));
+  #returns = #i32;
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}\n",
         scratch.path(),
         &[],
     );
@@ -758,10 +793,10 @@ fn dynamic_images_are_reproducible_and_keep_code_nonwritable() {
 #[test]
 fn missing_foreign_symbol_preserves_existing_binary() {
     let scratch = support::Scratch::new("missing-foreign-symbol");
-    let binary = compile("#fn main () #u64 (#return 42u64)\n", scratch.path(), &[]);
+    let binary = compile("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n", scratch.path(), &[]);
     let original = fs::read(&binary).unwrap();
     let program = lim::parse_program(
-        "#extern-fn #abi-c lim_symbol_that_does_not_exist () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call lim_symbol_that_does_not_exist ())))\n"
+        "#extern-fn  lim_symbol_that_does_not_exist {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call lim_symbol_that_does_not_exist ())))\n  );\n}\n"
     ).unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let error = lim::link_native_binary(
@@ -780,7 +815,7 @@ fn missing_foreign_symbol_preserves_existing_binary() {
 
     let input = scratch.path().join("missing.lim");
     fs::write(&input,
-        "#extern-fn #abi-c lim_symbol_that_does_not_exist () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call lim_symbol_that_does_not_exist ())))\n"
+        "#extern-fn  lim_symbol_that_does_not_exist {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call lim_symbol_that_does_not_exist ())))\n  );\n}\n"
     ).unwrap();
     let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg(&input)
@@ -821,13 +856,13 @@ fn inline_assembly_external_references_are_detected_from_the_object() {
 fn explicitly_requested_libraries_are_not_ignored() {
     let scratch = support::Scratch::new("explicit-library-link");
     let binary = compile(
-        "#fn main () #u64 (#return 42u64)\n",
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n",
         scratch.path(),
         &["m".into()],
     );
     assert_runs(&binary, b"");
     let input = scratch.path().join("explicit.lim");
-    fs::write(&input, "#fn main () #u64 (#return 42u64)\n").unwrap();
+    fs::write(&input, "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
     let tool_free = scratch.path().join("tool-free-m");
     let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg(&input)
@@ -847,7 +882,7 @@ fn explicitly_requested_libraries_are_not_ignored() {
     assert_runs(&tool_free, b"");
     // Missing explicit libraries must still fail without replacing an output.
     let original = fs::read(&binary).unwrap();
-    let program = lim::parse_program("#fn main () #u64 (#return 42u64)\n").unwrap();
+    let program = lim::parse_program("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     assert!(lim::link_native_binary(
         &assembly,
@@ -898,7 +933,7 @@ fn supplied_object_references_are_inspected_too() {
         ),
     )
     .unwrap();
-    let program = lim::parse_program("#fn main () #u64 (#return 42u64)\n").unwrap();
+    let program = lim::parse_program("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let binary = scratch.path().join("program");
     lim::link_native_binary(
@@ -954,7 +989,7 @@ fn supplied_static_object_links_bidirectionally_without_build_tools() {
     let input = scratch.path().join("main.lim");
     fs::write(
         &input,
-        "#extern-fn #abi-c helper () #u64\n#fn supplier () #u64 (#return 42u64)\n#fn main () #u64 (#return (#unsafe (#unsafe-call helper ())))\n",
+        "#extern-fn  helper {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn supplier {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call helper ())))\n  );\n}\n",
     )
     .unwrap();
     let binary = scratch.path().join("program");
@@ -1061,7 +1096,7 @@ fn supplied_object_data_and_bss_use_a_writable_segment() {
     .unwrap();
     let input = scratch.path().join("main.lim");
     fs::write(&input,
-        "#extern-fn #abi-c provided_value () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call provided_value ())))\n"
+        "#extern-fn  provided_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call provided_value ())))\n  );\n}\n"
     ).unwrap();
     let binary = scratch.path().join("program");
     let output = Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -1154,7 +1189,7 @@ fn supplied_object_with_data_and_libc_import_links_without_tools() {
     )
     .unwrap();
     let input = scratch.path().join("main.lim");
-    fs::write(&input, "#extern-fn #abi-c provided_value () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call provided_value ())))\n").unwrap();
+    fs::write(&input, "#extern-fn  provided_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call provided_value ())))\n  );\n}\n").unwrap();
     let binary = scratch.path().join("program");
     let output = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg(&input)
@@ -1178,7 +1213,7 @@ fn supplied_object_with_data_and_libc_import_links_without_tools() {
 fn pic_object_got_relocations_resolve_local_and_foreign_addresses() {
     let scratch = support::Scratch::new("internal-pic-object-link");
     let input = scratch.path().join("main.lim");
-    fs::write(&input, "#extern-fn #abi-c provided_value () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call provided_value ())))\n").unwrap();
+    fs::write(&input, "#extern-fn  provided_value {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call provided_value ())))\n  );\n}\n").unwrap();
     for (name, code, symbol, expected_dynamic) in [
         (
             "local",
@@ -1308,7 +1343,7 @@ fn tls_data_pc32_is_rejected_instead_of_linking_to_a_call_stub() {
         ),
     )
     .unwrap();
-    let program = lim::parse_program("#fn main () #u64 (#return 42u64)\n").unwrap();
+    let program = lim::parse_program("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let binary = scratch.path().join("program");
     let error = lim::link_native_binary(
@@ -1368,7 +1403,7 @@ fn external_data_pc32_uses_an_internal_copy_relocation() {
     )
     .unwrap();
     let input = scratch.path().join("main.lim");
-    fs::write(&input, "#extern-fn #abi-c read_data () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call read_data ())))\n").unwrap();
+    fs::write(&input, "#extern-fn  read_data {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_data ())))\n  );\n}\n").unwrap();
     let binary = scratch.path().join("program");
     let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg(&input)
@@ -1454,7 +1489,7 @@ fn writable_object_data_can_hold_a_shared_library_symbol_address() {
         ),
     )
     .unwrap();
-    let program = lim::parse_program("#extern-fn #abi-c read_data () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call read_data ())))\n").unwrap();
+    let program = lim::parse_program("#extern-fn  read_data {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_data ())))\n  );\n}\n").unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let binary = scratch.path().join("program");
     lim::link_native_binary(
@@ -1534,7 +1569,7 @@ fn unresolved_weak_object_symbol_resolves_to_zero_without_a_library() {
         ),
     )
     .unwrap();
-    let program = lim::parse_program("#extern-fn #abi-c read_weak () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call read_weak ())))\n").unwrap();
+    let program = lim::parse_program("#extern-fn  read_weak {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_weak ())))\n  );\n}\n").unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let binary = scratch.path().join("program");
     lim::link_native_binary(
@@ -1629,7 +1664,7 @@ fn pc_relative_foreign_data_relocations_work_from_writable_sections() {
             ),
         )
         .unwrap();
-        let program = lim::parse_program("#extern-fn #abi-c read_data () #u64\n#fn main () #u64 (#return (#unsafe (#unsafe-call read_data ())))\n").unwrap();
+        let program = lim::parse_program("#extern-fn  read_data {\n  #abi = #abi-c;\n  #params = ();\n  #returns = #u64;\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#unsafe (#unsafe-call read_data ())))\n  );\n}\n").unwrap();
         let assembly = lim::generate_assembly(&program).unwrap();
         let binary = scratch.path().join(name);
         lim::link_native_binary(

@@ -12,15 +12,23 @@ fn run_storage(body: &str, label: &str, pinned: bool) {
         r#"
 #enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {{
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
             (#return (#match task
               (#case (Child.Start value) (ChildPoll.ChildPending (Child.Resume value)))
               (#case (Child.Resume value) (ChildPoll.ChildReady value))))
+  );
+}}
 #struct Owner () ((values (#array #u64 2)))
 #type WideRow (#array #u128 2)
 #generate #async-fn-pinned ((protocol work-await) (waker #u64)
             (function (#fn work ((seed #u64)) #u64 {body})))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ((seed 42u64))))
             (#let first Work::Poll
@@ -30,6 +38,8 @@ fn run_storage(body: &str, label: &str, pinned: bool) {
               (#case (Work::Poll.Ready result) result)
               (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))
             (#forget task) (#return answer)
+  );
+}}
         "#
     );
     let source = if pinned {

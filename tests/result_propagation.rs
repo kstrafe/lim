@@ -52,11 +52,14 @@ fn run(source: &str, expected: i32) {
 
 const RESULTS: &str = "#generate #result ((ok #u64) (error #u32) (name Input))
 #generate #result ((ok #bool) (error #u32) (name Output))
-#fn convert ((value Input)) Output
+#fn convert {
+  #params = ((value Input));
+  #returns = Output;
+  #body = (
         (#let-else (Input.Ok number) Input value
           (#else (Input.Err error)
             (#return (#call Output::err ((error error))))))
-        (#return (#call Output::ok ((value (#u64::eq number 42u64)))))\n";
+        (#return (#call Output::ok ((value (#u64::eq number 42u64)))))\n  );\n}\n";
 
 #[test]
 fn documented_example_runs_natively() {
@@ -71,10 +74,13 @@ fn propagates_across_concrete_success_types_native_and_cached() {
     ] {
         let source = format!(
             "{RESULTS}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#return (#match (#call convert ((value {constructor})))
                 (#case (Output.Ok yes) (#if yes 42u64 0u64))
-                (#case (Output.Err error) (#as error #u64))))\n"
+                (#case (Output.Err error) (#as error #u64))))\n  );\n}}\n"
         );
         run(&source, expected);
     }
@@ -86,16 +92,29 @@ fn evaluates_source_once_on_both_edges() {
         run(
             &format!(
                 "#enum Choice () ((Choice.Some #u64) (Choice.Error #u64))
-#fn source ((count (#ref-mut #u64))) Choice
+#fn source {{
+  #params = ((count (#ref-mut #u64)));
+  #returns = Choice;
+  #body = (
               (#deref-set count (#u64::add-wrap (#deref count) 1u64))
               (#return {choice})
-#fn test ((count (#ref-mut #u64))) #u64
+  );
+}}
+#fn test {{
+  #params = ((count (#ref-mut #u64)));
+  #returns = #u64;
+  #body = (
               (#let-else (Choice.Some number) Choice (#call source ((count count)))
                 (#else (Choice.Error error) (#return error)))
               (#return number)
-#fn main () #u64 (#let-mut count #u64 1u64)
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let-mut count #u64 1u64)
               (#let value #u64 (#call test ((count (#borrow-mut count)))))
-              (#return (#u64::add-wrap value count))\n"
+              (#return (#u64::add-wrap value count))\n  );\n}}\n"
             ),
             42,
         );
@@ -105,8 +124,11 @@ fn evaluates_source_once_on_both_edges() {
 #[test]
 fn validates_failure_patterns_and_divergence() {
     let template = "#enum Choice () ((Choice.Some #u64) (Choice.Error #u64) (Choice.Empty))
-#fn test ((value Choice)) #u64
-          (#let-else (Choice.Some number) Choice value FALLBACK) (#return number)\n";
+#fn test {
+  #params = ((value Choice));
+  #returns = #u64;
+  #body = (
+          (#let-else (Choice.Some number) Choice value FALLBACK) (#return number)\n  );\n}\n";
     for (fallback, error) in [
         (
             "(#else (Choice.Error error) (#return error))",
@@ -139,46 +161,64 @@ fn validates_failure_patterns_and_divergence() {
 fn coverage_includes_refutable_success_payloads() {
     rejected(
         "#enum Choice () ((Choice.Some #u64) (Choice.Error #u64))
-#fn test ((value Choice)) #u64
+#fn test {
+  #params = ((value Choice));
+  #returns = #u64;
+  #body = (
           (#let-else (Choice.Some 42u64) Choice value
-            (#else (Choice.Error error) (#return error))) (#return 42u64)\n",
+            (#else (Choice.Error error) (#return error))) (#return 42u64)\n  );\n}\n",
         "does not cover all success mismatches",
     );
     checked(
         "#enum Choice () ((Choice.Flag #bool))
-#fn test ((value Choice)) #u64
+#fn test {
+  #params = ((value Choice));
+  #returns = #u64;
+  #body = (
           (#let-else (Choice.Flag true) Choice value
-            (#else (Choice.Flag false) (#return 0u64))) (#return 42u64)\n",
+            (#else (Choice.Flag false) (#return 0u64))) (#return 42u64)\n  );\n}\n",
     );
 }
 
 #[test]
 fn lowers_scalar_aggregate_fieldless_and_large_failures() {
     run(
-        "#fn main () #u64
-        (#let-else 0u64 #u64 42u64 (#else error (#return error))) (#return 0u64)\n",
+        "#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
+        (#let-else 0u64 #u64 42u64 (#else error (#return error))) (#return 0u64)\n  );\n}\n",
         42,
     );
     run(
-        "#fn main () #u64
+        "#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
         (#let-else (#tuple number true) (#tuple #u64 #bool) (#tuple 42u64 false)
-          (#else (#tuple error false) (#return error))) (#return number)\n",
+          (#else (#tuple error false) (#return error))) (#return number)\n  );\n}\n",
         42,
     );
     run(
         "#enum Choice () (Choice.Some Choice.Error Choice.Empty)
-#fn main () #u64
-        (#let-else Choice.Some Choice Choice.Error (#else _ (#return 42u64))) (#return 0u64)\n",
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
+        (#let-else Choice.Some Choice Choice.Error (#else _ (#return 42u64))) (#return 0u64)\n  );\n}\n",
         42,
     );
     run(
         "#enum Choice () ((Choice.Some #u64) (Choice.Error (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-else (Choice.Some number) Choice (Choice.Error (#tuple 1u64 2u64 3u64 4u64 5u64 6u64 21u64))
             (#else (Choice.Error (#tuple first second third fourth fifth sixth last))
               (#return (#u64::add-wrap (#u64::add-wrap (#u64::add-wrap first second)
                 (#u64::add-wrap third fourth)) (#u64::add-wrap (#u64::add-wrap fifth sixth) last)))))
-          (#return number)\n",
+          (#return number)\n  );\n}\n",
         42,
     );
 }
@@ -193,9 +233,12 @@ fn failure_cleanup_is_checked_only_for_success_mismatches() {
             &format!(
                 "#struct Token (#linear) ((value #u64))
 #enum Choice () ((Choice.Owned Token) (Choice.Missing))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let-else (Choice.Owned token) Choice {value} (#else _ (#return 0u64)))
-              (#let number #u64 (#get token value)) (#forget token) (#return number)\n"
+              (#let number #u64 (#get token value)) (#forget token) (#return number)\n  );\n}}\n"
             ),
             expected,
         );
@@ -206,9 +249,12 @@ fn failure_cleanup_is_checked_only_for_success_mismatches() {
 fn cannot_discard_an_indivisible_linear_error_enum() {
     let source = "#enum Error (#linear) (Error.Broken)
 #enum Input () ((Input.Some #u64) (Input.Failure Error))
-#fn test ((value Input)) #u64
+#fn test {
+  #params = ((value Input));
+  #returns = #u64;
+  #body = (
           (#let-else (Input.Some number) Input value
-            (#else (Input.Failure _) (#return 0u64))) (#return number)\n";
+            (#else (Input.Failure _) (#return 0u64))) (#return number)\n  );\n}\n";
     rejected(source, "would discard a linear payload");
     checked(
         &source
@@ -222,18 +268,26 @@ fn linear_error_is_consumed_once() {
     let source = "#struct Token (#linear) ((value #u64))
 #generate #result ((ok #u64) (error Token) (name Input))
 #generate #result ((ok #bool) (error Token) (name Output))
-#fn convert ((value Input)) Output
+#fn convert {
+  #params = ((value Input));
+  #returns = Output;
+  #body = (
           (#let-else (Input.Ok number) Input value
             (#else (Input.Err error)
               (#return (#call Output::err ((error error))))))
           (#forget number) (#return (#call Output::ok ((value true))))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let value Output (#call convert ((value
             (#call Input::err ((error (#struct-literal Token ((value 42u64))))))))))
           (#return (#match value
             (#case (Output.Ok _) 0u64)
             (#case (Output.Err token) (#block
-              (#let answer #u64 (#get token value)) (#forget token) answer))))\n";
+              (#let answer #u64 (#get token value)) (#forget token) answer))))\n  );\n}\n";
     run(source, 42);
     rejected(
         &source.replace(
@@ -269,11 +323,14 @@ fn generated_linear_error_enum_propagates_on_both_edges() {
     let declarations = "#enum Error (#linear) (Error.Broken)
 #generate #result ((ok #u64) (error Error) (name Input))
 #generate #result ((ok #bool) (error Error) (name Output))
-#fn convert ((value Input)) Output
+#fn convert {
+  #params = ((value Input));
+  #returns = Output;
+  #body = (
           (#let-else (Input.Ok number) Input value
             (#else (Input.Err error)
               (#return (#call Output::err ((error error))))))
-          (#return (#call Output::ok ((value (#u64::eq number 42u64)))))\n";
+          (#return (#call Output::ok ((value (#u64::eq number 42u64)))))\n  );\n}\n";
     for constructor in [
         "(#call Input::ok ((value 42u64)))",
         "(#call Input::err ((error Error.Broken)))",
@@ -281,10 +338,13 @@ fn generated_linear_error_enum_propagates_on_both_edges() {
         run(
             &format!(
                 "{declarations}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#return (#match (#call convert ((value {constructor})))
                 (#case (Output.Ok yes) (#if yes 42u64 0u64))
-                (#case (Output.Err error) (#block (#forget error) 42u64))))\n"
+                (#case (Output.Err error) (#block (#forget error) 42u64))))\n  );\n}}\n"
             ),
             42,
         );
@@ -292,20 +352,26 @@ fn generated_linear_error_enum_propagates_on_both_edges() {
     rejected(
         &format!(
             "{declarations}
-#fn main () #bool
-          (#return (#call Input::is-ok ((value (#call Input::err ((error Error.Broken)))))))\n"
+#fn main {{
+  #params = ();
+  #returns = #bool;
+  #body = (
+          (#return (#call Input::is-ok ((value (#call Input::err ((error Error.Broken)))))))\n  );\n}}\n"
         ),
         "Input::is-ok",
     );
     run(
         "#struct Token (#linear) ((value #u64))
 #generate #optional ((type Token) (name Maybe))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let value Maybe (#call Maybe::construct ((value (#struct-literal Token ((value 42u64)))))))
           (#return (#match value
             (#case (Maybe.Some token) (#block
               (#let answer #u64 (#get token value)) (#forget token) answer))
-            (#case Maybe.None 0u64)))\n",
+            (#case Maybe.None 0u64)))\n  );\n}\n",
         42,
     );
 }
@@ -470,11 +536,14 @@ fn builtin_copy_policy_handles_aliases_exclusive_refs_and_explicit_linearity() {
     }
     run(
         "#generate #optional ((type (#ref-mut #u64)) (name Maybe))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut number #u64 42u64)
           (#let value Maybe (#call Maybe::construct ((value (#borrow-mut number)))))
           (#let-else (Maybe.Some view) Maybe value (#else Maybe.None (#return 0u64)))
-          (#return (#deref view))\n",
+          (#return (#deref view))\n  );\n}\n",
         42,
     );
 }
@@ -488,13 +557,16 @@ fn user_generator_emitted_builtins_keep_copy_dependent_helpers() {
         &format!(
             "{generator}#type Payload #u64
 #generate emit Payload
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let maybe Maybe (#call Maybe::construct ((value 42u64))))
           (#let result Result (#call Result::err ((error 42u64))))
           (#return (#if (#call Result::is-ok ((value (#clone result)))) 0u64
             (#u64::add-wrap
               (#call Maybe::unwrap-or ((value maybe) (fallback 0u64)))
-              (#call Result::unwrap-err-or ((value result) (fallback 0u64))))))\n"
+              (#call Result::unwrap-err-or ((value result) (fallback 0u64))))))\n  );\n}}\n"
         ),
         84,
     );
@@ -503,11 +575,14 @@ fn user_generator_emitted_builtins_keep_copy_dependent_helpers() {
 #enum Error (#linear) (Error.Broken)
 #type Payload Error
 #generate emit Payload
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let result Result (#call Result::err ((error Error.Broken))))
           (#let-else (Result.Ok yes) Result result
             (#else (Result.Err error) (#forget error) (#return 42u64)))
-          (#return (#if yes 1u64 0u64))\n"
+          (#return (#if yes 1u64 0u64))\n  );\n}}\n"
     );
     run(&source, 42);
     let program = lim::parse_program(&source).unwrap();
@@ -526,8 +601,11 @@ fn legacy_fallbacks_and_multiple_failure_statements() {
         run(
             &format!(
                 "#enum Choice () ((Choice.Some #u64) (Choice.Error #u64))
-#fn main () #u64 (#let value Choice (Choice.Error 42u64))
-              (#let-else (Choice.Some number) Choice value {fallback}) (#return number)\n"
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let value Choice (Choice.Error 42u64))
+              (#let-else (Choice.Some number) Choice value {fallback}) (#return number)\n  );\n}}\n"
             ),
             42,
         );
@@ -538,16 +616,22 @@ fn legacy_fallbacks_and_multiple_failure_statements() {
 fn failure_bindings_are_scoped_and_success_bindings_unavailable() {
     rejected(
         "#enum Choice () ((Choice.Some #u64) (Choice.Error #u64))
-#fn test ((value Choice)) #u64
+#fn test {
+  #params = ((value Choice));
+  #returns = #u64;
+  #body = (
           (#let-else (Choice.Some number) Choice value
-            (#else (Choice.Error error) (#return number))) (#return number)\n",
+            (#else (Choice.Error error) (#return number))) (#return number)\n  );\n}\n",
         "unknown variable or enum variant 'number'",
     );
     rejected(
         "#enum Choice () ((Choice.Some #u64) (Choice.Error #u64))
-#fn test ((value Choice)) #u64
+#fn test {
+  #params = ((value Choice));
+  #returns = #u64;
+  #body = (
           (#let-else (Choice.Some number) Choice value
-            (#else (Choice.Error error) (#return error))) (#return error)\n",
+            (#else (Choice.Error error) (#return error))) (#return error)\n  );\n}\n",
         "unknown variable or enum variant 'error'",
     );
 }
@@ -556,9 +640,12 @@ fn failure_bindings_are_scoped_and_success_bindings_unavailable() {
 fn failure_diagnostics_point_inside_else() {
     let scratch = support::Scratch::new("failure-diagnostics");
     let source = "#enum Choice () ((Choice.Some #u64) (Choice.Error #u64))
-#fn test ((value Choice)) #u64
+#fn test {
+  #params = ((value Choice));
+  #returns = #u64;
+  #body = (
           (#let-else (Choice.Some number) Choice value
-            (#else (Choice.Missing error) (#return error))) (#return number)\n";
+            (#else (Choice.Missing error) (#return error))) (#return number)\n  );\n}\n";
     let diagnostic = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),
@@ -614,16 +701,24 @@ fn reference_error_retains_provenance() {
     let source = "#struct Error () ((view (#ref #u64)))
 #generate #result ((ok #u64) (error Error) (name Input))
 #generate #result ((ok #bool) (error Error) (name Output))
-#fn convert ((value Input)) Output
+#fn convert {
+  #params = ((value Input));
+  #returns = Output;
+  #body = (
           (#let-else (Input.Ok number) Input value
             (#else (Input.Err error)
               (#return (#call Output::err ((error error))))))
           (#forget number) (#return (#call Output::ok ((value true))))
-#fn main () #u64 (#let-mut owner #u64 42u64)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let-mut owner #u64 42u64)
           (#let result Output (#call convert ((value (#call Input::err
             ((error (#struct-literal Error ((view (#borrow owner)))))))))))
           (#return (#match result (#case (Output.Ok _) 0u64)
-            (#case (Output.Err error) (#deref (#get error view)))))\n";
+            (#case (Output.Err error) (#deref (#get error view)))))\n  );\n}\n";
     run(source, 42);
     rejected(
         &source.replace(
@@ -655,15 +750,40 @@ fn preserves_failure_pattern_after_async_suspension() {
             &format!(
                 "#enum Input () ((Input.Ok #u64) (Input.Err #u32))
 #enum Output () ((Output.Ok #bool) (Output.Err #u32))
-#fn Input::ok ((value #u64)) Input (#return (Input.Ok value))
-#fn Input::err ((error #u32)) Input (#return (Input.Err error))
-#fn Output::ok ((value #bool)) Output (#return (Output.Ok value))
-#fn Output::err ((error #u32)) Output (#return (Output.Err error))
+#fn Input::ok {{
+  #params = ((value #u64));
+  #returns = Input;
+  #body = ( (#return (Input.Ok value))
+  );
+}}
+#fn Input::err {{
+  #params = ((error #u32));
+  #returns = Input;
+  #body = ( (#return (Input.Err error))
+  );
+}}
+#fn Output::ok {{
+  #params = ((value #bool));
+  #returns = Output;
+  #body = ( (#return (Output.Ok value))
+  );
+}}
+#fn Output::err {{
+  #params = ((error #u32));
+  #returns = Output;
+  #body = ( (#return (Output.Err error))
+  );
+}}
 #enum Step (#linear) ((Step.Waiting #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {{
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
               (#return (#match task (#case (Step.Waiting remaining)
                 (#if (#u64::eq remaining 0u64) (StepPoll.StepReady 0u64) (StepPoll.StepPending (Step.Waiting 0u64))))))
+  );
+}}
 #generate #async-fn ((protocol convert-await) (waker #u64) (function
               (#fn convert ((value Input)) Output
                 (#let waited #u64 (#await Step StepPoll.StepPending StepPoll.StepReady step-poll (Step.Waiting 1u64)))
@@ -672,7 +792,10 @@ fn preserves_failure_pattern_after_async_suspension() {
                   (#else (Input.Err error)
                     (#return (#call Output::err ((error error))))))
                 (#return (#call Output::ok ((value (#u64::eq number 42u64))))))))
-#fn main () #u64 (#let waker #u64 0u64)
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let waker #u64 0u64)
               (#let first Convert::Poll (#call Convert::poll ((task (#call convert ((value {constructor}))))
                 (waker (#borrow waker)))))
               (#let-else (Convert::Poll.Pending waiting) Convert::Poll first (#unreachable))
@@ -681,7 +804,7 @@ fn preserves_failure_pattern_after_async_suspension() {
                 (#case (Convert::Poll.Pending task) (#block (#forget task) 0u64))
                 (#case (Convert::Poll.Ready result) (#match result
                   (#case (Output.Ok yes) (#if yes 42u64 0u64))
-                  (#case (Output.Err error) (#as error #u64))))))\n"
+                  (#case (Output.Err error) (#as error #u64))))))\n  );\n}}\n"
             ),
             42,
         );

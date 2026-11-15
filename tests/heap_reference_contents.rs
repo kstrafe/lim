@@ -32,27 +32,52 @@ fn run(source: &str) {
 
 const PREFIX: &str = r#"
 #struct Holder () ((link (#ref #u64)))
-#fn make ((pointer (#ptr-mut Holder)) (source (#ref #u64))) (#pin-own Holder)
+#fn make {
+  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)));
+  #returns = (#pin-own Holder);
+  #body = (
       (#return (#unsafe (#pin-own-of pointer (#struct-literal Holder ((link source))))))
-#fn forward ((owner (#pin-own Holder))) (#pin-own Holder) (#return owner)
-#fn get ((owner (#ref (#pin-own Holder)))) (#ref #u64)
+  );
+}
+#fn forward {
+  #params = ((owner (#pin-own Holder)));
+  #returns = (#pin-own Holder);
+  #body = ( (#return owner)
+  );
+}
+#fn get {
+  #params = ((owner (#ref (#pin-own Holder))));
+  #returns = (#ref #u64);
+  #body = (
       (#let view (#pin-ref Holder) (#pin-own-borrow owner))
       (#return (#get view link))
-#fn destroy ((owner (#pin-own Holder))) ()
+  );
+}
+#fn destroy {
+  #params = ((owner (#pin-own Holder)));
+  #returns = ();
+  #body = (
       (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
       (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
       (#return ())
+  );
+}
 "#;
 
 const OWNER_CELL: &str = r#"
 #enum OwnerCell (#linear) ((OwnerCell.Empty ()) (OwnerCell.Full (#pin-own Holder)))
 
-#fn take-owner ((cell (#pin-ref-mut OwnerCell))) (#pin-own Holder)
+#fn take-owner {
+  #params = ((cell (#pin-ref-mut OwnerCell)));
+  #returns = (#pin-own Holder);
+  #body = (
       (#let previous OwnerCell (#unsafe (#pin-read cell)))
       (#unsafe (#pin-write cell (OwnerCell.Empty ())))
       (#return (#match previous
         (#case (OwnerCell.Empty unit) (#unreachable))
         (#case (OwnerCell.Full owner) owner)))
+  );
+}
 "#;
 
 #[test]
@@ -64,7 +89,10 @@ fn a_pinned_cell_extraction_definition_preserves_owned_allocation_slots() {
 fn extracted_heap_owner_can_be_read_by_a_later_call() {
     let source = format!(
         r#"{PREFIX} {OWNER_CELL}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut source #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -75,6 +103,8 @@ fn extracted_heap_owner_can_be_read_by_a_later_call() {
           (#let result (#ref #u64) (#call get ((owner (#borrow owner)))))
           (#call destroy ((owner owner)))
           (#return (#deref result))
+  );
+}}
 "#
     );
     run(&source);
@@ -90,13 +120,18 @@ fn extracted_heap_owner_can_be_read_by_a_later_call() {
 fn an_extracted_owner_cannot_outlive_its_external_referent() {
     let source = format!(
         r#"{PREFIX} {OWNER_CELL}
-#fn bad ((pointer (#ptr-mut Holder))) (#pin-own Holder)
+#fn bad {{
+  #params = ((pointer (#ptr-mut Holder)));
+  #returns = (#pin-own Holder);
+  #body = (
           (#let source #u64 42u64)
           (#let-mut cell OwnerCell (OwnerCell.Full (#call make ((pointer pointer) (source (#borrow source))))))
           (#let view (#pin-ref-mut OwnerCell) (#pin-borrow-mut cell))
           (#let owner (#pin-own Holder) (#call take-owner ((cell view))))
           (#drop view) (#forget cell)
           (#return owner)
+  );
+}}
 "#
     );
     let error = compile(&source).expect_err("extraction must not erase the stored lifetime");
@@ -107,7 +142,10 @@ fn an_extracted_owner_cannot_outlive_its_external_referent() {
 fn heap_contents_retain_external_references_through_owner_moves_and_calls() {
     run(&format!(
         r#"{PREFIX}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let source #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -116,6 +154,8 @@ fn heap_contents_retain_external_references_through_owner_moves_and_calls() {
           (#let result (#ref #u64) (#call get ((owner (#borrow moved)))))
           (#call destroy ((owner moved)))
           (#return (#deref result))
+  );
+}}
 "#
     ));
 }
@@ -124,9 +164,14 @@ fn heap_contents_retain_external_references_through_owner_moves_and_calls() {
 fn owner_cannot_outlive_a_reference_stored_in_its_allocation() {
     let source = format!(
         r#"{PREFIX}
-#fn bad ((pointer (#ptr-mut Holder))) (#pin-own Holder)
+#fn bad {{
+  #params = ((pointer (#ptr-mut Holder)));
+  #returns = (#pin-own Holder);
+  #body = (
           (#let local #u64 42u64)
           (#return (#call make ((pointer pointer) (source (#borrow local)))))
+  );
+}}
 "#
     );
     let error = compile(&source).expect_err("heap allocation does not extend the local lifetime");
@@ -137,13 +182,18 @@ fn owner_cannot_outlive_a_reference_stored_in_its_allocation() {
 fn stored_reference_keeps_source_borrowed_until_the_heap_owner_is_consumed() {
     let source = format!(
         r#"{PREFIX}
-#fn bad ((pointer (#ptr-mut Holder))) ()
+#fn bad {{
+  #params = ((pointer (#ptr-mut Holder)));
+  #returns = ();
+  #body = (
           (#let-mut source #u64 42u64)
           (#let owner (#pin-own Holder) (#call make ((pointer pointer) (source (#borrow source)))))
           (#set source 0u64)
           (#let view (#ref #u64) (#call get ((owner (#borrow owner)))))
           (#assert (#u64::eq (#deref view) 42u64))
           (#call destroy ((owner owner))) (#return ())
+  );
+}}
 "#
     );
     let error =
@@ -155,7 +205,10 @@ fn stored_reference_keeps_source_borrowed_until_the_heap_owner_is_consumed() {
 fn direct_heap_field_writes_track_the_new_source_without_rewriting_it() {
     let source = format!(
         r#"{PREFIX}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let first #u64 1u64) (#let-mut second #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -165,6 +218,8 @@ fn direct_heap_field_writes_track_the_new_source_without_rewriting_it() {
           (#drop view)
           (#let result (#ref #u64) (#call get ((owner (#borrow owner)))))
           (#call destroy ((owner owner))) (#return (#deref result))
+  );
+}}
 "#
     );
     run(&source);
@@ -180,7 +235,10 @@ fn direct_heap_field_writes_track_the_new_source_without_rewriting_it() {
 fn definite_heap_field_replacement_retires_only_the_old_source_loan() {
     let source = format!(
         r#"{PREFIX}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut first #u64 1u64) (#let-mut second #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -191,6 +249,8 @@ fn definite_heap_field_replacement_retires_only_the_old_source_loan() {
           (#set first 0u64)
           (#let result (#ref #u64) (#call get ((owner (#borrow owner)))))
           (#call destroy ((owner owner))) (#return (#deref result))
+  );
+}}
 "#
     );
     run(&source);
@@ -205,20 +265,30 @@ fn definite_heap_field_replacement_retires_only_the_old_source_loan() {
 fn replacement_does_not_retire_a_reference_already_loaded_from_the_old_field() {
     let prefix = format!(
         r#"{PREFIX}
-#fn replace ((owner (#ref-mut (#pin-own Holder))) (value (#ref #u64))) ()
+#fn replace {{
+  #params = ((owner (#ref-mut (#pin-own Holder))) (value (#ref #u64)));
+  #returns = ();
+  #body = (
           (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))
           (#pin-set-field view link value) (#return ())
+  );
+}}
 "#
     );
     let invalid = format!(
         r#"{prefix}
-#fn bad ((pointer (#ptr-mut Holder))) ()
+#fn bad {{
+  #params = ((pointer (#ptr-mut Holder)));
+  #returns = ();
+  #body = (
           (#let-mut first #u64 1u64) (#let second #u64 42u64)
           (#let-mut owner (#pin-own Holder) (#call make ((pointer pointer) (source (#borrow first)))))
           (#let previous (#ref #u64) (#call get ((owner (#borrow owner)))))
           (#call replace ((owner (#borrow-mut owner)) (value (#borrow second))))
           (#set first 0u64)
           (#call destroy ((owner owner))) (#return ())
+  );
+}}
 "#
     );
     let error = compile(&invalid).expect_err("the extracted reference still borrows first");
@@ -235,7 +305,10 @@ fn replacement_does_not_retire_a_reference_already_loaded_from_the_old_field() {
 fn branch_join_retains_each_possible_heap_field_referent() {
     let source = format!(
         r#"{PREFIX}
-#fn exercise ((pointer (#ptr-mut Holder)) (replace #bool)) ()
+#fn exercise {{
+  #params = ((pointer (#ptr-mut Holder)) (replace #bool));
+  #returns = ();
+  #body = (
           (#let-mut first #u64 1u64) (#let-mut second #u64 2u64)
           (#let-mut owner (#pin-own Holder) (#call make ((pointer pointer) (source (#borrow first)))))
           (#if replace
@@ -245,6 +318,8 @@ fn branch_join_retains_each_possible_heap_field_referent() {
             ())
           (#set first 0u64)
           (#call destroy ((owner owner))) (#return ())
+  );
+}}
 "#
     );
     let first = compile(&source).expect_err("the non-replacing branch still contains first");
@@ -261,7 +336,10 @@ fn branch_join_retains_each_possible_heap_field_referent() {
 fn loop_join_keeps_pre_loop_and_written_heap_field_referents() {
     let source = format!(
         r#"{PREFIX}
-#fn exercise ((pointer (#ptr-mut Holder)) (replace #bool)) ()
+#fn exercise {{
+  #params = ((pointer (#ptr-mut Holder)) (replace #bool));
+  #returns = ();
+  #body = (
           (#let-mut first #u64 1u64) (#let-mut second #u64 2u64)
           (#let-mut owner (#pin-own Holder) (#call make ((pointer pointer) (source (#borrow first)))))
           (#while replace
@@ -270,6 +348,8 @@ fn loop_join_keeps_pre_loop_and_written_heap_field_referents() {
               (#pin-set-field view link (#borrow second)) (#drop view)))
           (#set first 0u64)
           (#call destroy ((owner owner))) (#return ())
+  );
+}}
 "#
     );
     let first = compile(&source).expect_err("the loop may execute zero times");
@@ -285,10 +365,23 @@ fn loop_join_keeps_pre_loop_and_written_heap_field_referents() {
 #[test]
 fn uncertain_heap_destination_keeps_all_candidate_contents() {
     let source = r#"#struct Holder () ((link (#ref #u64)))
-#fn make ((pointer (#ptr-mut Holder)) (source (#ref #u64))) (#pin-own Holder)
+#fn make {
+  #params = ((pointer (#ptr-mut Holder)) (source (#ref #u64)));
+  #returns = (#pin-own Holder);
+  #body = (
           (#return (#unsafe (#pin-own-of pointer (#struct-literal Holder ((link source))))))
-#fn destroy ((owner (#pin-own Holder))) () (#forget owner) (#return ())
-#fn exercise ((first-pointer (#ptr-mut Holder)) (second-pointer (#ptr-mut Holder)) (choose #bool)) ()
+  );
+}
+#fn destroy {
+  #params = ((owner (#pin-own Holder)));
+  #returns = ();
+  #body = ( (#forget owner) (#return ())
+  );
+}
+#fn exercise {
+  #params = ((first-pointer (#ptr-mut Holder)) (second-pointer (#ptr-mut Holder)) (choose #bool));
+  #returns = ();
+  #body = (
           (#let-mut first #u64 1u64) (#let-mut second #u64 2u64)
           (#let-mut first-owner (#pin-own Holder) (#call make ((pointer first-pointer) (source (#borrow first)))))
           (#let-mut second-owner (#pin-own Holder) (#call make ((pointer second-pointer) (source (#borrow second)))))
@@ -300,6 +393,8 @@ fn uncertain_heap_destination_keeps_all_candidate_contents() {
           (#set first 0u64)
           (#call destroy ((owner first-owner))) (#call destroy ((owner second-owner)))
           (#return ())
+  );
+}
 "#;
     let first = compile(source).expect_err("either owner may still contain first");
     assert_eq!(first.code_string(), "E4100", "{}", first.message);
@@ -313,7 +408,10 @@ fn uncertain_heap_destination_keeps_all_candidate_contents() {
 
 #[test]
 fn direct_reference_pointees_keep_provenance_after_heap_owner_release() {
-    let source = r#"#fn main () #u64
+    let source = r#"#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
         (#let-mut source #u64 42u64)
         (#let pointer (#ptr-mut (#ref #u64)) (#unsafe (#linux-syscall (#ptr-mut (#ref #u64)) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -324,6 +422,8 @@ fn direct_reference_pointees_keep_provenance_after_heap_owner_release() {
         (#let raw (#ptr-mut (#ref #u64)) (#unsafe (#pin-release owner)))
         (#assert (#i64::eq (#unsafe (#linux-syscall #i64 11usize (raw 4096usize))) 0i64))
         (#return (#deref result))
+  );
+}
 "#;
     run(source);
     let bad = source.replace(
@@ -339,11 +439,19 @@ fn direct_reference_pointees_keep_provenance_after_heap_owner_release() {
 fn heap_reference_replacement_does_not_lose_a_new_borrow() {
     let source = format!(
         r#"{PREFIX}
-#fn replace ((owner (#ref-mut (#pin-own Holder))) (value (#ref #u64))) ()
+#fn replace {{
+  #params = ((owner (#ref-mut (#pin-own Holder))) (value (#ref #u64)));
+  #returns = ();
+  #body = (
           (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))
           (#pin-set-field view link value)
           (#return ())
-#fn bad ((pointer (#ptr-mut Holder))) ()
+  );
+}}
+#fn bad {{
+  #params = ((pointer (#ptr-mut Holder)));
+  #returns = ();
+  #body = (
           (#let first #u64 1u64)
           (#let-mut second #u64 2u64)
           (#let-mut owner (#pin-own Holder) (#call make ((pointer pointer) (source (#borrow first)))))
@@ -352,6 +460,8 @@ fn heap_reference_replacement_does_not_lose_a_new_borrow() {
           (#let result (#ref #u64) (#call get ((owner (#borrow owner)))))
           (#assert (#u64::eq (#deref result) 2u64))
           (#call destroy ((owner owner))) (#return ())
+  );
+}}
 "#
     );
     let error =
@@ -364,13 +474,21 @@ fn heap_reference_replacement_does_not_lose_a_new_borrow() {
 fn updated_contents_follow_an_owner_returned_by_a_helper() {
     let source = format!(
         r#"{PREFIX}
-#fn replace-owned ((owner (#pin-own Holder)) (value (#ref #u64))) (#pin-own Holder)
+#fn replace-owned {{
+  #params = ((owner (#pin-own Holder)) (value (#ref #u64)));
+  #returns = (#pin-own Holder);
+  #body = (
           (#let-mut moved (#pin-own Holder) owner)
           (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut moved))
           (#pin-set-field view link value)
           (#drop view)
           (#return moved)
-#fn bad ((pointer (#ptr-mut Holder))) ()
+  );
+}}
+#fn bad {{
+  #params = ((pointer (#ptr-mut Holder)));
+  #returns = ();
+  #body = (
           (#let first #u64 1u64)
           (#let-mut second #u64 2u64)
           (#let owner (#pin-own Holder) (#call make ((pointer pointer) (source (#borrow first)))))
@@ -379,6 +497,8 @@ fn updated_contents_follow_an_owner_returned_by_a_helper() {
           (#let result (#ref #u64) (#call get ((owner (#borrow updated)))))
           (#assert (#u64::eq (#deref result) 2u64))
           (#call destroy ((owner updated))) (#return ())
+  );
+}}
 "#
     );
     let error = compile(&source)
@@ -394,13 +514,21 @@ fn updated_contents_follow_an_owner_returned_by_a_helper() {
 fn definite_helper_replacement_retires_the_old_heap_field_loan() {
     let source = format!(
         r#"{PREFIX}
-#fn replace-owned ((owner (#pin-own Holder)) (value (#ref #u64))) (#pin-own Holder)
+#fn replace-owned {{
+  #params = ((owner (#pin-own Holder)) (value (#ref #u64)));
+  #returns = (#pin-own Holder);
+  #body = (
           (#let-mut moved (#pin-own Holder) owner)
           (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut moved))
           (#pin-set-field view link value)
           (#drop view)
           (#return moved)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut first #u64 1u64) (#let second #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -409,6 +537,8 @@ fn definite_helper_replacement_retires_the_old_heap_field_loan() {
           (#set first 0u64)
           (#let result (#ref #u64) (#call get ((owner (#borrow updated)))))
           (#call destroy ((owner updated))) (#return (#deref result))
+  );
+}}
 "#
     );
     run(&source);
@@ -418,10 +548,18 @@ fn definite_helper_replacement_retires_the_old_heap_field_loan() {
 fn a_helper_cannot_store_a_shorter_lived_reference_in_a_surviving_owner() {
     let source = format!(
         r#"{PREFIX}
-#fn replace ((owner (#ref-mut (#pin-own Holder))) (value (#ref #u64))) ()
+#fn replace {{
+  #params = ((owner (#ref-mut (#pin-own Holder))) (value (#ref #u64)));
+  #returns = ();
+  #body = (
           (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))
           (#pin-set-field view link value) (#return ())
-#fn bad ((pointer (#ptr-mut Holder))) ()
+  );
+}}
+#fn bad {{
+  #params = ((pointer (#ptr-mut Holder)));
+  #returns = ();
+  #body = (
           (#let first #u64 1u64)
           (#let-mut owner (#pin-own Holder) (#call make ((pointer pointer) (source (#borrow first)))))
           (#block
@@ -430,6 +568,8 @@ fn a_helper_cannot_store_a_shorter_lived_reference_in_a_surviving_owner() {
           (#let result (#ref #u64) (#call get ((owner (#borrow owner)))))
           (#assert (#u64::eq (#deref result) 2u64))
           (#call destroy ((owner owner))) (#return ())
+  );
+}}
 "#
     );
     let error = compile(&source)
@@ -443,10 +583,18 @@ fn a_helper_cannot_store_a_shorter_lived_reference_in_a_surviving_owner() {
 fn replaced_contents_are_read_from_the_heap() {
     run(&format!(
         r#"{PREFIX}
-#fn replace ((owner (#ref-mut (#pin-own Holder))) (value (#ref #u64))) ()
+#fn replace {{
+  #params = ((owner (#ref-mut (#pin-own Holder))) (value (#ref #u64)));
+  #returns = ();
+  #body = (
           (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))
           (#pin-set-field view link value) (#return ())
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let first #u64 1u64) (#let second #u64 42u64)
           (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
             (0usize 4096usize 3usize 34usize -1i64 0usize))))
@@ -454,6 +602,8 @@ fn replaced_contents_are_read_from_the_heap() {
           (#call replace ((owner (#borrow-mut owner)) (value (#borrow second))))
           (#let result (#ref #u64) (#call get ((owner (#borrow owner)))))
           (#call destroy ((owner owner))) (#return (#deref result))
+  );
+}}
 "#
     ));
 }
@@ -463,19 +613,34 @@ fn nested_heap_owners_keep_all_stored_reference_lifetimes() {
     let prefix = format!(
         r#"{PREFIX}
 #struct Outer () ((inner (#pin-own Holder)))
-#fn wrap ((pointer (#ptr-mut Outer)) (inner (#pin-own Holder))) (#pin-own Outer)
+#fn wrap {{
+  #params = ((pointer (#ptr-mut Outer)) (inner (#pin-own Holder)));
+  #returns = (#pin-own Outer);
+  #body = (
           (#return (#unsafe (#pin-own-of pointer (#struct-literal Outer ((inner inner))))))
-#fn erase ((owner (#pin-own Outer))) () (#forget owner) (#return ())
+  );
+}}
+#fn erase {{
+  #params = ((owner (#pin-own Outer)));
+  #returns = ();
+  #body = ( (#forget owner) (#return ())
+  );
+}}
 "#
     );
     let source = format!(
         r#"{prefix}
-#fn bad ((outer-pointer (#ptr-mut Outer)) (inner-pointer (#ptr-mut Holder))) ()
+#fn bad {{
+  #params = ((outer-pointer (#ptr-mut Outer)) (inner-pointer (#ptr-mut Holder)));
+  #returns = ();
+  #body = (
           (#let-mut source #u64 42u64)
           (#let inner (#pin-own Holder) (#call make ((pointer inner-pointer) (source (#borrow source)))))
           (#let outer (#pin-own Outer) (#call wrap ((pointer outer-pointer) (inner inner))))
           (#set source 0u64)
           (#call erase ((owner outer))) (#return ())
+  );
+}}
 "#
     );
     let error = compile(&source)
@@ -485,10 +650,15 @@ fn nested_heap_owners_keep_all_stored_reference_lifetimes() {
     assert!(error.message.contains("source"), "{}", error.message);
     let escaping = format!(
         r#"{prefix}
-#fn bad ((outer-pointer (#ptr-mut Outer)) (inner-pointer (#ptr-mut Holder))) (#pin-own Outer)
+#fn bad {{
+  #params = ((outer-pointer (#ptr-mut Outer)) (inner-pointer (#ptr-mut Holder)));
+  #returns = (#pin-own Outer);
+  #body = (
           (#let local #u64 42u64)
           (#let inner (#pin-own Holder) (#call make ((pointer inner-pointer) (source (#borrow local)))))
           (#return (#call wrap ((pointer outer-pointer) (inner inner))))
+  );
+}}
 "#
     );
     let error = compile(&escaping)
@@ -501,9 +671,19 @@ fn nested_heap_owners_keep_all_stored_reference_lifetimes() {
 #[test]
 fn storing_an_exclusive_reference_in_heap_storage_blocks_other_borrows() {
     let prefix = r#"#struct Exclusive () ((link (#ref-mut #u64)))
-#fn make ((pointer (#ptr-mut Exclusive)) (source (#ref-mut #u64))) (#pin-own Exclusive)
+#fn make {
+  #params = ((pointer (#ptr-mut Exclusive)) (source (#ref-mut #u64)));
+  #returns = (#pin-own Exclusive);
+  #body = (
           (#return (#unsafe (#pin-own-of pointer (#struct-literal Exclusive ((link source))))))
-#fn erase ((owner (#pin-own Exclusive))) () (#forget owner) (#return ())
+  );
+}
+#fn erase {
+  #params = ((owner (#pin-own Exclusive)));
+  #returns = ();
+  #body = ( (#forget owner) (#return ())
+  );
+}
 "#;
     for operation in [
         "(#let other (#ref #u64) (#borrow source))",
@@ -512,11 +692,16 @@ fn storing_an_exclusive_reference_in_heap_storage_blocks_other_borrows() {
     ] {
         let source = format!(
             r#"{prefix}
-#fn bad ((pointer (#ptr-mut Exclusive))) ()
+#fn bad {{
+  #params = ((pointer (#ptr-mut Exclusive)));
+  #returns = ();
+  #body = (
               (#let-mut source #u64 42u64)
               (#let owner (#pin-own Exclusive) (#call make ((pointer pointer) (source (#borrow-mut source)))))
               {operation}
               (#call erase ((owner owner))) (#return ())
+  );
+}}
 "#
         );
         let error = compile(&source)
@@ -530,13 +715,23 @@ fn storing_an_exclusive_reference_in_heap_storage_blocks_other_borrows() {
 #[test]
 fn stored_exclusive_field_blocks_a_later_borrow_of_its_external_referent() {
     let source = r#"#struct Holder () ((link (#ref-mut #u64)))
-#fn use-both ((holder (#ref-mut Holder)) (source (#ref #u64))) () (#return ())
-#fn main () ()
+#fn use-both {
+  #params = ((holder (#ref-mut Holder)) (source (#ref #u64)));
+  #returns = ();
+  #body = ( (#return ())
+  );
+}
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
           (#let-mut value #u64 1u64)
           (#let child (#ref-mut #u64) (#borrow-mut value))
           (#let-mut holder Holder (#struct-literal Holder ((link child))))
           (#call use-both ((holder (#borrow-mut holder)) (source (#borrow value))))
           (#forget holder) (#return ())
+  );
+}
 "#;
     let error = compile(source)
         .expect_err("the reference stored in Holder still exclusively borrows value");

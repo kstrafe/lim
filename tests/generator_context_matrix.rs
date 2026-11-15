@@ -11,8 +11,8 @@ fn write(root: &Path, path: &str, source: &str) {
 #[test]
 fn generated_file_access_is_exactly_definition_plus_invocation_not_dependencies() {
     let scratch = support::Scratch::new("generator-context-matrix");
-    write(scratch.path(), "producer/lib.lim", "#export make visible\n#fn hidden () #u64 (#return 42u64)\n#fn visible () #u64 (#return 42u64)\n#gn make (name text) `((#fn ,name () #u64 (#return (#call ,(#gn-symbol text) ()))))\n");
-    write(scratch.path(), "third/lib.lim", "#export visible\n#fn hidden () #u64 (#return 42u64)\n#fn visible () #u64 (#return 42u64)\n");
+    write(scratch.path(), "producer/lib.lim", "#export make visible\n#fn hidden {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#fn visible {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#gn make (name text) `((#fn ,name () #u64 (#return (#call ,(#gn-symbol text) ()))))\n");
+    write(scratch.path(), "third/lib.lim", "#export visible\n#fn hidden {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#fn visible {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n");
     for alias in ["one", "two"] {
         for (file, name, allowed) in [
             ("producer/lib.lim", "hidden", true),
@@ -24,8 +24,8 @@ fn generated_file_access_is_exactly_definition_plus_invocation_not_dependencies(
         ] {
             // Strings are literal data: manufacture the canonical target explicitly.
             let target = format!("{}::{name}", scratch.path().join(file).display());
-            write(scratch.path(), "caller/lib.lim", &format!("#export read visible\n#alias make = ../producer/lib.lim::make\n#alias third-visible = ../third/lib.lim::visible\n#fn hidden () #u64 (#return 42u64)\n#fn visible () #u64 (#return 42u64)\n#generate make read {target:?}\n"));
-            let source = format!("#alias {alias} = ./caller/lib.lim::read\n#fn main () #u64 (#return (#call {alias} ()))\n");
+            write(scratch.path(), "caller/lib.lim", &format!("#export read visible\n#alias make = ../producer/lib.lim::make\n#alias third-visible = ../third/lib.lim::visible\n#fn hidden {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n#fn visible {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n#generate make read {target:?}\n"));
+            let source = format!("#alias {alias} = ./caller/lib.lim::read\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call {alias} ()))\n  );\n}}\n");
             for mode in 0..3 {
                 let result = if mode == 0 {
                     lim::parse_program_from_path(&source, &scratch.path().join("main.lim"))
@@ -61,12 +61,12 @@ fn aliases_share_canonical_caller_authority_but_distinct_files_do_not() {
         "{}::hidden",
         scratch.path().join("caller/lib.lim").display()
     );
-    let caller = format!("#export read\n#alias make = ../producer/lib.lim::make\n#fn hidden () #u64 (#return 42u64)\n#generate make read {target:?}\n");
+    let caller = format!("#export read\n#alias make = ../producer/lib.lim::make\n#fn hidden {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n#generate make read {target:?}\n");
     write(scratch.path(), "caller/lib.lim", &caller);
     write(scratch.path(), "other/lib.lim", &caller);
     for (second_file, allowed) in [("caller/lib.lim", true), ("other/lib.lim", false)] {
         for order in [["one", "two"], ["two", "one"]] {
-            let source = format!("#alias {} = ./caller/lib.lim::read\n#alias {} = ./{second_file}::read\n#fn main () #u64 (#return (#u64::add-wrap (#call one ()) (#call two ())))\n", order[0], order[1]);
+            let source = format!("#alias {} = ./caller/lib.lim::read\n#alias {} = ./{second_file}::read\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-wrap (#call one ()) (#call two ())))\n  );\n}}\n", order[0], order[1]);
             for mode in 0..3 {
                 let result = if mode == 0 {
                     lim::parse_program_from_path(&source, &scratch.path().join("main.lim"))

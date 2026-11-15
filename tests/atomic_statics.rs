@@ -12,7 +12,10 @@ const SOURCE: &str = r#"
 #static current State (State.Active (#atomic-init #u16 7u16))
 #static small (#atomic #i8) (#atomic-init #i8 -1i8)
 #static readOnly #u64 17u64
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
     (#unsafe (#atomic-store (#borrow total) 42u64 #memory-relaxed))
     (#let old #u32 (#unsafe (#atomic-fetch-add
       (#borrow (#index (#get counts counters) 1usize)) 1u32 #memory-relaxed)))
@@ -26,6 +29,8 @@ const SOURCE: &str = r#"
     (#assert (#i8::eq (#unsafe (#atomic-load (#borrow small) #memory-relaxed)) -1i8))
     (#assert (#u64::eq (#unsafe readOnly) 17u64))
     (#return (#unsafe (#atomic-load (#borrow total) #memory-relaxed)))
+  );
+}
 "#;
 
 #[test]
@@ -66,9 +71,17 @@ fn constant_atomic_statics_and_nested_fields_use_writable_native_storage() {
 
 #[test]
 fn atomic_static_initializer_still_rejects_runtime_calls() {
-    let source = "#fn calculate () #u64 (#return 1u64)
+    let source = "#fn calculate {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 1u64)
+  );
+}
 #static total (#atomic #u64) (#atomic-init #u64 (#call calculate ()))
-#fn main () #u64 (#return 42u64)\n";
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}\n";
     let scratch = support::Scratch::new("atomic-static-nonconstant");
     let error = lim::compile_source_to_assembly(
         source,

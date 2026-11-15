@@ -49,7 +49,7 @@ fn checks_project_imports_and_cfg_without_creating_native_output() {
     let app = src.join("app");
     fs::create_dir_all(&app).unwrap();
     let input = app.join("main.lim");
-    let source = "#alias RootType = project::src/root-type.lim::RootType\n#alias Selected = project::modules/selected.lim::Selected\n#fn main () Selected (#return 0u64)\n";
+    let source = "#alias RootType = project::src/root-type.lim::RootType\n#alias Selected = project::modules/selected.lim::Selected\n#fn main {\n  #params = ();\n  #returns = Selected;\n  #body = ( (#return 0u64)\n  );\n}\n";
     fs::write(&input, source).unwrap();
 
     let (status, stdout, stderr) = run_lim(
@@ -70,7 +70,7 @@ fn checks_project_imports_and_cfg_without_creating_native_output() {
 fn reports_borrow_diagnostic_as_json_with_primary_byte_span() {
     let directory = scratch();
     let input = directory.join("borrow.lim");
-    let source = "#fn main () #u64\n    (#let-mut owner #u64 1u64)\n    (#let view (#ref #u64) (#borrow owner))\n    (#set owner 2u64)\n    (#drop view)\n    (#return 0u64)\n";
+    let source = "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let-mut owner #u64 1u64)\n    (#let view (#ref #u64) (#borrow owner))\n    (#set owner 2u64)\n    (#drop view)\n    (#return 0u64)\n  );\n}\n";
     fs::write(&input, source).unwrap();
     let (status, stdout, stderr) = run_lim(
         Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -105,7 +105,7 @@ fn reports_borrow_diagnostic_as_json_with_primary_byte_span() {
 fn checks_semantically_valid_source_without_running_native_codegen() {
     let directory = scratch();
     let input = directory.join("backend-only.lim");
-    let source = "#fn wide-result () #i128 (#return 1i128)\n#fn main () () (#return ())\n";
+    let source = "#fn wide-result {\n  #params = ();\n  #returns = #i128;\n  #body = ( (#return 1i128)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = ();\n  #body = ( (#return ())\n  );\n}\n";
     fs::write(&input, source).unwrap();
 
     let (status, stdout, stderr) = run_lim(

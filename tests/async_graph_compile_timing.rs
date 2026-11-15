@@ -9,10 +9,13 @@ fn source(functions: usize) -> String {
     let mut source = String::from(
         "#enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
 #enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
           (#return (#match task
             (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
-            (#case (Child.Resume value) (ChildPoll.Ready value))))\n",
+            (#case (Child.Resume value) (ChildPoll.Ready value))))\n  );\n}\n",
     );
     for index in 0..128 {
         source.push_str(&format!(
@@ -26,7 +29,7 @@ fn source(functions: usize) -> String {
               (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed))))))\n"
         ));
     }
-    source.push_str("#fn main () #u64 (#return 42u64)\n");
+    source.push_str("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n");
     source
 }
 

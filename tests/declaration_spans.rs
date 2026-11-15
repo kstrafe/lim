@@ -65,7 +65,7 @@ fn declaration_failures_select_occurrences_deterministically() {
         source.match_indices("Value").nth(3).unwrap().0
     );
 
-    let source = "#fn worker () #u64 (#return 0u64)\n#generate #thread-spawn ((task First) (worker worker))\n#generate #thread-spawn ((task Second) (worker worker))\n#struct Invalid () ((second First) (first Second))\n";
+    let source = "#fn worker {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n#generate #thread-spawn ((task First) (worker worker))\n#generate #thread-spawn ((task Second) (worker worker))\n#struct Invalid () ((second First) (first Second))\n";
     let expected = source.find("second First").unwrap() + "second ".len();
     for _ in 0..4 {
         let error = diagnostic(source, &path, &cache);

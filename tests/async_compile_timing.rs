@@ -89,15 +89,25 @@ fn async_compile_shapes_and_warm_cache() {
         "straight-async",
         r#"#enum Child () ((Child.Start #u64) (Child.Resume #u64))
 #enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
     (#return (#match task
       (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
       (#case (Child.Resume value) (ChildPoll.Ready value))))
+  );
+}
 #generate #async-fn ( (protocol Await) (waker #u64) (function
     (#fn work ((value #u64)) #u64
       (#let result #u64 (#await #u64 Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start value)))
       (#return result))))
-#fn main () #u64 (#return 0u64)
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)
+  );
+}
 "#,
     );
     let nested = fixture(

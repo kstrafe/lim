@@ -13,14 +13,27 @@ fn config() -> lim::CompileConfig {
 
 const CHILD: &str = "#enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
       (#return (#match task
         (#case (Child.Waiting count)
           (#if (#u64::lt count 2u64)
             (ChildPoll.ChildPending (Child.Waiting (#u64::add-wrap count 1u64)))
             (ChildPoll.ChildReady count)))))
-#fn cancel-child ((child Child)) () (#forget child) (#return ())
-#fn cancel-u64 ((value #u64)) () (#forget value) (#return ())\n";
+  );
+}
+#fn cancel-child {
+  #params = ((child Child));
+  #returns = ();
+  #body = ( (#forget child) (#return ())
+  );
+}
+#fn cancel-u64 {
+  #params = ((value #u64));
+  #returns = ();
+  #body = ( (#forget value) (#return ())\n  );\n}\n";
 
 const CANCEL: &str = "(cancel (work-cancel ((await-0 cancel-child))))";
 
@@ -157,7 +170,12 @@ fn rejects_mutable_alias_created_while_local_loan_is_live_across_await() {
 fn rejects_moving_owner_while_borrow_is_live_across_await() {
     let source = format!(
         "{CHILD}\n#struct Owner (#linear) ((value #u64))
-#fn destroy-owner ((value Owner)) () (#forget value) (#return ())
+#fn destroy-owner {{
+  #params = ((value Owner));
+  #returns = ();
+  #body = ( (#forget value) (#return ())
+  );
+}}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
             (cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child))))
             (function (#fn work () #u64
@@ -247,7 +265,10 @@ fn pinned_local_shared_borrow_survives_repeated_pending_polls() {
               (#let result #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
               (#let answer #u64 (#u64::add-wrap (#deref view) result))
               (#drop view) (#forget owner) (#return answer))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -259,7 +280,7 @@ fn pinned_local_shared_borrow_survives_repeated_pending_polls() {
               (#case (Work::Poll.Ready value) value)
               (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
             (#forget task) (#return (#if (#u64::eq answer 42u64) 42u64 0u64))
-"
+  );\n}}\n"
     );
     run_native(&source, "async-self-borrows", 42);
 }
@@ -276,7 +297,10 @@ fn pinned_local_shared_shared_aliases_are_valid_across_repeated_pending_polls() 
               (#let result #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
               (#let answer #u64 (#u64::add-wrap (#u64::add-wrap (#deref view) (#deref alias)) result))
               (#drop alias) (#drop view) (#forget owner) (#return answer))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -288,7 +312,7 @@ fn pinned_local_shared_shared_aliases_are_valid_across_repeated_pending_polls() 
               (#case (Work::Poll.Ready value) value)
               (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
             (#forget task) (#return (#if (#u64::eq answer 82u64) 42u64 0u64))
-"
+  );\n}}\n"
     );
     run_native(&source, "async-self-borrow-shared-alias", 42);
 }
@@ -305,7 +329,10 @@ fn pinned_local_mutable_borrow_survives_repeated_pending_polls() {
               (#deref-set view 41u64)
               (#let answer #u64 (#u64::add-wrap (#deref view) result))
               (#drop view) (#forget owner) (#return answer))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -317,7 +344,7 @@ fn pinned_local_mutable_borrow_survives_repeated_pending_polls() {
               (#case (Work::Poll.Ready value) value)
               (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
             (#forget task) (#return (#if (#u64::eq answer 43u64) 42u64 0u64))
-"
+  );\n}}\n"
     );
     run_native(&source, "async-self-borrow-mutable", 42);
 }
@@ -327,7 +354,12 @@ fn pinned_local_nested_mutable_projection_survives_repeated_pending_polls() {
     let source = format!(
         "{CHILD}
 #struct Owner (#linear) ((amount #i8))
-#fn destroy-owner ((value Owner)) () (#forget value) (#return ())
+#fn destroy-owner {{
+  #params = ((value Owner));
+  #returns = ();
+  #body = ( (#forget value) (#return ())
+  );
+}}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
             (cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child))))
             (function (#fn work () #u64
@@ -338,7 +370,10 @@ fn pinned_local_nested_mutable_projection_survives_repeated_pending_polls() {
               (#let amount #i8 (#deref view))
               (#let answer #u64 (#if (#i8::eq amount 40i8) (#u64::add-wrap result 40u64) 0u64))
               (#drop view) (#forget owner) (#return answer))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -349,7 +384,7 @@ fn pinned_local_nested_mutable_projection_survives_repeated_pending_polls() {
             (#let answer #u64 (#match third
               (#case (Work::Poll.Ready value) value)
               (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-            (#forget task) (#return (#if (#u64::eq answer 42u64) 42u64 0u64))\n"
+            (#forget task) (#return (#if (#u64::eq answer 42u64) 42u64 0u64))\n  );\n}}\n"
     );
     run_native(&source, "async-self-borrow-nested-mutable", 42);
 }
@@ -359,7 +394,12 @@ fn pinned_shared_owner_reference_reads_second_field_after_repeated_pending_polls
     let source = format!(
         "{CHILD}
 #struct Owner (#linear) ((first #u64) (second #i8))
-#fn destroy-owner ((value Owner)) () (#forget value) (#return ())
+#fn destroy-owner {{
+  #params = ((value Owner));
+  #returns = ();
+  #body = ( (#forget value) (#return ())
+  );
+}}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
             (cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child))))
             (function (#fn work () #u64
@@ -369,7 +409,10 @@ fn pinned_shared_owner_reference_reads_second_field_after_repeated_pending_polls
               (#let second #i8 (#get view second))
               (#let answer #u64 (#if (#i8::eq second -1i8) (#u64::add-wrap result 40u64) 0u64))
               (#drop view) (#forget owner) (#return answer))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let waker #u64 0u64)
             (#let-mut task Work::Frame (#call work ()))
             (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -380,7 +423,7 @@ fn pinned_shared_owner_reference_reads_second_field_after_repeated_pending_polls
             (#let answer #u64 (#match third
               (#case (Work::Poll.Ready value) value)
               (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-            (#forget task) (#return (#if (#u64::eq answer 42u64) 42u64 0u64))\n"
+            (#forget task) (#return (#if (#u64::eq answer 42u64) 42u64 0u64))\n  );\n}}\n"
     );
     run_native(&source, "async-self-borrow-multifield-shared", 42);
 }
@@ -438,7 +481,10 @@ fn selected_array_elements_source(mutable: bool) -> String {
                 (#drop view) (#assert (#u64::eq (#index owner 0usize) 1u64))
                 (#assert (#u64::eq (#index owner 2usize) 3u64))
                 (#forget owner) (#return answer))))
-#fn run ((choose #bool) (cancel #bool)) #u64
+#fn run {{
+  #params = ((choose #bool) (cancel #bool));
+  #returns = #u64;
+  #body = (
               (#let-mut external (#array #u64 4)
                 (#array-of (#array #u64 4) 4u64 5u64 50u64 7u64))
               (#let waker #u64 0u64)
@@ -460,12 +506,18 @@ fn selected_array_elements_source(mutable: bool) -> String {
               (#assert (#u64::eq (#index external 3usize) 7u64))
               (#assert (#u64::eq (#index external 2usize) (#if choose 50u64 {external_value}u64)))
               (#return answer)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#assert (#u64::eq (#call run ((choose true) (cancel false))) {left_result}u64))
-              (#assert (#u64::eq (#call run ((choose false) (cancel false))) {right_result}u64))
+              (#assert (#u64::eq (#call run ((choose false) (cancel false))) {CANCEL}0u64))
               (#assert (#u64::eq (#call run ((choose true) (cancel true))) 42u64))
               (#return (#call run ((choose false) (cancel true))))
-")
+  );
+}}\n")
 }
 
 #[test]
@@ -568,14 +620,17 @@ fn dormant_out_of_bounds_array_anchor_is_not_probed() {
               (#borrow (#index left 8usize)) (#borrow (#index right 2usize))))
             (#let result #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
             (#return (#u64::add-wrap (#deref view) result)))))
-#fn main () #u64 (#let waker #u64 0u64)
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((choose false))))
           (#let answer #u64 (#loop
             (#match (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
               (#case (Work::Poll.Pending next) (#block (#drop next) (#continue)))
               (#case (Work::Poll.Ready value) (#block (#break value))))))
           (#forget task) (#return answer)
-"
+  );\n}}\n"
     );
     run_native(&source, "async-dormant-array-anchor", 52);
 }
@@ -607,7 +662,10 @@ fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
                 {write}
                 (#let answer #u64 (#u64::add-wrap (#deref view) ignored))
                 (#drop view) {owner_check} (#forget left) (#forget right) (#return answer))))
-#fn run ((choose #bool)) #u64
+#fn run {{
+  #params = ((choose #bool));
+  #returns = #u64;
+  #body = (
               (#let waker #u64 0u64)
               (#let-mut task Work::Frame (#call work (($ choose))))
               (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -619,11 +677,16 @@ fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
                 (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
               (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
               (#forget task) (#return answer)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#assert (#u64::eq (#call run ((choose true))) {left_result}u64))
               (#assert (#u64::eq (#call run ((choose false))) {right_result}u64))
               (#return 42u64)
-");
+  );\n}}\n");
         run_native(&source, "async-selected-internal-reference", 42);
     }
 }
@@ -654,7 +717,10 @@ fn mixed_internal_external_reference_retains_caller_storage() {
                 {write}
                 (#let answer #u64 (#u64::add-wrap (#deref view) extra))
                 (#drop view) (#forget owner) (#return answer))))
-#fn run ((choose #bool)) #u64
+#fn run {{
+  #params = ((choose #bool));
+  #returns = #u64;
+  #body = (
               (#let-mut external #u64 50u64) (#let waker #u64 0u64)
               (#let-mut task Work::Frame (#call work ((external (#borrow{suffix} external)) (choose choose))))
               (#let answer #u64 (#loop
@@ -663,10 +729,15 @@ fn mixed_internal_external_reference_retains_caller_storage() {
                   (#case (Work::Poll.Ready value) (#block (#break value))))))
               (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
               (#forget task) (#assert (#u64::eq external {external_value})) (#return answer)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#assert (#u64::eq (#call run ((choose true))) {inside}u64))
-              (#assert (#u64::eq (#call run ((choose false))) {outside}u64)) (#return 42u64)
-");
+              (#assert (#u64::eq (#call run ((choose false))) {CANCEL}0u64)) (#return 42u64)
+  );\n}}\n");
         run_native(&source, "async-mixed-reference", 42);
     }
 }
@@ -684,7 +755,10 @@ fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
             (#deref-set view 42u64)
             (#let answer #u64 (#u64::add-wrap (#deref view) extra))
             (#drop view) (#forget owner) (#return answer))))
-#fn run ((choose #bool) (cancel #bool)) #u64
+#fn run {{
+  #params = ((choose #bool) (cancel #bool));
+  #returns = #u64;
+  #body = (
           (#let-mut external Outside (#struct-literal Outside ((other 90u64) (selected 50u64))))
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((external (#borrow-mut external)) (choose choose))))
@@ -706,12 +780,17 @@ fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
           (#assert (#u64::eq (#get external other) 90u64))
           (#assert (#u64::eq (#get external selected) (#if choose 50u64 42u64)))
           (#return answer)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#assert (#u64::eq (#call run ((choose true) (cancel false))) 44u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel false))) 44u64))
           (#assert (#u64::eq (#call run ((choose true) (cancel true))) 42u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel true))) 42u64)) (#return 42u64)
-");
+  );\n}}\n");
     run_native(&source, "async-mixed-external-projection", 42);
 }
 
@@ -730,17 +809,23 @@ fn mixed_selected_future_cannot_erase_a_callers_borrow_or_escape_its_local() {
     );
     let conflict = "(#set external 99u64)";
     let source = format!("{work}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut external #u64 50u64) (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((external (#borrow external)) (choose true))))
           (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
-          (#forget first) {conflict} (#forget task) (#return 0u64)\n");
+          (#forget first) {conflict} (#forget task) (#return 0u64)\n  );\n}}\n");
     assert_borrow_error(&source, "async-mixed-caller-mutation", "#set", 0);
     let escaping = format!(
         "{work}
-#fn escape () Work::Frame
+#fn escape {{
+  #params = ();
+  #returns = Work::Frame;
+  #body = (
           (#let local #u64 50u64)
-          (#return (#call work ((external (#borrow local)) (choose false))))\n"
+          (#return (#call work ((external (#borrow local)) (choose false))))\n  );\n}}\n"
     );
     let error = compile_error(&escaping, "async-mixed-caller-escape");
     assert_eq!(error.code, DiagnosticCode::Borrow, "{error:?}");
@@ -763,7 +848,10 @@ fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
             (#assert (#u64::eq (#get view first) (#if choose 1u64 10u64)))
             (#let answer #u64 (#u64::add-wrap (#get view last) extra))
             (#drop view) (#forget owner) (#return answer))))
-#fn run ((choose #bool)) #u64
+#fn run {{
+  #params = ((choose #bool));
+  #returns = #u64;
+  #body = (
           (#let-mut external Values (#struct-literal Values ((first 10u64) (second 20u64)
             (third 30u64) (fourth 40u64) (fifth 50u64) (sixth 60u64) (seventh 70u64) (last 80u64))))
           (#let waker #u64 0u64)
@@ -775,10 +863,15 @@ fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
           (#forget task) (#assert (#u64::eq (#get external first) 10u64))
           (#assert (#u64::eq (#get external last) (#if choose 80u64 42u64))) (#return answer)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#assert (#u64::eq (#call run ((choose true))) 44u64))
           (#assert (#u64::eq (#call run ((choose false))) 44u64)) (#return 42u64)
-"
+  );\n}}\n"
     );
     run_native(&source, "async-mixed-aggregate-layout", 42);
 }
@@ -790,10 +883,20 @@ fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
 #struct Left (#linear) ((selected #u64) (other #u64))
 #struct Right (#linear) ((other #u64) (selected #u64))
 
-#fn destroy-left ((value Left)) ()
+#fn destroy-left {{
+  #params = ((value Left));
+  #returns = ();
+  #body = (
           (#assert (#u64::eq (#get value selected) 10u64)) (#forget value) (#return ())
-#fn destroy-right ((value Right)) ()
+  );
+}}
+#fn destroy-right {{
+  #params = ((value Right));
+  #returns = ();
+  #body = (
           (#assert (#u64::eq (#get value selected) 20u64)) (#forget value) (#return ())
+  );
+}}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
           (cancel (work-cancel ((left destroy-left) (right destroy-right) (await-0 cancel-child))))
           (function (#fn work ((choose #bool)) #u64
@@ -809,7 +912,10 @@ fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
             (#assert (#u64::eq (#if choose (#get right selected) (#get left selected))
               (#if choose 20u64 10u64)))
             (#forget left) (#forget right) (#return answer))))
-#fn run ((choose #bool)) #u64
+#fn run {{
+  #params = ((choose #bool));
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work (($ choose))))
           (#let answer #u64 (#loop
@@ -818,7 +924,12 @@ fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
               (#case (Work::Poll.Ready value) (#block (#break value))))))
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
           (#forget task) (#return answer)
-#fn cancel-run ((choose #bool)) ()
+  );
+}}
+#fn cancel-run {{
+  #params = ((choose #bool));
+  #returns = ();
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work (($ choose))))
           (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
@@ -826,10 +937,15 @@ fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task next))))))
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
           (#forget task) (#return ())
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#call cancel-run ((choose true))) (#call cancel-run ((choose false)))
           (#assert (#u64::eq (#call run ((choose true))) 42u64))
-          (#return (#call run ((choose false))))\n"
+          (#return (#call run ((choose false))))\n  );\n}}\n"
     );
     run_native(&source, "async-selected-internal-projections", 42);
 }
@@ -848,7 +964,10 @@ fn selected_internal_reference_can_switch_owners_on_loop_backedges() {
               (#forget ignored) (#set total (#u64::add-wrap total (#deref view))) (#drop view)
               (#set iteration (#u64::add-wrap iteration 1u64)))
             (#forget left) (#forget right) (#return total))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work ()))
           (#let answer #u64 (#loop
             (#match (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
@@ -856,7 +975,7 @@ fn selected_internal_reference_can_switch_owners_on_loop_backedges() {
               (#case (Work::Poll.Ready value) (#block (#break value))))))
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
           (#forget task) (#assert (#u64::eq answer 90u64)) (#return 42u64)
-"
+  );\n}}\n"
     );
     run_native(&source, "async-selected-internal-loop", 42);
 }
@@ -866,7 +985,12 @@ fn selected_internal_references_do_not_invent_branch_correlated_consumption() {
     let source = format!(
         "{CHILD}
 #struct Owner (#linear) ((value #u64))
-#fn destroy-owner ((value Owner)) () (#forget value) (#return ())
+#fn destroy-owner {{
+  #params = ((value Owner));
+  #returns = ();
+  #body = ( (#forget value) (#return ())
+  );
+}}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
           (cancel (work-cancel ((left destroy-owner) (right destroy-owner) (await-0 cancel-child))))
           (function (#fn work ((choose #bool)) #u64
@@ -878,7 +1002,10 @@ fn selected_internal_references_do_not_invent_branch_correlated_consumption() {
             (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
             (#let answer #u64 (#u64::add-wrap (#deref view) ignored))
             (#drop view) (#if choose (#forget left) (#forget right)) (#return answer))))
-#fn run ((choose #bool)) #u64
+#fn run {{
+  #params = ((choose #bool));
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work (($ choose))))
           (#let answer #u64 (#loop
             (#match (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker))))
@@ -886,9 +1013,14 @@ fn selected_internal_references_do_not_invent_branch_correlated_consumption() {
               (#case (Work::Poll.Ready value) (#block (#break value))))))
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task (#pin-borrow-mut task)))))))
           (#forget task) (#return answer)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#assert (#u64::eq (#call run ((choose true))) 42u64))
-          (#assert (#u64::eq (#call run ((choose false))) 52u64)) (#return 42u64)\n"
+          (#assert (#u64::eq (#call run ((choose false))) 52u64)) (#return 42u64)\n  );\n}}\n"
     );
     let error = compile_error(&source, "async-selected-correlated-consumption");
     assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
@@ -908,14 +1040,17 @@ fn forgetting_a_pending_handle_does_not_make_the_self_referential_frame_movable(
             (#let result #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
             (#let answer #u64 (#u64::add-wrap (#deref view) result))
             (#drop view) (#forget owner) (#return answer))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ()))
           (#let first Work::Poll (#call Work::poll
             ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
           (#forget first)
           (#let moved Work::Frame task)
-          (#forget moved) (#return 0u64)\n"
+          (#forget moved) (#return 0u64)\n  );\n}}\n"
     );
     let error = compile_error(&source, "async-forgotten-pin-still-stationary");
     assert!(error.message.contains("stationary"), "{}", error.message);

@@ -19,11 +19,14 @@ fn generated_headers_and_contributions_merge_after_expansion() {
 #generate declare Error
 #generate contribute Error Error.First #u64
 #enum-contribute Error (Error.First #u64)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let error Error (Error.First 42u64))
             (#return (#match error
               (#case (Error.First value) value)
-              (#case (Error.Last value) (#as value #u64))))\n";
+              (#case (Error.Last value) (#as value #u64))))\n  );\n}\n";
     let program = check(source).unwrap();
     let (linear, variants) = program
         .items
@@ -76,11 +79,14 @@ fn aliases_and_cache_hits_keep_the_complete_enum() {
             "#alias AppError = ./enum.lim::AppError
 {aliases}
 #enum-contribute AppError (AppError.First #u64)
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#return (#match (AppError.First 42u64)
                 (#case (AppError.First value) value)
                 (#case (AppError.Last value) (#as value #u64))))
-"
+  );\n}}\n"
         );
         fs::write(root.join("main.lim"), &source).unwrap();
         for _ in 0..2 {
@@ -113,8 +119,11 @@ fn cfg_and_file_aliases_apply_before_merging() {
         "#distributed-enum Error ()
 #enum-contribute Error (Error.Stable #u64)
 #cfg-if (#cfg-is #extra yes) (#enum-contribute Error (Error.Extra #u32))
-#fn value () #u64 (#return (#match (Error.Stable 42u64)
-            (#case (Error.Stable value) value) (#case _ 0u64)))\n",
+#fn value {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#match (Error.Stable 42u64)
+            (#case (Error.Stable value) value) (#case _ 0u64)))\n  );\n}\n",
     )
     .unwrap();
     for extra in ["no", "yes"] {
@@ -122,7 +131,10 @@ fn cfg_and_file_aliases_apply_before_merging() {
         config.set("extra", extra);
         lim::compile_source_to_assembly(
             "#alias value = ./errors.lim::value
-#fn main () #u64 (#return (#call value ()))\n",
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call value ()))\n  );\n}\n",
             &scratch.path().join("main.lim"),
             &config,
             &scratch.path().join("cache"),
@@ -155,9 +167,12 @@ fn linear_payloads_propagate_without_marking_the_distributed_enum() {
     let source = "#struct Resource (#linear) ((value #u64))
 #distributed-enum Error ()
 #enum-contribute Error (Error.Failure Resource)
-#fn main () ()
+#fn main {
+  #params = ();
+  #returns = ();
+  #body = (
             (#let error Error (Error.Failure (#struct-literal Resource ((value 1u64)))))
-            (#return ())\n";
+            (#return ())\n  );\n}\n";
     assert!(check(source).is_err());
     check(&source.replace("(#return ())", "(#forget error) (#return ())")).unwrap();
 }

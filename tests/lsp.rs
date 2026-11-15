@@ -125,12 +125,15 @@ fn enum_case_variants_navigate_in_every_borrow_mode_without_binding_false_positi
         let text = format!(
             "#enum Choice () ((Choice.Full #u64) Choice.Empty)
 
-#fn inspect ((input {ty})) #u64
+#fn inspect {{
+  #params = ((input {ty}));
+  #returns = #u64;
+  #body = (
               (#return (#match input
                 ({keyword} (Choice.Full payload) (#when true)
                   (#let answer #u64 {read}) answer)
                 ({keyword} Choice.Empty 0u64)
-                (#case _ 1u64)))\n"
+                (#case _ 1u64)))\n  );\n}}\n"
         );
         lim::check_types(&lim::parse_program(&text).unwrap()).unwrap();
         let mut messages = start();
@@ -185,10 +188,18 @@ fn enum_case_variants_navigate_in_nested_and_or_patterns() {
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     let text = "#enum Color () (Color.Red Color.Green Color.Blue)
 #enum Wrapped () ((Wrapped.Wrap Color))
-#fn nested ((input Wrapped)) #u64 (#return (#match input
+#fn nested {
+  #params = ((input Wrapped));
+  #returns = #u64;
+  #body = ( (#return (#match input
           (#case (Wrapped.Wrap inner) (#match inner (#case Color.Red 1u64) (#case _ 0u64)))))
-#fn alternatives ((input Color)) #u64 (#return (#match input
-          (#case (#or Color.Red Color.Green) 42u64) (#case Color.Blue 0u64)))\n";
+  );
+}
+#fn alternatives {
+  #params = ((input Color));
+  #returns = #u64;
+  #body = ( (#return (#match input
+          (#case (#or Color.Red Color.Green) 42u64) (#case Color.Blue 0u64)))\n  );\n}\n";
     lim::check_types(&lim::parse_program(text).unwrap()).unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, text));
@@ -229,13 +240,19 @@ fn enum_case_variants_resolve_through_explicit_file_aliases() {
     let entry = base.join("main.lim");
     let types_text = "#enum Choice () ((Choice.Full #u64) Choice.Empty)\n";
     let child_text = "#alias Choice = ./types.lim::Choice
-#fn read ((input Choice)) #u64 (#return (#match input
+#fn read {
+  #params = ((input Choice));
+  #returns = #u64;
+  #body = ( (#return (#match input
           (#case (Choice.Full payload) (#let answer #u64 payload) answer)
-          (#case Choice.Empty 0u64)))\n";
+          (#case Choice.Empty 0u64)))\n  );\n}\n";
     let entry_text = "#alias Choice = ./types.lim::Choice
 #alias read = ./child.lim::read
-#fn main () #u64 (#let input Choice (#enum-literal Choice.Full 42u64))
-          (#return (#match input (#case (Choice.Full payload) payload) (#case Choice.Empty 0u64)))\n";
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let input Choice (#enum-literal Choice.Full 42u64))
+          (#return (#match input (#case (Choice.Full payload) payload) (#case Choice.Empty 0u64)))\n  );\n}\n";
     for (path, text) in [
         (&types, types_text),
         (&child, child_text),
@@ -316,8 +333,11 @@ fn enum_case_variants_navigate_to_user_and_builtin_generated_definitions() {
         std::fs::create_dir_all(&base).unwrap();
         let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
         let source = format!(
-            "{declarations}\n#fn main () #u64 (#let input {ty} {value})
-            (#return (#match input (#case ({variant} payload) payload) (#case {empty} 0u64)))\n"
+            "{declarations}\n#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let input {ty} {value})
+            (#return (#match input (#case ({variant} payload) payload) (#case {empty} 0u64)))\n  );\n}}\n"
         );
         let mut messages = start();
         messages.push(open(&uri, 1, &source));
@@ -366,7 +386,7 @@ fn distributed_enum_contributions_navigate_through_direct_file_aliases() {
         std::fs::create_dir_all(&base).unwrap();
         let entry = base.join("main.lim");
         let contribution = base.join("contribution.lim");
-        let source="#alias Event = ./contribution.lim::Event\n#fn main () #u64 (#let input Event (Event.Ready 42u64)) (#return (#match input (#case (Event.Ready payload) payload)))\n";
+        let source="#alias Event = ./contribution.lim::Event\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let input Event (Event.Ready 42u64)) (#return (#match input (#case (Event.Ready payload) payload)))\n  );\n}\n";
         let declaration = if generated {
             "#distributed-enum Event ()\n#gn contribute () `((#enum-contribute Event (Event.Ready #u64)))\n#generate contribute\n"
         } else {
@@ -411,7 +431,7 @@ fn enum_case_variants_resolve_through_direct_file_aliases() {
     std::fs::create_dir_all(&base).unwrap();
     let library = base.join("library.lim");
     let app = base.join("app.lim");
-    let library_text = "#enum Choice () ((Choice.Ready #u64) Choice.Pending)\n#fn classify ((input Choice)) #u64 (#return (#match input (#case (Choice.Ready payload) payload) (#case Choice.Pending 0u64)))\n";
+    let library_text = "#enum Choice () ((Choice.Ready #u64) Choice.Pending)\n#fn classify {\n  #params = ((input Choice));\n  #returns = #u64;\n  #body = ( (#return (#match input (#case (Choice.Ready payload) payload) (#case Choice.Pending 0u64)))\n  );\n}\n";
     let entry_text = "#alias classify = ./library.lim::classify\n";
     std::fs::write(&library, library_text).unwrap();
     std::fs::write(&app, entry_text).unwrap();
@@ -448,8 +468,8 @@ fn enum_case_variants_do_not_resolve_quoted_inactive_or_ambiguous_uses() {
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     for source in [
         "#enum Choice () (Choice.Ready)\n#gn data () '(#match x (#case Choice.Ready 0u64))\n",
-        "#enum Choice () (Choice.Ready)\n#cfg-if (#cfg-is #feature enabled) (#fn inactive () #u64 (#return (#match Choice.Ready (#case Choice.Ready 0u64))))\n",
-        "#enum First () (Second.Ready)\n#enum Second () (Second.Ready)\n#fn main () #u64 (#return (#match Second.Ready (#case Second.Ready 0u64)))\n",
+        "#enum Choice () (Choice.Ready)\n#cfg-if (#cfg-is #feature enabled) (#fn inactive {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#match Choice.Ready (#case Choice.Ready 0u64)))\n  );\n})\n",
+        "#enum First () (Second.Ready)\n#enum Second () (Second.Ready)\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#match Second.Ready (#case Second.Ready 0u64)))\n  );\n}\n",
     ] {
         let mut messages = start();
         messages.push(open(&uri, 1, source));
@@ -504,13 +524,13 @@ fn repeated_entry_aliases_navigate_to_one_shared_declaration() {
     let base = std::env::temp_dir().join(format!("lim-lsp-multi-entries-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let library = base.join("library.lim");
-    let library_text = "#fn read-value () #u64 (#return 42u64)\n";
+    let library_text = "#fn read-value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
     std::fs::write(&library, library_text).unwrap();
     let mut contexts = Vec::new();
     let mut entries = Vec::new();
     for name in ["app", "test", "bench"] {
         let entry = base.join(format!("{name}.lim"));
-        let text = "#alias read-value = ./library.lim::read-value\n#fn main () #u64 (#return (#call read-value ()))\n";
+        let text = "#alias read-value = ./library.lim::read-value\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call read-value ()))\n  );\n}\n";
         std::fs::write(&entry, text).unwrap();
         contexts.push(context(&entry, CompileConfig::default()));
         entries.push((entry, text));
@@ -548,11 +568,11 @@ fn multi_context_cfg_and_unsaved_buffers_select_distinct_direct_file_declaration
     let entry = base.join("main.lim");
     let app_file = base.join("app-module.lim");
     let test_file = base.join("test-module.lim");
-    let app_text = "#fn selected () #u64 (#return 10u64)\n";
-    let test_text = "#fn selected () #u64 (#return 20u64)\n";
+    let app_text = "#fn selected {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 10u64)\n  );\n}\n";
+    let test_text = "#fn selected {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 20u64)\n  );\n}\n";
     std::fs::write(&app_file, app_text).unwrap();
     std::fs::write(&test_file, test_text).unwrap();
-    let entry_text="#cfg-if (#cfg-is #mode app) (#alias selected = ./app-module.lim::selected) (#cfg-else (#alias selected = ./test-module.lim::selected))\n#fn main () #u64 (#return (#call selected ()))\n";
+    let entry_text="#cfg-if (#cfg-is #mode app) (#alias selected = ./app-module.lim::selected) (#cfg-else (#alias selected = ./test-module.lim::selected))\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call selected ()))\n  );\n}\n";
     std::fs::write(&entry, &entry_text).unwrap();
     let mut app = CompileConfig::default();
     app.set("mode", "app");
@@ -597,7 +617,7 @@ fn custom_generator_artifacts_are_reached_through_direct_file_aliases() {
     let mut sources = Vec::new();
     for (name, value) in [("app", 10), ("test", 20)] {
         let entry = base.join(format!("{name}.lim"));
-        let text = format!("#alias emit = ./library.lim::emit\n#generate emit {value}u64\n#fn main () #u64 (#return (#call provided ()))\n");
+        let text = format!("#alias emit = ./library.lim::emit\n#generate emit {value}u64\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call provided ()))\n  );\n}}\n");
         std::fs::write(&entry, &text).unwrap();
         contexts.push(context(&entry, CompileConfig::default()));
         sources.push((entry, text));
@@ -637,13 +657,13 @@ fn multi_context_direct_aliases_share_file_declaration_identity() {
     let base = std::env::temp_dir().join(format!("lim-lsp-multi-modules-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let library = base.join("library.lim");
-    let text = "#fn read-value () #u64 (#return 42u64)\n";
+    let text = "#fn read-value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
     std::fs::write(&library, text).unwrap();
     let mut contexts = Vec::new();
     let mut entries = Vec::new();
     for name in ["app", "test"] {
         let entry = base.join(format!("{name}.lim"));
-        let source = "#alias read-value = ./library.lim::read-value\n#fn main () #u64 (#return (#call read-value ()))\n";
+        let source = "#alias read-value = ./library.lim::read-value\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call read-value ()))\n  );\n}\n";
         std::fs::write(&entry, source).unwrap();
         contexts.push(context(&entry, CompileConfig::default()));
         entries.push((entry, source));
@@ -680,13 +700,13 @@ fn multi_context_diagnostics_identify_failing_entry_and_preserve_direct_aliases(
     let base = std::env::temp_dir().join(format!("lim-lsp-multi-errors-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let library = base.join("library.lim");
-    let library_text = "#fn read-value () #u64 (#return 42u64)\n";
+    let library_text = "#fn read-value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
     std::fs::write(&library, library_text).unwrap();
     let app = base.join("app.lim");
     let test = base.join("test.lim");
     let broken = base.join("broken.lim");
-    let app_text = "#alias read-value = ./library.lim::read-value\n#fn main () #u64 (#return (#call read-value ()))\n";
-    let test_text = "#alias read-value = ./library.lim::read-value\n#fn main () #bool (#return (#call read-value ()))\n";
+    let app_text = "#alias read-value = ./library.lim::read-value\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call read-value ()))\n  );\n}\n";
+    let test_text = "#alias read-value = ./library.lim::read-value\n#fn main {\n  #params = ();\n  #returns = #bool;\n  #body = ( (#return (#call read-value ()))\n  );\n}\n";
     std::fs::write(&app, app_text).unwrap();
     std::fs::write(&test, test_text).unwrap();
     std::fs::write(&broken, ")").unwrap();
@@ -731,9 +751,9 @@ fn cfg_excluded_direct_file_calls_do_not_add_another_entries_matching_name() {
     let entry = base.join("main.lim");
     let app_file = base.join("app-module.lim");
     let test_file = base.join("test-module.lim");
-    std::fs::write(&app_file, "#fn selected () #u64 (#return 42u64)\n").unwrap();
-    std::fs::write(&test_file, "#fn selected () #u64 (#return 24u64)\n").unwrap();
-    let source="#cfg-if (#cfg-is #mode app) (#alias selected = ./app-module.lim::selected) (#cfg-else (#alias selected = ./test-module.lim::selected))\n#fn main () #u64 (#return (#call selected ()))\n";
+    std::fs::write(&app_file, "#fn selected {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
+    std::fs::write(&test_file, "#fn selected {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 24u64)\n  );\n}\n").unwrap();
+    let source="#cfg-if (#cfg-is #mode app) (#alias selected = ./app-module.lim::selected) (#cfg-else (#alias selected = ./test-module.lim::selected))\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call selected ()))\n  );\n}\n";
     std::fs::write(&entry, source).unwrap();
     let mut config = CompileConfig::default();
     config.set("mode", "app");
@@ -759,7 +779,7 @@ fn unused_type_warnings_have_warning_severity_and_clear_when_used() {
     let uri = "file:///tmp/lim-lsp-unused-types.lim";
     let source = "#enum Unused () (Unused.Only)\n";
     let updated =
-        format!("{source}\n#fn consume ((value Unused)) () (#forget value) (#return ())\n");
+        format!("{source}\n#fn consume {{\n  #params = ((value Unused));\n  #returns = ();\n  #body = ( (#forget value) (#return ())\n  );\n}}\n");
     let mut messages = start();
     messages.push(open(uri, 1, source));
     messages.push(change(uri, 2, &updated));
@@ -860,7 +880,7 @@ fn macro_navigation_uses_entry_cfg_module_paths_and_all_unsaved_overlays() {
     std::fs::write(&generator, ")").unwrap();
     let entry_source = "#alias child = ./child.lim::child\n";
     let generator_source = "\n#cfg-if (#cfg-is #feature selected) (#gn emit (name) `((#type ,name #u32))) (#cfg-else (#gn emit (name) `((#type ,name #u64))))\n";
-    let child_source = "#alias emit = ./modules/generator.lim::emit\n#generate emit Number\n#fn child () #u64 (#return 42u64)\n";
+    let child_source = "#alias emit = ./modules/generator.lim::emit\n#generate emit Number\n#fn child {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
     let mut config = CompileConfig::default();
     config.set("feature", "selected");
     config.add_module_path(base.join("modules"));
@@ -1095,8 +1115,8 @@ fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors(
     std::fs::create_dir_all(&base).unwrap();
     let root = base.join("main.lim");
     let child = base.join("child.lim");
-    let text = "#alias Number = ./child.lim::Number\n#alias read = ./child.lim::read\n#fn main () #u64 (#let value Number 42u64) (#return (#call read ((value value))))\n#fn broken () #u64 (#return #true)\n#struct Holder () ((field Number))\n#enum Choice () ((Choice.Present Number) (Choice.Absent ()))\n";
-    let imported = "#type Number #u64\n#fn read ((value Number)) #u64 (#return value)\n";
+    let text = "#alias Number = ./child.lim::Number\n#alias read = ./child.lim::read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let value Number 42u64) (#return (#call read ((value value))))\n  );\n}\n#fn broken {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return #true)\n  );\n}\n#struct Holder () ((field Number))\n#enum Choice () ((Choice.Present Number) (Choice.Absent ()))\n";
+    let imported = "#type Number #u64\n#fn read {\n  #params = ((value Number));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}\n";
     std::fs::write(&root, text).unwrap();
     std::fs::write(&child, imported).unwrap();
     let uri = lsp::path_to_uri(&root).unwrap();
@@ -1158,10 +1178,10 @@ fn external_import_internal_calls_and_types_use_the_compilation_names() {
     std::fs::create_dir_all(&base).unwrap();
     let root = base.join("main.lim");
     let child = base.join("child.lim");
-    let text = "#cfg-if (#cfg-is #os linux)\n  (#type Number #u64)\n  (#fn read () Number (#return 42u64))\n  (#fn invoke () Number (#return (#call read ())))\n";
+    let text = "#cfg-if (#cfg-is #os linux)\n  (#type Number #u64)\n  (#fn read {\n    #params = ();\n    #returns = Number;\n    #body = ( (#return 42u64)\n    );\n  })\n  (#fn invoke {\n    #params = ();\n    #returns = Number;\n    #body = ( (#return (#call read ()))\n    );\n  })\n";
     std::fs::write(
         &root,
-        "#alias invoke = ./child.lim::invoke\n#fn main () Number (#return (#call invoke ()))\n",
+        "#alias invoke = ./child.lim::invoke\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return (#call invoke ()))\n  );\n}\n",
     )
     .unwrap();
     std::fs::write(&child, text).unwrap();
@@ -1206,7 +1226,7 @@ fn direct_file_navigation_resolves_project_and_relative_paths_with_unsaved_sourc
     let unsaved = base.join("unsaved.lim");
     let local = base.join("local.lim");
     let shared = modules.join("shared.lim");
-    let text = "#alias Shared = ./modules/shared.lim::Shared\n#alias Local = ./local.lim::Local\n#alias unsaved-value = ./unsaved.lim::unsaved-value\n#fn main () #u64 (#return (#call unsaved-value ()))\n";
+    let text = "#alias Shared = ./modules/shared.lim::Shared\n#alias Local = ./local.lim::Local\n#alias unsaved-value = ./unsaved.lim::unsaved-value\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call unsaved-value ()))\n  );\n}\n";
     std::fs::write(&root, text).unwrap();
     std::fs::write(&local, "#type Local #u64\n").unwrap();
     std::fs::write(modules.join("local.lim"), "#type Other #bool\n").unwrap();
@@ -1226,7 +1246,7 @@ fn direct_file_navigation_resolves_project_and_relative_paths_with_unsaved_sourc
     messages.push(open(
         &unsaved_uri,
         1,
-        "#fn unsaved-value () #u64 (#return 42u64)\n",
+        "#fn unsaved-value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n",
     ));
     messages.push(open(&uri, 1, text));
     for (id, needle) in [
@@ -1386,7 +1406,7 @@ fn utf16_emoji_diagnostics_and_formatting() {
     let uri = "file:///tmp/lim-lsp-emoji.lim";
     let mut messages = start();
     messages.push(open(uri, 1, "#fn main () () \"😀\" )"));
-    messages.push(change(uri, 2, "#fn main () #u64 (#return 0u64)\n"));
+    messages.push(change(uri, 2, "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n"));
     messages.push(request(2,"textDocument/formatting", &format!("{{\"textDocument\":{{\"uri\":{}}},\"options\":{{\"tabSize\":2,\"insertSpaces\":true}}}}",diagnostic_json::quoted(uri))));
     finish(&mut messages);
     let (_, replies) = session(messages);
@@ -1408,14 +1428,14 @@ fn utf16_emoji_diagnostics_and_formatting() {
     let edit = &reply(&replies, 2).get("result").unwrap().array().unwrap()[0];
     assert_eq!(
         edit.get("newText").unwrap().string().unwrap(),
-        format_source("#fn main () #u64 (#return 0u64)\n").unwrap()
+        format_source("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n").unwrap()
     );
 }
 
 #[test]
 fn symbols_and_definition_only_on_declaration_names() {
     let uri = "file:///tmp/lim-lsp-symbols.lim";
-    let text = "#fn main () #u64 (#return 0u64)\n#struct Point () ()\n";
+    let text = "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n#struct Point () ()\n";
     let mut messages = start();
     messages.push(open(uri, 1, text));
     messages.push(request(2, "textDocument/documentSymbol", &document(uri)));
@@ -1442,7 +1462,7 @@ fn symbols_and_definition_only_on_declaration_names() {
 #[test]
 fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
     let uri = "file:///tmp/lim-lsp-calls.lim";
-    let source = "#fn target () #u64 (#return 0u64)\n#fn main () #u64 (#return (#call target ()))\n#struct Holder () ((target #u64))\n#gn data () '(#call target ())";
+    let source = "#fn target {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call target ()))\n  );\n}\n#struct Holder () ((target #u64))\n#gn data () '(#call target ())";
     let mut messages = start();
     messages.push(open(uri, 1, source));
     messages.push(definition_offset(2, uri, source, "#call target", "#call ".len()));
@@ -1453,7 +1473,7 @@ fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
     messages.push(change(
         uri,
         2,
-        &format!("{source}\n#fn target () #u64 (#return 1u64)\n"),
+        &format!("{source}\n#fn target {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 1u64)\n  );\n}}\n"),
     ));
     messages.push(request(
         5,
@@ -1493,7 +1513,7 @@ fn generated_array_type_and_accessor_navigate_to_exact_declarations() {
     let base = std::env::temp_dir().join(format!("lim-lsp-array-api-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
-    let source = "#generate #array ((element #u64) (length 4) (name Array4))\n#fn read ((values (#ref Array4)) (index #usize)) #u64 (#requires (#call #usize::lt ((left index) (right 4usize)))) (#return (#call Array4::get ((values values) (index index))))\n";
+    let source = "#generate #array ((element #u64) (length 4) (name Array4))\n#fn read {\n  #params = ((values (#ref Array4)) (index #usize));\n  #returns = #u64;\n  #body = ( (#requires (#call #usize::lt ((left index) (right 4usize)))) (#return (#call Array4::get ((values values) (index index))))\n  );\n}\n";
     for _ in 0..2 {
         let mut messages = start();
         messages.push(open(&uri, 1, source));
@@ -1550,7 +1570,7 @@ fn generated_function_definition_publishes_an_exact_source_snapshot() {
     std::fs::create_dir_all(&base).unwrap();
     let path = base.join("main.lim");
     let uri = format!("file://{}", path.display());
-    let source = "#generate #optional ((type #u64) (name Maybe))\n#fn main () () (#let value Maybe (#call Maybe::construct ((value 42u64)))) (#forget value) (#return ())\n";
+    let source = "#generate #optional ((type #u64) (name Maybe))\n#fn main {\n  #params = ();\n  #returns = ();\n  #body = ( (#let value Maybe (#call Maybe::construct ((value 42u64)))) (#forget value) (#return ())\n  );\n}\n";
     let character = source
         .lines()
         .nth(1)
@@ -1601,7 +1621,7 @@ fn generated_type_navigation_tracks_unsaved_generator_changes() {
     let base = std::env::temp_dir().join(format!("lim-lsp-generated-type-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let uri = format!("file://{}", base.join("main.lim").display());
-    let source = "#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#generate emit Number\n#fn main () Number (#return 42u64)\n";
+    let source = "#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#generate emit Number\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
     let position = source.lines().nth(2).unwrap().find("Number").unwrap();
     let params = format!(
         "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":2,\"character\":{position}}}}}",
@@ -1643,7 +1663,7 @@ fn generated_definition_uses_an_unsaved_direct_generator_alias_and_rejects_inval
     std::fs::create_dir_all(&base).unwrap();
     let uri = format!("file://{}", base.join("main.lim").display());
     let generator_uri = format!("file://{}", base.join("types.lim").display());
-    let source = "#alias emit = ./types.lim::emit\n#generate emit Number\n#fn main () Number (#return 42u64)\n";
+    let source = "#alias emit = ./types.lim::emit\n#generate emit Number\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
     let generator = "#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n";
     let character = source.lines().nth(2).unwrap().find("Number").unwrap();
     let params = format!(
@@ -1684,11 +1704,11 @@ fn compilation_context_navigates_an_unsaved_external_file_alias() {
     let child = external.join("child.lim");
     let uri = lsp::path_to_uri(&child).unwrap();
     let root_uri = lsp::path_to_uri(&base).unwrap();
-    let source = "#fn child () #u64 (#return 42u64)\n#generate #optional ((type #u64) (name Maybe))\n#fn wrap () Maybe (#return (#call Maybe::construct ((value 42u64))))\n";
+    let source = "#fn child {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#generate #optional ((type #u64) (name Maybe))\n#fn wrap {\n  #params = ();\n  #returns = Maybe;\n  #body = ( (#return (#call Maybe::construct ((value 42u64))))\n  );\n}\n";
     std::fs::write(
         &entry,
         format!(
-            "#alias child = {}::child\n#fn main () #u64 (#return (#call child ()))\n",
+            "#alias child = {}::child\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call child ()))\n  );\n}}\n",
             child.display()
         ),
     )
@@ -1776,7 +1796,7 @@ fn watched_context_switch_rechecks_open_documents_without_buffer_changes() {
     let base = std::env::temp_dir().join(format!("lim-lsp-watch-context-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let entry = base.join("main.lim");
-    let source = "#cfg-if (#cfg-is #feature good) (#type Number #u64) (#cfg-else (#type Number #bool))\n#alias child = ./child.lim::child\n#fn main () #u64 (#return (#call child ()))\n";
+    let source = "#cfg-if (#cfg-is #feature good) (#type Number #u64) (#cfg-else (#type Number #bool))\n#alias child = ./child.lim::child\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call child ()))\n  );\n}\n";
     std::fs::write(&entry, source).unwrap();
     let mut config = CompileConfig::default();
     config.set("feature", "good");
@@ -1795,7 +1815,7 @@ fn watched_context_switch_rechecks_open_documents_without_buffer_changes() {
     let mut input = Vec::new();
     for message in start()
         .into_iter()
-        .chain([open(&uri, 1, "#fn child () #u64 (#return 42u64)\n")])
+        .chain([open(&uri, 1, "#fn child {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n")])
     {
         json::write_frame(&mut input, &message).unwrap();
     }
@@ -1894,7 +1914,7 @@ fn unknown_methods_invalid_types_and_json_recover() {
 fn information_requests_validate_documents_and_positions() {
     let path = std::env::temp_dir().join("lim-lsp-information-params.lim");
     let uri = lsp::path_to_uri(&path).unwrap();
-    let text = "// 😀\n#fn main () #u64 (#return 0u64)\n";
+    let text = "// 😀\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n";
     let mut messages = start();
     messages.push(open(&uri, 1, text));
     let mut ids = Vec::new();
@@ -1954,7 +1974,7 @@ fn information_requests_validate_documents_and_positions() {
 fn signature_help_negotiates_no_active_parameter_for_unknown_labels() {
     let path = std::env::temp_dir().join("lim-lsp-unknown-parameter.lim");
     let uri = lsp::path_to_uri(&path).unwrap();
-    let source = "#fn choose ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (#call choose ((unknown 1u64))))\n";
+    let source = "#fn choose {\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call choose ((unknown 1u64))))\n  );\n}\n";
     for supported in [false, true] {
         let mut messages = vec![
             request(1, "initialize", &format!("{{\"capabilities\":{{\"textDocument\":{{\"signatureHelp\":{{\"signatureInformation\":{{\"noActiveParameterSupport\":{supported}}}}}}}}}}}")),
@@ -1979,7 +1999,7 @@ fn signature_help_negotiates_no_active_parameter_for_unknown_labels() {
 fn information_respects_client_markup_preferences_and_plaintext_default() {
     let path = std::env::temp_dir().join("lim-lsp-information-markup.lim");
     let uri = lsp::path_to_uri(&path).unwrap();
-    let source = "#fn inspect ((value #u64)) #u64 (#requires true) (#return value)\n#fn main () #u64 (#return (#call inspect ((value 1u64))))\n";
+    let source = "#fn inspect {\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#requires true) (#return value)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call inspect ((value 1u64))))\n  );\n}\n";
     for (formats, kind) in [
         (None, "plaintext"),
         (Some(r#"["plaintext","markdown"]"#), "plaintext"),
@@ -2115,7 +2135,7 @@ fn unsaved_import_overlays_recheck_importers_and_clear() {
     messages.push(open(child, 1, ""));
     messages.push(open(root, 1, "#alias child = ./child.lim::child\n"));
     messages.push(change(child, 2, ")"));
-    messages.push(change(child, 3, "#fn child () #u64 (#return 42u64)\n"));
+    messages.push(change(child, 3, "#fn child {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let p = publications(&replies);
@@ -2236,7 +2256,7 @@ fn symlinked_paths_share_overlays_for_existing_and_new_imports() {
     messages.push(open(&child_uri, 1, ""));
     messages.push(open(&root_uri, 1, "#alias child = ./child.lim::child\n"));
     messages.push(change(&child_uri, 2, ")"));
-    messages.push(change(&child_uri, 3, "#fn child () #u64 (#return 42u64)\n"));
+    messages.push(change(&child_uri, 3, "#fn child {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let p = publications(&replies);

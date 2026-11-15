@@ -21,7 +21,7 @@ fn direct_nested_and_repeated_builtin_calls_share_one_checked_artifact() {
             let scratch = support::Scratch::new("builtin-generator-dedup");
             let entry = scratch.path().join("main.lim");
             let source = format!(
-                "#gn outer () `(({builtin}))\n{invocations}\n#fn main () #u64 (#return 0u64)\n"
+                "#gn outer () `(({builtin}))\n{invocations}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}}\n"
             );
             for _ in 0..2 {
                 let outer = source.rfind("#generate outer").unwrap();

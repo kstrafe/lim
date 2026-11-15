@@ -38,7 +38,10 @@ fn execute(source: &str, checks: bool) -> i32 {
 
 #[test]
 fn scalar_intrinsics_have_normal_named_calls_and_typed_results() {
-    let source = r#"#fn main () #u64
+    let source = r#"#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
         (#let left #u64 20u64)
         (#let right #u64 22u64)
         (#let sum #u64 (#call #u64::add-wrap (($ right) ($ left))))
@@ -48,22 +51,34 @@ fn scalar_intrinsics_have_normal_named_calls_and_typed_results() {
         (#assert (#call #i128::lt ((left -2i128) (right 1i128))))
         (#assert (#call #f64::eq ((left (#call #f64::mul ((left 3.0f64) (right 2.0f64)))) (right 6.0f64))))
         (#return sum)
+  );
+}
 "#;
     assert_eq!(execute(source, false), 42);
 }
 
 #[test]
 fn intrinsic_arguments_execute_once_in_written_order() {
-    let source = r#"#fn next ((counter (#ref-mut #u64)) (expected #u64)) #u64
+    let source = r#"#fn next {
+  #params = ((counter (#ref-mut #u64)) (expected #u64));
+  #returns = #u64;
+  #body = (
         (#assert (#u64::eq (#deref counter) expected))
         (#deref-set counter (#u64::add-wrap expected 1u64))
         (#return (#u64::add-wrap 20u64 (#u64::mul-wrap expected 2u64)))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut counter #u64 0u64)
           (#let result #u64 (#call #u64::add-wrap
             ((right (#call next ((counter (#borrow-mut counter)) (expected 0u64))))
              (left (#call next ((counter (#borrow-mut counter)) (expected 1u64)))))))
           (#assert (#u64::eq counter 2u64)) (#return result)
+  );
+}
 "#;
     assert_eq!(execute(source, false), 42);
 }
@@ -72,11 +87,16 @@ fn intrinsic_arguments_execute_once_in_written_order() {
 fn array_get_can_return_copy_aggregates() {
     let source = r#"#struct Row () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64) (h #u64))
 #generate #array ((element Row) (length 1) (name Rows))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let values Rows (#array-of (#struct-literal Row ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7) (h 42)))))
           (#let index #usize 0usize) (#assume (#call #usize::lt ((left index) (right 1usize))))
           (#let row Row (#call Rows::get ((values (#borrow values)) (index index))))
           (#return (#get row h))
+  );
+}
 "#;
     for checks in [false, true] {
         assert_eq!(execute(source, checks), 42);
@@ -128,19 +148,29 @@ fn intrinsic_argument_names_types_and_modes_are_checked() {
         "(#call #bool::and ((left true) (right true)))",
         "(#unsafe (#unsafe-call #usize::lt ((left 1usize) (right 2usize))))",
     ] {
-        let source = format!("#fn main () () {expression} (#return ())\n");
+        let source = format!("#fn main {{\n  #params = ();\n  #returns = ();\n  #body = ( {expression} (#return ())\n  );\n}}\n");
         assert!(check(&source).is_err(), "accepted {expression}");
     }
 }
 
 #[test]
 fn intrinsic_calls_and_direct_comparisons_share_exact_claims() {
-    let source = r#"#fn read ((values (#ref (#array #u64 4))) (index #usize)) #u64
+    let source = r#"#fn read {
+  #params = ((values (#ref (#array #u64 4))) (index #usize));
+  #returns = #u64;
+  #body = (
         (#requires (#call #usize::lt ((right 4usize) (left index))))
         (#return (#index-proven values index))
-#fn use ((values (#ref (#array #u64 4))) (index #usize)) #u64
+  );
+}
+#fn use {
+  #params = ((values (#ref (#array #u64 4))) (index #usize));
+  #returns = #u64;
+  #body = (
           (#return (#if-valid (#usize::lt index 4usize)
             (#call read ((values values) (index index))) 0u64))
+  );
+}
 "#;
     check(source).unwrap();
     let reversed = source
@@ -177,11 +207,16 @@ fn generated_array_get_uses_an_explicit_comparison_contract() {
 #[test]
 fn generated_validator_needs_its_explicit_claim_bridge() {
     let source = r#"#generate #array ((element #u64) (length 4) (name Values))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let values Values (#array-of 1 42 3 4)) (#let index #usize 1usize)
           (#return (#if-valid (#call Values::in-bounds ((index index)))
             (#block (#call Values::prove-in-bounds ((index index)))
               (#call Values::get ((values (#borrow values)) (index index)))) 0u64))
+  );
+}
 "#;
     assert_eq!(execute(source, true), 42);
     assert!(
@@ -194,13 +229,18 @@ fn generated_validator_needs_its_explicit_claim_bridge() {
 #[test]
 fn generated_borrows_keep_mutation_and_ownership_checks() {
     let source = r#"#generate #array ((element #u64) (length 2) (name Values))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut values Values (#array-of 1 2)) (#let index #usize 1usize)
           (#return (#if-valid (#call #usize::lt ((left index) (right 2usize)))
             (#block
               (#let slot (#ref-mut #u64) (#call Values::borrow-mut ((values (#borrow-mut values)) (index index))))
               (#deref-set slot 42u64) (#drop slot)
               (#call Values::get ((values (#borrow values)) (index index)))) 0u64))
+  );
+}
 "#;
     assert_eq!(execute(source, false), 42);
     assert_eq!(execute(source, true), 42);
@@ -221,6 +261,6 @@ fn generated_array_lengths_are_literals_and_empty_bounds_stay_empty() {
         ))
         .is_err());
     }
-    let source = "#generate #array ((element #u64) (length 0) (name Empty))\n#fn read ((values (#ref Empty)) (index #usize)) #u64 (#return (#call Empty::get ((values values) (index index))))\n";
+    let source = "#generate #array ((element #u64) (length 0) (name Empty))\n#fn read {\n  #params = ((values (#ref Empty)) (index #usize));\n  #returns = #u64;\n  #body = ( (#return (#call Empty::get ((values values) (index index))))\n  );\n}\n";
     assert!(check(source).unwrap_err().contains("missing evidence"));
 }

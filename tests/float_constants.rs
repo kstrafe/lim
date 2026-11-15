@@ -15,7 +15,10 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
 #struct Floats () ((small #f32) (large #f64))
 #static pair Floats (#struct-literal Floats ((large forward) (small rounded)))
 #static values (#array #f64 2) (#array-of (#array #f64 2) negativeZero infinity)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let runtimeRounded #f32 (#f32::sub (#f32::add 16777216.0f32 1.0f32) 16777216.0f32))
           (#assert (#f32::eq runtimeRounded runtimeRounded))
           (#assert (#f32::eq runtimeRounded 0.0f32))
@@ -26,7 +29,7 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
           (#unsafe (#block
             (#assert (#f64::eq (#get pair large) forward))
             (#assert (#f64::eq (#index values 1) infinity))))
-          (#return 42u64)\n";
+          (#return 42u64)\n  );\n}\n";
     fs::write(root.join("main.lim"), source).unwrap();
     let result = support::run(
         Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -51,7 +54,7 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
     );
     for invalid in [
         "#const a #f64 b\n#const b #f64 a\n",
-        "#fn value () #f64 (#return 1.0f64)\n#const a #f64 (#call value ())\n",
+        "#fn value {\n  #params = ();\n  #returns = #f64;\n  #body = ( (#return 1.0f64)\n  );\n}\n#const a #f64 (#call value ())\n",
     ] {
         let error = lim::compile_source_to_assembly(
             invalid,

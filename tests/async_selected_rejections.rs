@@ -10,15 +10,28 @@ fn config() -> lim::CompileConfig {
 
 const CONTEXT: &str = "#enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
       (#return (#match task
         (#case (Child.Waiting count)
           (#if (#u64::eq count 0u64)
             (ChildPoll.ChildPending (Child.Waiting 1u64))
             (ChildPoll.ChildReady count)))))
-#fn cancel-child ((child Child)) () (#forget child) (#return ())
+  );
+}
+#fn cancel-child {
+  #params = ((child Child));
+  #returns = ();
+  #body = ( (#forget child) (#return ())
+  );
+}
 #struct Owner (#linear) ((value #u64))
-#fn destroy-owner ((owner Owner)) () (#forget owner) (#return ())\n";
+#fn destroy-owner {
+  #params = ((owner Owner));
+  #returns = ();
+  #body = ( (#forget owner) (#return ())\n  );\n}\n";
 
 fn checked_source(body: &str, pinned: bool, return_type: &str) -> String {
     let annotation = if pinned {
@@ -28,15 +41,21 @@ fn checked_source(body: &str, pinned: bool, return_type: &str) -> String {
     };
     let cancel = "(cancel (work-cancel ((left destroy-owner) (right destroy-owner) (await-0 cancel-child))))";
     let main = if pinned {
-        "#fn main () #u64
+        "#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let waker #u64 0u64)
             (#let-mut frame Work::Frame (#call work ((choose true))))
             (#let result Work::Poll
               (#call Work::poll ((task (#pin-borrow-mut frame)) (waker (#borrow waker)))))
-            (#forget result) (#forget frame) (#forget waker) (#return 0u64)\n"
+            (#forget result) (#forget frame) (#forget waker) (#return 0u64)\n  );\n}\n"
     } else {
-        "#fn main () #u64 (#let task Work::Task (#call work ((choose true))))
-            (#forget task) (#return 0u64)\n"
+        "#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let task Work::Task (#call work ((choose true))))
+            (#forget task) (#return 0u64)\n  );\n}\n"
     };
     format!(
         "{CONTEXT}

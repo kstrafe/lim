@@ -6,7 +6,7 @@ use std::{fs, os::unix::process::ExitStatusExt, process::Command};
 const ARRAY: &str =
     "(#let-mut values (#array #u64 4) (#array-of (#array #u64 4) 1u64 2u64 3u64 4u64))";
 fn checked(body: &str) -> Result<(), String> {
-    check_types(&parse_program(&format!("#fn main () #u64 {ARRAY} {body}\n")).unwrap())
+    check_types(&parse_program(&format!("#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( {ARRAY} {body}\n  );\n}}\n")).unwrap())
 }
 fn run(source: &str) -> std::process::Output {
     let scratch = support::Scratch::new("slice-borrows-native");
@@ -30,7 +30,10 @@ fn run(source: &str) -> std::process::Output {
 #[test]
 fn full_and_partial_direct_views_run_natively() {
     let source = format!(
-        "#fn main () #u64 {ARRAY}
+        "#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( {ARRAY}
         (#let full (#slice #u64) (#borrow-slice values))
         (#let start #usize 1usize) (#let end #usize 3usize)
         (#let middle (#slice #u64) (#borrow-slice values start end))
@@ -38,7 +41,7 @@ fn full_and_partial_direct_views_run_natively() {
         (#assert (#usize::eq (#slice-len full) 4usize))
         (#assert (#usize::eq (#slice-len middle) 2usize))
         (#assert (#usize::eq (#slice-len empty) 0usize))
-        (#return (#deref (#slice-idx middle 1usize)))\n"
+        (#return (#deref (#slice-idx middle 1usize)))\n  );\n}}\n"
     );
     assert_eq!(run(&source).status.code(), Some(3));
 }
@@ -53,7 +56,7 @@ fn constant_disjoint_mutable_borrows_can_coexist() {
       (#forget left) (#forget right) (#return answer)";
     checked(body).unwrap();
     assert_eq!(
-        run(&format!("#fn main () #u64 {ARRAY} {body}\n"))
+        run(&format!("#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( {ARRAY} {body}\n  );\n}}\n"))
             .status
             .code(),
         Some(42)
@@ -99,7 +102,7 @@ fn mutable_subslice_suspends_parent_until_explicit_release() {
       (#forget parent) (#return answer)";
     checked(body).unwrap();
     assert_eq!(
-        run(&format!("#fn main () #u64 {ARRAY} {body}\n"))
+        run(&format!("#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( {ARRAY} {body}\n  );\n}}\n"))
             .status
             .code(),
         Some(42)
@@ -123,7 +126,7 @@ fn nested_subslices_and_sibling_reborrows_preserve_physical_offsets() {
       (#return (#u64::add-wrap (#index values 0usize) (#index values 3usize)))";
     checked(body).unwrap();
     assert_eq!(
-        run(&format!("#fn main () #u64 {ARRAY} {body}\n"))
+        run(&format!("#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( {ARRAY} {body}\n  );\n}}\n"))
             .status
             .code(),
         Some(42)
@@ -137,7 +140,7 @@ fn views_cannot_escape_owned_array_or_release_parent_early() {
         ("(#slice-mut #u64)", "#borrow-slice-mut"),
     ] {
         let source =
-            format!("#fn bad () {ty} {ARRAY} (#return ({creation} values 0usize 2usize))\n");
+            format!("#fn bad {{\n  #params = ();\n  #returns = {ty};\n  #body = ( {ARRAY} (#return ({creation} values 0usize 2usize))\n  );\n}}\n");
         let error = check_types(&parse_program(&source).unwrap()).unwrap_err();
         assert!(
             error.contains("local") || error.contains("escape"),
@@ -158,8 +161,11 @@ fn immutable_places_non_arrays_wrong_bounds_and_wrong_slice_kind_are_rejected() 
         "(#let view (#slice #u64) (#borrow-slice values 0usize)) (#return 0u64)",
         "(#let view (#slice #u64) (#borrow-slice values)) (#let child (#slice-mut #u64) (#slice-mut-range view 0usize 1usize)) (#forget child) (#return 0u64)",
     ] { assert!(checked(body).is_err(), "{body}"); }
-    let source = "#fn main () #u64 (#let values (#array #u64 1) (#array-of (#array #u64 1) 1u64))
-        (#let view (#slice-mut #u64) (#borrow-slice-mut values)) (#forget view) (#return 0u64)\n";
+    let source = "#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let values (#array #u64 1) (#array-of (#array #u64 1) 1u64))
+        (#let view (#slice-mut #u64) (#borrow-slice-mut values)) (#forget view) (#return 0u64)\n  );\n}\n";
     assert!(check_types(&parse_program(source).unwrap())
         .unwrap_err()
         .contains("immutable"));
@@ -175,13 +181,19 @@ fn all_range_constructors_trap_on_invalid_bounds() {
                 "#slice-mut"
             };
             let source = format!(
-                "#fn main () #u64 {ARRAY} (#let view ({ty} #u64) ({creator} values {bounds}))
-                (#forget view) (#return 0u64)\n"
+                "#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( {ARRAY} (#let view ({ty} #u64) ({creator} values {bounds}))
+                (#forget view) (#return 0u64)\n  );\n}}\n"
             );
             assert_eq!(run(&source).status.signal(), Some(4));
         }
-        let source = format!("#fn main () #u64 {ARRAY} (#let parent (#slice-mut #u64) (#borrow-slice-mut values))
-            (#let child (#slice-mut #u64) (#slice-mut-range parent {bounds})) (#forget child) (#forget parent) (#return 0u64)\n");
+        let source = format!("#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( {ARRAY} (#let parent (#slice-mut #u64) (#borrow-slice-mut values))
+            (#let child (#slice-mut #u64) (#slice-mut-range parent {bounds})) (#forget child) (#forget parent) (#return 0u64)\n  );\n}}\n");
         assert_eq!(run(&source).status.signal(), Some(4));
     }
 }
@@ -189,18 +201,31 @@ fn all_range_constructors_trap_on_invalid_bounds() {
 #[test]
 fn direct_views_of_array_fields_return_through_helpers() {
     let source = "#struct Container () ((data (#array #u64 4)))
-#fn shared ((source (#ref Container))) (#slice #u64)
+#fn shared {
+  #params = ((source (#ref Container)));
+  #returns = (#slice #u64);
+  #body = (
           (#return (#borrow-slice (#get source data) 1usize 3usize))
-#fn exclusive ((source (#ref-mut Container))) (#slice-mut #u64)
+  );
+}
+#fn exclusive {
+  #params = ((source (#ref-mut Container)));
+  #returns = (#slice-mut #u64);
+  #body = (
           (#return (#borrow-slice-mut (#get source data) 1usize 3usize))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut owner Container (#struct-literal Container
             ((data (#array-of (#array #u64 4) 1u64 2u64 3u64 4u64)))))
           (#let view (#slice-mut #u64) (#call exclusive ((source (#borrow-mut owner)))))
           (#deref-set (#slice-mut-idx view 0usize) 42u64) (#forget view)
           (#let result (#slice #u64) (#call shared ((source (#borrow owner)))))
           (#let answer #u64 (#deref (#slice-idx result 0usize)))
-          (#forget result) (#forget owner) (#return answer)\n";
+          (#forget result) (#forget owner) (#return answer)\n  );\n}\n";
     check_types(&parse_program(source).unwrap()).unwrap();
     assert_eq!(run(source).status.code(), Some(42));
     let invalid = source.replace(
@@ -218,13 +243,16 @@ fn zero_length_and_zero_sized_element_arrays_can_be_borrowed() {
         } else {
             "() () ()".into()
         };
-        let source = format!("#fn main () #u64
+        let source = format!("#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let-mut values (#array {element} {length}) (#array-of (#array {element} {length}) {values}))
             (#let view (#slice {element}) (#borrow-slice values))
             (#assert (#usize::eq (#slice-len view) {length}usize)) (#forget view)
             (#let exclusive (#slice-mut {element}) (#borrow-slice-mut values 0usize {length}usize))
             (#assert (#usize::eq (#slice-mut-len exclusive) {length}usize)) (#forget exclusive)
-            (#return 42u64)\n");
+            (#return 42u64)\n  );\n}}\n");
         assert_eq!(run(&source).status.code(), Some(42));
     }
 }
@@ -232,18 +260,31 @@ fn zero_length_and_zero_sized_element_arrays_can_be_borrowed() {
 #[test]
 fn bounds_are_evaluated_once_in_start_end_order() {
     let source = format!("
-#fn start ((counter (#ref-mut #u64))) #usize
+#fn start {{
+  #params = ((counter (#ref-mut #u64)));
+  #returns = #usize;
+  #body = (
           (#deref-set counter (#u64::add-wrap (#u64::mul-wrap (#deref counter) 10u64) 1u64)) (#return 1usize)
-#fn end ((counter (#ref-mut #u64))) #usize
+  );
+}}
+#fn end {{
+  #params = ((counter (#ref-mut #u64)));
+  #returns = #usize;
+  #body = (
           (#deref-set counter (#u64::add-wrap (#u64::mul-wrap (#deref counter) 10u64) 2u64)) (#return 3usize)
-#fn main () #u64 {ARRAY}
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( {ARRAY}
           (#let-mut count #u64 0u64)
           (#let view (#slice-mut #u64) (#borrow-slice-mut values
             (#call start ((counter (#borrow-mut count)))) (#call end ((counter (#borrow-mut count))))))
           (#assert (#u64::eq count 12u64))
           (#let child (#slice-mut #u64) (#slice-mut-range view 1usize 2usize))
           (#let answer #u64 (#deref (#slice-mut-idx child 0usize)))
-          (#forget child) (#forget view) (#return answer)\n");
+          (#forget child) (#forget view) (#return answer)\n  );\n}}\n");
     assert_eq!(run(&source).status.code(), Some(3));
 }
 
@@ -251,12 +292,15 @@ fn bounds_are_evaluated_once_in_start_end_order() {
 fn mutable_range_reborrows_a_field_without_moving_it() {
     let source = format!(
         "#struct Holder () ((view (#slice-mut #u64)))
-#fn main () #u64 {ARRAY}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( {ARRAY}
           (#let-mut holder Holder (#struct-literal Holder ((view (#borrow-slice-mut values)))))
           (#let child (#slice-mut #u64) (#slice-mut-range (#get holder view) 1usize 3usize))
           (#deref-set (#slice-mut-idx child 0usize) 42u64) (#forget child)
           (#let count #usize (#slice-mut-len (#get holder view)))
-          (#forget holder) (#return (#as count #u64))\n"
+          (#forget holder) (#return (#as count #u64))\n  );\n}}\n"
     );
     check_types(&parse_program(&source).unwrap()).unwrap();
     assert_eq!(run(&source).status.code(), Some(4));
@@ -266,7 +310,10 @@ fn mutable_range_reborrows_a_field_without_moving_it() {
 fn slice_field_parent_is_suspended_and_sibling_fields_remain_usable() {
     let source = format!(
         "#struct Holder () ((view (#slice-mut #u64)) (other (#slice-mut #u64)))
-#fn main () #u64 {ARRAY}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( {ARRAY}
              (#let-mut holder Holder (#struct-literal Holder
                ((view (#borrow-slice-mut values 0usize 2usize))
                 (other (#borrow-slice-mut values 2usize 4usize)))))
@@ -276,7 +323,7 @@ fn slice_field_parent_is_suspended_and_sibling_fields_remain_usable() {
              (#deref-set (#slice-mut-idx other-child 0usize) 2u64)
              (#let answer #u64 (#u64::add-wrap (#deref (#slice-mut-idx child 0usize))
                (#deref (#slice-mut-idx other-child 0usize))))
-             (#forget child) (#forget other-child) (#forget holder) (#return answer)\n"
+             (#forget child) (#forget other-child) (#forget holder) (#return answer)\n  );\n}}\n"
     );
     check_types(&parse_program(&source).unwrap()).unwrap();
     assert_eq!(run(&source).status.code(), Some(42));
@@ -297,10 +344,13 @@ fn slice_field_parent_is_suspended_and_sibling_fields_remain_usable() {
 fn slice_field_reborrowing_rejects_shared_and_temporary_receivers() {
     let source = format!(
         "#struct Holder () ((view (#slice-mut #u64)))
-#fn main () #u64 {ARRAY}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( {ARRAY}
              (#let holder Holder (#struct-literal Holder ((view (#borrow-slice-mut values)))))
              (#let child (#slice-mut #u64) (#slice-mut-range (#get holder view) 0usize 1usize))
-             (#forget child) (#forget holder) (#return 0u64)\n"
+             (#forget child) (#forget holder) (#return 0u64)\n  );\n}}\n"
     );
     assert!(check_types(&parse_program(&source).unwrap())
         .unwrap_err()
@@ -316,16 +366,24 @@ fn slice_field_reborrowing_rejects_shared_and_temporary_receivers() {
 fn returned_slice_field_reborrow_retains_its_owner_and_nested_offset() {
     let source = format!(
         "#struct Holder () ((view (#slice-mut #u64)))
-#fn middle ((source (#ref-mut Holder))) (#slice-mut #u64)
+#fn middle {{
+  #params = ((source (#ref-mut Holder)));
+  #returns = (#slice-mut #u64);
+  #body = (
              (#return (#slice-mut-range (#get source view) 1usize 3usize))
-#fn main () #u64 {ARRAY}
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( {ARRAY}
              (#let-mut holder Holder (#struct-literal Holder ((view (#borrow-slice-mut values)))))
              (#let child (#slice-mut #u64) (#call middle ((source (#borrow-mut holder)))))
              (#let nested (#slice-mut #u64) (#slice-mut-range child 1usize 2usize))
              (#deref-set (#slice-mut-idx nested 0usize) 42u64)
              (#forget nested) (#forget child)
              (#let answer #u64 (#deref (#slice-mut-idx (#get holder view) 2usize)))
-             (#forget holder) (#return answer)\n"
+             (#forget holder) (#return answer)\n  );\n}}\n"
     );
     check_types(&parse_program(&source).unwrap()).unwrap();
     assert_eq!(run(&source).status.code(), Some(42));
@@ -341,14 +399,17 @@ fn returned_slice_field_reborrow_retains_its_owner_and_nested_offset() {
 fn nested_tuple_slice_handles_reborrow_and_prevent_parent_moves() {
     let source = format!(
         "#struct Holder () ((pair (#tuple #u64 (#slice-mut #u64))))
-#fn main () #u64 {ARRAY}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( {ARRAY}
              (#let-mut holder Holder (#struct-literal Holder
                ((pair (#tuple (#tuple #u64 (#slice-mut #u64)) 7u64 (#borrow-slice-mut values))))))
              (#let child (#slice-mut #u64) (#slice-mut-range (#get (#get holder pair) 1) 1usize 3usize))
              (#let sibling #u64 (#get (#get holder pair) 0))
              (#deref-set (#slice-mut-idx child 0usize) 35u64)
              (#let answer #u64 (#u64::add-wrap sibling (#deref (#slice-mut-idx child 0usize))))
-             (#forget child) (#forget holder) (#return answer)\n"
+             (#forget child) (#forget holder) (#return answer)\n  );\n}}\n"
     );
     check_types(&parse_program(&source).unwrap()).unwrap();
     assert_eq!(run(&source).status.code(), Some(42));
@@ -373,11 +434,19 @@ fn bound_effects_cannot_consume_backing_storage() {
             "#slice-mut-idx"
         };
         let source = format!("#struct Token (#linear) ((value #u64))
-#fn consume ((input (#array Token 1))) #usize (#forget input) (#return 0usize)
-#fn main () #u64
+#fn consume {{
+  #params = ((input (#array Token 1)));
+  #returns = #usize;
+  #body = ( (#forget input) (#return 0usize)
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let-mut values (#array Token 1) (#array-of (#array Token 1) (#struct-literal Token ((value 42u64)))))
               (#let view ({slice_type} Token) ({creator} values (#call consume ((input values))) 1usize))
-              (#let answer #u64 (#get ({index} view 0usize) value)) (#forget view) (#return answer)\n");
+              (#let answer #u64 (#get ({index} view 0usize) value)) (#forget view) (#return answer)\n  );\n}}\n");
         let error = check_types(&parse_program(&source).unwrap()).unwrap_err();
         assert!(
             error.contains("consumed")
@@ -391,8 +460,11 @@ fn bound_effects_cannot_consume_backing_storage() {
 #[test]
 fn direct_slice_borrow_cannot_erase_a_pinned_projection() {
     let source = "#struct Container () ((data (#array #u64 2)))
-#fn bad ((source (#pin-ref-mut Container))) (#slice-mut #u64)
-          (#return (#borrow-slice-mut (#get source data)))\n";
+#fn bad {
+  #params = ((source (#pin-ref-mut Container)));
+  #returns = (#slice-mut #u64);
+  #body = (
+          (#return (#borrow-slice-mut (#get source data)))\n  );\n}\n";
     assert!(check_types(&parse_program(source).unwrap())
         .unwrap_err()
         .contains("pinning"));
@@ -401,7 +473,10 @@ fn direct_slice_borrow_cannot_erase_a_pinned_projection() {
 #[test]
 fn aggregate_elements_use_their_full_storage_stride() {
     let source = "#struct Pair () ((left #u64) (right #u64))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut values (#array Pair 3) (#array-of (#array Pair 3)
             (#struct-literal Pair ((left 1u64) (right 2u64)))
             (#struct-literal Pair ((left 3u64) (right 4u64)))
@@ -411,20 +486,28 @@ fn aggregate_elements_use_their_full_storage_stride() {
           (#deref-set (#borrow-mut (#get item right)) 42u64) (#forget item) (#forget view)
           (#let shared (#slice Pair) (#borrow-slice values 2usize 3usize))
           (#let answer #u64 (#get (#slice-idx shared 0usize) right))
-          (#forget shared) (#forget values) (#return answer)\n";
+          (#forget shared) (#forget values) (#return answer)\n  );\n}\n";
     assert_eq!(run(source).status.code(), Some(42));
 }
 
 #[test]
 fn reference_elements_preserve_selected_referent_lifetimes() {
-    let source = "#fn first ((source (#slice (#ref #u64)))) (#ref #u64)
+    let source = "#fn first {
+  #params = ((source (#slice (#ref #u64))));
+  #returns = (#ref #u64);
+  #body = (
           (#return (#deref (#slice-idx source 0usize)))
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut left #u64 1u64) (#let-mut right #u64 42u64)
           (#let values (#array (#ref #u64) 2)
             (#array-of (#array (#ref #u64) 2) (#borrow left) (#borrow right)))
           (#let selected (#ref #u64) (#call first ((source (#borrow-slice values 1usize 2usize)))))
-          (#forget values) (#set left 2u64) (#return (#deref selected))\n";
+          (#forget values) (#set left 2u64) (#return (#deref selected))\n  );\n}\n";
     check_types(&parse_program(source).unwrap()).unwrap();
     assert_eq!(run(source).status.code(), Some(42));
     let invalid = source.replace("(#set left 2u64)", "(#set right 2u64)");

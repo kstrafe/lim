@@ -86,14 +86,14 @@ fn errors_are_json_from_frontend_through_linker() {
         ("#fn main () #u64 (#return \"bad)", "lex"),
         ("#fn main () #u64 (#return 0u64", "parse"),
         (
-            "#fn main () #u64 (#let café #u64 false) (#return café)\n",
+            "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let café #u64 false) (#return café)\n  );\n}\n",
             "type",
         ),
         (
-            "#fn small ((value #u64)) #bool (#return (#u64::lt value 100u64))\n#fn consume ((value #u64)) () (#requires (#call small ((value value)))) (#return ())\n#fn main () #u64 (#call consume ((value 200u64))) (#return 42u64)\n",
+            "#fn small {\n  #params = ((value #u64));\n  #returns = #bool;\n  #body = ( (#return (#u64::lt value 100u64))\n  );\n}\n#fn consume {\n  #params = ((value #u64));\n  #returns = ();\n  #body = ( (#requires (#call small ((value value)))) (#return ())\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#call consume ((value 200u64))) (#return 42u64)\n  );\n}\n",
             "contract",
         ),
-        ("#fn main () #u64 (#return 42u64)\n", "link"),
+        ("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n", "link"),
         (
             "#gn fail () (#gn-error \"bad \\\"message\\\"\")\n#generate fail\n",
             "generator",
@@ -127,7 +127,7 @@ fn errors_are_json_from_frontend_through_linker() {
         }
     }
     let imported = directory.join("module.lim");
-    fs::write(&imported, "#fn broken () #u64 (#return false)\n").unwrap();
+    fs::write(&imported, "#fn broken {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return false)\n  );\n}\n").unwrap();
     fs::write(&path, "#alias broken = ./module.lim::broken\n").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg("--diagnostic-format=json")

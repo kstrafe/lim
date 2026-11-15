@@ -15,10 +15,13 @@ fn binding_lines(dump: &str) -> Vec<&str> {
 #[test]
 fn same_spelled_match_payloads_have_distinct_typed_bindings_and_stable_ids() {
     let source = "#enum Value () ((Value.Small #u32) (Value.Large #u64))
-#fn inspect ((value Value)) #u64
+#fn inspect {
+  #params = ((value Value));
+  #returns = #u64;
+  #body = (
           (#return (#match value
             (#case (Value.Small item) (#as item #u64))
-            (#case (Value.Large item) item)))\n";
+            (#case (Value.Large item) item)))\n  );\n}\n";
 
     let dump = checked_dump(source);
     let items: Vec<_> = binding_lines(&dump)
@@ -63,9 +66,12 @@ fn same_spelled_match_payloads_have_distinct_typed_bindings_and_stable_ids() {
 #[test]
 fn unused_destructured_names_are_recorded_as_bindings() {
     let source = "#struct Pair () ((left #u32) (right #u64))
-#fn main ((pair Pair)) #u64
+#fn main {
+  #params = ((pair Pair));
+  #returns = #u64;
+  #body = (
           (#let (Pair unused_left unused_right) Pair pair)
-          (#return 0u64)\n";
+          (#return 0u64)\n  );\n}\n";
 
     let dump = checked_dump(source);
     let bindings = binding_lines(&dump);
@@ -102,12 +108,15 @@ fn unused_destructured_names_are_recorded_as_bindings() {
 #[test]
 fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate() {
     let source = "#static tOTAL #u64 0u64
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut local #u64 1u64)
           (#set local 2u64)
           (#block (#let inside #u32 4u32) inside)
           (#loop (#let iteration #u32 5u32) (#break))
-          (#return (#u64::add-wrap local (#unsafe tOTAL)))\n";
+          (#return (#u64::add-wrap local (#unsafe tOTAL)))\n  );\n}\n";
 
     let dump = checked_dump(source);
     let bindings = binding_lines(&dump);
@@ -142,13 +151,21 @@ fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate(
 #[test]
 fn let_else_bindings_are_available_after_success_and_not_in_the_failure_body() {
     let source = "#enum Maybe () ((Maybe.Some #u64) Maybe.None)
-#fn success ((value Maybe)) #u64
+#fn success {
+  #params = ((value Maybe));
+  #returns = #u64;
+  #body = (
           (#let-else (Maybe.Some payload) Maybe value (#return 0u64))
           (#return payload)
-#fn failure ((value Maybe)) #u64
+  );
+}
+#fn failure {
+  #params = ((value Maybe));
+  #returns = #u64;
+  #body = (
           (#let-else (Maybe.Some payload) Maybe value
             (#let payload #u32 7u32)
-            (#return (#as payload #u64)))\n          (#return payload)\n";
+            (#return (#as payload #u64)))\n          (#return payload)\n  );\n}\n";
 
     let dump = checked_dump(source);
     let function_body = |function: &str| {

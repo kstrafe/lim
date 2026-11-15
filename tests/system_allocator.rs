@@ -4,26 +4,46 @@ use std::{fs, process::Command, time::Duration};
 
 const HEAP: &str = include_str!("../library/system_allocator.lim");
 const HELPERS: &str = r#"
-#fn allocate-required ((size #usize)) (#ptr-mut #u8)
+#fn allocate-required {
+  #params = ((size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#return (#match (#call system-allocate ((size size)))
       (#case (SystemAllocationResult.SystemAllocated pointer) pointer)
       (#case (SystemAllocationResult.SystemAllocationFailed error) (#panic))))
-#unsafe-fn resize-required ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)
+  );
+}
+#unsafe-fn resize-required {
+  #params = ((pointer (#ptr-mut #u8)) (size #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#return (#match (#unsafe (#unsafe-call system-reallocate ((pointer pointer) (size size))))
       (#case (SystemAllocationResult.SystemAllocated resized) resized)
       (#case (SystemAllocationResult.SystemAllocationFailed error) (#panic))))
-#unsafe-fn fill ((pointer (#ptr-mut #u8)) (size #usize)) ()
+  );
+}
+#unsafe-fn fill {
+  #params = ((pointer (#ptr-mut #u8)) (size #usize));
+  #returns = ();
+  #body = (
     (#let-mut index #usize 0usize)
     (#while (#usize::lt index size)
       (#unsafe (#ptr-write (#ptr-offset pointer index) (#as (#usize::rem-wrap index 251usize) #u8)))
       (#set index (#usize::add-wrap index 1usize)))
     (#return ())
-#unsafe-fn verify ((pointer (#ptr-mut #u8)) (size #usize)) ()
+  );
+}
+#unsafe-fn verify {
+  #params = ((pointer (#ptr-mut #u8)) (size #usize));
+  #returns = ();
+  #body = (
     (#let-mut index #usize 0usize)
     (#while (#usize::lt index size)
       (#assert (#u8::eq (#unsafe (#ptr-read (#ptr-offset pointer index))) (#as (#usize::rem-wrap index 251usize) #u8)))
       (#set index (#usize::add-wrap index 1usize)))
     (#return ())
+  );
+}
 "#;
 
 fn replace_calls(source: &str, replacements: &[(&str, &str)]) -> String {
@@ -115,7 +135,10 @@ fn kernel_error_pointers_and_invalid_resize_sizes_preserve_ownership() {
     run(
         HEAP,
         r#"
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#assert (#ptr-is-null (#call system-allocator-map ((length 0usize)))))
           (#assert (#ptr-is-null (#unsafe (#unsafe-call system-allocator-remap
             ((pointer (#ptr-null (#ptr-mut #u8))) (old-length 4096usize) (length 8192usize))))))
@@ -131,6 +154,8 @@ fn kernel_error_pointers_and_invalid_resize_sizes_preserve_ownership() {
           (#unsafe (#unsafe-call verify ((pointer pointer) (size 10000usize))))
           (#unsafe (#unsafe-call system-deallocate ((pointer pointer))))
           (#return 42u64)
+  );
+}
 "#,
     );
 }
@@ -140,9 +165,20 @@ fn foreign_malloc_and_free_can_coexist_without_allocator_interposition() {
     run_with_linkage(
         HEAP,
         r#"
-#extern-fn #abi-c malloc ((size #usize)) (#ptr-mut #u8)
-#extern-fn #abi-c free ((pointer (#ptr-mut #u8))) ()
-#fn main () #u64
+#extern-fn  malloc {
+  #abi = #abi-c;
+  #params = ((size #usize));
+  #returns = (#ptr-mut #u8);
+}
+#extern-fn  free {
+  #abi = #abi-c;
+  #params = ((pointer (#ptr-mut #u8)));
+  #returns = ();
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let foreign (#ptr-mut #u8) (#unsafe (#unsafe-call malloc ((size 64usize)))))
           (#assert (#bool::not (#ptr-is-null foreign)))
           (#let native (#ptr-mut #u8) (#call allocate-required ((size 64usize))))
@@ -154,6 +190,8 @@ fn foreign_malloc_and_free_can_coexist_without_allocator_interposition() {
           (#unsafe (#unsafe-call free ((pointer foreign))))
           (#unsafe (#unsafe-call system-deallocate ((pointer native))))
           (#return answer)
+  );
+}
 "#,
         false,
     );
@@ -209,13 +247,23 @@ fn size_classes_alignment_and_in_place_or_moving_resize_preserve_bytes() {
 const COUNT_OS_CALLS: &str = r#"
 #static mapped (#atomic #u64) (#atomic-init #u64 0u64)
 #static unmapped (#atomic #u64) (#atomic-init #u64 0u64)
-#fn counted-map ((length #usize)) (#ptr-mut #u8)
+#fn counted-map {
+  #params = ((length #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
     (#let previous #u64 (#unsafe (#atomic-fetch-add (#borrow mapped) 1u64 #memory-relaxed)))
     (#return (#call system-allocator-map ((length length))))
-#unsafe-fn counted-unmap ((pointer (#ptr-mut #u8)) (length #usize)) ()
+  );
+}
+#unsafe-fn counted-unmap {
+  #params = ((pointer (#ptr-mut #u8)) (length #usize));
+  #returns = ();
+  #body = (
     (#let previous #u64 (#unsafe (#atomic-fetch-add (#borrow unmapped) 1u64 #memory-relaxed)))
     (#unsafe (#unsafe-call system-allocator-unmap ((pointer pointer) (length length))))
     (#return ())
+  );
+}
 "#;
 
 #[test]
@@ -233,7 +281,10 @@ fn full_slabs_reenter_free_lists_and_empty_cache_is_bounded() {
     run(
         &heap,
         r#"
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut pointers (#array (#ptr-mut #u8) 96) (#array-repeat (#ptr-null (#ptr-mut #u8))))
           (#for-range (slot #usize) 0usize 96usize
             (#let pointer (#ptr-mut #u8) (#call allocate-required ((size 4080usize))))
@@ -256,6 +307,8 @@ fn full_slabs_reenter_free_lists_and_empty_cache_is_bounded() {
           (#unsafe (#unsafe-call system-deallocate ((pointer large))))
           (#assert (#u64::eq (#unsafe (#atomic-load (#borrow unmapped) #memory-relaxed)) 7u64))
           (#return 42u64)
+  );
+}
 "#,
     );
 }
@@ -273,17 +326,30 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
         ),
         r#"
 #static failMapping (#atomic #u32) (#atomic-init #u32 1u32)
-#fn gated-map ((length #usize)) (#ptr-mut #u8)
+#fn gated-map {
+  #params = ((length #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
           (#return (#if (#u32::eq (#unsafe (#atomic-load (#borrow failMapping) #memory-relaxed)) 1u32)
             (#ptr-null (#ptr-mut #u8)) (#call system-allocator-map ((length length)))))
-#unsafe-fn failed-remap ((pointer (#ptr-mut #u8)) (old-length #usize) (length #usize)) (#ptr-mut #u8)
+  );
+}
+#unsafe-fn failed-remap {
+  #params = ((pointer (#ptr-mut #u8)) (old-length #usize) (length #usize));
+  #returns = (#ptr-mut #u8);
+  #body = (
           (#return (#ptr-null (#ptr-mut #u8)))
+  );
+}
     "#
     );
     run(
         &heap,
         r#"
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#assert (#match (#call system-allocate ((size 17usize)))
             (#case (SystemAllocationResult.SystemAllocationFailed error) true)
             (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
@@ -309,6 +375,8 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
           (#assert (#match (#call system-allocate ((size 18446744073709551615usize)))
             (#case (SystemAllocationResult.SystemAllocationFailed error) true) (#case (SystemAllocationResult.SystemAllocated unexpected) (#panic))))
           (#return 42u64)
+  );
+}
 "#,
     );
 }
@@ -316,7 +384,7 @@ fn os_allocation_failures_unlock_pool_and_preserve_old_allocation() {
 #[test]
 fn bypassing_allocator_lock_ownership_requires_unsafe() {
     let source = format!(
-        "{HEAP}\n#fn main () #u64 (#unsafe-call system-allocator-unlock ()) (#return 42u64)\n"
+        "{HEAP}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#unsafe-call system-allocator-unlock ()) (#return 42u64)\n  );\n}}\n"
     );
     let program = lim::parse_program(&source).unwrap();
     let error = lim::check_types(&program)
@@ -330,13 +398,18 @@ fn embedded_standard_string_module_has_no_foreign_allocator_dependency() {
         "",
         r#"
 #std
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let text (#array #char 2) "hi")
           (#let string String (#match (#call String::from-chars ((text (#borrow-slice text))))
             (#case (StringCreateResult.StringCreated owner) owner) (#case (StringCreateResult.StringCreateFailed error) (#panic))))
           (#assert (#usize::eq (#call String::len ((string (#borrow string)))) 2usize))
           (#call String::free ((string string)))
           (#return 42u64)
+  );
+}
 "#,
     );
 }
@@ -347,20 +420,30 @@ fn standard_strings_can_allocate_and_free_inside_a_raw_worker() {
         "",
         r#"
 #std
-#fn worker () #u64
+#fn worker {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let characters (#array #char 2) "hi")
           (#let string String (#match (#call String::from-chars ((text (#borrow-slice characters))))
             (#case (StringCreateResult.StringCreated owner) owner) (#case (StringCreateResult.StringCreateFailed error) (#panic))))
           (#let size #usize (#call String::len ((string (#borrow string)))))
           (#call String::free ((string string)))
           (#return (#u64::add-wrap (#as size #u64) 40u64))
+  );
+}
 #generate #thread-spawn ((task StringWorker) (worker worker))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let task StringWorker (#match (#call StringWorker::spawn ())
             (#case (StringWorker::SpawnResult.Ok handle) handle) (#case _ (#panic))))
           (#return (#match (#call StringWorker::join ((task task)))
             (#case (StringWorker::JoinResult.Ok value) value)
             (#case (StringWorker::JoinResult.Error (#tuple retry error)) (#panic))))
+  );
+}
 "#,
     );
 }
@@ -370,7 +453,10 @@ fn raw_kernel_workers_share_heap_without_libc_tls() {
     run(
         HEAP,
         r#"
-#fn worker () #u64
+#fn worker {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#for-range (iteration #usize) 0usize 200usize
             (#let size #usize (#usize::add-wrap (#usize::rem-wrap iteration 4080usize) 1usize))
             (#let pointer (#ptr-mut #u8) (#call allocate-required ((size size))))
@@ -379,9 +465,14 @@ fn raw_kernel_workers_share_heap_without_libc_tls() {
             (#unsafe (#unsafe-call verify ((pointer resized) (size size))))
             (#unsafe (#unsafe-call system-deallocate ((pointer resized)))))
           (#return 21u64)
+  );
+}
 #generate #thread-spawn ((task WorkerA) (worker worker))
 #generate #thread-spawn ((task WorkerB) (worker worker))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let a WorkerA (#match (#call WorkerA::spawn ())
             (#case (WorkerA::SpawnResult.Ok handle) handle) (#case _ (#panic))))
           (#let b WorkerB (#match (#call WorkerB::spawn ())
@@ -393,6 +484,8 @@ fn raw_kernel_workers_share_heap_without_libc_tls() {
             (#case (WorkerB::JoinResult.Ok value) value)
             (#case (WorkerB::JoinResult.Error (#tuple retry error)) (#panic))))
           (#return (#u64::add-wrap first second))
+  );
+}
 "#,
     );
 }

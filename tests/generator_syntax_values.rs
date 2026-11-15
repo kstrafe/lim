@@ -5,7 +5,10 @@ fn expand(expression: &str) -> Result<String, lim::Diagnostic> {
     let source = format!(
         "#gn alias (options) `((#type ,{expression} #u64))
 #generate alias ((name Word) (suffix \"Alias\"))
-#fn main () #u64 (#return 42u64)\n"
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}}\n"
     );
     lim::compile_source_to_assembly(
         &source,
@@ -102,7 +105,7 @@ fn symbol_append_inserts_double_colons_for_literal_suffixes_and_nested_calls() {
 #[test]
 fn source_cannot_claim_gensym_identity_and_parser_can_inspect_generated_syntax() {
     let source =
-        "#fn main () #u64\n    (#let lim.gensym.fake #u64 42u64)\n    (#return lim.gensym.fake)\n";
+        "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = (\n    (#let lim.gensym.fake #u64 42u64)\n    (#return lim.gensym.fake)\n  );\n}\n";
     lim::parse_source_unit(source).unwrap(); // Program inspection uses the same source-unit reader as compilation.
     let scratch = support::Scratch::new("gensym-source");
     let error = lim::compile_source_to_assembly(
@@ -126,7 +129,12 @@ fn joined_names_are_inspectable_and_reused_from_the_generated_cache() {
 #gn emit (name)
           `((#fn ,(#gn-symbol-append name "read") () #u64 (#return 42u64)))
 #generate emit Word
-#fn main () #u64 (#return (#call Word::read ()))
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call Word::read ()))
+  );
+}
     "#;
     let compile = || {
         lim::compile_source_with_generated_sources(
@@ -185,7 +193,7 @@ fn imports_cannot_hide_or_construct_compiler_owned_identifiers() {
             Some("#type lim.gensym.fake #u64\n")
         );
     }
-    std::fs::write(&imported, "#fn gensym.fake () #u64 (#return 42u64)\n").unwrap();
+    std::fs::write(&imported, "#fn gensym.fake {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
     let source = "#alias lim.gensym.fake = ./module.lim::gensym.fake\n";
     let error = compile(source);
     let span = error.span.unwrap();
@@ -315,7 +323,10 @@ fn external_imported_generators_keep_fresh_locals_and_explicit_prefixed_api_keys
     )
     .unwrap();
     let source = "#alias lib@first = ./module.lim::first
-#fn main () #u64 (#return (#call lib@first ((task 42u64))))\n";
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call lib@first ((task 42u64))))\n  );\n}\n";
     lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),

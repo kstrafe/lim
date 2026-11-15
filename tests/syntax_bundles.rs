@@ -9,9 +9,19 @@ fn bundles_expand_parameters_calls_and_nested_forward_references() {
 #syntax Value ((#syntax-splice Number))
 #syntax Number (42u64)
 #syntax Empty ()
-#fn identity ((#syntax-splice Parameters)) #u64 (#return value)
-#fn main ((#syntax-splice Empty)) #u64
+#fn identity {
+  #params = ((#syntax-splice Parameters));
+  #returns = #u64;
+  #body = ( (#return value)
+  );
+}
+#fn main {
+  #params = ((#syntax-splice Empty));
+  #returns = #u64;
+  #body = (
             (#return (#call identity ((#syntax-splice Arguments))))
+  );
+}
     "#;
     parse_program(source).unwrap();
 }
@@ -32,15 +42,15 @@ fn rejects_invalid_bundles_even_when_unused() {
         ("#syntax-splice a", "surrounding list"),
         ("#syntax a ((#syntax-splice))\n", "exactly one"),
         (
-            "#syntax a ()\n#fn a () () (#return ())\n",
+            "#syntax a ()\n#fn a {\n  #params = ();\n  #returns = ();\n  #body = ( (#return ())\n  );\n}\n",
             "conflicts with a syntax bundle",
         ),
         (
-            "#fn main () () (#syntax a ()) (#return ())\n",
+            "#fn main {\n  #params = ();\n  #returns = ();\n  #body = ( (#syntax a ()) (#return ())\n  );\n}\n",
             "only allowed at top level",
         ),
         (
-            "#syntax value ()\n#fn main ((value #u64)) #u64 (#return value)\n",
+            "#syntax value ()\n#fn main {\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}\n",
             "shadowing is not allowed",
         ),
     ] {
@@ -56,7 +66,12 @@ fn generated_templates_can_emit_bundles() {
 #gn emit () `((#syntax value (42u64))
           (#fn generated () #u64 (#return (#syntax-splice value))))
 #generate emit
-#fn main () #u64 (#return (#call generated ()))
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call generated ()))
+  );
+}
     "#,
     )
     .unwrap();
@@ -69,7 +84,12 @@ fn bundles_expand_literal_generator_arguments() {
 #syntax Arguments (Answer #u64)
 #gn make (name ty) `((#type ,name ,ty))
 #generate make (#syntax-splice Arguments)
-#fn main () #u64 (#return 42u64)
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)
+  );
+}
     "#,
     )
     .unwrap();
@@ -80,12 +100,12 @@ fn imported_bundles_are_prefixed_and_checked_at_the_use() {
     let scratch = support::Scratch::new("syntax-bundles");
     std::fs::write(
         scratch.path().join("library.lim"),
-        "#syntax value (42u64)\n#fn answer () #u64 (#return (#syntax-splice value))\n",
+        "#syntax value (42u64)\n#fn answer {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#syntax-splice value))\n  );\n}\n",
     )
     .unwrap();
-    let source = "#alias ext@value = ./library.lim::value\n#fn main () #u64 (#return (#syntax-splice ext@value))\n";
+    let source = "#alias ext@value = ./library.lim::value\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#syntax-splice ext@value))\n  );\n}\n";
     lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
-    let source = "#syntax Bad (false)\n#fn main () #u64 (#return (#syntax-splice Bad))\n";
+    let source = "#syntax Bad (false)\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#syntax-splice Bad))\n  );\n}\n";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),
@@ -133,7 +153,12 @@ fn changing_a_bundle_invalidates_generated_code_cache() {
 #syntax value ({value}u64)
 #gn emit (value) `((#fn answer () #u64 (#return ,value)))
 #generate emit (#syntax-splice value)
-#fn main () #u64 (#return (#call answer ()))
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call answer ()))
+  );
+}}
         "#
         );
         lim::compile_source_to_assembly(
@@ -159,7 +184,12 @@ fn cfg_selection_precedes_bundle_collection() {
 #cfg-if (#cfg-is #backend asm)
           (#syntax value (42u64))
           (#cfg-else (#syntax value ((#syntax-splice missing))))
-#fn main () #u64 (#return (#syntax-splice value))
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#syntax-splice value))
+  );
+}
     "#,
         &config,
     )

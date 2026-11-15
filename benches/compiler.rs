@@ -425,10 +425,10 @@ fn generated_program(functions: usize) -> String {
     let mut source = String::new();
     for index in 0..functions {
         source.push_str(&format!(
-            "#fn work-{index} () #u64 (#return {index}u64)\n"
+            "#fn work-{index} {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return {index}u64)\n  );\n}}\n"
         ));
     }
-    source.push_str("#fn main () #u64 (#return 42u64)\n");
+    source.push_str("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n");
     source
 }
 
@@ -555,7 +555,7 @@ fn main() {
             black_box(lim::parse_source_unit(black_box(source)).unwrap());
         });
         let project_source = format!(
-            "#alias SharedMarker = ./shared.lim::SharedMarker\n#cfg-if (#cfg-is #platform linux) (#fn cfg-enabled () #u64 (#return 1u64))\n{source}"
+            "#alias SharedMarker = ./shared.lim::SharedMarker\n#cfg-if (#cfg-is #platform linux) (#fn cfg-enabled {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 1u64)\n  );\n}})\n{source}"
         );
         let path = root.join(format!("{label}.lim"));
         fs::write(&path, &project_source).unwrap();
@@ -698,14 +698,14 @@ fn main() {
         }
     }
 
-    let mut chain = String::from("#fn step-0 () #u64 (#return 42u64)\n");
+    let mut chain = String::from("#fn step-0 {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n");
     for index in 1..64 {
         chain.push_str(&format!(
-            "#fn step-{index} () #u64 (#return (#if true (#call step-{} ()) 0u64))\n",
+            "#fn step-{index} {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#if true (#call step-{} ()) 0u64))\n  );\n}}\n",
             index - 1
         ));
     }
-    chain.push_str("#fn main () #u64 (#return (#call step-63 ()))\n");
+    chain.push_str("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call step-63 ()))\n  );\n}\n");
     let generated = generator_program(256);
     for (name, source, expected) in [
         (

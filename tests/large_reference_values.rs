@@ -8,10 +8,18 @@ fn large_argument_diverging_match_and_if_arms_emit_traps() {
 
     let source = r#"
 #enum Choice () (Choice.First Choice.Second)
-#fn read ((values (#array #u64 10))) #u64
+#fn read {
+  #params = ((values (#array #u64 10)));
+  #returns = #u64;
+  #body = (
           (#let result #u64 (#index values 9usize))
           (#forget values) (#return result)
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let choice Choice Choice.First)
           (#let first #u64 (#call read ((values
             (#match choice
@@ -20,6 +28,8 @@ fn large_argument_diverging_match_and_if_arms_emit_traps() {
           (#let second #u64 (#call read ((values
             (#if #true (#array-repeat 1u64) (#unreachable))))))
           (#return (#u64::add-wrap first second))
+  );
+}
     "#;
     for (source, expected) in [
         (source.to_owned(), Some(43)),
@@ -69,11 +79,19 @@ fn large_enum_reference_reads_writes_and_matches_use_storage() {
             "#struct Large () ((values (#array #u64 10)))
 #enum Container (#linear) ((Container.Empty) (Container.Full Large))
 #struct Wrapper (#linear) ((item Container))
-#fn extract ((slot ({reference} Container))) Large
+#fn extract {{
+  #params = ((slot ({reference} Container)));
+  #returns = Large;
+  #body = (
               (#let previous Container (#unsafe ({read} slot)))
               (#unsafe ({write} slot Container.Empty))
               (#return (#match previous (#case Container.Empty (#unreachable)) (#case (Container.Full value) value)))
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let-mut owner Container (Container.Full (#struct-literal Large
                 ((values (#array-repeat 42u64))))))
               (#let result Large (#call extract ((slot ({borrow} owner)))))
@@ -91,7 +109,7 @@ fn large_enum_reference_reads_writes_and_matches_use_storage() {
                 (#case (Container.Full payload) (#block
                   (#let value #u64 (#index (#get payload values) 0usize))
                   (#forget payload) value))))
-              (#forget wrapped) (#return answer)\n"
+              (#forget wrapped) (#return answer)\n  );\n}}\n"
         );
         let scratch = support::Scratch::new("large-reference-values");
         let assembly = lim::compile_source_to_assembly(

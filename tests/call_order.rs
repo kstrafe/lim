@@ -3,10 +3,13 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 const NEXT: &str = "
-#fn next ((counter (#ref-mut #u64)) (expected #u64)) #u64
+#fn next {
+  #params = ((counter (#ref-mut #u64)) (expected #u64));
+  #returns = #u64;
+  #body = (
       (#assert (#u64::eq (#deref counter) expected))
       (#deref-set counter (#u64::add-wrap expected 1u64))
-      (#return expected)\n";
+      (#return expected)\n  );\n}\n";
 
 fn run(source: &str) {
     for source in [source.to_owned(), source.replace("#call ", "")] {
@@ -59,12 +62,20 @@ fn integer_stack_calls_evaluate_once_in_written_order() {
             .join(" ");
         run(&format!(
             "{NEXT}
-#fn check ({parameters}) #u64 {assertions} (#return 42u64)
-#fn main () #u64
+#fn check {{
+  #params = ({parameters});
+  #returns = #u64;
+  #body = ( {assertions} (#return 42u64)
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
               (#let-mut counter #u64 0u64)
               (#let result #u64 (#call check ({arguments})))
               (#assert (#u64::eq counter {count}u64))
-              (#return result)\n"
+              (#return result)\n  );\n}}\n"
         ));
     }
 }
@@ -74,7 +85,10 @@ fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
     run(&format!(
         "{NEXT}
 #struct Pair () ((first #u64) (second #u64))
-#fn check ((wide #u128) (pair Pair) (a #u64) (b #u64) (c #u64)) #u64
+#fn check {{
+  #params = ((wide #u128) (pair Pair) (a #u64) (b #u64) (c #u64));
+  #returns = #u64;
+  #body = (
           (#assert (#u128::eq wide 18446744073709551627u128))
           (#assert (#u64::eq (#get pair first) 2u64))
           (#assert (#u64::eq (#get pair second) 1u64))
@@ -82,7 +96,12 @@ fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
           (#assert (#u64::eq b 4u64))
           (#assert (#u64::eq c 0u64))
           (#return 42u64)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut counter #u64 0u64)
           (#let result #u64 (#call check
             ((c (#call next ((counter (#borrow-mut counter)) (expected 0u64))))
@@ -95,7 +114,7 @@ fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
              (b (#call next ((counter (#borrow-mut counter)) (expected 4u64))))
              (a (#call next ((counter (#borrow-mut counter)) (expected 5u64)))))))
           (#assert (#u64::eq counter 6u64))
-          (#return result)\n"
+          (#return result)\n  );\n}}\n"
     ));
 }
 
@@ -117,13 +136,26 @@ fn nested_large_arguments_do_not_overwrite_previously_staged_values() {
     };
     run(&format!(
         "#struct Large () ({fields})
-#fn identity ((value Large)) Large (#return value)
-#fn check ((left Large) (right Large)) #u64
+#fn identity {{
+  #params = ((value Large));
+  #returns = Large;
+  #body = ( (#return value)
+  );
+}}
+#fn check {{
+  #params = ((left Large) (right Large));
+  #returns = #u64;
+  #body = (
           (#assert (#u64::eq (#get left f7) 40u64))
           (#assert (#u64::eq (#get right f0) 2u64))
           (#return (#u64::add-wrap (#get left f0) (#get right f7)))
-#fn main () #u64 (#return (#call check
-          ((right {}) (left (#call identity ((value {})))))))\n",
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#call check
+          ((right {}) (left (#call identity ((value {})))))))\n  );\n}}\n",
         value(2),
         value(40)
     ));
@@ -133,13 +165,16 @@ fn nested_large_arguments_do_not_overwrite_previously_staged_values() {
 fn reversed_float_and_wide_intrinsics_keep_operand_roles_and_effects() {
     for ty in ["#f32", "#f64", "#u128", "#i128"] {
         run(&format!("{NEXT}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let-mut counter #u64 0u64)
             (#let answer {ty} (#call {ty}::sub{}
               ((right (#block (#call next ((counter (#borrow-mut counter)) (expected 0u64))) (#as 2u64 {ty})))
                (left (#block (#call next ((counter (#borrow-mut counter)) (expected 1u64))) (#as 44u64 {ty}))))))
             (#assert (#call {ty}::eq ((right (#as 42u64 {ty})) (left answer))))
             (#assert (#u64::eq counter 2u64)) (#return 42u64)
-", if ty.starts_with("#f") { "" } else { "-wrap" }));
+  );\n}}\n", if ty.starts_with("#f") { "" } else { "-wrap" }));
     }
 }

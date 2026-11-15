@@ -50,34 +50,63 @@ fn generated_tasks_preserve_borrow_linearity_exhaustiveness_and_send_checks() {
     let cases = [
         (
             "#generate lim-gen-task (Held Poll Poll.Pending Poll.Ready) #u64 ((Held.Holding (#ref #u64)))
-#fn bad () Held (#let value #u64 42u64) (#return (Held.Holding (#borrow value)))\n",
+#fn bad {
+  #params = ();
+  #returns = Held;
+  #body = ( (#let value #u64 42u64) (#return (Held.Holding (#borrow value)))\n  );\n}\n",
             "local",
         ),
         (
             "#generate lim-gen-task (Held Poll Poll.Pending Poll.Ready) #u64 ((Held.Holding (#ref #u64)))
-#fn poll ((task Held)) Poll (#forget task) (#return (Poll.Ready 1u64))
-#fn main () #u64 (#let-mut value #u64 1u64) (#let task Held (Held.Holding (#borrow value)))
-              (#set value 2u64) (#forget task) (#return value)\n",
+#fn poll {
+  #params = ((task Held));
+  #returns = Poll;
+  #body = ( (#forget task) (#return (Poll.Ready 1u64))
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let-mut value #u64 1u64) (#let task Held (Held.Holding (#borrow value)))
+              (#set value 2u64) (#forget task) (#return value)\n  );\n}\n",
             "borrow",
         ),
         (
             "#generate lim-gen-task (Held Poll Poll.Pending Poll.Ready) #u64 ((Held.Holding #u64))
-#fn poll ((task Held)) Poll (#forget task) (#return (Poll.Ready 1u64))
-#fn main () #u64 (#let task Held (Held.Holding 1u64))
+#fn poll {
+  #params = ((task Held));
+  #returns = Poll;
+  #body = ( (#forget task) (#return (Poll.Ready 1u64))
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let task Held (Held.Holding 1u64))
               (#let first Poll (#call poll ((task task))))
               (#let second Poll (#call poll ((task task))))
-              (#forget first) (#forget second) (#return 0u64)\n",
+              (#forget first) (#forget second) (#return 0u64)\n  );\n}\n",
             "more than once",
         ),
         (
             "#generate lim-gen-task (Held Poll Poll.Pending Poll.Ready) #u64 ((Held.First #u64) (Held.Second #u64))
-#fn release ((task #u64)) () (#forget task) (#return ())
+#fn release {
+  #params = ((task #u64));
+  #returns = ();
+  #body = ( (#forget task) (#return ())
+  );
+}
 #generate lim-gen-task-cancel cancel Held ((Held.First release))\n",
             "exhaustive",
         ),
         (
             "#generate lim-gen-task (Held Poll Poll.Pending Poll.Ready) #u64 ((Held.Holding (#ref (#ptr #u8))))
-#fn poll ((task Held)) Poll (#forget task) (#return (Poll.Ready 1u64))
+#fn poll {
+  #params = ((task Held));
+  #returns = Poll;
+  #body = ( (#forget task) (#return (Poll.Ready 1u64))
+  );
+}
 #generate lim-gen-threaded-executor run Results ((held Held Poll Poll.Pending Poll.Ready poll #u64 held-input)) Worker\n",
             "Send",
         ),
@@ -165,15 +194,33 @@ fn wake_executor_runs_every_supported_fixed_capacity() {
         let body = format!(
             "#generate lim-gen-task (Task Poll Poll.Pending Poll.Ready) #u64 ((Task.Waiting))
 #struct Waker () ((marker #u64))
-#fn poll ((task Task) (waker (#ref Waker))) Poll
+#fn poll {{
+  #params = ((task Task) (waker (#ref Waker)));
+  #returns = Poll;
+  #body = (
                  (#forget waker) (#forget task) (#return (Poll.Ready 1u64))
-#fn wait ((context #u32)) WaitResult (#return (WaitResult.WaitReady context))
-#fn cancel-poll ((state Poll)) () (#forget state) (#return ())
+  );
+}}
+#fn wait {{
+  #params = ((context #u32));
+  #returns = WaitResult;
+  #body = ( (#return (WaitResult.WaitReady context))
+  );
+}}
+#fn cancel-poll {{
+  #params = ((state Poll));
+  #returns = ();
+  #body = ( (#forget state) (#return ())
+  );
+}}
 #generate lim-gen-wake-executor run (Results Outcome Lifecycle Lifecycle.Running Outcome.Complete Lifecycle.Cancelling Outcome.Stopped)
                  (Task Poll Poll.Pending Poll.Ready #u64 poll Waker)
                  (WaitResult WaitResult.WaitReady WaitResult.WaitStopped #i64 wait (context #u32))
                  cancel-poll ({jobs})
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
                  (#let waker Waker (#struct-literal Waker ((marker 0u64))))
                  (#let waker-ref (#ref Waker) (#borrow waker))
                  (#let outcome Outcome
@@ -181,7 +228,7 @@ fn wake_executor_runs_every_supported_fixed_capacity() {
                  (#forget waker)
                  (#return (#match outcome
                    (#case (Outcome.Complete results) {total})
-                   (#case (Outcome.Stopped error) (#block (#forget error) (#unreachable)))))\n",
+                   (#case (Outcome.Stopped error) (#block (#forget error) (#unreachable)))))\n  );\n}}\n",
             named_args = call_args.join(" "),
         );
         let program = source(&body);
@@ -217,7 +264,10 @@ fn wake_executor_polls_only_selected_slots_across_ready_masks() {
 #generate lim-gen-task (Task Poll Poll.Pending Poll.Ready) #u64 ((Task.Run (#tuple #u64 #u64)))
 #struct Waker () ((marker #u64))
 #struct WaitContext () ((waits #u32))
-#fn poll ((task Task) (waker (#ref Waker))) Poll
+#fn poll {
+  #params = ((task Task) (waker (#ref Waker)));
+  #returns = Poll;
+  #body = (
           (#forget waker)
           (#return (#match task
             (#case (Task.Run (#tuple target attempts))
@@ -226,20 +276,32 @@ fn wake_executor_polls_only_selected_slots_across_ready_masks() {
                 (#if (#u64::ge next target)
                   (Poll.Ready next)
                   (Poll.Pending (Task.Run (#tuple target next))))))))
-#fn wait ((context (#ref-mut WaitContext))) WaitResult
+  );
+}
+#fn wait {
+  #params = ((context (#ref-mut WaitContext)));
+  #returns = WaitResult;
+  #body = (
           (#let waits (#ref-mut #u32) (#borrow-mut (#get context waits)))
           (#deref-set waits (#u32::add-wrap (#deref waits) 1u32))
           (#drop waits)
           (#return (#if (#u32::eq (#get context waits) 1u32)
             (WaitResult.WaitReady 6u32)
             (WaitResult.WaitReady 1u32)))
-#fn cancel-poll ((state Poll)) ()
+  );
+}
+#fn cancel-poll {
+  #params = ((state Poll));
+  #returns = ();
+  #body = (
           (#match state
             (#case (Poll.Pending task)
               (#match task (#case (Task.Run (#tuple target attempts))
                 (#block (#forget target) (#forget attempts)))))
             (#case (Poll.Ready value) (#forget value)))
           (#return ())
+  );
+}
 #generate lim-gen-wake-executor run
           (Results Outcome Lifecycle Lifecycle.Running Outcome.Complete Lifecycle.Cancelling Outcome.Stopped)
           (Task Poll Poll.Pending Poll.Ready #u64 poll Waker)
@@ -248,7 +310,10 @@ fn wake_executor_polls_only_selected_slots_across_ready_masks() {
           ((first-state first-task first-waker first 0u32)
            (second-state second-task second-waker second 1u32)
            (third-state third-task third-waker third 2u32))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker Waker (#struct-literal Waker ((marker 0u64))))
           (#let waker-ref (#ref Waker) (#borrow waker))
           (#let-mut wait-context WaitContext
@@ -274,7 +339,7 @@ fn wake_executor_polls_only_selected_slots_across_ready_masks() {
                 (#assert (#u64::eq (#get results third) 2u64))
                 (#forget results)
                 0u64))
-            (#case (Outcome.Stopped reason) (#block (#forget reason) 1u64))))\n";
+            (#case (Outcome.Stopped reason) (#block (#forget reason) 1u64))))\n  );\n}\n";
     let program = source(body);
     let assembly = lim::compile_source_to_assembly(
         &program,
@@ -306,17 +371,35 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
 #generate lim-gen-task (StopTask StopPoll StopPoll.StopPending StopPoll.StopReady) #u64
           (StopTask.ReadyNow (StopTask.Waiting (#tuple #u64 Waker TimerReactor1)))
 #struct Waker () ((marker #u64))
-#fn destroy-waker ((waker Waker)) ()
+#fn destroy-waker {
+  #params = ((waker Waker));
+  #returns = ();
+  #body = (
           (#forget waker) (#return ())
-#fn stop-poll ((task StopTask) (waker (#ref Waker))) StopPoll
+  );
+}
+#fn stop-poll {
+  #params = ((task StopTask) (waker (#ref Waker)));
+  #returns = StopPoll;
+  #body = (
           (#forget waker)
           (#return (#match task
             (#case StopTask.ReadyNow (StopPoll.StopReady 31u64))
             (#case (StopTask.Waiting (#tuple amount held-waker timer))
               (StopPoll.StopPending (StopTask.Waiting (#tuple amount held-waker timer))))))
-#fn stop-wait ((context #u32)) WaitResult
+  );
+}
+#fn stop-wait {
+  #params = ((context #u32));
+  #returns = WaitResult;
+  #body = (
           (#return (WaitResult.WaitStopped (#as context #i64)))
-#fn cancel-state ((state StopPoll)) ()
+  );
+}
+#fn cancel-state {
+  #params = ((state StopPoll));
+  #returns = ();
+  #body = (
           (#match state
             (#case (StopPoll.StopPending task)
               (#match task
@@ -334,6 +417,8 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
               (#block
                 (#forget value))))
           (#return ())
+  );
+}
 #generate lim-gen-wake-executor run-stop
           (StopResults StopOutcome StopLifecycle StopLifecycle.StopRunning
             StopOutcome.StopComplete StopLifecycle.StopCancelling StopOutcome.StopStopped)
@@ -343,7 +428,10 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
           ((ready-state ready-task ready-waker ready 0u32)
            (pending-state pending-task pending-waker pending 1u32)
            (pending-state-two pending-task-two pending-waker-two pending-two 2u32))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let timer-created TimerCreate1
             (#call timer-reactor1-create ((nanoseconds 900000000u64))))
           (#let-else (TimerCreate1.TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
@@ -369,7 +457,7 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
                 (#block (#forget reason) 42u64)
                 (#block (#forget reason) 1u64)))
             (#case (StopOutcome.StopComplete results)
-              (#block (#forget results) 2u64))))\n";
+              (#block (#forget results) 2u64))))\n  );\n}\n";
     let program = source(&body);
     let assembly = lim::compile_source_to_assembly(
         &program,

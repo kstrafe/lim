@@ -20,9 +20,12 @@ fn forward_requirements_validate_fresh_and_cached_outputs() {
         "{PRODUCER}
 #require-generated Value make (Value.Ready)
 #generate make Value Value.Ready
-#fn main () #u64 (#return (#match (Value.Ready 42u64)
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return (#match (Value.Ready 42u64)
           (#case (Value.Ready answer) answer)))
-"
+  );\n}}\n"
     );
     let first = compile(&source, &scratch).unwrap();
     assert_eq!(first, compile(&source, &scratch).unwrap());
@@ -38,8 +41,11 @@ fn matching_names_do_not_forge_generator_origin() {
             "{PRODUCER}
 {declaration}
 #require-generated Fake make
-#fn main () #u64 (#return 0u64)
-"
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)
+  );\n}}\n"
         );
         let error = compile(&source, &support::Scratch::new("provenance-forgery")).unwrap_err();
         assert_eq!(error.code, lim::DiagnosticCode::Generator);
@@ -61,7 +67,10 @@ fn companions_from_different_invocations_are_rejected() {
 #generate make First First.Ready
 #generate make Second Second.Ready
 #require-generated First make (Second.Ready)
-#fn main () #u64 (#return 0u64)\n"
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)\n  );\n}}\n"
     );
     let error = compile(&source, &support::Scratch::new("provenance-mixed")).unwrap_err();
     assert!(
@@ -83,7 +92,10 @@ fn duplicate_nested_invocations_keep_both_wrapper_origins() {
 #require-generated Value make (Value.Ready)
 #require-generated Value first (Value.Ready)
 #require-generated Value second (Value.Ready)
-#fn main () #u64 (#return 42u64)\n"
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}}\n"
     );
     let scratch = support::Scratch::new("provenance-wrappers");
     for _ in 0..2 {
@@ -97,7 +109,10 @@ fn builtin_output_and_its_wrappers_have_checked_origins() {
 #generate wrap
 #require-generated Maybe #optional (Maybe.Some Maybe.None Maybe::construct)
 #require-generated Maybe wrap (Maybe.Some Maybe.None)
-#fn main () #u64 (#return 42u64)\n";
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}\n";
     let scratch = support::Scratch::new("provenance-builtin");
     for _ in 0..2 {
         compile(source, &scratch).unwrap();

@@ -92,7 +92,7 @@ fn seeded_integer_oracle_checks_constants_and_native_operations() {
                     source.push_str(&format!("#const c{index} #{name} {expression}\n"));
                     checks.push_str(&format!("  (#assert (#{name}::eq c{index} {expected}{name}))\n  (#assert (#{name}::eq {expression} {expected}{name}))\n"));
                 }
-                source.push_str(&format!("#fn main () #u64 {checks} (#return 42u64)\n"));
+                source.push_str(&format!("#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( {checks} (#return 42u64)\n  );\n}}\n"));
                 execute(&source, None);
             }
         }};
@@ -114,35 +114,38 @@ fn seeded_integer_oracle_checks_constants_and_native_operations() {
 #[test]
 fn exceptional_values_casts_and_shift_failures_match_the_contract() {
     for ty in ["u128", "i128"] {
-        execute(&format!("#fn shift ((count #{ty})) #{ty} (#return (#{ty}::shl 1{ty} count))\n#fn main () #u64 (#let value #{ty} (#call shift ((count 18446744073709551616{ty})))) (#return 42u64)\n"), Some(4));
+        execute(&format!("#fn shift {{\n  #params = ((count #{ty}));\n  #returns = #{ty};\n  #body = ( (#return (#{ty}::shl 1{ty} count))\n  );\n}}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let value #{ty} (#call shift ((count 18446744073709551616{ty})))) (#return 42u64)\n  );\n}}\n"), Some(4));
     }
     for ty in ["f32", "f64"] {
         execute(
             &format!(
-                "#fn main () #u64
+                "#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let nan #{ty} (#{ty}::div 0.0{ty} 0.0{ty}))
             (#let infinity #{ty} (#{ty}::div 1.0{ty} 0.0{ty}))
             (#assert (#{ty}::ne nan nan))
             (#assert (#bool::eq (#{ty}::lt nan infinity) false))
-            (#assert (#bool::eq (#{ty}::ge nan infinity) false))
-            (#assert (#{ty}::eq -0.0{ty} 0.0{ty}))
-            (#assert (#{ty}::gt infinity 1.0{ty})) (#return 42u64)
-"
+            (#assert (#bool::eq (#{ty}0::ge nan infinity) false))
+            (#assert (#{ty}1::eq -0.0{ty}2 0.0{ty}3))
+            (#assert (#{ty}4::gt infinity 1.0{ty}5)) (#return 42u64)
+  );\n}}\n"
             ),
             None,
         );
     }
-    execute("#fn main () #u64 (#assert (#u8::eq (#as 511u64 #u8) 255u8)) (#assert (#i64::eq (#as -128i8 #i64) -128i64)) (#assert (#u128::eq (#as 18446744073709551615u64 #u128) 18446744073709551615u128)) (#return 42u64)\n", None);
+    execute("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#assert (#u8::eq (#as 511u64 #u8) 255u8)) (#assert (#i64::eq (#as -128i8 #i64) -128i64)) (#assert (#u128::eq (#as 18446744073709551615u64 #u128) 18446744073709551615u128)) (#return 42u64)\n  );\n}\n", None);
     for ty in [
         "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
     ] {
-        execute(&format!("#fn div ((zero #{ty})) #{ty} (#return (#{ty}::div-wrap 1{ty} zero))\n#fn main () #u64 (#let value #{ty} (#call div ((zero 0{ty})))) (#return 42u64)\n"), Some(4));
+        execute(&format!("#fn div {{\n  #params = ((zero #{ty}));\n  #returns = #{ty};\n  #body = ( (#return (#{ty}::div-wrap 1{ty} zero))\n  );\n}}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let value #{ty} (#call div ((zero 0{ty})))) (#return 42u64)\n  );\n}}\n"), Some(4));
         let width = if ty.ends_with("size") {
             64
         } else {
             ty[1..].parse::<u32>().unwrap()
         };
         // i8 cannot represent 128, but every type can represent its own width.
-        execute(&format!("#fn shift ((count #{ty})) #{ty} (#return (#{ty}::shl 1{ty} count))\n#fn main () #u64 (#let value #{ty} (#call shift ((count {width}{ty})))) (#return 42u64)\n"), Some(4));
+        execute(&format!("#fn shift {{\n  #params = ((count #{ty}));\n  #returns = #{ty};\n  #body = ( (#return (#{ty}::shl 1{ty} count))\n  );\n}}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let value #{ty} (#call shift ((count {width}{ty})))) (#return 42u64)\n  );\n}}\n"), Some(4));
     }
 }

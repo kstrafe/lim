@@ -51,7 +51,10 @@ fn odd_raw_byte_references_keep_their_address_through_safe_io_wrappers() {
 #alias linux-write-byte = "@LINUX@::linux-write-byte"
 #alias linux-clock-gettime = "@LINUX@::linux-clock-gettime"
 #alias linux-nanosleep = "@LINUX@::linux-nanosleep"
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let base (#ptr-mut #u8) (#unsafe (#unsafe-call linux-mmap ((address (#ptr-null (#ptr-mut #u8))) (length 4096usize) (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
             (#let odd (#ptr-mut #u8) (#unsafe (#ptr-offset base 1usize)))
             (#unsafe (#ptr-write base 91u8))
@@ -68,6 +71,8 @@ fn odd_raw_byte_references_keep_their_address_through_safe_io_wrappers() {
             (#drop shared)
             (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address base) (length 4096usize)))) 0i64))
             (#return 42u64)
+  );
+}
 "#,
         &[0xa7],
         &[0xa7],
@@ -84,7 +89,10 @@ fn clock_and_nanosleep_marshal_descending_stack_and_ascending_raw_timespecs() {
 #alias linux-write-byte = "@LINUX@::linux-write-byte"
 #alias linux-clock-gettime = "@LINUX@::linux-clock-gettime"
 #alias linux-nanosleep = "@LINUX@::linux-nanosleep"
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let-mut stack-time LinuxTimespec (#struct-literal LinuxTimespec ((nanoseconds 0i64) (seconds 0i64))))
             (#assert (#i64::eq (#call linux-clock-gettime ((clock-id 1i64) (time (#borrow-mut stack-time)))) 0i64))
             (#assert (#i64::le 0i64 (#get stack-time nanoseconds)))
@@ -133,6 +141,8 @@ fn clock_and_nanosleep_marshal_descending_stack_and_ascending_raw_timespecs() {
             (#drop raw-invalid) (#drop raw-remaining)
             (#assert (#i64::eq (#unsafe (#unsafe-call linux-munmap ((address raw) (length 4096usize)))) 0i64))
             (#return 42u64)
+  );
+}
 "#,
         &[],
         &[],

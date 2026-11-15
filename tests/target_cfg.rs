@@ -10,8 +10,16 @@ fn check(extra: &[&str], expected_arch: &str, project: bool) {
         format!(
             "#cfg-if (#cfg-and (#cfg-is #arch {expected_arch})
             (#cfg-is #target aarch64-unknown-linux-gnu) (#cfg-is #platform linux))
-            (#fn main () #u64 (#return 42u64))
-            (#cfg-else (#fn main () #u64 (#return wrong-target)))\n"
+            (#fn main {{
+              #params = ();
+              #returns = #u64;
+              #body = ( (#return 42u64)
+              );
+            }})
+            (#cfg-else (#fn main {{
+              #params = ();
+              #returns = #u64;
+              #body = ( (#return wrong-target)\n              );\n            }}))\n"
         ),
     )
     .unwrap();
@@ -61,7 +69,7 @@ fn lsp_context_round_trip_preserves_selected_target_and_cfg() {
     let scratch = support::Scratch::new("target-lsp-context");
     let entry = scratch.path().join("main.lim");
     let path = scratch.path().join("lim.lsp");
-    fs::write(&entry, "#fn main () #u64 (#return 42u64)\n").unwrap();
+    fs::write(&entry, "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n").unwrap();
     let mut config = lim::CompileConfig::default();
     config.set("feature", "enabled");
     let context = lim::lsp_context::LspContext {

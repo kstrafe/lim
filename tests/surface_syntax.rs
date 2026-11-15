@@ -127,7 +127,7 @@ fn infix_has_fixed_precedence_and_explicit_scoped_modes() {
         assert!(lim::parse(source).is_err(), "accepted {source}");
     }
     let invalid =
-        "#fn invalid ((a #u64) (b #u64) (c #u64)) #u64 (#return [#u64 #wrap; a + (b * c)])\n";
+        "#fn invalid {\n  #params = ((a #u64) (b #u64) (c #u64));\n  #returns = #u64;\n  #body = ( (#return [#u64 #wrap; a + (b * c)])\n  );\n}\n";
     assert!(lim::parse_program(invalid)
         .and_then(|program| lim::check_types(&program))
         .is_err());
@@ -164,7 +164,7 @@ fn declaration_records_normalize_with_required_fields_and_empty_defaults() {
 fn generated_function_records_keep_unquoted_names_and_canonical_structure() {
     let source = "#gn make (name) `((#fn ,name { #params = {}; #returns = #u64; #body = (#return 42u64;); }))\n#generate make read\n#fn main { #params = {}; #returns = #u64; #body = (#return read {};); }";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
-    let aggregate = "#gn make (name) `((#struct ,name () ((value #u64))) (#fn create ((value #u64)) ,name (#return (#struct-literal ,name ((value value))))))\n#generate make Item\n#fn main () #u64 (#return (#get (create ((value 42))) value))\n";
+    let aggregate = "#gn make (name) `((#struct ,name () ((value #u64))) (#fn create ((value #u64)) ,name (#return (#struct-literal ,name ((value value))))))\n#generate make Item\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#get (create ((value 42))) value))\n  );\n}\n";
     lim::check_types(&lim::parse_program(aggregate).unwrap()).unwrap();
     for keyword in ["#fn", "#static", "#const", "#unsafe-fn"] {
         assert_eq!(trees(keyword), vec![lim::Expr::Symbol(keyword.into())]);
@@ -176,7 +176,7 @@ fn implicit_calls_use_aliases_of_quoted_file_targets() {
     let scratch = support::Scratch::new("surface-file-call");
     std::fs::write(
         scratch.path().join("value with spaces.lim"),
-        "#fn read ((value #u64)) #u64 (#return value)\n",
+        "#fn read {\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}\n",
     )
     .unwrap();
     for call in [
@@ -200,7 +200,7 @@ fn implicit_calls_use_aliases_of_quoted_file_targets() {
 
 #[test]
 fn marker_free_calls_retain_function_identity_and_unsafe_requirements() {
-    let source = "#fn panic ((value #u64)) #u64 (#return value)\n#fn main { #params = {}; #returns = #u64; #body: \n  #return panic { value = 42; };\n}";
+    let source = "#fn panic {\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}\n#fn main { #params = {}; #returns = #u64; #body: \n  #return panic { value = 42; };\n}";
     lim::check_types(&lim::parse_program(source).unwrap()).unwrap();
     assert_eq!(
         trees("((name Example) (fields ((value #u64))))"),
@@ -211,13 +211,13 @@ fn marker_free_calls_retain_function_identity_and_unsafe_requirements() {
         trees("((argument identity ((value 42))))")
     );
     for call in ["danger {}", "(danger ())", "danger ()"] {
-        let source = format!("#unsafe-fn danger () () (#return ())\n#fn main {{ #params = {{}}; #returns = (); #body = (#unsafe ({call}); #return ();); }}");
+        let source = format!("#unsafe-fn danger {{\n  #params = ();\n  #returns = ();\n  #body = ( (#return ())\n  );\n}}\n#fn main {{ #params = {{}}; #returns = (); #body = (#unsafe ({call}); #return ();); }}");
         assert!(lim::parse_program(&source)
             .unwrap_err()
             .contains("#unsafe-call"));
     }
     for arguments in ["((wrong 1))", "((value 1) (value 2))", "()"] {
-        let source = format!("#fn read ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (read {arguments}))\n");
+        let source = format!("#fn read {{\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (read {arguments}))\n  );\n}}\n");
         assert!(lim::parse_program(&source).is_err(), "accepted {source}");
     }
 }
@@ -248,7 +248,7 @@ fn layout_is_local_and_delimited_operands_keep_their_own_semicolons() {
     let shorthand = source.replace(" =:", ":");
     assert_eq!(trees(&shorthand), trees(source));
     lim::check_types(&lim::parse_program(&shorthand).unwrap()).unwrap();
-    let outdented = "#fn identity ((value #u64)) #u64 (#return value)\n#fn main {\n  #params = {};\n  #returns = #u64;\n  #body =:\n    #return identity {\n      value = 42;\n};\n}\n";
+    let outdented = "#fn identity {\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}\n#fn main {\n  #params = {};\n  #returns = #u64;\n  #body =:\n    #return identity {\n      value = 42;\n};\n}\n";
     lim::check_types(&lim::parse_program(outdented).unwrap()).unwrap();
     let string = "#fn text {\n  #params = {};\n  #returns = (#array #char 3);\n  #body =:\n    #return \"x \n\";\n}\n";
     lim::check_types(&lim::parse_program(string).unwrap()).unwrap();
@@ -395,7 +395,7 @@ fn surface_diagnostics_suggest_public_syntax_and_point_to_the_written_operation(
     assert_eq!(&source[span.start..span.end], "#break");
     lim::check_types(
         &lim::parse_program(
-            "#fn main () #u64 (#loop (#if true (#block (#break)) ())) (#return 42u64)\n",
+            "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#loop (#if true (#block (#break)) ())) (#return 42u64)\n  );\n}\n",
         )
         .unwrap(),
     )

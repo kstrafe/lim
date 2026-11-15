@@ -4,10 +4,10 @@ use std::fs;
 #[test]
 fn imported_named_operands_keep_exact_spans_in_the_ir() {
     let scratch = support::Scratch::new("typed-import");
-    let module = "#fn add ((left #u32) (right #u32)) #u32 (#return (#u32::add-wrap left right))\n#fn value () #u32 (#return (#call add ((right 2) (left 40))))\n";
+    let module = "#fn add {\n  #params = ((left #u32) (right #u32));\n  #returns = #u32;\n  #body = ( (#return (#u32::add-wrap left right))\n  );\n}\n#fn value {\n  #params = ();\n  #returns = #u32;\n  #body = ( (#return (#call add ((right 2) (left 40))))\n  );\n}\n";
     fs::write(scratch.path().join("module.lim"), module).unwrap();
     let source =
-        "#alias ext@value = ./module.lim::value\n#fn main () #u32 (#return (#call ext@value ()))\n";
+        "#alias ext@value = ./module.lim::value\n#fn main {\n  #params = ();\n  #returns = #u32;\n  #body = ( (#return (#call ext@value ()))\n  );\n}\n";
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     let checked = lim::CheckedProgram::validate(&program).unwrap();
     let dump = checked.dump_typed_ir();

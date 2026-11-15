@@ -74,9 +74,14 @@ fn generated_standalone_with_config(
 fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
     let source = "#enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
           (#return (#match task (#case (Child.Waiting count)
             (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady count)))))
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
           (function (#fn work ((choose #bool)) #u64
             (#let left #u64 41u64) (#let right #u64 51u64)
@@ -84,14 +89,17 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
             (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
             (#let answer #u64 (#u64::add-wrap (#deref view) extra))
             (#drop view) (#return answer))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64) (#let-mut task Work::Frame (#call work ((choose true))))
           (#let first Work::Poll (#call Work::poll ((task (#pin-borrow-mut task)) (waker (#borrow waker)))))
           (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
           (#let answer #u64 (#match (#call Work::poll ((task next) (waker (#borrow waker))))
             (#case (Work::Poll.Ready value) value)
             (#case (Work::Poll.Pending bad) (#block (#drop bad) (#unreachable)))))
-          (#forget task) (#return answer)\n";
+          (#forget task) (#return answer)\n  );\n}\n";
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");
     let (scratch, standalone) = generated_standalone_with_config(
@@ -162,9 +170,14 @@ fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code
     let source = "#struct Outside () ((other #u64) (selected #u64))
 #enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
           (#return (#match task (#case (Child.Waiting count)
             (#if (#u64::eq count 0u64) (ChildPoll.ChildPending (Child.Waiting 1u64)) (ChildPoll.ChildReady count)))))
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
           (function (#fn work ((external (#ref-mut #u64)) (choose #bool)) #u64
             (#let-mut owner #u64 40u64)
@@ -172,7 +185,10 @@ fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code
             (#let extra #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
             (#forget extra) (#deref-set view 42u64)
             (#let answer #u64 (#deref view)) (#drop view) (#return answer))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let-mut external Outside (#struct-literal Outside ((other 90u64) (selected 50u64))))
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((external (#borrow-mut (#get external selected))) (choose false))))
@@ -182,7 +198,7 @@ fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code
             (#case (Work::Poll.Ready value) value)
             (#case (Work::Poll.Pending bad) (#block (#drop bad) (#unreachable)))))
           (#forget task) (#assert (#u64::eq (#get external other) 90u64))
-          (#assert (#u64::eq (#get external selected) 42u64)) (#return answer)\n";
+          (#assert (#u64::eq (#get external selected) 42u64)) (#return answer)\n  );\n}\n";
     for mutable in [false, true] {
         let source = if mutable {
             source.to_owned()
@@ -282,20 +298,28 @@ fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
 
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
 #syntax ChildAwait (#u64 Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll)
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
           (#return (#match task
             (#case (Child.Waiting amount) (ChildPoll.ChildReady amount))))
+  );
+}
 #generate #async-fn ((protocol WorkAwait) (waker #u64) (function
           (#fn work ((seed #u64)) #u64
             (#let answer #u64 (#await ChildAwait (Child.Waiting seed)))
             (#return (#u64::add-wrap answer 2u64)))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let result Work::Poll
             (#call Work::poll ((task (#call work ((seed 40u64)))) (waker (#borrow waker)))))
           (#return (#match result
             (#case (Work::Poll.Ready value) value)
-            (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))\n";
+            (#case (Work::Poll.Pending pending) (#block (#forget pending) (#unreachable)))))\n  );\n}\n";
     let (scratch, standalone) = generated_standalone(
         source,
         "#generate #async-fn",
@@ -305,10 +329,13 @@ fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
     check_build_and_run(&scratch, &standalone, 42);
 
     let misuse = format!(
-        "{standalone}\n#fn illegal () ()
+        "{standalone}\n#fn illegal {{
+  #params = ();
+  #returns = ();
+  #body = (
             (#let-mut owner #u64 1u64)
             (#let view (#ref #u64) (#borrow owner))
-            (#set owner 2u64) (#drop view) (#return ())\n"
+            (#set owner 2u64) (#drop view) (#return ())\n  );\n}}\n"
     );
     let program = lim::parse_program(&misuse).unwrap();
     let error = lim::check_types(&program).unwrap_err();

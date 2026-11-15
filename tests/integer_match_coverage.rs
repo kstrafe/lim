@@ -3,7 +3,7 @@ mod support;
 use std::{process::Command, time::Duration};
 
 fn source(ty: &str, arms: &str) -> String {
-    format!("#fn classify ((value #{ty})) #u64 (#return (#match value {arms}))\n")
+    format!("#fn classify {{\n  #params = ((value #{ty}));\n  #returns = #u64;\n  #body = ( (#return (#match value {arms}))\n  );\n}}\n")
 }
 
 fn check(source: &str) -> Result<(), String> {
@@ -156,5 +156,5 @@ fn exhaustive_matches_dispatch_all_u8_values_and_full_width_boundaries() {
         let program = format!("{}#fn main () #u64 (#assert (#u64::eq (#call classify ((value {minimum}{ty}))) 42u64)) (#return (#call classify ((value {maximum}{ty}))))\n", source(ty, &format!("(#case (#range {minimum}{ty} {maximum}{ty}) 42u64)")));
         run(&program);
     }
-    run("#fn main () #u64 (#return (#match true (#case true (#when false) 0u64) (#case true 42u64) (#case false 1u64)))\n");
+    run("#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#match true (#case true (#when false) 0u64) (#case true 42u64) (#case false 1u64)))\n  );\n}\n");
 }

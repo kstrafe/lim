@@ -5,13 +5,31 @@ use std::{process::Command, time::Duration};
 fn named_fields_calls_and_control_flow_follow_the_documented_evaluation_order() {
     let source = "#static trace (#atomic #u64) (#atomic-init #u64 0u64)
 #struct Pair (#linear) ((first #u64) (second #u64))
-#fn mark ((value #u64)) #u64
+#fn mark {
+  #params = ((value #u64));
+  #returns = #u64;
+  #body = (
           (#let previous #u64 (#unsafe (#atomic-load (#borrow trace) #memory-relaxed)))
           (#unsafe (#atomic-store (#borrow trace) (#u64::add-wrap (#u64::mul-wrap previous 10u64) value) #memory-relaxed))
           (#return value)
-#fn combine ((first #u64) (second #u64)) #u64 (#return (#u64::add-wrap (#u64::mul-wrap first 10u64) second))
-#fn flag ((value #bool)) #bool (#return value)
-#fn main () #u64
+  );
+}
+#fn combine {
+  #params = ((first #u64) (second #u64));
+  #returns = #u64;
+  #body = ( (#return (#u64::add-wrap (#u64::mul-wrap first 10u64) second))
+  );
+}
+#fn flag {
+  #params = ((value #bool));
+  #returns = #bool;
+  #body = ( (#return value)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#assert (#u64::eq (#call combine ((second (#call mark ((value 2u64)))) (first (#call mark ((value 1u64)))))) 12u64))
           (#assert (#u64::eq (#unsafe (#atomic-load (#borrow trace) #memory-relaxed)) 21u64))
           (#unsafe (#atomic-store (#borrow trace) 0u64 #memory-relaxed))
@@ -27,7 +45,7 @@ fn named_fields_calls_and_control_flow_follow_the_documented_evaluation_order() 
           (#let selected #u64 (#match (#call mark ((value 1u64))) (#case (#literal #u64 1) (#call mark ((value 2u64)))) (#case _ 0u64)))
           (#assert (#u64::eq selected 2u64))
           (#assert (#u64::eq (#unsafe (#atomic-load (#borrow trace) #memory-relaxed)) 12u64))
-          (#return 42u64)\n";
+          (#return 42u64)\n  );\n}\n";
     let scratch = support::Scratch::new("evaluation-contract");
     let compile = || {
         lim::compile_source_to_assembly(
@@ -60,7 +78,7 @@ fn named_fields_calls_and_control_flow_follow_the_documented_evaluation_order() 
 
 #[test]
 fn returning_does_not_implicitly_destroy_an_unconsumed_owner() {
-    let source = "#struct Owner (#linear) ((value #u64))\n#fn main () #u64 (#let owner Owner (#struct-literal Owner ((value 42u64)))) (#return 0u64)\n";
+    let source = "#struct Owner (#linear) ((value #u64))\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let owner Owner (#struct-literal Owner ((value 42u64)))) (#return 0u64)\n  );\n}\n";
     let scratch = support::Scratch::new("explicit-destruction-contract");
     let error = lim::compile_source_to_assembly(
         source,

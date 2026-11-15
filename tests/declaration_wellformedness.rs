@@ -22,7 +22,7 @@ fn unused_unknown_payloads_and_aliases_fail_at_the_missing_type_token() {
         "#type Broken (#ptr MissingType)\n",
         "#struct Broken () ((payload Alias))\n#type Alias MissingType\n",
     ] {
-        let source = format!("{declaration}\n#fn main () #u64 (#return 0u64)\n");
+        let source = format!("{declaration}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}}\n");
         let error = check(&source).unwrap_err();
         assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
         assert!(
@@ -75,7 +75,7 @@ fn imported_and_generated_unused_payload_errors_keep_exact_sources() {
     let module = scratch.path().join("types.lim");
     let declaration = "#enum Broken () ((Broken.Bad MissingType))\n";
     fs::write(&module, declaration).unwrap();
-    let source = "#alias Broken = ./types.lim::Broken\n#fn main () #u64 (#return 0u64)\n";
+    let source = "#alias Broken = ./types.lim::Broken\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n";
     let error = lim::check_source_with_generated_sources(
         source,
         &entry,

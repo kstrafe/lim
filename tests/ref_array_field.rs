@@ -5,14 +5,17 @@ use std::process::Command;
 #[test]
 fn multiword_field_read_through_reference_keeps_its_base_address() {
     let source = "#struct Packet () ((items (#array #u64 3)) (sentinel #u64))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let packet Packet (#struct-literal Packet
             ((items (#array-of (#array #u64 3) 4u64 8u64 42u64))
              (sentinel 99u64))))
           (#let packet-ref (#ref Packet) (#borrow packet))
           (#let items (#array #u64 3) (#get packet-ref items))
           (#drop packet-ref)
-          (#return (#index items 2u64))\n";
+          (#return (#index items 2u64))\n  );\n}\n";
     let scratch = support::Scratch::new("ref-array-field");
     let assembly = lim::compile_source_to_assembly(
         source,

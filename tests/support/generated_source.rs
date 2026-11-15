@@ -50,10 +50,10 @@ mod tests {
     #[test]
     fn restoring_local_names_preserves_foreign_references_and_string_data() {
         let source =
-            "#fn /entry.lim::work () #u64 (#return /other.lim::value)\n \"/entry.lim::data\"";
+            "#fn /entry.lim::work {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return /other.lim::value)\n \"/entry.lim::data\"\n  );\n}";
         assert_eq!(
             super::ordinary_source_in_file(source, std::path::Path::new("/entry.lim")),
-            "#fn work () #u64 (#return /other.lim::value)\n \"/entry.lim::data\""
+            "#fn work {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return /other.lim::value)\n \"/entry.lim::data\"\n  );\n}"
         );
     }
 
@@ -61,10 +61,10 @@ mod tests {
     fn removes_multiline_header_and_preserves_comments_and_body_exactly() {
         let header = "#generated-context\n    compiler-owned\n    provenance";
         let artifact = format!(
-            "// generated file\n{header}\n// keep this comment\n#fn generated () #u64 (#return 42u64)\n"
+            "// generated file\n{header}\n// keep this comment\n#fn generated {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}}\n"
         );
         let expected =
-            "// generated file\n\n// keep this comment\n#fn generated () #u64 (#return 42u64)\n";
+            "// generated file\n\n// keep this comment\n#fn generated {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
         assert_eq!(ordinary_source(&artifact), expected);
     }
 
@@ -74,7 +74,7 @@ mod tests {
         let error = lim::parse_program(authored).unwrap_err();
         assert!(error.contains("compiler-owned"), "{error}");
 
-        let nested = "#fn text () (#slice #u8) (#return \"#generated-context\")\n";
+        let nested = "#fn text {\n  #params = ();\n  #returns = (#slice #u8);\n  #body = ( (#return \"#generated-context\")\n  );\n}\n";
         assert_eq!(ordinary_source(nested), nested);
     }
 }

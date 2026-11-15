@@ -6,21 +6,29 @@ use std::{fs, process::Command, time::Duration};
 const SOURCE: &str = "
 #enum Child (#linear) ((Child.Start #u64) (Child.Resume #u64))
 #enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
       (#return (#match task
         (#case (Child.Start value) (ChildPoll.Pending (Child.Resume value)))
         (#case (Child.Resume value) (ChildPoll.Ready value))))
+  );
+}
 #generate #async-fn ((protocol WorkAwait) (waker #u64)
       (function (#fn work ((seed #u64)) #u64
         (#return (#await Child ChildPoll.Pending ChildPoll.Ready child-poll (Child.Start seed))))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
       (#let waker #u64 0u64)
       (#let first Work::Poll (#call Work::poll
         ((task (#call work ((seed 42u64)))) (waker (#borrow waker)))))
       (#let-else (Work::Poll.Pending next) Work::Poll first (#unreachable))
       (#return (#match (#call Work::poll ((task next) (waker (#borrow waker))))
         (#case (Work::Poll.Ready value) value)
-        (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))\n";
+        (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))\n  );\n}\n";
 
 fn config() -> lim::CompileConfig {
     let mut config = lim::CompileConfig::default();

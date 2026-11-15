@@ -31,7 +31,7 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
         assert!(error.message.contains("source file /not/the/source"));
     }
     let source =
-        "#fn value () #u64 (#return 42u64)\n#const bad #u64 (#u64::add-wrap 1u64 (#call value ()))\n";
+        "#fn value {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#const bad #u64 (#u64::add-wrap 1u64 (#call value ()))\n";
     let error =
         lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap_err();
     assert_eq!(error.code, lim::DiagnosticCode::Codegen);

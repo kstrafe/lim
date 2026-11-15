@@ -22,14 +22,17 @@ fn external_graph_source_uses_prefixed_aliases_and_parameter_names() {
 #alias Ext::work = ./module.lim::work
 #alias Ext@Work::poll = ./module.lim::Work::poll
 #alias Ext@Work::Poll = ./module.lim::Work::Poll
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut frame Ext@Work::Frame (#call Ext::work ((amount 42u64))))
           (#let result #u64 (#match (#call Ext@Work::poll
             ((task (#pin-borrow-mut frame)) (waker (#borrow waker))))
             (#case (Ext@Work::Poll.Ready value) value)
             (#case (Ext@Work::Poll.Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
-          (#forget frame) (#return result)\n";
+          (#forget frame) (#return result)\n  );\n}\n";
     let assembly = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),
@@ -64,7 +67,7 @@ fn external_graph_source_preserves_the_original_borrow_violation_span() {
             (#set local 99u64)
             (#return (#deref alias)))))\n";
     fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let source = "#alias Amount = ./module.lim::Amount\n#fn main () #u64 (#return 0u64)\n";
+    let source = "#alias Amount = ./module.lim::Amount\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),

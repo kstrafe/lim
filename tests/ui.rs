@@ -365,7 +365,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "cfg",
             diagnostic_code: "E4000",
-            offending_line: "#cfg-if (#cfg-is #platfrom linux) (#fn main () #u64 (#return 0u64))",
+            offending_line: "#cfg-if (#cfg-is #platfrom linux) (#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n})",
             line_number: 1,
         },
         Case {
@@ -534,7 +534,7 @@ fn compilation_errors_render_the_offending_source_line() {
             name: "aggregate-layout-overflow",
             diagnostic_code: "E5000",
             offending_line:
-                "#fn main ((values (#array (#array #u64 18446744073709551615) 2))) () (#return ())",
+                "#fn main {\n  #params = ((values (#array (#array #u64 18446744073709551615) 2)));\n  #returns = ();\n  #body = ( (#return ())\n  );\n}",
             line_number: 1,
         },
         Case {
@@ -630,7 +630,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "generic-function",
             diagnostic_code: "E2000",
-            offending_line: "#fn identity (T) ((value T)) T",
+            offending_line: "#fn identity {\n  #params = (T);\n  #returns = ((value T));\n  #body = ( T\n  );\n}",
             line_number: 1,
         },
         Case {
@@ -861,7 +861,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-parameter",
             diagnostic_code: "E4000",
-            offending_line: "#fn main ((value #u64) (value #u64)) #u64 (#return value)",
+            offending_line: "#fn main {\n  #params = ((value #u64) (value #u64));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}",
             line_number: 1,
         },
         Case {
@@ -897,7 +897,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-function",
             diagnostic_code: "E3000",
-            offending_line: "#fn main () #u64 (#return 2u64)",
+            offending_line: "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 2u64)\n  );\n}",
             line_number: 2,
         },
         Case {
@@ -915,7 +915,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "thread-send",
             diagnostic_code: "E4000",
-            offending_line: "#fn worker ((pointer (#ptr #u64))) #u64 (#return 0u64)",
+            offending_line: "#fn worker {\n  #params = ((pointer (#ptr #u64)));\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}",
             line_number: 1,
         },
         Case {
@@ -933,13 +933,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "thread-worker-unknown-type",
             diagnostic_code: "E4000",
-            offending_line: "#fn worker ((argument missing)) #u64 (#return 1u64)",
+            offending_line: "#fn worker {\n  #params = ((argument missing));\n  #returns = #u64;\n  #body = ( (#return 1u64)\n  );\n}",
             line_number: 4,
         },
         Case {
             name: "unknown-local-type",
             diagnostic_code: "E4000",
-            offending_line: "#fn main () #u64 (#let value missing 1u64) (#return 0u64)",
+            offending_line: "#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let value missing 1u64) (#return 0u64)\n  );\n}",
             line_number: 1,
         },
         Case {
@@ -1128,13 +1128,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "thread-worker-reference-result",
             diagnostic_code: "E4000",
-            offending_line: "#fn worker ((value (#ref #u64))) (#ref #u64) (#return value)",
+            offending_line: "#fn worker {\n  #params = ((value (#ref #u64)));\n  #returns = (#ref #u64);\n  #body = ( (#return value)\n  );\n}",
             line_number: 1,
         },
         Case {
             name: "thread-task-function-signature",
             diagnostic_code: "E4000",
-            offending_line: "#fn bad ((task Task)) #u64 (#return 0u64)",
+            offending_line: "#fn bad {\n  #params = ((task Task));\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}",
             line_number: 3,
         },
         Case {
@@ -1459,7 +1459,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "call-builtin-name-type" => Some("false"),
             "call-missing-argument" => Some("#call"),
             "type-as-constructor" => Some("Point"),
-            "aggregate-layout-overflow" => Some("#fn main ((values (#array (#array #u64 18446744073709551615) 2))) () (#return ())"),
+            "aggregate-layout-overflow" => Some("#fn main {\n  #params = ((values (#array (#array #u64 18446744073709551615) 2)));\n  #returns = ();\n  #body = ( (#return ())\n  );\n}"),
             "array-repeat-linear" => Some("(#array-repeat (#struct-literal Token ((value 1u64))))"),
             "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),
             "local-name-type-error" => Some("flag"),

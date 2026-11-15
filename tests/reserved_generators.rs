@@ -13,7 +13,7 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 
 #[test]
 fn builtin_names_are_reserved_and_old_spellings_have_no_compatibility_route() {
-    compile("#generate #optional ((type #u64) (name Maybe))\n#fn main () #u64 (#return 42u64)\n")
+    compile("#generate #optional ((type #u64) (name Maybe))\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n")
         .unwrap();
     let error = compile("#generate optional ((type #u64) (name Maybe))\n").unwrap_err();
     assert!(error.message.contains("unknown"), "{error:?}");
@@ -23,13 +23,19 @@ fn builtin_names_are_reserved_and_old_spellings_have_no_compatibility_route() {
         "#gn optional () `((#type UserWord #u64))
 #generate optional
 #generate #optional ((type UserWord) (name Maybe))
-#fn main () #u64 (#return 42u64)\n",
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}\n",
     )
     .unwrap();
     compile(
         "#gn cell () `((#type UserCell #u64))
 #generate cell
-#fn main () #u64 (#return 42u64)\n",
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}\n",
     )
     .unwrap();
 }
@@ -47,10 +53,10 @@ fn users_and_generated_output_cannot_declare_reserved_names() {
         "#struct Ordinary (#repr-c) ((#field #u64))\n",
         "#enum Ordinary () (#Case)\n",
         "#type #Word #u64\n",
-        "#fn #future-function () () (#return ())\n",
-        "#fn ordinary ((#argument #u64)) () (#return ())\n",
-        "#fn ordinary () () (#let #local #u64 1u64) (#return ())\n",
-        "#fn ordinary () () (#for-range (#local #usize) 0usize 1usize ()) (#return ())\n",
+        "#fn #future-function {\n  #params = ();\n  #returns = ();\n  #body = ( (#return ())\n  );\n}\n",
+        "#fn ordinary {\n  #params = ((#argument #u64));\n  #returns = ();\n  #body = ( (#return ())\n  );\n}\n",
+        "#fn ordinary {\n  #params = ();\n  #returns = ();\n  #body = ( (#let #local #u64 1u64) (#return ())\n  );\n}\n",
+        "#fn ordinary {\n  #params = ();\n  #returns = ();\n  #body = ( (#for-range (#local #usize) 0usize 1usize ()) (#return ())\n  );\n}\n",
         "#gn emit () (#gn-for-each #local () ())\n#generate emit\n",
         "#gn emit () `((#struct #Future () ()))\n#generate emit\n",
         "#generate #optional ((type #u64) (name #Maybe))\n",
@@ -71,7 +77,10 @@ fn standard_generators_can_be_explicitly_aliased() {
         compile(&format!(
             "{import}
 #generate cell-generator #u64 Cell create-cell get-cell set-cell
-#fn main () #u64 (#return 42u64)\n"
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}}\n"
         ))
         .unwrap();
     }
@@ -82,14 +91,17 @@ fn bundled_standard_generator_uses_the_same_reserved_spelling() {
     compile(
         "#std
 #generate #utf8-view ((name ByteView) (owner (#slice #u8)))
-#fn main () #u64 (#return 42u64)\n",
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}\n",
     )
     .unwrap();
 }
 
 #[test]
 fn reserved_binding_error_points_to_the_identifier_not_the_function_header() {
-    let source = "#fn ordinary () ()\n    (#let #local #u64 1u64)\n    (#return ())\n";
+    let source = "#fn ordinary {\n  #params = ();\n  #returns = ();\n  #body = (\n    (#let #local #u64 1u64)\n    (#return ())\n  );\n}\n";
     let error = compile(source).unwrap_err();
     let span = error.span.unwrap();
     assert_eq!(span.line, 2);

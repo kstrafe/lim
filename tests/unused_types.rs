@@ -19,7 +19,7 @@ fn warnings(source: &str) -> Vec<lim::Diagnostic> {
 
 #[test]
 fn unused_struct_enum_and_alias_warnings_have_exact_names_and_warning_severity() {
-    let source = "#struct UnusedStruct () ()\n#enum UnusedEnum () (UnusedEnum.Empty)\n#type UnusedAlias #u64\n#fn main () #u64 (#return 0u64)\n";
+    let source = "#struct UnusedStruct () ()\n#enum UnusedEnum () (UnusedEnum.Empty)\n#type UnusedAlias #u64\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n";
     let diagnostics = warnings(source);
     assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
     for (diagnostic, name) in diagnostics
@@ -41,12 +41,12 @@ fn unused_struct_enum_and_alias_warnings_have_exact_names_and_warning_severity()
 #[test]
 fn function_signatures_bodies_globals_and_transitive_types_count_as_use() {
     for source in [
-        "#type Alias Container\n#struct Container () ((element Element))\n#enum Element () (Element.Empty)\n#fn consume ((value Alias)) () (#forget value) (#return ())\n",
-        "#enum Choice () (Choice.Only)\n#fn main () #u64 (#return (#match Choice.Only (#case Choice.Only 0u64)))\n",
-        "#struct Local () ()\n#fn main () #u64 (#let value Local (#struct-literal Local ())) (#forget value) (#return 0u64)\n",
-        "#struct Local () ()\n#fn main () #u64 (#return (#block (#let value Local (#struct-literal Local ())) (#forget value) 0u64))\n",
+        "#type Alias Container\n#struct Container () ((element Element))\n#enum Element () (Element.Empty)\n#fn consume {\n  #params = ((value Alias));\n  #returns = ();\n  #body = ( (#forget value) (#return ())\n  );\n}\n",
+        "#enum Choice () (Choice.Only)\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#match Choice.Only (#case Choice.Only 0u64)))\n  );\n}\n",
+        "#struct Local () ()\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let value Local (#struct-literal Local ())) (#forget value) (#return 0u64)\n  );\n}\n",
+        "#struct Local () ()\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#block (#let value Local (#struct-literal Local ())) (#forget value) 0u64))\n  );\n}\n",
         "#type Counter #u64\n#let value Counter 1u64\n",
-        "#struct Sized () ((value #u64))\n#fn main () #usize (#return (#size-of Sized))\n",
+        "#struct Sized () ((value #u64))\n#fn main {\n  #params = ();\n  #returns = #usize;\n  #body = ( (#return (#size-of Sized))\n  );\n}\n",
     ] { assert!(warnings(source).is_empty(), "{source}"); }
 }
 
@@ -55,7 +55,7 @@ fn self_references_and_field_labels_do_not_hide_unused_types() {
     let source =
         "#struct First () ((next (#ptr Second)))\n#struct Second () ((back (#ptr First)))\n";
     assert_eq!(warnings(source).len(), 2);
-    let source = "#struct Unused () ()\n#struct Used () ((unused #u64))\n#fn main () #u64 (#let value Used (#struct-literal Used ((unused 0u64)))) (#forget value) (#return 0u64)\n";
+    let source = "#struct Unused () ()\n#struct Used () ((unused #u64))\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let value Used (#struct-literal Used ((unused 0u64)))) (#forget value) (#return 0u64)\n  );\n}\n";
     let diagnostics = warnings(source);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert!(diagnostics[0].message.contains("'Unused'"));
@@ -98,7 +98,7 @@ fn cli_warnings_are_nonfatal_for_check_and_native_compilation() {
     let binary = scratch.path().join("program");
     fs::write(
         &entry,
-        "#enum Unused () (Unused.Empty)\n#fn main () #u64 (#return 42u64)\n",
+        "#enum Unused () (Unused.Empty)\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n",
     )
     .unwrap();
     for command in [

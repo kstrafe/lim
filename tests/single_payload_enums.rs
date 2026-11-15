@@ -38,11 +38,14 @@ fn every_pinned_payload_projection_is_indexless_and_rejects_the_old_form() {
     ] {
         let source = format!(
             "#enum Choice () ((Choice.Full #u64) Choice.Empty)
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
                  (#let-mut owner Choice (Choice.Full 42u64))
                  (#let value ({reference} #u64)
                    (#unsafe ({operator} ({borrow} owner) Choice.Full)))
-                 (#return (#deref value))\n"
+                 (#return (#deref value))\n  );\n}}\n"
         );
         compile(&source).unwrap();
         let indexed = source.replace("owner) Choice.Full)", "owner) Choice.Full 0)");
@@ -59,11 +62,14 @@ fn every_pinned_payload_projection_is_indexless_and_rejects_the_old_form() {
 fn a_fieldless_variant_has_no_pinned_payload_to_borrow() {
     let error = compile(
         "#enum Choice () ((Choice.Full #u64) Choice.Empty)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
              (#let-mut owner Choice Choice.Empty)
              (#let value (#pin-ref #u64)
                (#unsafe (#pin-get-payload-unchecked (#pin-borrow owner) Choice.Empty)))
-             (#return (#deref value))\n",
+             (#return (#deref value))\n  );\n}\n",
     )
     .unwrap_err();
     assert!(error.message.contains("no payload"), "{error:?}");

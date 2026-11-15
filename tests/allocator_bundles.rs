@@ -171,9 +171,12 @@ fn allocation_must_be_safe_and_unsafe_operations_require_unsafe_calls() {
             };
             let source = format!(
                 "#std
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
                   (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
-                  {expression} (#return 42u64)\n"
+                  {expression} (#return 42u64)\n  );\n}}\n"
             );
             let error = check(&source).expect_err("unsafe call contract must be enforced");
             assert!(error.message.contains("unsafe"), "{error:?}");
@@ -204,11 +207,14 @@ fn failed_vector_growth_preserves_initialized_bytes_and_destruction() {
         .find("#unsafe-fn CountingAllocator::Allocator::deallocate")
         .unwrap();
     let source = format!(
-        "{}\n#unsafe-fn CountingAllocator::Allocator::grow
-        ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
-         (old-layout #usize) (layout #usize) (alignment #usize))
-        CountingAllocator::Allocator::Allocation
-        (#return (CountingAllocator::Allocator::Allocation.AllocationFailed SystemAllocationError.SystemAllocationOutOfMemory))\n{}",
+        "{}\n#unsafe-fn CountingAllocator::Allocator::grow {{
+  #params = ((allocator (#ref CountingAllocator)) (pointer (#ptr-mut #u8))
+         (old-layout #usize) (layout #usize) (alignment #usize));
+  #returns = CountingAllocator::Allocator::Allocation;
+  #body = (
+        (#return (CountingAllocator::Allocator::Allocation.AllocationFailed SystemAllocationError.SystemAllocationOutOfMemory))\n  );
+}}
+{}",
         &source[..start],
         &source[end..]
     );
@@ -250,7 +256,10 @@ fn one_bundle_adapts_multiple_types_and_rejects_unknown_operations_or_options() 
           (name ByteAllocator) (operations (allocate grow deallocate)))
 #generate #allocator-for ((allocator SystemAllocator::Allocator) (type #u128)
           (name WideAllocator) (operations (allocate deallocate)))
-#fn main () #u64 (#return 42u64)\n",
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 42u64)\n  );\n}\n",
     )
     .unwrap();
     for (extra, operations, message) in [
@@ -273,7 +282,10 @@ fn one_bundle_adapts_multiple_types_and_rejects_unknown_operations_or_options() 
 fn system_bundle_rejects_unsupported_alignment_without_losing_storage() {
     run(
         "#std
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
             (#let allocator SystemAllocator (#struct-literal SystemAllocator ()))
             (#assert (#match (#call SystemAllocator::Allocator::allocate
               ((allocator (#borrow allocator)) (layout 16usize) (alignment 3usize)))
@@ -298,7 +310,7 @@ fn system_bundle_rejects_unsupported_alignment_without_losing_storage() {
                   (#let answer #u8 (#unsafe (#ptr-read pointer)))
                   (#unsafe (#unsafe-call SystemAllocator::Allocator::deallocate
                     ((allocator (#borrow allocator)) (pointer pointer) (layout 16usize) (alignment 8usize))))
-                  (#as answer #u64)))))\n",
+                  (#as answer #u64)))))\n  );\n}\n",
         42,
     );
 }

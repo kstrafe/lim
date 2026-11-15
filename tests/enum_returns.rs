@@ -9,10 +9,18 @@ fn fieldless_variant_returns_from_a_payload_enum() {
     fs::write(
         &input,
         "#enum Answer () ((Answer.Value #u64) Answer.Empty)
-#fn empty () Answer (#return Answer.Empty)
-#fn main () #u64
+#fn empty {
+  #params = ();
+  #returns = Answer;
+  #body = ( (#return Answer.Empty)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#return (#match (#call empty ())
-            (#case Answer.Empty 42u64) (#case (Answer.Value value) value)))\n",
+            (#case Answer.Empty 42u64) (#case (Answer.Value value) value)))\n  );\n}\n",
     )
     .unwrap();
     let (status, _, stderr) = support::run(

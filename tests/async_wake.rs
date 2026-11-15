@@ -61,10 +61,13 @@ fn pending_task_cannot_export_a_borrowed_waker() {
     let source = "#struct Executor () ((count #u64))
 #struct Waker () ((executor (#ref Executor)))
 #enum State () ((State.Waiting (#ref Waker)))
-#fn escape () State
+#fn escape {
+  #params = ();
+  #returns = State;
+  #body = (
             (#let executor Executor (#struct-literal Executor ((count 0u64))))
             (#let waker Waker (#struct-literal Waker ((executor (#borrow executor)))))
-            (#return (State.Waiting (#borrow waker)))\n";
+            (#return (State.Waiting (#borrow waker)))\n  );\n}\n";
     let program = lim::parse_program(source).unwrap();
     let error = lim::check_types(&program).unwrap_err();
     assert!(

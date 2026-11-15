@@ -6,18 +6,33 @@ fn source() -> &'static str {
     "#struct Owner (#linear) ((amount #u64))
 #enum Child (#linear) ((Child.Holding (#tuple (#ref Owner) #u64)))
 #enum ChildPoll () ((ChildPoll.Pending Child) (ChildPoll.Ready #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
           (#return (#match task (#case (Child.Holding (#tuple view count))
             (#if (#u64::eq count 0u64) (ChildPoll.Pending (Child.Holding (#tuple view 1u64)))
               (ChildPoll.Ready (#u64::add-wrap (#get view amount) 2u64))))))
-#fn cancel-child ((value Child)) ()
+  );
+}
+#fn cancel-child {
+  #params = ((value Child));
+  #returns = ();
+  #body = (
           (#match value (#case (Child.Holding (#tuple view count))
             (#block (#assert (#u64::eq (#get view amount) 40u64))
               (#drop view) (#forget count) ())))
           (#return ())
-#fn destroy-owner ((value Owner)) ()
+  );
+}
+#fn destroy-owner {
+  #params = ((value Owner));
+  #returns = ();
+  #body = (
           (#assert (#u64::eq (#get value amount) 40u64))
           (#forget value) (#return ())
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
           (cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child))))
           (function (#fn work () #u64
@@ -25,7 +40,10 @@ fn source() -> &'static str {
             (#let answer #u64 (#await Child ChildPoll.Pending ChildPoll.Ready child-poll
               (Child.Holding (#tuple (#borrow owner) 0u64))))
             (#forget owner) (#return answer))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ()))
           (#let first Work::Poll (#call Work::poll
@@ -35,7 +53,7 @@ fn source() -> &'static str {
           (#assert (#variant-is (#borrow (#get cleanup await-0)) Work::Frame::Cleanup::Await-0.Empty))
           (#call work-cancel ((task cleanup)))
           (#call Work::Poll::destroy ((task (#pin-borrow-mut task))))
-          (#forget task) (#return 42u64)\n"
+          (#forget task) (#return 42u64)\n  );\n}\n"
 }
 
 #[test]
@@ -53,15 +71,23 @@ fn cancellation_selects_only_the_child_live_at_the_current_await() {
             "(#let second-answer #u64 (#await Child ChildPoll.Pending ChildPoll.Ready second-poll\n            (Child.Holding (#tuple (#borrow owner) 0u64))))\n          (#forget second-answer) (#forget owner) (#return answer)")
         .replace("(#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup ((task pending))))",
             "(#let second Work::Poll (#call Work::poll ((task pending) (waker (#borrow waker)))))\n        (#let-else (Work::Poll.Pending second-pending) Work::Poll second (#unreachable))\n        (#let cleanup Work::Frame::Cleanup (#call Work::Poll::cleanup ((task second-pending))))")
-        + "\n#fn second-poll ((task Child) (waker (#ref #u64))) ChildPoll
+        + "\n#fn second-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
               (#return (#match task (#case (Child.Holding (#tuple second-view second-count))
                 (#block (#forget second-count) (ChildPoll.Pending (Child.Holding (#tuple second-view 5u64)))))))
-#fn cancel-second ((value Child)) ()
+  );
+}
+#fn cancel-second {
+  #params = ((value Child));
+  #returns = ();
+  #body = (
               (#match value (#case (Child.Holding (#tuple second-view second-count))
                 (#block (#assert (#u64::eq (#get second-view amount) 40u64))
                   (#assert (#u64::eq second-count 5u64))
                   (#drop second-view) (#forget second-count) ())))
-              (#return ())\n";
+              (#return ())\n  );\n}\n";
     assert!(program.contains("task second-pending"));
     run(&program, "async-dependent-two-await-cancellation");
 }
@@ -69,8 +95,8 @@ fn cancellation_selects_only_the_child_live_at_the_current_await() {
 #[test]
 fn runtime_array_child_is_cancelled_before_destroying_its_selected_owner() {
     let program = source()
-        .replace("#fn destroy-owner ((value Owner)) ()\n          (#assert (#u64::eq (#get value amount) 40u64))",
-            "#fn destroy-owner ((value (#array Owner 2))) ()\n        (#assert (#u64::eq (#get (#index value 0usize) amount) 10u64))\n        (#assert (#u64::eq (#get (#index value 1usize) amount) 40u64))")
+        .replace("#fn destroy-owner {\n  #params = ((value Owner));\n  #returns = ();\n  #body = (\n          (#assert (#u64::eq (#get value amount) 40u64))\n  );\n}",
+            "#fn destroy-owner {\n  #params = ((value (#array Owner 2)));\n  #returns = ();\n  #body = (\n        (#assert (#u64::eq (#get (#index value 0usize) amount) 10u64))\n        (#assert (#u64::eq (#get (#index value 1usize) amount) 40u64))\n  );\n}")
         .replace("(#let owner Owner (#struct-literal Owner ((amount 40u64))))",
             "(#let owner (#array Owner 2) (#array-of (#array Owner 2)\n            (#struct-literal Owner ((amount 10u64))) (#struct-literal Owner ((amount 40u64)))))\n          (#let-mut index #usize 1usize)")
         .replace("(Child.Holding (#tuple (#borrow owner) 0u64))",
@@ -108,8 +134,8 @@ fn exclusive_dependent_mutates_owner_before_owner_destruction() {
         .replace("(#borrow owner)", "(#borrow-mut owner)")
         .replace("(#drop view) (#forget count)",
             "(#deref-set (#borrow-mut (#get view amount)) 41u64) (#drop view) (#forget count)")
-        .replace("#fn destroy-owner ((value Owner)) ()\n          (#assert (#u64::eq (#get value amount) 40u64))",
-            "#fn destroy-owner ((value Owner)) ()\n        (#assert (#u64::eq (#get value amount) 41u64))");
+        .replace("#fn destroy-owner {\n  #params = ((value Owner));\n  #returns = ();\n  #body = (\n          (#assert (#u64::eq (#get value amount) 40u64))\n  );\n}",
+            "#fn destroy-owner {\n  #params = ((value Owner));\n  #returns = ();\n  #body = (\n        (#assert (#u64::eq (#get value amount) 41u64))\n  );\n}");
     run(&program, "async-exclusive-dependent-cancellation");
 }
 
@@ -148,7 +174,10 @@ fn cancellation_before_first_poll_and_after_ready_is_idempotent() {
     let prefix = source().split("#fn main").next().unwrap();
     let program = format!(
         "{prefix}
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut unstarted Work::Frame (#call work ()))
           (#call Work::Poll::destroy ((task (#pin-borrow-mut unstarted))))
@@ -162,7 +191,7 @@ fn cancellation_before_first_poll_and_after_ready_is_idempotent() {
           (#let-else (Work::Poll.Ready answer) Work::Poll second (#unreachable))
           (#call Work::Poll::destroy ((task (#pin-borrow-mut task))))
           (#call Work::Poll::destroy ((task (#pin-borrow-mut task))))
-          (#forget task) (#return answer)\n"
+          (#forget task) (#return answer)\n  );\n}}\n"
     );
     run(&program, "async-dependent-terminal-cancellation");
 }
@@ -171,12 +200,27 @@ fn pinned_source() -> &'static str {
     "#struct Owner (#linear) ((amount #u64))
 #enum Step (#linear) ((Step.Start #u64))
 #enum StepPoll () ((StepPoll.StepPending Step) (StepPoll.StepReady #u64))
-#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
+#fn step-poll {
+  #params = ((task Step) (waker (#ref #u64)));
+  #returns = StepPoll;
+  #body = (
           (#return (#match task (#case (Step.Start count)
             (#if (#u64::eq count 0u64) (StepPoll.StepPending (Step.Start 1u64)) (StepPoll.StepReady count)))))
-#fn cancel-step ((value Step)) () (#forget value) (#return ())
-#fn destroy-owner ((value Owner)) ()
+  );
+}
+#fn cancel-step {
+  #params = ((value Step));
+  #returns = ();
+  #body = ( (#forget value) (#return ())
+  );
+}
+#fn destroy-owner {
+  #params = ((value Owner));
+  #returns = ();
+  #body = (
           (#assert (#u64::eq (#get value amount) 40u64)) (#forget value) (#return ())
+  );
+}
 #generate #async-fn-pinned ((protocol ChildAwait) (waker #u64)
           (cancel (child-cancel ((await-0 cancel-step))))
           (function (#fn child ((view (#ref Owner))) #u64
@@ -189,7 +233,10 @@ fn pinned_source() -> &'static str {
             (#let-mut nested Child::Frame (#call child ((view (#borrow owner)))))
             (#let answer #u64 (#await ChildAwait (#pin-borrow-mut nested)))
             (#forget nested) (#forget owner) (#return answer))))
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let waker #u64 0u64)
           (#let-mut task Parent::Frame (#call parent ()))
           (#let first Parent::Poll (#call Parent::poll
@@ -197,7 +244,7 @@ fn pinned_source() -> &'static str {
           (#let-else (Parent::Poll.Pending pending) Parent::Poll first (#unreachable))
           (#call Parent::Poll::destroy ((task pending)))
           (#call Parent::Poll::destroy ((task (#pin-borrow-mut task))))
-          (#forget task) (#return 42u64)\n"
+          (#forget task) (#return 42u64)\n  );\n}\n"
 }
 
 #[test]
@@ -208,7 +255,7 @@ fn pinned_generated_child_is_cancelled_without_moving_its_frame() {
 #[test]
 fn generated_word_destroy_names_cannot_collide_with_source_functions() {
     let program = format!(
-        "{}\n#fn Child::Poll::destroy-words () () (#return ())\n",
+        "{}\n#fn Child::Poll::destroy-words {{\n  #params = ();\n  #returns = ();\n  #body = ( (#return ())\n  );\n}}\n",
         pinned_source()
     );
     let scratch = support::Scratch::new("async-word-destroy-name-collision");
@@ -258,8 +305,8 @@ fn reference_free_pinned_child_cancels_in_word_storage_exactly_once() {
         .replace("#fn child ((view (#ref Owner)))", "#fn child ((amount #u64))")
         .replace("(#get view amount)", "amount")
         .replace("#call child ((view (#borrow owner)))", "#call child ((amount (#get owner amount)))")
-        .replace("#fn cancel-step ((value Step)) () (#forget value) (#return ())",
-            "#fn cancel-step ((value Step)) () (#let byte #u8 67u8) (#assert (#i64::eq (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))) 1i64)) (#forget value) (#return ())");
+        .replace("#fn cancel-step {\n  #params = ((value Step));\n  #returns = ();\n  #body = ( (#forget value) (#return ())\n  );\n}",
+            "#fn cancel-step {\n  #params = ((value Step));\n  #returns = ();\n  #body = ( (#let byte #u8 67u8) (#assert (#i64::eq (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))) 1i64)) (#forget value) (#return ())\n  );\n}");
     run_with_output(&program, "async-pinned-word-child-cancellation", b"C");
     let heap = heap_pinned_source(&program);
     run_with_output(&heap, "async-pinned-word-heap-child-cancellation", b"C");
@@ -278,7 +325,7 @@ fn reference_free_pinned_child_rejects_moving_cancellation_handlers() {
             "#call child ((amount (#get owner amount)))",
         )
         .replace("(nested Child::Poll::destroy)", "(nested discard-child)")
-        + "\n#fn discard-child ((value Child::Frame)) () (#forget value) (#return ())\n";
+        + "\n#fn discard-child {\n  #params = ((value Child::Frame));\n  #returns = ();\n  #body = ( (#forget value) (#return ())\n  );\n}\n";
     let scratch = support::Scratch::new("async-word-child-moving-cancel");
     let error = lim::compile_source_to_assembly(
         &program,
@@ -341,7 +388,7 @@ fn pinned_child_cancellation_preserves_heap_frame_layout() {
 #[test]
 fn pinned_child_rejects_a_by_value_cancellation_handler() {
     let program = pinned_source().replace("(nested Child::Poll::destroy)", "(nested forget-child)")
-        + "\n#fn forget-child ((value Child::Frame)) () (#forget value) (#return ())\n";
+        + "\n#fn forget-child {\n  #params = ((value Child::Frame));\n  #returns = ();\n  #body = ( (#forget value) (#return ())\n  );\n}\n";
     let scratch = support::Scratch::new("async-dependent-pinned-handler-error");
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");

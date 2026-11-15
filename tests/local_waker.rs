@@ -4,7 +4,7 @@ use std::{fs, process::Command, time::Duration};
 
 fn source(body: &str) -> String {
     format!(
-        "#alias lim-gen-local-waker = \"{0}/library/local_waker.lim::#local-waker\"\n#struct WakeExecutor () ((count #u64))\n#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref #u64))) ()\n             (#return ())\n#fn clone-metadata ((metadata (#ref #u64))) #u64\n             (#return (#deref metadata))\n#fn destroy-metadata ((executor (#ref WakeExecutor)) (metadata #u64)) ()\n             (#return ())\n#generate lim-gen-local-waker\n             (LocalWake local-wake-create local-wake local-wake-by-ref\n               local-wake-clone local-wake-destroy)\n             (WakeExecutor #u64)\n             (notify clone-metadata destroy-metadata)\n{body}",
+        "#alias lim-gen-local-waker = \"{0}/library/local_waker.lim::#local-waker\"\n#struct WakeExecutor () ((count #u64))\n#fn notify {{\n  #params = ((executor (#ref WakeExecutor)) (metadata (#ref #u64)));\n  #returns = ();\n  #body = (\n             (#return ())\n  );\n}}\n#fn clone-metadata {{\n  #params = ((metadata (#ref #u64)));\n  #returns = #u64;\n  #body = (\n             (#return (#deref metadata))\n  );\n}}\n#fn destroy-metadata {{\n  #params = ((executor (#ref WakeExecutor)) (metadata #u64));\n  #returns = ();\n  #body = (\n             (#return ())\n  );\n}}\n#generate lim-gen-local-waker\n             (LocalWake local-wake-create local-wake local-wake-by-ref\n               local-wake-clone local-wake-destroy)\n             (WakeExecutor #u64)\n             (notify clone-metadata destroy-metadata)\n{body}",
         env!("CARGO_MANIFEST_DIR")
     )
 }
@@ -25,10 +25,18 @@ fn compile_error(body: &str) -> String {
 #[test]
 fn generated_local_waker_cannot_outlive_its_executor() {
     let error = compile_error(
-        "#fn escape () LocalWake
+        "#fn escape {
+  #params = ();
+  #returns = LocalWake;
+  #body = (
              (#let executor WakeExecutor (#struct-literal WakeExecutor ((count 0u64))))
              (#return (#call local-wake-create ((executor (#borrow executor)) (metadata 1u64))))
-#fn main () #u64 (#return 0u64)\n",
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)\n  );\n}\n",
     );
     assert!(
         error.contains("local") || error.contains("outlive"),
@@ -39,11 +47,19 @@ fn generated_local_waker_cannot_outlive_its_executor() {
 #[test]
 fn generated_local_waker_is_not_send_even_for_a_sync_executor() {
     let error = compile_error(
-        "#fn worker ((waker LocalWake)) #u64
+        "#fn worker {
+  #params = ((waker LocalWake));
+  #returns = #u64;
+  #body = (
              (#call local-wake-destroy ((waker waker)))
              (#return 0u64)
+  );
+}
 #generate #thread-spawn ((task WakeWorker) (worker worker))
-#fn main () #u64 (#return 0u64)\n",
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#return 0u64)\n  );\n}\n",
     );
     assert!(error.contains("does not implement Send"), "{error}");
 }
@@ -95,6 +111,6 @@ fn generated_local_waker_is_inspectable_and_reports_shape_errors() {
     assert!(generated.contains("counter-waker-wake-by-ref"));
     assert!(generated.contains("(#ptr #u8)"));
 
-    let error = compile_error("#generate lim-gen-local-waker (Pipeline.Only) (WakeExecutor #u64) (notify clone-metadata destroy-metadata)\n#fn main () #u64 (#return 0u64)\n");
+    let error = compile_error("#generate lim-gen-local-waker (Pipeline.Only) (WakeExecutor #u64) (notify clone-metadata destroy-metadata)\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n");
     assert!(error.contains("names must be"), "{error}");
 }

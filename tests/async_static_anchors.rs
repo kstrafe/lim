@@ -17,13 +17,21 @@ fn ordinary_generated_source(source: &str) -> String {
 
 const CHILD: &str = "#enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
       (#return (#match task
         (#case (Child.Waiting count)
           (#if (#u64::lt count 2u64)
             (ChildPoll.ChildPending (Child.Waiting (#u64::add-wrap count 1u64)))
             (ChildPoll.ChildReady count)))))
-#fn cancel-child ((child Child)) () (#forget child) (#return ())\n";
+  );
+}
+#fn cancel-child {
+  #params = ((child Child));
+  #returns = ();
+  #body = ( (#forget child) (#return ())\n  );\n}\n";
 
 fn config() -> lim::CompileConfig {
     let mut config = lim::CompileConfig::default();
@@ -160,11 +168,19 @@ fn anchor_source(mutable: bool) -> String {
             {update}
             (#let answer #u64 (#u64::add-wrap (#deref view) result))
             (#drop view) (#forget local) (#return answer))))
-#fn cancel-current ((task (#pin-ref-mut Work::Frame))) ()
+#fn cancel-current {{
+  #params = ((task (#pin-ref-mut Work::Frame)));
+  #returns = ();
+  #body = (
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task task))))))
           (#call work-cancel ((task (#call Work::Poll::cleanup ((task task))))))
           (#return ())
-#fn run ((choose #bool) (cancel-at #u64)) #u64
+  );
+}}
+#fn run {{
+  #params = ((choose #bool) (cancel-at #u64));
+  #returns = #u64;
+  #body = (
           (#let-mut external #u64 40u64)
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((choose choose) (external {external_arg}))))
@@ -191,14 +207,19 @@ fn anchor_source(mutable: bool) -> String {
             (#call cancel-current ((task (#pin-borrow-mut task))))
             (#forget task) (#return 42u64)) ())
           (#forget task) (#return result)
-#fn main () #u64
+  );
+}}
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#assert (#u64::eq (#call run ((choose true) (cancel-at 4u64))) {expect}u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel-at 4u64))) {expect}u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel-at 0u64))) 42u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel-at 1u64))) 42u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel-at 2u64))) 42u64))
           (#assert (#u64::eq (#call run ((choose false) (cancel-at 3u64))) 42u64))
-          (#return 42u64)\n")
+          (#return 42u64)\n  );\n}}\n")
 }
 
 #[test]
@@ -284,7 +305,10 @@ fn native_layout_scalar_and_struct_field_static_references_match_cold_and_warm()
             (#let ignored #u64 (#await Child ChildPoll.ChildPending ChildPoll.ChildReady child-poll (Child.Waiting 0u64)))
             (#let result #u64 (#u64::add-wrap (#u64::add-wrap (#deref scalar-view) (#deref field-view)) ignored))
             (#drop field-view) (#drop scalar-view) (#return result))))
-#fn main () #u64
+#fn main {{
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#let scalar #u64 2u64)
           (#let waker #u64 0u64)
           (#let-mut task Work::Frame (#call work ((scalar-view (#borrow scalar)) (field-view (#unsafe (#borrow (#get global value)))))))
@@ -294,7 +318,7 @@ fn native_layout_scalar_and_struct_field_static_references_match_cold_and_warm()
           (#let-else (Work::Poll.Pending pending-again) Work::Poll second (#unreachable))
           (#let third Work::Poll (#call Work::poll ((task pending-again) (waker (#borrow waker)))))
           (#let result #u64 (#match third (#case (Work::Poll.Ready value) value) (#case (Work::Poll.Pending bad) (#block (#forget bad) (#unreachable)))))
-          (#forget task) (#drop scalar) (#return (#if (#u64::eq result 44u64) 42u64 0u64))\n");
+          (#forget task) (#drop scalar) (#return (#if (#u64::eq result 44u64) 42u64 0u64))\n  );\n}}\n");
     assert_independent_generated_source(&source);
     run_native(&source, "async-static-anchor-layout", 42);
 }
@@ -302,7 +326,7 @@ fn native_layout_scalar_and_struct_field_static_references_match_cold_and_warm()
 #[test]
 fn static_access_requires_unsafe_and_alias_conflict_is_a_borrow_error() {
     let unsafe_error = compile_error(
-        "#static global #u64 40u64\n#fn main () #u64 (#return global)\n",
+        "#static global #u64 40u64\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return global)\n  );\n}\n",
         "async-static-requires-unsafe",
     );
     assert_eq!(
@@ -333,8 +357,11 @@ fn static_access_requires_unsafe_and_alias_conflict_is_a_borrow_error() {
 #[test]
 fn atomic_static_literal_initializer_has_native_cold_warm_parity() {
     let source = "#static counter (#atomic #u64) (#atomic-init #u64 0u64)
-#fn main () #u64
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#unsafe (#atomic-fetch-add (#borrow counter) 42u64 #memory-relaxed))
-          (#return (#unsafe (#atomic-load (#borrow counter) #memory-acquire)))\n";
+          (#return (#unsafe (#atomic-load (#borrow counter) #memory-acquire)))\n  );\n}\n";
     run_native(source, "async-static-atomic-literal-init", 42);
 }

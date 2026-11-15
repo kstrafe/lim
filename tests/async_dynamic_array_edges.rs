@@ -62,18 +62,26 @@ fn nested_array_lifetime_anchor_can_read_through_a_shared_pointer_borrow() {
     run_native(
         "#struct Empty () ()
 #struct Record () ((header #u64) (tail Empty))
-#fn inspect ((data (#pin-ref-mut (#array Record 2)))) #u64
+#fn inspect {
+  #params = ((data (#pin-ref-mut (#array Record 2))));
+  #returns = #u64;
+  #body = (
           (#let pointer (#ptr Empty) (#ref-ptr (#pin-borrow (#get (#index data 0usize) tail))))
           (#let view (#ref Empty) (#unsafe (#ptr-borrow
             (#block
               (#let parent (#pin-ref Record) (#pin-borrow (#index data 0usize)))
               (#pin-borrow (#get parent tail))) pointer)))
           (#let value Empty (#deref view)) (#forget value) (#return 42u64)
-#fn main () #u64 (#let-mut data (#array Record 2)
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = ( (#let-mut data (#array Record 2)
           (#array-of (#array Record 2)
             (#struct-literal Record ((header 1u64) (tail (#struct-literal Empty ()))))
             (#struct-literal Record ((header 2u64) (tail (#struct-literal Empty ()))))))
-          (#return (#call inspect ((data (#pin-borrow-mut data)))))\n",
+          (#return (#call inspect ((data (#pin-borrow-mut data)))))\n  );\n}\n",
         "nested-array-lifetime-read",
     );
 }
@@ -81,7 +89,7 @@ fn nested_array_lifetime_anchor_can_read_through_a_shared_pointer_borrow() {
 #[test]
 fn empty_struct_layout_is_zero_bytes() {
     run_native(
-        "#struct Empty () ()\n#fn main () #u64\n             (#return (#if (#usize::eq (#size-of Empty) 0usize) 42u64 43u64))\n",
+        "#struct Empty () ()\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = (\n             (#return (#if (#usize::eq (#size-of Empty) 0usize) 42u64 43u64))\n  );\n}\n",
         "async-dynamic-empty-layout",
     );
 }
@@ -92,13 +100,23 @@ fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_ow
 #struct Empty () ()
 #enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
           (#return (#match task
             (#case (Child.Waiting count)
               (#if (#u64::eq count 0u64)
                 (ChildPoll.ChildPending (Child.Waiting 1u64))
                 (ChildPoll.ChildReady 1u64)))))
-#fn cancel-child ((child Child)) () (#forget child) (#return ())
+  );
+}
+#fn cancel-child {
+  #params = ((child Child));
+  #returns = ();
+  #body = ( (#forget child) (#return ())
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
           (cancel (work-cancel ((await-0 cancel-child))))
           (function (#fn work ((choose #bool) (external (#ref (#array Empty 2)))) #u64
@@ -116,7 +134,10 @@ fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_ow
             (#forget read-back)
             (#drop selected) (#forget local)
             (#return 42u64))))
-#fn run ((choose #bool)) #u64
+#fn run {
+  #params = ((choose #bool));
+  #returns = #u64;
+  #body = (
           (#let-mut external (#array Empty 2)
             (#array-of (#array Empty 2) (#struct-literal Empty ()) (#struct-literal Empty ())))
           (#let waker #u64 0u64)
@@ -132,10 +153,17 @@ fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_ow
             (#case (Work::Poll.Pending again) (#block (#forget again) (#unreachable)))))
           (#forget task) (#forget external)
           (#return answer)
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#assert (#usize::eq (#size-of Empty) 0usize))
           (#assert (#u64::eq (#call run ((choose true))) 42u64))
           (#return (#call run ((choose false))))
+  );
+}
     "#;
     run_native(source, "async-dynamic-empty-array-edges");
 }
@@ -243,13 +271,23 @@ fn nested_array_source() -> &'static str {
 #struct Record () ((header #u64) (tail Empty))
 #enum Child (#linear) ((Child.Waiting #u64))
 #enum ChildPoll () ((ChildPoll.ChildPending Child) (ChildPoll.ChildReady #u64))
-#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
+#fn child-poll {
+  #params = ((task Child) (waker (#ref #u64)));
+  #returns = ChildPoll;
+  #body = (
           (#return (#match task
             (#case (Child.Waiting count)
               (#if (#u64::eq count 0u64)
                 (ChildPoll.ChildPending (Child.Waiting 1u64))
                 (ChildPoll.ChildReady 1u64)))))
-#fn cancel-child ((child Child)) () (#forget child) (#return ())
+  );
+}
+#fn cancel-child {
+  #params = ((child Child));
+  #returns = ();
+  #body = ( (#forget child) (#return ())
+  );
+}
 #generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
           (cancel (work-cancel ((await-0 cancel-child))))
           (function (#fn work ((choose #bool) (external (#ref (#array Record 2)))) #u64
@@ -269,7 +307,10 @@ fn nested_array_source() -> &'static str {
             (#forget read-back)
             (#drop selected)
             (#return 42u64))))
-#fn run ((choose #bool)) #u64
+#fn run {
+  #params = ((choose #bool));
+  #returns = #u64;
+  #body = (
           (#let-mut external (#array Record 2)
             (#array-of (#array Record 2)
               (#struct-literal Record ((header 31u64) (tail (#struct-literal Empty ()))))
@@ -287,9 +328,16 @@ fn nested_array_source() -> &'static str {
             (#case (Work::Poll.Pending again) (#block (#forget again) (#unreachable)))))
           (#forget task) (#forget external)
           (#return answer)
-#fn main () #u64
+  );
+}
+#fn main {
+  #params = ();
+  #returns = #u64;
+  #body = (
           (#assert (#usize::eq (#size-of Empty) 0usize))
           (#assert (#u64::eq (#call run ((choose true))) 42u64))
           (#return (#call run ((choose false))))
+  );
+}
     "#
 }
