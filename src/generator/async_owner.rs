@@ -91,9 +91,12 @@ mod tests {
             for whole in [false, true] {
                 let (graph, place, declarations) = fixture(mutable, whole);
                 let plan = Borrow::new(&graph, &place, &declarations, mutable, true, true).unwrap();
+                let declaration = crate::generator::format_generated_syntax(
+                    &plan.declaration("project", "input"),
+                )
+                .unwrap();
                 let source = format!(
-                    "#struct Outer (#linear) ((pair (#tuple #u64 #u64)))\n  {}",
-                    plan.declaration("project", "input")
+                    "#struct Outer (#linear) ((pair (#tuple #u64 #u64)))\n{declaration}"
                 );
                 let program = crate::parse_program(&source).unwrap();
                 crate::CheckedProgram::validate(&program)
@@ -135,9 +138,10 @@ mod tests {
         };
         let declaration = plan.declaration("project", "input");
         assert!(declaration.contains("(#ptr-borrow projected (#ref-ptr projected))"));
+        let declaration = crate::generator::format_generated_syntax(&declaration).unwrap();
         let source = format!(
             "#struct View (#linear) ((value (#ref-mut #u64)))
-          {declaration}
+{declaration}
 #fn read-view ((view (#ref View))) #u64 (#return (#deref (#get view value)))
 #fn main () #u64
               (#let-mut owner #u64 42u64)
@@ -148,7 +152,7 @@ mod tests {
         );
         crate::CheckedProgram::validate(&crate::parse_program(&source).unwrap())
             .unwrap_or_else(|error| panic!("{error}\n{source}"));
-        let invalid = source.replace("(#let answer #u64", "(#set owner 99u64)\n(#let answer #u64");
+        let invalid = source.replace("(#let answer #u64", "(#set owner 99u64)\n  (#let answer #u64");
         let error = crate::check_types(&crate::parse_program(&invalid).unwrap()).unwrap_err();
         assert!(error.contains("borrow"), "{error}");
     }

@@ -729,9 +729,14 @@ mod tests {
     }
 
     fn scoped_graph(count: usize) -> Graph {
-        let statements = "(#borrow (#deref view) ())\n".repeat(count);
+        let statements = "(#borrow (#deref view) ())\n"
+            .repeat(count)
+            .lines()
+            .map(|line| format!("  {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         prepare(&format!(
-            "#fn work ((view (#ref-mut #u64))) () {statements} (#return ())\n"
+            "#fn work ((view (#ref-mut #u64))) ()\n{statements}\n  (#return ())\n"
         ))
         .0
     }
@@ -746,11 +751,16 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        let statements = statements
+            .lines()
+            .map(|line| format!("  {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         prepare(&format!(
             "#struct Resource (#linear) ((value #u64))
 #fn make ((value #u64)) Resource
                  (#return (#struct-literal Resource ((value value))))
-#fn work () () {statements} (#return ())\n"
+#fn work () ()\n{statements}\n  (#return ())\n"
         ))
         .0
     }

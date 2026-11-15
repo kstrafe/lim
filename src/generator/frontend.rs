@@ -1613,9 +1613,12 @@ mod async_migration_tests {
         for invocation in invocations {
             // The shared environment and each invocation's explicit module
             // context must both participate in the source-cache identity.
+            // The displayed header is bare source; cache identity retains
+            // the canonical expression tree, including its outer list.
+            let header = format!("({})", contextual_generated_source(&prepared, invocation, "").trim());
             let expected = format!("lim-inspectable-async-graph-v5-bare-roots\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}\ncontext={}",
                 env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), prepared.graph_dependency_context,
-                async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types), expression_source(&invocation.expr).unwrap(), contextual_generated_source(&prepared, invocation, "").trim());
+                async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types), expression_source(&invocation.expr).unwrap(), header);
             let actual = graph_source_key(&prepared, &context, invocation).unwrap();
             assert_eq!(actual, expected);
             keys.push(actual);

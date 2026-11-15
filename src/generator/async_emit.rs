@@ -10540,6 +10540,17 @@ mod tests {
                 owner_cells > 0,
                 "{phase}: no actual owner storage inspected"
             );
+            let polls = polls
+                .lines()
+                .map(|line| format!("  {line}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let cleanup = cleanup
+                .join("\n")
+                .lines()
+                .map(|line| format!("  {line}"))
+                .collect::<Vec<_>>()
+                .join("\n");
             let extra = format!("#fn destroy-state
                   ((state Work::Frame::Cleanup) (owners (#ref-mut #u64)) (children (#ref-mut #u64))) ()
                   {} (#forget state) (#return ())
@@ -10554,7 +10565,7 @@ mod tests {
                   (#call destroy-state ((state again) (owners (#borrow-mut owners)) (children (#borrow-mut children))))
                   (#assert (#u64::eq owners {owners}u64))
                   (#assert (#u64::eq children {children}u64))
-                  (#forget task) (#return 42u64)\n", cleanup.join("\n"));
+                  (#forget task) (#return 42u64)\n", cleanup);
             generated[0].source = crate::generator::format_generated_source(&format!(
                 "{}\n{extra}",
                 generated[0].source,

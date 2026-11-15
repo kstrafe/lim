@@ -308,12 +308,15 @@ mod tests {
             assert!(projection
                 .declaration("generated", "input")
                 .contains("(#get (#get input pair) 1)"));
+            let generated = crate::generator::format_generated_syntax(
+                &projection.declaration("generated", "input"),
+            )
+            .unwrap();
             let source = format!(
                 "#type Scalar #u64
 #struct Outer () ((pair (#tuple Scalar Scalar)))
 #type View ({handle} Outer)
- {}",
-                projection.declaration("generated", "input")
+{generated}"
             );
             let program = crate::parse_program(&source).unwrap();
             crate::CheckedProgram::validate(&program)
@@ -338,8 +341,9 @@ mod tests {
             assert_eq!(result.pinned, handle.starts_with("#pin"));
             let generated = result.declaration("generated", "input");
             assert!(generated.contains("(#deref input)"));
+            let generated = crate::generator::format_generated_syntax(&generated).unwrap();
             let source = format!(
-                "#type Scalar #u64\n#struct Outer () ((pair (#tuple Scalar Scalar)))\n {generated}"
+                "#type Scalar #u64\n#struct Outer () ((pair (#tuple Scalar Scalar)))\n{generated}"
             );
             let program = crate::parse_program(&source).unwrap();
             crate::CheckedProgram::validate(&program)
@@ -404,12 +408,15 @@ mod tests {
             let (graph, place, declarations, types) = fixture(handle);
             let write = Write::new(&graph, &place, &declarations, &types).unwrap();
             assert_eq!(write.value, Type::U64);
+            let generated = crate::generator::format_generated_syntax(
+                &write.declaration("generated", "input", "value"),
+            )
+            .unwrap();
             let source = format!(
                 "#type Scalar #u64
 #struct Outer () ((pair (#tuple Scalar Scalar)))
 #type View ({handle} Outer)
- {}",
-                write.declaration("generated", "input", "value")
+{generated}"
             );
             let program = crate::parse_program(&source).unwrap();
             crate::CheckedProgram::validate(&program)
