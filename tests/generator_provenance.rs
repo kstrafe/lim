@@ -35,7 +35,8 @@ fn matching_names_do_not_forge_generator_origin() {
         "#gn counterfeit () `((#struct Fake () ()))\n#generate counterfeit\n",
     ] {
         let source = format!(
-            "{PRODUCER} {declaration}
+            "{PRODUCER}
+{declaration}
 #require-generated Fake make
 #fn main () #u64 (#return 0u64)
 "

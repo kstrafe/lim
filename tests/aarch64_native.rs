@@ -243,7 +243,8 @@ fn native_aarch64_syscalls_and_explicit_target_cfg_execute_through_cli() {
     let source = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
     let source_text = format!("#cfg-if (#cfg-and (#cfg-is #arch aarch64) (#cfg-is #os linux)
-        (#cfg-is #target aarch64-unknown-linux-gnu)) {} (#cfg-else (#fn main () #u64 (#return missing)))\n",
+        (#cfg-is #target aarch64-unknown-linux-gnu)) ({}) (#cfg-else (#fn main () #u64 (#return missing)))
+",
       include_str!("../examples/aarch64_syscall.lim"));
     fs::write(&source, source_text).unwrap();
     let compiled = Command::new(env!("CARGO_BIN_EXE_lim"))

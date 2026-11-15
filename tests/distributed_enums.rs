@@ -74,7 +74,7 @@ fn aliases_and_cache_hits_keep_the_complete_enum() {
     ] {
         let source = format!(
             "#alias AppError = ./enum.lim::AppError
- {aliases}
+{aliases}
 #enum-contribute AppError (AppError.First #u64)
 #fn main () #u64
               (#return (#match (AppError.First 42u64)

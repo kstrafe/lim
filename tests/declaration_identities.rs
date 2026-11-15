@@ -320,7 +320,7 @@ fn generated_static_access_still_requires_unsafe() {
         .expect("generated diagnostic invocation provenance");
     assert_eq!(
         &invocation.source_text.as_deref().unwrap()[invocation.span.start..invocation.span.end],
-        "#generate make read\n"
+        "#generate make read"
     );
 }
 

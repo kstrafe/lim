@@ -24,7 +24,7 @@ fn source(length: usize, global: bool) -> String {
 #type Row (#array Scalar {length})
 #type RowAlias Row
 #type Grid (#array RowAlias 2)
- {declaration}
+{declaration}
 #fn make-row () RowAlias (#return {row})
 #fn make-grid () Grid (#return {grid})
 #fn inspect ((values Grid)) #u64
@@ -37,7 +37,8 @@ fn source(length: usize, global: bool) -> String {
           (#assert (#u64::eq (#call inspect ((values returned))) 42u64))
           (#let returned-row RowAlias (#call make-row ()))
           (#assert (#u64::eq (#index returned-row 0usize) 17u64)) {extra}
-          (#return (#call inspect ((values {grid}))))\n",
+          (#return (#call inspect ((values {grid}))))
+",
         last = length - 1
     )
 }

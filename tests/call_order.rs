@@ -45,7 +45,7 @@ fn integer_stack_calls_evaluate_once_in_written_order() {
         let assertions = (0..count)
             .map(|index| format!("(#assert (#u64::eq p{index} {}u64))", count - index - 1))
             .collect::<Vec<_>>()
-            .join("\n");
+            .join("\n  ");
         // Written key order intentionally differs from declaration order.
         let arguments = (0..count)
             .rev()

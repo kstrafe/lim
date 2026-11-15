@@ -4,7 +4,7 @@ use std::{fs, process::Command, time::Duration};
 
 fn source(body: &str) -> String {
     format!(
-        "#alias lim-gen-local-waker = \"{0}/library/local_waker.lim::#local-waker\"\n#struct WakeExecutor () ((count #u64))\n#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref #u64))) ()\n             (#return ())\n#fn clone-metadata ((metadata (#ref #u64))) #u64\n             (#return (#deref metadata))\n#fn destroy-metadata ((executor (#ref WakeExecutor)) (metadata #u64)) ()\n             (#return ())\n#generate lim-gen-local-waker\n             (LocalWake local-wake-create local-wake local-wake-by-ref\n               local-wake-clone local-wake-destroy)\n             (WakeExecutor #u64)\n             (notify clone-metadata destroy-metadata)\n         {body}",
+        "#alias lim-gen-local-waker = \"{0}/library/local_waker.lim::#local-waker\"\n#struct WakeExecutor () ((count #u64))\n#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref #u64))) ()\n             (#return ())\n#fn clone-metadata ((metadata (#ref #u64))) #u64\n             (#return (#deref metadata))\n#fn destroy-metadata ((executor (#ref WakeExecutor)) (metadata #u64)) ()\n             (#return ())\n#generate lim-gen-local-waker\n             (LocalWake local-wake-create local-wake local-wake-by-ref\n               local-wake-clone local-wake-destroy)\n             (WakeExecutor #u64)\n             (notify clone-metadata destroy-metadata)\n{body}",
         env!("CARGO_MANIFEST_DIR")
     )
 }

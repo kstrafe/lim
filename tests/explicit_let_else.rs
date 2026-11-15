@@ -250,9 +250,9 @@ fn generated_optional_projection_preserves_loans_and_can_release_mismatched_owne
 fn compact_formatting_is_idempotent_and_keeps_else_statements_in_the_body() {
     let source =
         "(#let-else (Outcome.Success answer) outcome (#else (#forget owner) (#return 0u64)))";
-    let formatted = lim::format_source(source).unwrap();
+    let formatted = lim::format_syntax(source).unwrap();
     assert!(formatted.contains("(#else\n"), "{formatted}");
-    assert_eq!(lim::format_source(&formatted).unwrap(), formatted);
+    assert_eq!(lim::format_syntax(&formatted).unwrap(), formatted);
 }
 
 #[test]

@@ -6,7 +6,7 @@ use std::{process::Command, time::Duration};
 const CONTEXT: &str = "#struct Resource (#linear) ((value #u64))\n ";
 
 fn run(body: &str) {
-    let program = lim::parse_program(&format!("{CONTEXT} {body}")).unwrap();
+    let program = lim::parse_program(&format!("{CONTEXT}\n{body}")).unwrap();
     lim::check_types(&program).unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let scratch = support::Scratch::new("for-body-scope");

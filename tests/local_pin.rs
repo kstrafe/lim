@@ -48,7 +48,8 @@ fn two_local_pins_branch_poll_and_cleanup_natively() {
     for choice in ["true", "false"] {
         run(
             &format!(
-                "{JOB} {POLL}
+                "{JOB}
+{POLL}
 #fn main () #u64
               (#let-mut left Job (#struct-literal Job ((state 42u64))))
               (#let-mut right Job (#struct-literal Job ((state 42u64))))
@@ -57,7 +58,8 @@ fn two_local_pins_branch_poll_and_cleanup_natively() {
               (#let answer #u64 (#if {choice}
                 (#block (#forget right-pin) (#call poll ((target left-pin))))
                 (#block (#forget left-pin) (#call poll ((target right-pin))))))
-              (#forget left) (#forget right) (#return answer)\n"
+              (#forget left) (#forget right) (#return answer)
+"
             ),
             42,
         );
@@ -115,14 +117,14 @@ fn invalid_pin_argument_preserves_structured_diagnostic_span_and_cache() {
 #[test]
 fn documented_local_pin_cleanup_runs_natively() {
     let source = include_str!("../docs/language.md")
-        .split_once("#struct LocalJob (#linear) ((state #u64))")
+        .split_once("#struct LocalJob (#linear) { state = #u64; }")
         .unwrap()
         .1
         .split_once("```")
         .unwrap()
         .0;
     run(
-        &format!("#struct LocalJob (#linear) ((state #u64))\n{source}"),
+        &format!("#struct LocalJob (#linear) {{ state = #u64; }}\n{source}"),
         42,
     );
 }
@@ -169,7 +171,8 @@ fn owned_parameter_cannot_move_after_local_pin_ends() {
 fn each_loop_iteration_initializes_fresh_pinned_storage() {
     run(
         &format!(
-            "{JOB} {POLL}
+            "{JOB}
+{POLL}
 #fn main () #u64
                 (#let-mut total #u64 0u64)
                 (#for (#let-mut index #u64 0u64)
@@ -274,7 +277,8 @@ fn pinned_local_reference_cannot_escape() {
 fn ordinary_reference_cannot_satisfy_pinned_parameter() {
     reject(
         &format!(
-            "{JOB} {POLL}
+            "{JOB}
+{POLL}
 #fn main () #u64
         (#let-mut job Job (#struct-literal Job ((state 42u64))))
         (#let answer #u64 (#call poll ((target (#borrow-mut job)))))
@@ -324,10 +328,11 @@ fn local_pin_operations_reject_globals_and_statics() {
         for (operator, ty) in [("#pin", "#pin-ref-mut"), ("#pin-shared", "#pin-ref")] {
             reject(
                 &format!(
-                    "({declaration} global #u64 42u64)
-                    (#fn main () #u64
-                      (#let view ({ty} #u64) ({operator} global))
-                      (#forget view) (#return 0u64))"
+                    "{declaration} global #u64 42u64
+#fn main () #u64
+                        (#let view ({ty} #u64) ({operator} global))
+                        (#forget view) (#return 0u64)
+"
                 ),
                 "requires an initialized local variable",
             );

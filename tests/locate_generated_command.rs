@@ -2,7 +2,7 @@ mod support;
 
 use std::{fs, path::PathBuf, process::Command, time::Duration};
 
-const SOURCE: &str = "#gn first () `((#type First #u64))\n#gn second () `((#type Second #u64))\n#generate first\n#generate second\n#fn main () #u64 (#return 0u64)\n";
+const SOURCE: &str = "#gn first () `((#type First #u64))\n#gn second () `((#type Second #u64))\n#generate first; #generate second\n#fn main () #u64 (#return 0u64)\n";
 
 fn run(arguments: &[&str]) -> (bool, String, String) {
     let (status, stdout, stderr) = support::run(
@@ -29,9 +29,9 @@ fn locates_points_and_overlapping_ranges_without_native_output() {
         ("3-4", 2),
         ("3:2", 1),
         ("3:4-3:6", 1),
-        ("3:16-3:21", 2),
-        ("3:18", 0),
-        ("3:1-3:18", 1),
+        ("3:14-3:20", 2),
+        ("3:17", 0),
+        ("3:1-3:17", 1),
         ("4", 0),
     ] {
         let selection = format!("{entry}:{suffix}");

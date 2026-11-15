@@ -422,9 +422,9 @@ fn aliases_and_global_initializers_cannot_expose_or_construct_private_storage() 
         "#const forged nums@Number (#struct-literal nums@Number ((value 0u64)))\n",
         "#type Alias nums@Number\n#const copied Alias nums@number\n#const exposed #u64 (#get copied value)\n",
         "#const exposed #u64 (#get nums@number value)\n",
-        "(#let exposed #u64 (#get nums@number value))",
+        "#let exposed #u64 (#get nums@number value)\n",
     ] {
-        let source = format!("#alias nums@Number = ./numbers/lib.lim::Number\n#alias nums@number = ./numbers/lib.lim::number\n {body}\n#fn main () #u64 (#return 0u64)\n");
+        let source = format!("#alias nums@Number = ./numbers/lib.lim::Number\n#alias nums@number = ./numbers/lib.lim::number\n{body}\n#fn main () #u64 (#return 0u64)\n");
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}");
     }
@@ -460,14 +460,14 @@ fn exported_enums_expose_every_variant_but_contributions_stay_internal() {
         "#fn main () #u64 (#let value nums@Number (#enum-literal nums@Number.Empty)) (#return (#match value (#case (nums@Number.Value payload) payload) (#case nums@Number.Empty 42u64)))\n",
         "#fn main () #u64 (#let value nums@Events (#enum-literal nums@Events.Added 42u64)) (#return (#match value (#case (nums@Events.Added payload) payload)))\n",
     ] {
-        let source = format!("#alias nums@Events = ./numbers/lib.lim::Events\n#alias nums@Number = ./numbers/lib.lim::Number\n {body}");
+        let source = format!("#alias nums@Events = ./numbers/lib.lim::Events\n#alias nums@Number = ./numbers/lib.lim::Number\n{body}");
         check_cache_modes(scratch.path(), &source, None);
     }
     for body in [
         "#enum-contribute nums@Events (nums@Events.Forged #u64)\n#fn main () #u64 (#return 0u64)\n",
         "#gn forge () `((#enum-contribute nums@Events (nums@Events.Forged #u64)))\n#generate forge\n#fn main () #u64 (#return 0u64)\n",
     ] {
-        let source = format!("#alias nums@Events = ./numbers/lib.lim::Events\n#alias nums@Number = ./numbers/lib.lim::Number\n {body}");
+        let source = format!("#alias nums@Events = ./numbers/lib.lim::Events\n#alias nums@Number = ./numbers/lib.lim::Number\n{body}");
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}");
     }
@@ -503,7 +503,7 @@ fn every_public_enum_payload_must_be_public_even_when_unused_or_generated() {
         write(
             scratch.path(),
             "numbers/lib.lim",
-            &format!("#export Value\n#struct Secret () ((value #u64))\n {declaration}"),
+            &format!("#export Value\n#struct Secret () ((value #u64))\n{declaration}"),
         );
         check_cache_modes(
             scratch.path(),
@@ -561,7 +561,7 @@ fn generator_helpers_are_private_even_when_called_inside_unquotes() {
         "#gn forge () `((#generate ./numbers/lib.lim::private))\n#generate forge\n",
     ] {
         let source = format!(
-            "#alias nums@public = ./numbers/lib.lim::public\n {body}\n#fn main () #u64 (#return 0u64)\n"
+            "#alias nums@public = ./numbers/lib.lim::public\n{body}\n#fn main () #u64 (#return 0u64)\n"
         );
         let error = check(scratch.path(), "main.lim", &source).unwrap_err();
         assert!(error.contains("private"), "{error}");
@@ -647,7 +647,7 @@ fn private_field_diagnostics_underline_the_exact_source_token() {
     )
     .unwrap_err();
     let span = error.span.unwrap();
-    assert_eq!(span.line, 4);
+    assert_eq!(span.line, 6);
     assert_eq!(&source[span.start..span.end], "capacity");
     let rendered = lim::render_diagnostic(&error, source, path.to_str().unwrap());
     assert!(rendered.contains("capacity"));
@@ -706,7 +706,7 @@ fn native_thread_entry_points_are_private_unless_exported() {
     write(
         scratch.path(),
         "workers/lib.lim",
-        &implementation.replace("#export Task ", "(#export Task Task::spawn "),
+        &implementation.replace("#export Task ", "#export Task Task::spawn "),
     );
     check(scratch.path(), "main.lim", source).unwrap();
     write(scratch.path(), "workers/lib.lim", "#export Task Task::spawn\n#fn worker () #u64 (#return 42u64)\n#generate #thread-spawn ((task Task) (worker worker))\n");

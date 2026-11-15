@@ -18,7 +18,7 @@ fn native_x86_64_syscall_catalog_is_complete_and_ordered() {
         let (name, rest) = rest.split_once(' ').expect("syscall name and type");
         let value = rest
             .strip_prefix("#usize ")
-            .and_then(|value| value.strip_suffix("usize)"))
+            .and_then(|value| value.strip_suffix("usize"))
             .expect("#usize syscall number")
             .parse::<u16>()
             .expect("numeric syscall number");

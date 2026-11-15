@@ -437,8 +437,8 @@ fn removed_import_forms_have_no_compatibility_path() {
         "#fn read () #u64 (#return 42u64)\n",
     );
     for source in [
-        "(#import \"value.lim\")",
-        "(#import-external \"value.lim\" old)",
+        "#import \"value.lim\"",
+        "#import-external \"value.lim\" old",
     ] {
         let error = check(scratch.path(), source).unwrap_err();
         assert!(error.contains("unknown"), "{error}");

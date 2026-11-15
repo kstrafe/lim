@@ -70,7 +70,7 @@ fn api_generator_emission_and_reused_cache_preserve_function_identity() {
         )
         .replace(
             "#fn main () #u64",
-            "(#gn-fn emit-identity () `((#fn panic ((value (#ref #u64))) #u64 (#return (#deref value)))))\n(#gn make-identity () (#gn-call emit-identity))\n#generate make-identity)\n#fn main () #u64",
+            "#gn-fn emit-identity () `((#fn panic ((value (#ref #u64))) #u64 (#return (#deref value))))\n#gn make-identity () (#gn-call emit-identity)\n#generate make-identity\n#fn main () #u64",
         );
     let cache = scratch.path().join("cache");
     let target = lim::TargetDescription::X86_64_SYSTEM_V;
