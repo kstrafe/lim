@@ -65,6 +65,11 @@ def migrate_source(source):
             replacement += '\n'
         output.append(replacement)
         cursor = end
+        # A canonical root may have been followed by a bare record declaration
+        # on the same line. Its old inter-form space is not new indentation.
+        adjacent = re.match(r'[ \t]+(?=#(?:fn|unsafe-fn|static|const|generate)\b)', source[end:])
+        if adjacent:
+            cursor += adjacent.end()
     output.append(source[cursor:])
     return ''.join(output)
 
