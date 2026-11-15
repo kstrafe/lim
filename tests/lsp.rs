@@ -820,15 +820,15 @@ fn macro_at_uses_current_artifacts_across_multiline_positions_and_warm_cache() {
     assert_ne!(first, second);
     assert!(std::fs::read_to_string(&first[0])
         .unwrap()
-        .contains("(#type First #u64)"));
+        .contains("#type First #u64"));
     assert!(std::fs::read_to_string(&second[0])
         .unwrap()
-        .contains("(#type Second #u64)"));
+        .contains("#type Second #u64"));
     let changed = artifact_paths(&replies, 5);
     assert_ne!(first, changed);
     assert!(std::fs::read_to_string(&changed[0])
         .unwrap()
-        .contains("(#type First #u32)"));
+        .contains("#type First #u32"));
     let declaration = reply(&replies, 6).get("result").unwrap();
     assert_eq!(
         declaration.get("uri").and_then(Json::string),
@@ -895,12 +895,12 @@ fn macro_navigation_uses_entry_cfg_module_paths_and_all_unsaved_overlays() {
     assert!(!child.parent().unwrap().join("modules/.lim").exists());
     assert!(std::fs::read_to_string(&before[0])
         .unwrap()
-        .contains("(#type Number #u32)"));
+        .contains("#type Number #u32"));
     let after = artifact_paths(&replies, 4);
     assert_ne!(before, after);
     assert!(std::fs::read_to_string(&after[0])
         .unwrap()
-        .contains("(#type Number #u16)"));
+        .contains("#type Number #u16"));
     let declaration = reply(&replies, 3).get("result").unwrap();
     assert_eq!(
         declaration.get("uri").and_then(Json::string),
@@ -1619,7 +1619,7 @@ fn generated_type_navigation_tracks_unsaved_generator_changes() {
     for (result, ty) in [(first, "#u64"), (next, "#u32")] {
         let path = lsp::uri_to_path(result.get("uri").unwrap().string().unwrap()).unwrap();
         let text = std::fs::read_to_string(path).unwrap();
-        assert!(text.contains(&format!("(#type Number {ty})")));
+        assert!(text.contains(&format!("#type Number {ty}")));
         let start = result.get("range").unwrap().get("start").unwrap();
         let line = start.get("line").unwrap().integer().unwrap() as usize;
         let col = start.get("character").unwrap().integer().unwrap() as usize;

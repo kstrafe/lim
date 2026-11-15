@@ -1681,7 +1681,7 @@ fn signature_help_uses_named_parameter_order_for_all_call_spellings_over_stdio()
             .contains("#u64"));
         client.clear(&path);
     }
-    let puns = format!("{declarations}#fn main () #u64 (#let first #u64 1u64) (#let second #u64 2u64) (#return (#call choose (($ second) ($ first))))\n");
+    let puns = format!("{declarations}\n#fn main () #u64 (#let first #u64 1u64) (#let second #u64 2u64) (#return (#call choose (($ second) ($ first))))\n");
     lim::check_types(&lim::parse_program(&puns).unwrap()).unwrap();
     client.change(&path, 20, &puns);
     let signature = client.signature(&path, &puns, puns.find("$ second").unwrap() + 3);
@@ -1695,7 +1695,7 @@ fn signature_help_uses_named_parameter_order_for_all_call_spellings_over_stdio()
         unsafe_source.find("2u64").unwrap() + 2,
     );
     assert_signature(&signature, "foreign", &["first", "second"], Some(1));
-    let nested = format!("{declarations}#fn inner ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (#call choose ((second (#call inner ((value 2u64)))) (first 1u64))))\n");
+    let nested = format!("{declarations}\n#fn inner ((value #u64)) #u64 (#return value)\n#fn main () #u64 (#return (#call choose ((second (#call inner ((value 2u64)))) (first 1u64))))\n");
     client.change(&path, 22, &nested);
     let signature = client.signature(&path, &nested, nested.find("2u64").unwrap() + 2);
     assert_signature(&signature, "inner", &["value"], Some(0));
@@ -1756,7 +1756,7 @@ fn signature_help_recovers_unclosed_calls_without_writing_buffers_over_stdio() {
         assert_eq!(fs::read_to_string(&path).unwrap(), declarations);
     }
     let restored = format!(
-        "{declarations}#fn main () #u64 (#return (#call choose ((second 2u64) (first 1u64))))\n"
+        "{declarations}\n#fn main () #u64 (#return (#call choose ((second 2u64) (first 1u64))))\n"
     );
     client.change(&path, 10, &restored);
     assert_signature(

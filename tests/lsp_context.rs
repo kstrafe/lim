@@ -9,7 +9,8 @@ fn directory(name: &str) -> PathBuf {
 
 fn assert_cfg(config: &CompileConfig, key: &str, value: &str) {
     let source = format!(
-        "#cfg-if (#cfg-is #{key} {value}) (#fn main () #u64 (#return 0u64)) (#cfg-else (#fn main () #u64 (#return missing)))\n"
+        "#cfg-if (#cfg-is #{key} {value}) (#fn main () #u64 (#return 0u64)) (#cfg-else (#fn main () #u64 (#return missing)))
+"
     );
     let program = lim::parse_program_with_config(&source, config).unwrap();
     lim::check_types(&program).unwrap();
