@@ -76,10 +76,10 @@ the cancellation boundaries and emitted tag assertions.
 Graph cancellation configuration uses these source slots:
 
 ```lim
-(#generate #async-fn-pinned ((protocol WorkAwait) (waker Wake)
-  (cancel (work-cancel
-    ((owner destroy-owner) (await-0 cancel-child))))
-  (function (#fn work (...) #u64 ...))))
+#generate #async-fn-pinned ((protocol WorkAwait) (waker Wake)
+    (cancel (work-cancel
+      ((owner destroy-owner) (await-0 cancel-child))))
+    (function (#fn work (...) #u64 ...)))
 ```
 
 Each handler must safely consume exactly one value of the slot's declared type
@@ -87,7 +87,7 @@ and return `()`, except for stationary dependent children described below.
 Every exposed owning slot requires a handler; duplicate,
 missing, unknown, unsafe, or incorrectly typed handlers are rejected. The
 dispatcher has the ordinary signature
-`(#fn work-cancel ((task Work::Frame::Cleanup)) () ...)`. Call it on the result of
+`#fn work-cancel ((task Work::Frame::Cleanup)) () ...`. Call it on the result of
 `Work::poll::cleanup`. Only Full cells invoke handlers. Repeated pinned cleanup
 returns empty cells and does not repeat destruction. Movable cleanup consumes
 the frame, so reusing that frame is rejected.
@@ -130,9 +130,9 @@ Pinned graph functions can explicitly request access to reference-free Copy
 parameters after Ready or public cleanup:
 
 ```lim
-(#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
-  (access ((amount AmountAccess)))
-  (function (#fn work ((amount #u64)) #u64 (#return amount)))))
+#generate #async-fn-pinned ((protocol WorkAwait) (waker #u64)
+    (access ((amount AmountAccess)))
+    (function (#fn work ((amount #u64)) #u64 (#return amount))))
 ```
 
 This emits ordinary `AmountAccess::read` and `AmountAccess::replace` functions.

@@ -1,6 +1,6 @@
 # File and buffered reader API
 
-Import `file.lim` directly or use `(#std)`, which includes it. The API is
+Import `file.lim` directly or use `#std`, which includes it. The API is
 implemented with direct Linux x86-64 syscalls and exposes opaque, linear
 `File` and `FileReader` values. A descriptor has one owner: it cannot be
 copied, abandoned, or closed while borrowed.

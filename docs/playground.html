@@ -55,7 +55,7 @@
 }
 // The half-open range includes 1 through 10. Result: 55.</template>
 <template id="example-print">// Browser-only output binding: one unsigned decimal number per line.
-(#extern-fn #abi-c browser-print-u64 ((value #u64)) ())
+#extern-fn #abi-c browser-print-u64 ((value #u64)) ()
 #fn main {
   #params = {};
   #returns = ();
@@ -96,12 +96,13 @@
 }
 // Replace false with 42 to fix the error.</template>
 <template id="example-array">// Use Check only: array code generation is a native feature today.
-(#fn main () #u64
-  (#let items (#array #u64 2)
-    (#array-of (#array #u64 2) 20u64 42u64))
-  (#let view (#ref (#array #u64 2)) (#borrow items))
-  (#let index #usize 1usize)
-  (#return (#if-valid (#usize::lt index 2usize)
-    (#index-proven view index)
-    0u64)))</template>
+#fn main () #u64
+    (#let items (#array #u64 2)
+      (#array-of (#array #u64 2) 20u64 42u64))
+    (#let view (#ref (#array #u64 2)) (#borrow items))
+    (#let index #usize 1usize)
+    (#return (#if-valid (#usize::lt index 2usize)
+      (#index-proven view index)
+      0u64))
+</template>
 </body></html>

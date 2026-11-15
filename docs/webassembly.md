@@ -85,7 +85,7 @@ WebAssembly module. **Standard output** displays its text separately from the
 **Result** panel's `main` return value.
 
 ```lisp syntax
-(#extern-fn #abi-c browser-print-u64 ((value #u64)) ())
+#extern-fn #abi-c browser-print-u64 ((value #u64)) ()
 #fn main {
   #params = {};
   #returns = ();

@@ -73,7 +73,7 @@ inheritance, so brackets inside the call need their own header.
 Canonical S-expressions describe the trees used by generators. This example
 shows syntax data beneath the surface notation; source files use bare roots:
 
-```lisp run=42
+```lisp syntax
 (#fn main () #u64
   (#return (#u64::add-wrap 40u64 2u64)))
 ```

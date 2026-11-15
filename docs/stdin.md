@@ -1,6 +1,6 @@
 # Standard input lines
 
-Use `(#std)` (or import `library/stdin.lim`) and pass an exclusively borrowed `String` to
+Use `#std` (or import `library/stdin.lim`) and pass an exclusively borrowed `String` to
 `std-read-line`. The reader appends to the existing text; it never clears it.
 
 `StdLineRead` carries the number of bytes appended for this line. LF is

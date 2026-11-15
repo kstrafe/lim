@@ -10,7 +10,7 @@ static ELF writer; supported programs can be tested with `qemu-aarch64` in the
 Nix shell. See [AArch64 coverage and testing](docs/aarch64-testing.md).
 
 Lim uses concrete generated code instead of user-facing generic types. A
-generator invocation such as `(#generate #optional ((type #u64) (name MaybeU64)))` emits a concrete type
+generator invocation such as `#generate #optional ((type #u64) (name MaybeU64))` emits a concrete type
 and its functions. Generators are pure, interpreted at compile time, and use
 the restricted `#gn-*` operation set.
 
@@ -139,9 +139,9 @@ are not treated as signals. New examples must declare their expected outcome.
 ## A small Lim program
 
 ```lisp run=42
-(#fn main () #u64
-  (#let answer #u64 (#u64::add-wrap 40u64 2u64))
-  (#return answer))
+#fn main () #u64
+    (#let answer #u64 (#u64::add-wrap 40u64 2u64))
+    (#return answer)
 ```
 
 Builtins and special forms are prefixed with `#`; numeric operators are
@@ -152,9 +152,9 @@ Bindings declare their types, and every function exit uses `#return` (including
 An explicit type mismatch is rejected (this example is tested as `E4000`):
 
 ```lisp error=E4000
-(#fn main () #u64
-  (#let answer #u64 false)
-  (#return answer))
+#fn main () #u64
+    (#let answer #u64 false)
+    (#return answer)
 ```
 ### Explaining generated-code reuse
 

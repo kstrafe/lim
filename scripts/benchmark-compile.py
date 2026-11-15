@@ -60,15 +60,15 @@ def measure(compiler, source, output, repetitions, compare_runtime=False, cfgs=(
 
 def reference_heavy_source():
     """Exercise shared provenance facts without relying on generated code."""
-    lines = ["(#fn identity ((input (#ref #u64))) (#ref #u64) (#return input))"]
+    lines = ["#fn identity ((input (#ref #u64))) (#ref #u64) (#return input)"]
     for function in range(64):
-        lines.append(f"(#fn worker-{function} ((input (#ref #u64))) (#ref #u64)")
+        lines.append(f"#fn worker-{function} ((input (#ref #u64))) (#ref #u64)")
         for binding in range(24):
             previous = "input" if binding == 0 else f"value-{binding - 1}"
             lines.append(f"  (#let value-{binding} (#ref #u64) {previous})")
-        lines.append("  (#return (#call identity ((input value-23)))))")
-    lines.append("(#fn main () #u64 (#let owner #u64 42u64) "
-                 "(#return (#deref (#call worker-0 ((input (#borrow owner)))))))")
+        lines.append("  (#return (#call identity ((input value-23))))")
+    lines.append("#fn main () #u64 (#let owner #u64 42u64) "
+                 "(#return (#deref (#call worker-0 ((input (#borrow owner))))))")
     return "\n".join(lines) + "\n"
 
 
@@ -76,15 +76,15 @@ def snapshot_heavy_source():
     """Exercise nested branch-result snapshot lookup and lexical cleanup."""
     lines = []
     for function in range(64):
-        lines.append(f"(#fn worker-{function} ((input (#ref #u64)) (choose #bool)) (#ref #u64)")
+        lines.append(f"#fn worker-{function} ((input (#ref #u64)) (choose #bool)) (#ref #u64)")
         for binding in range(24):
             previous = "input" if binding == 0 else f"value-{binding - 1}"
             lines.append(f"  (#let value-{binding} (#ref #u64) (#if choose "
                          f"(#block (#let left-{binding} (#ref #u64) {previous}) left-{binding}) "
                          f"(#block (#let right-{binding} (#ref #u64) {previous}) right-{binding})))")
-        lines.append("  (#return value-23))")
-    lines.append("(#fn main () #u64 (#let owner #u64 42u64) "
-                 "(#return (#deref (#call worker-0 ((input (#borrow owner)) (choose true))))))")
+        lines.append("  (#return value-23)")
+    lines.append("#fn main () #u64 (#let owner #u64 42u64) "
+                 "(#return (#deref (#call worker-0 ((input (#borrow owner)) (choose true)))))")
     return "\n".join(lines) + "\n"
 
 
@@ -95,9 +95,9 @@ def scoped_heavy_source():
         expression = "42u64"
         for _ in range(24):
             expression = f"(#borrow owner {expression})"
-        lines.append(f"(#fn worker-{function} () #u64 (#let owner #u64 42u64) "
-                     f"(#return {expression}))")
-    lines.append("(#fn main () #u64 (#return (#call worker-0 ())))")
+        lines.append(f"#fn worker-{function} () #u64 (#let owner #u64 42u64) "
+                     f"(#return {expression})")
+    lines.append("#fn main () #u64 (#return (#call worker-0 ()))")
     return "\n".join(lines) + "\n"
 
 
@@ -107,19 +107,19 @@ def thread_heavy_source():
     for task in range(256):
         lines.append(f"(@#thread-spawn ((task Task-{task}) (worker worker-{task})))")
     for task in range(256):
-        lines.append(f"(#fn worker-{task} ((value #u64)) #u64 (#return value))")
-    lines.append("(#fn main () #u64 (#return 42u64))")
+        lines.append(f"#fn worker-{task} ((value #u64)) #u64 (#return value)")
+    lines.append("#fn main () #u64 (#return 42u64)")
     return "\n".join(lines) + "\n"
 
 
 def async_heavy_source():
     """Exercise shared declaration identities across 64 graph invocations."""
     lines = [
-        "(#enum Step ((StepStart #u64)))",
-        "(#enum StepPoll ((StepPending Step) (StepReady #u64)))",
-        "(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))",
-        "(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll "
-        "(#return (#match task (#case (StepStart value) (StepReady value)))))",
+        "#enum Step ((StepStart #u64))",
+        "#enum StepPoll ((StepPending Step) (StepReady #u64))",
+        "#syntax StepAwait (#u64 Step StepPending StepReady step-poll)",
+        "#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll "
+        "(#return (#match task (#case (StepStart value) (StepReady value))))",
     ]
     for function in range(64):
         lines.append(
@@ -128,24 +128,24 @@ def async_heavy_source():
             f"(#let value #u64 (#await StepAwait (StepStart {function}u64))) "
             "(#return (#u64.+.wrap value seed))))))")
     lines.append(
-        "(#fn main () #u64 (#let waker #u64 0u64) "
+        "#fn main () #u64 (#let waker #u64 0u64) "
         "(#let result Job-0-poll-result "
         "(#call job-0-poll ((task (#call job-0 ((seed 42u64)))) "
         "(waker (#borrow waker))))) "
         "(#forget waker) (#return (#match result "
         "(#case (job-0-ready value) value) "
-        "(#case (job-0-pending task) (#block (#forget task) (#unreachable))))))")
+        "(#case (job-0-pending task) (#block (#forget task) (#unreachable)))))")
     return "\n".join(lines) + "\n"
 
 
 def async_pinned_heavy_source():
     """Exercise owner-inclusive cancellation across eight pinned dispatchers."""
     lines = [
-        "(#enum Step ((StepStart #u64))) (#linear Step)",
-        "(#enum StepPoll ((StepPending Step) (StepReady #u64)))",
-        "(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))",
-        "(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll "
-        "(#return (#match task (#case (StepStart value) (StepReady value)))))",
+        "#enum Step ((StepStart #u64))\n#linear Step",
+        "#enum StepPoll ((StepPending Step) (StepReady #u64))",
+        "#syntax StepAwait (#u64 Step StepPending StepReady step-poll)",
+        "#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll "
+        "(#return (#match task (#case (StepStart value) (StepReady value))))",
     ]
     for function in range(8):
         lines.append(f"(@#async-fn-pinned ((protocol JobAwait-{function}) (waker #u64) "
@@ -156,13 +156,13 @@ def async_pinned_heavy_source():
         for owner in range(8):
             lines.append(f"(#forget owner-{owner})")
         lines.append("(#return seed)))))")
-    lines.append("(#fn main () #u64 (#let waker #u64 0u64) "
+    lines.append("#fn main () #u64 (#let waker #u64 0u64) "
                  "(#let-mut frame Job-0-frame (#call job-0 ((seed 42u64)))) "
                  "(#let result Job-0-poll-result (#call job-0-poll "
                  "((task (#pin-borrow-mut frame)) (waker (#borrow waker))))) "
                  "(#let answer #u64 (#match result (#case (job-0-ready value) value) "
                  "(#case (job-0-pending unexpected) (#block (#forget unexpected) (#unreachable))))) "
-                 "(#forget frame) (#forget waker) (#return answer))")
+                 "(#forget frame) (#forget waker) (#return answer)")
     return "\n".join(lines) + "\n"
 
 

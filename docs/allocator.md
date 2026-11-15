@@ -31,18 +31,18 @@ For example, this allocates fresh storage through the documented null-input
 reallocation path, then releases the successful allocation:
 
 ```lisp run=42
-(#std)
-(#fn main () #u64
-  (#let allocation SystemAllocationResult
-    (#unsafe (#unsafe-call system-reallocate
-      ((pointer (#ptr-null (#ptr-mut #u8))) (size 16usize)))))
-  (#return (#match allocation
-    (#case (SystemAllocationResult.SystemAllocated pointer)
-      (#block
-        (#unsafe (#unsafe-call system-deallocate ((pointer pointer))))
-        42u64))
-    (#case (SystemAllocationResult.SystemAllocationFailed error)
-      (#block (#drop error) 0u64)))))
+#std
+#fn main () #u64
+    (#let allocation SystemAllocationResult
+      (#unsafe (#unsafe-call system-reallocate
+        ((pointer (#ptr-null (#ptr-mut #u8))) (size 16usize)))))
+    (#return (#match allocation
+      (#case (SystemAllocationResult.SystemAllocated pointer)
+        (#block
+          (#unsafe (#unsafe-call system-deallocate ((pointer pointer))))
+          42u64))
+      (#case (SystemAllocationResult.SystemAllocationFailed error)
+        (#block (#drop error) 0u64))))
 ```
 
 Allocations are aligned to `SYSTEM-ALLOCATION-ALIGNMENT` (16 bytes). Sizes
@@ -118,8 +118,8 @@ their bundles may omit grow. The shared adapter generator accepts an explicit
 literal `:operations` list to select the operations it emits.
 
 ```lisp syntax
-(#generate #allocator-for ((allocator Root) (type T) (name TypedAllocator)
-  (operations (allocate deallocate))))
+#generate #allocator-for ((allocator Root) (type T) (name TypedAllocator)
+    (operations (allocate deallocate)))
 ```
 
 This emits typed allocate and deallocate adapters without referencing
@@ -137,8 +137,8 @@ alignments; unsupported alignment or invalid sizes fail explicitly.
 Pinned consumers use exactly these public options:
 
 ```lisp syntax
-(#generate #pin-box ((type T) (allocator Root) (name Box) (destroy destroy-value)))
-(#generate #pin-rc ((type T) (allocator Root) (name Rc) (destroy destroy-value)))
+#generate #pin-box ((type T) (allocator Root) (name Box) (destroy destroy-value))
+#generate #pin-rc ((type T) (allocator Root) (name Rc) (destroy destroy-value))
 ```
 
 Each generates its own typed adapter for the bundle's byte-pointer ABI.
@@ -154,13 +154,13 @@ An allocator is an ordinary user-defined value with a stable concrete type.
 Collections store an immutable reference to that value:
 
 ```lisp library
-(#alias cell-generator = ../library/cell.lim::#cell)
-(#generate cell-generator #usize CellUsize CellUsize::create CellUsize::get CellUsize::set)
-(#struct AllocatorU64 () ((cursor CellUsize)))
-(#struct VecU64 () ((allocator (#ref AllocatorU64))
-                 (pointer (#ptr-mut #u64))
-                 (length #usize)
-                 (capacity #usize)))
+#alias cell-generator = ../library/cell.lim::#cell
+#generate cell-generator #usize CellUsize CellUsize::create CellUsize::get CellUsize::set
+#struct AllocatorU64 () ((cursor CellUsize))
+#struct VecU64 () ((allocator (#ref AllocatorU64))
+                   (pointer (#ptr-mut #u64))
+                   (length #usize)
+                   (capacity #usize))
 ```
 
 The reference is immutable at the type level. Allocator implementations use
@@ -178,7 +178,7 @@ obey the same ownership rule.
 The concrete representation is declared first:
 
 ```lisp syntax
-(#generate #vec ((element ElementType) (allocator AllocatorType) (name ConcreteVecType)))
+#generate #vec ((element ElementType) (allocator AllocatorType) (name ConcreteVecType))
 ```
 
 It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
@@ -186,7 +186,7 @@ It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
 `-capacity`. The allocator-backed API is then generated separately:
 
 ```lisp syntax
-(#generate #vec-alloc ((element ElementType) (allocator Root) (vector ConcreteVecType) (destroy destroy-name)))
+#generate #vec-alloc ((element ElementType) (allocator Root) (vector ConcreteVecType) (destroy destroy-name))
 ```
 
 Here `Root::State` must denote the state type passed to `#generate #vec`.
@@ -210,7 +210,7 @@ Sorting is generated separately and takes a comparator name as a literal
 input:
 
 ```lisp syntax
-(#generate #vec-sort ((element ElementType) (vector ConcreteVecType) (comparator comparator-name)))
+#generate #vec-sort ((element ElementType) (vector ConcreteVecType) (comparator comparator-name))
 ```
 
 The comparator must have the concrete signature
@@ -225,25 +225,25 @@ zero-sized element vector is left unchanged.
 Bundle operations have these concrete signatures:
 
 ```lisp syntax
-(#type Root::State Arena)
-(#type Root::Error ArenaError)
-(#enum Root::Allocation ()
-  ((Root::Allocation.Allocated (#ptr-mut #u8))
-   (Root::Allocation.AllocationFailed Root::Error)))
+#type Root::State Arena
+#type Root::Error ArenaError
+#enum Root::Allocation ()
+    ((Root::Allocation.Allocated (#ptr-mut #u8))
+     (Root::Allocation.AllocationFailed Root::Error))
 
-(#fn Root::allocate
-  ((allocator (#ref Root::State)) (layout #usize) (alignment #usize))
-  Root::Allocation)
+#fn Root::allocate
+    ((allocator (#ref Root::State)) (layout #usize) (alignment #usize))
+    Root::Allocation
 
-(#unsafe-fn Root::grow
-  ((allocator (#ref Root::State)) (pointer (#ptr-mut #u8))
-   (old-layout #usize) (layout #usize) (alignment #usize))
-  Root::Allocation)
+#unsafe-fn Root::grow
+    ((allocator (#ref Root::State)) (pointer (#ptr-mut #u8))
+     (old-layout #usize) (layout #usize) (alignment #usize))
+    Root::Allocation
 
-(#unsafe-fn Root::deallocate
-  ((allocator (#ref Root::State)) (pointer (#ptr-mut #u8))
-   (layout #usize) (alignment #usize))
-  ())
+#unsafe-fn Root::deallocate
+    ((allocator (#ref Root::State)) (pointer (#ptr-mut #u8))
+     (layout #usize) (alignment #usize))
+    ()
 ```
 
 `allocate` is safe and called with `#call`. `grow` and `deallocate`

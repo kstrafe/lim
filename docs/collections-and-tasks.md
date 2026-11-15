@@ -15,9 +15,9 @@ not grant generated functions special borrowing or typechecking privileges.
 ## Distributed enums
 
 ```lisp syntax
-(#distributed-enum ApplicationError ())
-(#enum-contribute ApplicationError (ApplicationError.FileFailure #u32))
-(#enum-contribute ApplicationError (ApplicationError.ParseFailure #u64))
+#distributed-enum ApplicationError ()
+#enum-contribute ApplicationError (ApplicationError.FileFailure #u32)
+#enum-contribute ApplicationError (ApplicationError.ParseFailure #u64)
 ```
 
 Contributions can live in different imported files or be emitted by generators.
@@ -53,7 +53,7 @@ poll-result enum. The task generator emits `#linear` for the state type, so
 even an all-numeric state cannot be implicitly copied or silently abandoned.
 
 ```lisp syntax
-(#generate #task (Count CountPoll CountPoll.CountPending CountPoll.CountReady) #u64 ((Count.Counting #u64)))
+#generate #task (Count CountPoll CountPoll.CountPending CountPoll.CountReady) #u64 ((Count.Counting #u64))
 ```
 
 Write a free-standing poll function with exactly the named argument `task`:
@@ -74,9 +74,9 @@ rules.
 ## Fixed-capacity executors
 
 ```lisp syntax
-(#generate #executor run-counts Counts
-  ((first Count CountPoll CountPending CountReady count-poll #u64 first-input)
-   (second Count CountPoll CountPending CountReady count-poll #u64 second-input)))
+#generate #executor run-counts Counts
+    ((first Count CountPoll CountPending CountReady count-poll #u64 first-input)
+     (second Count CountPoll CountPending CountReady count-poll #u64 second-input))
 ```
 
 Each job descriptor is
@@ -97,10 +97,10 @@ implementations can still explicitly allocate if they choose. The local name
 ## Bounded ready queue foundation
 
 ```lisp syntax
-(#generate #ready-queue ReadyQueue QueueEnqueue QueueDequeue
-  queue-create queue-enqueue queue-dequeue
-  QueueEnqueue.QueueEnqueued QueueEnqueue.QueueFull QueueDequeue.QueueItem QueueDequeue.QueueEmpty
-  (worker-a worker-b worker-c))
+#generate #ready-queue ReadyQueue QueueEnqueue QueueDequeue
+    queue-create queue-enqueue queue-dequeue
+    QueueEnqueue.QueueEnqueued QueueEnqueue.QueueFull QueueDequeue.QueueItem QueueDequeue.QueueEmpty
+    (worker-a worker-b worker-c)
 ```
 
 Import `library/ready_queue.lim` to use this generator. Every generated type,
@@ -150,11 +150,11 @@ Import `library/local_waker.lim` to generate a concrete, single-threaded wake
 handle with no function pointers:
 
 ```lisp syntax
-(#generate #local-waker
-  (CounterWaker counter-waker-create counter-waker-wake
-    counter-waker-wake-by-ref counter-waker-clone counter-waker-destroy)
-  (WakeCounter WakeMetadata)
-  (counter-notify metadata-clone metadata-destroy))
+#generate #local-waker
+    (CounterWaker counter-waker-create counter-waker-wake
+      counter-waker-wake-by-ref counter-waker-clone counter-waker-destroy)
+    (WakeCounter WakeMetadata)
+    (counter-notify metadata-clone metadata-destroy)
 ```
 
 The generated linear `CounterWaker` owns a `WakeMetadata` and holds a
@@ -171,11 +171,11 @@ The three user-supplied callbacks are ordinary functions with these exact
 signatures (substitute the concrete type names):
 
 ```lisp syntax
-(#fn counter-notify ((executor (#ref WakeCounter))
-                     (metadata (#ref WakeMetadata))) () ...)
-(#fn metadata-clone ((metadata (#ref WakeMetadata))) WakeMetadata ...)
-(#fn metadata-destroy ((executor (#ref WakeCounter))
-                       (metadata WakeMetadata)) () ...)
+#fn counter-notify ((executor (#ref WakeCounter))
+                       (metadata (#ref WakeMetadata))) () ...
+#fn metadata-clone ((metadata (#ref WakeMetadata))) WakeMetadata ...
+#fn metadata-destroy ((executor (#ref WakeCounter))
+                         (metadata WakeMetadata)) () ...
 ```
 
 The handle is only a *local wake adapter*. Its fields are public, so callback
@@ -190,15 +190,15 @@ Import `library/tasks.lim` and use `#generate #wake-executor` when all task slot
 same concrete task, poll-result, output, and waker types:
 
 ```lisp syntax
-(#generate #wake-executor run-jobs
-  (JobResults JobOutcome JobLifecycle JobLifecycle.JobRunning
-    JobOutcome.JobComplete JobLifecycle.JobCancelling JobOutcome.JobStopped)
-  (JobTask JobPoll JobPending JobReady #u64 job-poll LocalWaker)
-  (WaitResult WaitReady WaitStopped #i64 wait-ready
-    (sources (#slice AsyncPollSource4)))
-  cancel-poll
-  ((first-state first-task first-waker first 0u32)
-   (second-state second-task second-waker second 1u32)))
+#generate #wake-executor run-jobs
+    (JobResults JobOutcome JobLifecycle JobLifecycle.JobRunning
+      JobOutcome.JobComplete JobLifecycle.JobCancelling JobOutcome.JobStopped)
+    (JobTask JobPoll JobPending JobReady #u64 job-poll LocalWaker)
+    (WaitResult WaitReady WaitStopped #i64 wait-ready
+      (sources (#slice AsyncPollSource4)))
+    cancel-poll
+    ((first-state first-task first-waker first 0u32)
+     (second-state second-task second-waker second 1u32))
 ```
 
 Each job descriptor names its generated poll-state local, task input, borrowed
@@ -240,11 +240,11 @@ a Pending state with an owned waker and an already-Ready result.
 ## Explicit async composition
 
 ```lisp syntax
-(#generate #async (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
-  ((Pipeline.Begin (#await Count CountPending CountReady count-poll)
-     (#then Pipeline.Finish next-count))
-   (Pipeline.Finish (#await Count CountPending CountReady count-poll)
-     (#return))))
+#generate #async (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
+    ((Pipeline.Begin (#await Count CountPending CountReady count-poll)
+       (#then Pipeline.Finish next-count))
+     (Pipeline.Finish (#await Count CountPending CountReady count-poll)
+       (#return)))
 ```
 
 Each stage stores exactly one concrete child task. Polling the parent polls
@@ -277,10 +277,10 @@ For explicit state composition that already needs a wake context, use
 concrete waker type:
 
 ```lisp syntax
-(#generate #async-wake
-  (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
-  ((Pipeline.Only (#await Step StepPoll.StepPending StepPoll.StepReady step-poll) (#return)))
-  LocalWaker)
+#generate #async-wake
+    (Pipeline PipelinePoll PipelinePoll.PipelinePending PipelinePoll.PipelineReady pipeline-poll) #u64
+    ((Pipeline.Only (#await Step StepPoll.StepPending StepPoll.StepReady step-poll) (#return)))
+    LocalWaker
 ```
 
 The generated `pipeline-poll` takes `task` and `waker (#ref LocalWaker)`.
@@ -328,11 +328,11 @@ rerunning generation. If all current sites are already recorded, neither the
 source file nor its cache metadata is rewritten; earlier records are retained.
 
 ```lisp syntax
-(#generate #async-fn ((protocol WorkAwait) (waker LocalWaker) (function (#fn work ((offset #u64)) #u64
-    (#let child Step (Waiting 1u64))
-    (#let value #u64
-      (#await Step StepPoll.StepPending StepPoll.StepReady step-poll child))
-    (#return (#u64::add-wrap value offset))))))
+#generate #async-fn ((protocol WorkAwait) (waker LocalWaker) (function (#fn work ((offset #u64)) #u64
+      (#let child Step (Waiting 1u64))
+      (#let value #u64
+        (#await Step StepPoll.StepPending StepPoll.StepReady step-poll child))
+      (#return (#u64::add-wrap value offset)))))
 ```
 
 `(#call work ((offset 1u64)))` creates a `Work` frame. It does not
@@ -354,11 +354,11 @@ repeating the result type. Declare a bundle for a handwritten task, or let
 `#generate #async-fn` export it:
 
 ```lisp
-(#generate #async-fn ((protocol WorkAwait) (waker LocalWaker)
-  (function (#fn work ((offset #u64)) #u64
-    (#return (#await StepAwait (Waiting offset)))))))
+#generate #async-fn ((protocol WorkAwait) (waker LocalWaker)
+    (function (#fn work ((offset #u64)) #u64
+      (#return (#await StepAwait (Waiting offset))))))
 // Inside another generated async function:
-(#let value #u64 (#await WorkAwait (#call work (($ offset)))))
+#let value #u64 (#await WorkAwait (#call work (($ offset))))
 ```
 
 The generated names come from the source function name: `Work::Task`,
@@ -455,7 +455,7 @@ Ready(false).
 
 ## Cancellation and threads
 
-`(#generate #task-cancel cancel-function Task ((State handler) ...))` generates an
+`#generate #task-cancel cancel-function Task ((State handler) ...)` generates an
 exhaustive match consuming a task. Every state must have one payload; each
 handler accepts that payload as `task`, consumes its owned resources, and
 returns `()`. Cleanup occurs only when this function is explicitly called.
@@ -467,13 +467,13 @@ optional `:cancel` argument. Map source binding names and `await-N` identities
 to concrete handlers, not private program-counter states:
 
 ```lisp
-(#generate #async-fn-pinned
-  ((protocol WorkAwait)
-   (waker LocalWaker)
-   (cancel (cancel-work ((owner destroy-owner) (await-0 cancel-child))))
-   (function
-   (#fn work ((owner Owner)) #u64
-     ...))))
+#generate #async-fn-pinned
+    ((protocol WorkAwait)
+     (waker LocalWaker)
+     (cancel (cancel-work ((owner destroy-owner) (await-0 cancel-child))))
+     (function
+     (#fn work ((owner Owner)) #u64
+       ...)))
 ```
 
 Every exposed owning slot requires a handler. Missing, duplicate, unknown,
@@ -533,8 +533,8 @@ rejected. Descriptor ownership and
 executor shutdown remain open. Externally interrupting a blocking run also
 remains open.
 
-`(#generate #threaded-executor run Result jobs Worker)` expands an executor plus
-`(#generate #thread-spawn ((task Worker) (worker run)))`. Each job names both its result
+`#generate #threaded-executor run Result jobs Worker` expands an executor plus
+`#generate #thread-spawn ((task Worker) (worker run))`. Each job names both its result
 field/state binding and a distinct worker-input parameter, for example
 `(number NumberTask NumberPoll NumberPending NumberReady number-poll #u64 number-input)`.
 The spawn call uses that worker-input name as its named argument; the result

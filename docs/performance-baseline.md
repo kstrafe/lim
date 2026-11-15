@@ -962,7 +962,7 @@ and native executable output are included, and runtime outputs match.
 | async_fn | 63.665 ms | 62.725 ms | not measured | not measured |
 
 Repeated-call fixtures use the alias generator from the preceding section.
-The repeated fixture calls `(#generate alias Shared)` 256 times; the distinct one
+The repeated fixture calls `#generate alias Shared` 256 times; the distinct one
 uses `Alias0` through `Alias255`. The nested fixture additionally declares
 `(#gn parent (name) \`((#generate alias ,name)))` and calls `(#generate parent Shared)` 256
 times. All synthetic fixtures return 42 from main.

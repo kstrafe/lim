@@ -63,10 +63,14 @@ alias gives that exact declaration a shorter file-local spelling:
 
 ```lisp syntax
 // Two ways to name the same function in math.lim:
-(#alias add = ./math.lim::add)
-(#fn answer () #u64
-  (#let first #u64 (./math.lim::add { left = 20; right = 22; }))
-  (#return (add { left = first; right = 0; })))
+#alias add = ./math.lim::add
+#fn answer {
+  #params = {};
+  #returns = #u64;
+  #body:
+    #let first #u64 (./math.lim::add { left = 20; right = 22; });
+    #return add { left = first; right = 0; };
+}
 ```
 
 The declaration's identity is its **canonical file plus declaration name**.
