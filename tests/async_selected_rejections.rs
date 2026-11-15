@@ -39,10 +39,7 @@ fn checked_source(body: &str, pinned: bool, return_type: &str) -> String {
             (#forget task) (#return 0u64)\n"
     };
     format!(
-        "{CONTEXT}
-#generate {annotation} ((protocol WorkAwait) (waker #u64 {cancel})
-            (function (#fn work ((choose #bool)) {return_type} {body})))
-        {main}"
+        "{CONTEXT}\n#generate {annotation} ((protocol WorkAwait) (waker #u64 {cancel})\n            (function (#fn work ((choose #bool)) {return_type} {body})))\n{main}"
     )
 }
 

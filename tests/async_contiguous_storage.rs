@@ -367,7 +367,7 @@ fn heap_reference_owner_keeps_address_and_provenance_after_sibling_restoration()
 #[test]
 fn selected_whole_owner_keeps_branch_identity_with_contiguous_storage() {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim")
-        .replace("(#fn work () #u64", "#fn work ((flag #bool)) #u64")
+        .replace("(#fn work () #u64", "(#fn work ((flag #bool)) #u64")
         .replace(
             "(#let whole (#ref Owner) (#borrow owner))",
             "
