@@ -8782,7 +8782,7 @@ fn let_type_and_initializer(items: &[Expr]) -> Result<(&Expr, &Expr), String> {
         return Err("let requires the form (#let or #let-mut name Type value)".into());
     }
     let Expr::List(specification) = &items[2] else {
-        return Err("delimited let binding requires (Type = initializer)".into());
+        return Err("let requires a name, an explicit type, and an initializer".into());
     };
     if !matches!(specification.get(1), Some(Expr::Symbol(delimiter)) if delimiter == "=") {
         return Err("delimited let binding requires literal '=' after the type".into());
@@ -10046,7 +10046,7 @@ mod tests {
     fn formatter_preserves_comments_and_is_idempotent_for_generator_templates() {
         let commented = "// module note\n#fn main { #params = (); #returns = #u64; #body = (\n    (#let value #u64 0u64)\n    // return the named value\n    (#return value) ); }\n// trailing note\n";
         let formatted = format_source(commented).unwrap();
-        assert_eq!(formatted, commented);
+        assert_eq!(formatted, "// module note\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ((#let value #u64 0u64)\n    // return the named value\n    (#return value));\n}\n// trailing note\n");
         assert!(formatted.contains("// module note\n"));
         assert!(formatted.contains("// return the named value\n"));
         assert!(formatted.contains("// trailing note\n"), "{formatted}");
@@ -10971,7 +10971,7 @@ mod tests {
             "#struct Point () ((x #u64) (y #u64))\n#static origin Point (#struct-literal Point ((x 20) (y 22)))\n#fn origin { #params = (); #returns = (#ref Point); #effects = ((#read-global origin)); #body = ( (#return (#unsafe (#borrow origin))) ); }\n#fn main { #params = (); #returns = #u64; #effects = ((#effects-of origin)); #body = ( (#return (#get (#call origin ()) x)) ); }\n",
         )
         .unwrap();
-        assert!(check_types(&reference_to_global).is_ok());
+        assert!(check_types(&reference_to_global).is_ok(), "{:?}", check_types(&reference_to_global));
         assert!(generate_assembly(&reference_to_global).is_ok());
 
         let aggregate_deref = parse_program(

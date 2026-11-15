@@ -2093,6 +2093,7 @@ mod async_migration_tests {
 #generate produce
 #generate #async-fn ((protocol SecondAwait) (waker #u64) (function
               (#fn second ((seed #u64)) #u64
+                (#effects ((#effects-of work) (#effects-of Work::poll)))
                 (#return (#await Work::Task Work::Poll.Pending Work::Poll.Ready Work::poll
                   (#call work ((seed seed))))))))\n"
         );

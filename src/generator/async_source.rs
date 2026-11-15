@@ -1630,17 +1630,22 @@ mod tests {
                 &config,
             )
         };
-        let source = include_str!("../../examples/async_fn_local_self_reference.lim").replace(
-            "#struct LocalOwner () ((payload LocalPayload))\n",
-            "#struct LocalOwner (#linear) ((payload LocalPayload))\n ",
-        ).replace("(#return (#u64::add-wrap (#deref view) result))", "(#let answer #u64 (#u64::add-wrap (#deref view) result))\n    (#forget view) (#forget owner) (#return answer)");
+        let original = include_str!("../../examples/async_fn_local_self_reference.lim");
+        let owner = "#struct LocalOwner () ((payload LocalPayload))\n";
+        let returned = "(#return (#u64::add-wrap (#deref view)\n          result))";
+        assert_eq!(original.matches(owner).count(), 1);
+        assert_eq!(original.matches(returned).count(), 1);
+        let source = original.replace(owner, "#struct LocalOwner (#linear) ((payload LocalPayload))\n")
+            .replace(returned, "(#let answer #u64 (#u64::add-wrap (#deref view) result))\n    (#forget view) (#forget owner) (#return answer)");
         let program = parse(&source).unwrap();
         let mut runtime = program.clone();
         runtime.generator_validation = None;
         crate::CheckedProgram::validate(&runtime).unwrap();
         crate::CheckedProgram::validate(&program).unwrap();
-        let missing = source.replace("(#let view (#pin-ref #u64)",
-            "(#let unrelated LocalOwner (#struct-literal LocalOwner ((payload (#struct-literal LocalPayload ((left 1u64) (right 2u64)))))))\n    (#let view (#pin-ref #u64)");
+        let view = "(#let view\n        (#pin-ref #u64)";
+        assert_eq!(source.matches(view).count(), 1);
+        let missing = source.replace(view,
+            "(#let unrelated LocalOwner (#struct-literal LocalOwner ((payload (#struct-literal LocalPayload ((left 1u64) (right 2u64)))))))\n    (#let view\n        (#pin-ref #u64)");
         let error = parse(&missing).unwrap_err();
         assert!(error.contains("unrelated"), "{error}");
     }

@@ -252,3 +252,9 @@ is introduced by the invocation.
 `#where` binds its value name only inside its predicates. Its base type uses
 ordinary type navigation. The binder does not escape into sibling types or the
 surrounding lexical scope. Malformed forms retain no speculative bindings.
+
+Effect annotations are signature metadata. `#effects-of` targets function
+identities through aliases and file paths; `#read-global` and `#write-global`
+target global declarations. Qualification keywords have no definition target.
+Hover and signature help display written effects separately from predicate
+requirements. Byte-IO operands retain ordinary lexical value roles.
