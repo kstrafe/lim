@@ -507,7 +507,7 @@ mod tests {
             "(#bool::and true false|)",
             "(#u64::add-wrap 1 2)|",
             "'(#u64::add-wrap 1 2|)",
-            "#generate generator ((value (#u64::add-wrap 1 2|)))\n",
+            "#generate generator { value = (#u64::add-wrap 1 2|); }\n",
         ] {
             let source = source_unit(source);
             let byte = source.find('|').unwrap();
@@ -538,8 +538,8 @@ mod tests {
         for source in [
             "'(#call choose ((right 2|)))",
             "`(#call choose ((right 2|)))",
-            "#generate generator ((value (#call choose ((right 2|)))))\n",
-            "#gn generator () (#call choose ((right 2|)))\n",
+            "#generate generator { value = (#call choose ((right 2|))); }\n",
+            "#gn generator {} (#call choose ((right 2|)))\n",
             "\"(#call choose ((right 2|)))\"",
             "// (#call choose ((right 2|)))",
             "(#call choose ((right 2)))|",
@@ -551,7 +551,7 @@ mod tests {
         }
         assert_eq!(
             locate(
-                "#generate generator ((value (#fn work () #u64 (#return (#call choose ((right 2|)))))))\n"
+                "#generate generator { value = (#fn work { #params = (); #returns = #u64; #body = ((#return (#call choose ((right 2|))))); }); }\n"
             ),
             ("choose".into(), Some("right".into()))
         );

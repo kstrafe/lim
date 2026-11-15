@@ -160,7 +160,7 @@ fn call_graph_has_no_user_definition_or_arguments() {
 #[test]
 fn generated_variant_name_operations_navigate_syntax_parameters() {
     run(
-        "#gn make ([[binding|name]])
+        "#gn make { [[binding|name]]; }
         (#[[operation|gn-variant]] [[argument|name]] [[literal|\"Ready\"]])
 ",
         &[
@@ -649,9 +649,11 @@ fn syntax_bundles_and_nested_splices_have_explicit_reference_roles() {
   #body = ( (#return 42u64)
   );
 }
-#generate unknown ((function (#fn work () #u64
-          (#let result #u64 (#await [[protocol|Combined]] child))
-          (#return result))))
+#generate unknown { function = (#fn work {
+  #params = (); #returns = #u64;
+  #body = ((#let result #u64 (#await [[protocol|Combined]] child))
+           (#return result));
+}); }
     "#,
         &[
             ("nested", &["base"]),
@@ -693,9 +695,9 @@ fn raw_builtin_operands_are_values_but_register_and_cfg_names_are_metadata() {
 fn unrecognized_generator_lists_are_literal_data_even_when_they_contain_binding_names() {
     run(
         r#"
-#gn-fn identity ([[param|item]]) (literal [[data|item]])
-#gn-fn evaluate ([[value|item]]) (#gn-list [[evaluated|item]])
-#gn nested ([[nested-param|item]])
+#gn-fn identity { [[param|item]]; } (literal [[data|item]])
+#gn-fn evaluate { [[value|item]]; } (#gn-list [[evaluated|item]])
+#gn nested { [[nested-param|item]]; }
           `(([[literal|item]] `(,[[inactive|item]] ,,[[active|item]])))
     "#,
         &[
@@ -1188,9 +1190,9 @@ fn generator_effect_shaped_data_keeps_existing_qualification_roles() {
     let input = r#"#fn [[leaf|leaf]] {
   #params = (); #returns = (); #body = ((#return ()));
 }
-#gn ignore (value) (#gn-list)
-#generate ignore (#effects ((#effects-of (
-  [[literal|leaf]] [[qualified|@leaf]]))))
+#gn ignore { value; } (#gn-list)
+#generate ignore { value = (#effects ((#effects-of (
+  [[literal|leaf]] [[qualified|@leaf]])))); }
 "#;
     lim::parse_program(&annotated(input).0).unwrap();
     run(input, &[("literal", &[]), ("qualified", &["leaf"])]);

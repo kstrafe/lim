@@ -535,9 +535,9 @@ fn unstable_file_aliases_have_definition_targets() {
 #[test]
 fn generated_private_helper_references_navigate_to_the_library_implementation() {
     let fixture = Fixture::new("generator-private-authority");
-    let library_text = "#export make\n#fn secret {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#gn make (name) `((#fn ,name () #u64 (#return (#call secret ()))))\n";
+    let library_text = "#export make\n#fn secret {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n#gn make { name; } `((#fn ,name () #u64 (#return (#call secret ()))))\n";
     let library = fixture.write("library/lib.lim", library_text);
-    let main_text = "#alias make = ./library/lib.lim::make\n#generate make generated-read\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call generated-read ()))\n  );\n}\n";
+    let main_text = "#alias make = ./library/lib.lim::make\n#generate make { name = generated-read; }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call generated-read ()))\n  );\n}\n";
     let main = fixture.write("main.lim", main_text);
     fixture.context(&main, "first");
     let mut client = Client::start(&fixture.0);
@@ -568,7 +568,7 @@ fn repeated_direct_aliases_resolve_to_one_file_declaration_identity() {
         "numbers/lib.lim",
         "#export Number read\n#alias Number = ./implementation.lim::Number\n#alias read = ./implementation.lim::read\n",
     );
-    let implementation_text = "#gn alias (name) `((#type ,name #u64))\n#generate alias Number\n#fn read {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
+    let implementation_text = "#gn alias { name; } `((#type ,name #u64))\n#generate alias { name = Number; }\n#fn read {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
     let implementation = fixture.write("numbers/implementation.lim", implementation_text);
     let main_text = "#alias read = ./numbers/lib.lim::read\n#alias same-read = ./numbers/lib.lim::read\n#alias Number = ./numbers/lib.lim::Number\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#u64::add-wrap (#call read ()) (#call same-read ())))\n  );\n}\n#fn number {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 1u64)\n  );\n}\n";
     let main = fixture.write("main.lim", main_text);
@@ -600,9 +600,9 @@ fn repeated_direct_aliases_resolve_to_one_file_declaration_identity() {
 #[test]
 fn qualified_names_navigate_from_generator_arguments_and_definition_templates() {
     let fixture = Fixture::new("qualified-generator-references");
-    let library_text = "#export make\n#fn helper {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 2u64)\n  );\n}\n#gn make (name reader) `((#fn ,name () #u64 (#let base #u64 (#call @helper ())) (#let input #u64 (#call ,reader ())) (#return (#u64::add-wrap base input))))\n";
+    let library_text = "#export make\n#fn helper {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 2u64)\n  );\n}\n#gn make { name; reader; } `((#fn ,name () #u64 (#let base #u64 (#call @helper ())) (#let input #u64 (#call ,reader ())) (#return (#u64::add-wrap base input))))\n";
     let library = fixture.write("library/lib.lim", library_text);
-    let main_text = "#alias make = ./library/lib.lim::make\n#fn callback {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 40u64)\n  );\n}\n#generate make generated-read @callback\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call generated-read ()))\n  );\n}\n";
+    let main_text = "#alias make = ./library/lib.lim::make\n#fn callback {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 40u64)\n  );\n}\n#generate make { name = generated-read; reader = @callback; }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call generated-read ()))\n  );\n}\n";
     let main = fixture.write("main.lim", main_text);
     fixture.context(&main, "first");
     let mut client = Client::start(&fixture.0);
@@ -795,9 +795,9 @@ fn source_roles_follow_external_member_owners_and_unsaved_import_changes() {
 #[test]
 fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
     let fixture = Fixture::new("generated-source-roles");
-    let source = "#gn emit () `((#struct Box () ((value #u64)))
+    let source = "#gn emit {} `((#struct Box () ((value #u64)))
         (#fn forward ((value #u64)) #u64 (#return value)))
-#generate emit
+#generate emit {}
 #fn main {
   #params = ();
   #returns = #u64;
@@ -841,7 +841,7 @@ fn generated_member_parameter_and_view_local_references_use_stable_snapshots() {
 #[test]
 fn generated_syntax_bundles_keep_their_definition_after_expansion() {
     let fixture = Fixture::new("generated-bundles");
-    let source = "#gn emit () `((#syntax Number (42u64)))\n#generate emit\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#syntax-splice Number))\n  );\n}\n";
+    let source = "#gn emit {} `((#syntax Number (42u64)))\n#generate emit {}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#syntax-splice Number))\n  );\n}\n";
     let root = fixture.write("main.lim", source);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -1187,9 +1187,9 @@ fn watched_multi_entry_contexts_keep_direct_file_alias_identity() {
 #[test]
 fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     let fixture = Fixture::new("generated");
-    let imported = "#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n";
+    let imported = "#gn emit { name; } (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n";
     let types = fixture.write("types.lim", imported);
-    let root_text = "#alias emit = ./types.lim::emit\n#generate emit Number\n#generate #optional ((type Number) (name Maybe))\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n#fn wrap {\n  #params = ();\n  #returns = Maybe;\n  #body = ( (#return (#call Maybe::construct ((value 42u64))))\n  );\n}\n";
+    let root_text = "#alias emit = ./types.lim::emit\n#generate emit { name = Number; }\n#generate #optional ((type Number) (name Maybe))\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n#fn wrap {\n  #params = ();\n  #returns = Maybe;\n  #body = ( (#return (#call Maybe::construct ((value 42u64))))\n  );\n}\n";
     let root = fixture.write("main.lim", root_text);
     fixture.context(&root, "first");
     let mut client = Client::start(&fixture.0);
@@ -1279,7 +1279,7 @@ fn generated_enum_projection_definitions_and_payload_fields_navigate_in_every_mo
     ] {
         let fixture = Fixture::new("enum-project");
         let text = format!(
-            "#alias lim-gen-enum-project = /<lim-std>/enum_project.lim::#enum-project\n#struct Row () ((value #u64))\n#enum Task () ((Task.Work Row) Task.Idle)\n#generate lim-gen-enum-project ((enum Task) (variant Task.Work) (payload Row) (mode #{mode}) (name View))\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n              (#let-mut task Task (#enum-literal Task.Work (#struct-literal Row ((value 42u64)))))\n              (#let-else (View.Some frame)\n                (#call View::project ((source (#{borrow} task))))\n                (#else (#forget task) (#return 0u64)))\n              (#let answer #u64 (#get frame value))\n              (#forget frame) (#forget task) (#return answer)\n  );\n}}\n"
+            "#alias lim-gen-enum-project = #std/enum_project.lim::enum-project\n#struct Row () ((value #u64))\n#enum Task () ((Task.Work Row) Task.Idle)\n#generate lim-gen-enum-project {{ options = ((enum Task) (variant Task.Work) (payload Row) (mode #{mode}) (name View)); }}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = (\n              (#let-mut task Task (#enum-literal Task.Work (#struct-literal Row ((value 42u64)))))\n              (#let-else (View.Some frame)\n                (#call View::project ((source (#{borrow} task))))\n                (#else (#forget task) (#return 0u64)))\n              (#let answer #u64 (#get frame value))\n              (#forget frame) (#forget task) (#return answer)\n  );\n}}\n"
         );
         let root = fixture.write("main.lim", &text);
         fixture.context(&root, "first");
@@ -1851,7 +1851,7 @@ fn hover_and_signature_follow_aliases_unsaved_dependencies_and_generated_metadat
     assert_eq!(fs::read_to_string(&dependency).unwrap(), disk);
     assert!(!fixture.0.join(".lim").exists());
     client.close(&dependency);
-    let generated = "#gn emit () `((#fn produced ((value #u64)) #u64 (#return value)))\n#generate emit\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call produced ((value 42u64))))\n  );\n}\n";
+    let generated = "#gn emit {} `((#fn produced ((value #u64)) #u64 (#return value)))\n#generate emit {}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call produced ((value 42u64))))\n  );\n}\n";
     client.change(&path, 2, generated);
     assert!(client
         .hover(&path, generated, "produced ((value 42", "produced")
@@ -1953,7 +1953,7 @@ fn information_requests_preserve_utf16_ranges_and_reject_invalid_positions_over_
 #[test]
 fn information_requests_ignore_comments_strings_and_generator_data_over_stdio() {
     let fixture = Fixture::new("information-inert-data");
-    let source = "#fn choose {\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}\n#gn data () '(#call choose ((value 7u64)))\n#generate unknown ((payload (#call choose ((value 8u64)))))\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = (\n    // (#call choose ((value 9u64)))\n    (#println \"(#call choose ((value 10u64)))\")\n    (#return (#call choose ((value 42u64))))\n  );\n}\n";
+    let source = "#fn choose {\n  #params = ((value #u64));\n  #returns = #u64;\n  #body = ( (#return value)\n  );\n}\n#gn data {} '(#call choose ((value 7u64)))\n#generate unknown { payload = (#call choose ((value 8u64))); }\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = (\n    // (#call choose ((value 9u64)))\n    (#println \"(#call choose ((value 10u64)))\")\n    (#return (#call choose ((value 42u64))))\n  );\n}\n";
     let path = fixture.write("main.lim", source);
     let mut client = Client::start(&fixture.0);
     client.open(&path, source);

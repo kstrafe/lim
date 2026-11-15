@@ -314,7 +314,7 @@ fn enum_case_variants_navigate_to_user_and_builtin_generated_definitions() {
     for (label, declarations, ty, variant, empty, value) in [
         (
             "user",
-            "#gn make () `((#enum Work () ((Work.Ready #u64) Work.Pending)))\n#generate make\n",
+            "#gn make {} `((#enum Work () ((Work.Ready #u64) Work.Pending)))\n#generate make {}\n",
             "Work",
             "Work.Ready",
             "Work.Pending",
@@ -391,7 +391,7 @@ fn distributed_enum_contributions_navigate_through_direct_file_aliases() {
         let contribution = base.join("contribution.lim");
         let source="#alias Event = ./contribution.lim::Event\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#let input Event (Event.Ready 42u64)) (#return (#match input (#case (Event.Ready payload) payload)))\n  );\n}\n";
         let declaration = if generated {
-            "#distributed-enum Event ()\n#gn contribute () `((#enum-contribute Event (Event.Ready #u64)))\n#generate contribute\n"
+            "#distributed-enum Event ()\n#gn contribute {} `((#enum-contribute Event (Event.Ready #u64)))\n#generate contribute {}\n"
         } else {
             "#distributed-enum Event ()\n#enum-contribute Event (Event.Ready #u64)\n"
         };
@@ -470,7 +470,7 @@ fn enum_case_variants_do_not_resolve_quoted_inactive_or_ambiguous_uses() {
     std::fs::create_dir_all(&base).unwrap();
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     for source in [
-        "#enum Choice () (Choice.Ready)\n#gn data () '(#match x (#case Choice.Ready 0u64))\n",
+        "#enum Choice () (Choice.Ready)\n#gn data {} '(#match x (#case Choice.Ready 0u64))\n",
         "#enum Choice () (Choice.Ready)\n#cfg-if (#cfg-is #feature enabled) (#fn inactive {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#match Choice.Ready (#case Choice.Ready 0u64)))\n  );\n})\n",
         "#enum First () (Second.Ready)\n#enum Second () (Second.Ready)\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#match Second.Ready (#case Second.Ready 0u64)))\n  );\n}\n",
     ] {
@@ -614,13 +614,13 @@ fn custom_generator_artifacts_are_reached_through_direct_file_aliases() {
     let base = std::env::temp_dir().join(format!("lim-lsp-multi-generated-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let library = base.join("library.lim");
-    let library_text = "#gn emit (value) `((#fn provided () #u64 (#return ,value)))\n";
+    let library_text = "#gn emit { value; } `((#fn provided () #u64 (#return ,value)))\n";
     std::fs::write(&library, library_text).unwrap();
     let mut contexts = Vec::new();
     let mut sources = Vec::new();
     for (name, value) in [("app", 10), ("test", 20)] {
         let entry = base.join(format!("{name}.lim"));
-        let text = format!("#alias emit = ./library.lim::emit\n#generate emit {value}u64\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call provided ()))\n  );\n}}\n");
+        let text = format!("#alias emit = ./library.lim::emit\n#generate emit {{ value = {value}u64; }}\n#fn main {{\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call provided ()))\n  );\n}}\n");
         std::fs::write(&entry, &text).unwrap();
         contexts.push(context(&entry, CompileConfig::default()));
         sources.push((entry, text));
@@ -824,17 +824,17 @@ fn macro_at_uses_current_artifacts_across_multiline_positions_and_warm_cache() {
     std::fs::create_dir_all(&base).unwrap();
     let path = base.join("main.lim");
     let uri = lsp::path_to_uri(&path).unwrap();
-    let source = "// 😀 UTF-16 position\n#gn emit (name) `((#type ,name #u64))\n#generate emit First\n#type Emoji😀 #u8\n#generate emit Second\n";
+    let source = "// 😀 UTF-16 position\n#gn emit { name; } `((#type ,name #u64))\n#generate emit { name = First; }\n#type Emoji😀 #u8\n#generate emit { name = Second; }\n";
     std::fs::write(&path, source).unwrap();
     let updated = source.replace("#u64", "#u32");
     let mut messages = start();
     messages.push(open(&uri, 1, source));
-    messages.push(definition(2, &uri, source, "#generate emit First"));
-    messages.push(definition(3, &uri, source, "#generate emit First"));
-    messages.push(definition(4, &uri, source, "#generate emit Second"));
+    messages.push(definition(2, &uri, source, "#generate emit { name = First; }"));
+    messages.push(definition(3, &uri, source, "#generate emit { name = First; }"));
+    messages.push(definition(4, &uri, source, "#generate emit { name = Second; }"));
     messages.push(change(&uri, 2, &updated));
-    messages.push(definition(5, &uri, &updated, "#generate emit First"));
-    messages.push(definition(6, &uri, &updated, "emit First"));
+    messages.push(definition(5, &uri, &updated, "#generate emit { name = First; }"));
+    messages.push(definition(6, &uri, &updated, "emit { name = First; }"));
     finish(&mut messages);
     let (_, replies) = session(messages);
     let first = artifact_paths(&replies, 2);
@@ -882,8 +882,8 @@ fn macro_navigation_uses_entry_cfg_module_paths_and_all_unsaved_overlays() {
     std::fs::write(&entry, ")").unwrap();
     std::fs::write(&generator, ")").unwrap();
     let entry_source = "#alias child = ./child.lim::child\n";
-    let generator_source = "\n#cfg-if (#cfg-is #feature selected) (#gn emit (name) `((#type ,name #u32))) (#cfg-else (#gn emit (name) `((#type ,name #u64))))\n";
-    let child_source = "#alias emit = ./modules/generator.lim::emit\n#generate emit Number\n#fn child {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
+    let generator_source = "\n#cfg-if (#cfg-is #feature selected) (#gn emit { name; } `((#type ,name #u32))) (#cfg-else (#gn emit { name; } `((#type ,name #u64))))\n";
+    let child_source = "#alias emit = ./modules/generator.lim::emit\n#generate emit { name = Number; }\n#fn child {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 42u64)\n  );\n}\n";
     let mut config = CompileConfig::default();
     config.set("feature", "selected");
     config.add_module_path(base.join("modules"));
@@ -975,11 +975,11 @@ fn generator_name_resolves_original_span_through_direct_file_identity() {
     .write(&base.join("lim.lsp"))
     .unwrap();
     let child_source =
-        "// unsaved generator\n#gn emit (name) `((#type ,name #u64))\n#generate emit Number\n";
+        "// unsaved generator\n#gn emit { name; } `((#type ,name #u64))\n#generate emit { name = Number; }\n";
     let uri = lsp::path_to_uri(&child).unwrap();
     let mut messages = start();
     messages.push(open(&uri, 1, child_source));
-    messages.push(definition(2, &uri, child_source, "emit Number"));
+    messages.push(definition(2, &uri, child_source, "emit { name = Number; }"));
     messages.push(definition(3, &uri, child_source, "#generate"));
     finish(&mut messages);
     let (_, replies) = session(messages);
@@ -1046,8 +1046,8 @@ fn imported_generator_name_navigation_needs_no_valid_expansion_or_artifacts() {
     let base = std::env::temp_dir().join(format!("lim-lsp-macro-name-only-{}", std::process::id()));
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     let generator_uri = lsp::path_to_uri(&base.join("generator.lim")).unwrap();
-    let source = "#alias emit = ./generator.lim::emit\n#generate emit\n";
-    let generator = "// unsaved\n#gn emit () (#gn-error \"not implemented\")\n";
+    let source = "#alias emit = ./generator.lim::emit\n#generate emit {}\n";
+    let generator = "// unsaved\n#gn emit {} (#gn-error \"not implemented\")\n";
     let mut messages = start();
     messages.push(open(&generator_uri, 1, generator));
     messages.push(open(&uri, 1, source));
@@ -1087,11 +1087,11 @@ fn macro_navigation_returns_no_artifact_for_inactive_invalid_or_quoted_calls() {
     let base = std::env::temp_dir().join(format!("lim-lsp-macro-invalid-{}", std::process::id()));
     let uri = lsp::path_to_uri(&base.join("main.lim")).unwrap();
     for source in [
-        "#gn emit () `((#type Number #u64))\n#cfg-if (#cfg-is #feature never-enabled) (#generate emit)\n",
-        "#gn bad () `((#fn broken () #u64 (#return false)))\n#generate bad\n",
-        "#gn bad () (#gn-error \"failed\")\n#generate bad\n",
-        "#gn template () `((#generate missing))\n",
-        "#generate unknown\n",
+        "#gn emit {} `((#type Number #u64))\n#cfg-if (#cfg-is #feature never-enabled) (#generate emit {})\n",
+        "#gn bad {} `((#fn broken () #u64 (#return false)))\n#generate bad {}\n",
+        "#gn bad {} (#gn-error \"failed\")\n#generate bad {}\n",
+        "#gn template {} `((#generate missing {}))\n",
+        "#generate unknown {}\n",
     ] {
         let mut messages = start();
         messages.push(open(&uri, 1, source));
@@ -1464,13 +1464,13 @@ fn symbols_and_definition_only_on_declaration_names() {
 #[test]
 fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
     let uri = "file:///tmp/lim-lsp-calls.lim";
-    let source = "#fn target {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call target ()))\n  );\n}\n#struct Holder () ((target #u64))\n#gn data () '(#call target ())";
+    let source = "#fn target {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return 0u64)\n  );\n}\n#fn main {\n  #params = ();\n  #returns = #u64;\n  #body = ( (#return (#call target ()))\n  );\n}\n#struct Holder () ((target #u64))\n#gn data {} '(#call target ())";
     let mut messages = start();
     messages.push(open(uri, 1, source));
     messages.push(definition_offset(2, uri, source, "#call target", "#call ".len()));
     messages.push(definition(3, uri, source, "target #u64"));
     messages.push(definition_offset(
-        4, uri, source, "#gn data () '(#call target", "#gn data () '(#call ".len(),
+        4, uri, source, "#gn data {} '(#call target", "#gn data {} '(#call ".len(),
     ));
     messages.push(change(
         uri,
@@ -1608,7 +1608,7 @@ fn generated_type_navigation_tracks_unsaved_generator_changes() {
     let base = std::env::temp_dir().join(format!("lim-lsp-generated-type-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let uri = format!("file://{}", base.join("main.lim").display());
-    let source = "#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#generate emit Number\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
+    let source = "#gn emit { name; } (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n#generate emit { name = Number; }\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
     let (line, character) = lsp::byte_position(
         source,
         source.find("#returns = Number").unwrap() + "#returns = ".len(),
@@ -1653,8 +1653,8 @@ fn generated_definition_uses_an_unsaved_direct_generator_alias_and_rejects_inval
     std::fs::create_dir_all(&base).unwrap();
     let uri = format!("file://{}", base.join("main.lim").display());
     let generator_uri = format!("file://{}", base.join("types.lim").display());
-    let source = "#alias emit = ./types.lim::emit\n#generate emit Number\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
-    let generator = "#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n";
+    let source = "#alias emit = ./types.lim::emit\n#generate emit { name = Number; }\n#fn main {\n  #params = ();\n  #returns = Number;\n  #body = ( (#return 42u64)\n  );\n}\n";
+    let generator = "#gn emit { name; } (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))\n";
     let (line, character) = lsp::byte_position(
         source,
         source.find("#returns = Number").unwrap() + "#returns = ".len(),
@@ -2156,7 +2156,7 @@ fn binary_stdio_generated_diagnostic_maps_to_invocation_without_artifacts() {
     let scratch = std::env::temp_dir().join(format!("lim-lsp-artifacts-{}", std::process::id()));
     std::fs::create_dir(&scratch).unwrap();
     let uri = lsp::path_to_uri(&scratch.join("unsaved.lim")).unwrap();
-    let source = "#gn bad () `((#fn broken () #u64 (#return false)))\n#generate bad\n";
+    let source = "#gn bad {} `((#fn broken () #u64 (#return false)))\n#generate bad {}\n";
     let mut messages = start();
     messages.push(open(&uri, 1, source));
     finish(&mut messages);
